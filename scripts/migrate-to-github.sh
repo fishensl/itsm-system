@@ -2,11 +2,11 @@
 # ============================================================
 # ITSM 手动部署 → GitHub 更新模式 迁移脚本
 # 适用场景: Ubuntu 24 上已手动部署了旧版本，需要接入 GitHub 在线更新
-# 用法: sudo bash migrate-to-github.sh [/path/to/app]
-# 默认路径 /opt/itsm，可通过第一个参数覆盖
+# 用法: sudo bash migrate-to-github.sh [/path/to/app] [repo_url]
+# 示例: sudo bash migrate-to-github.sh /home/itsm-system_20260614 https://github.com/fishensl/itsm-system.git
 
 APP_DIR="${1:-/opt/itsm}"
-REPO_URL="${ITSM_REPO_URL:-https://github.com/fishensl/itsm-system.git}"
+REPO_URL="${2:-https://github.com/fishensl/itsm-system.git}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "============================================"
