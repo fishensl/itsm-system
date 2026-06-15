@@ -59,6 +59,15 @@ setup_security_headers(app)
 from utils.cert_options import CERT_CATEGORIES as _CERT_CATEGORIES
 app.jinja_env.globals['CERT_CATEGORIES'] = _CERT_CATEGORIES
 
+# 读取应用版本号
+_VERSION_FILE = os.path.join(os.path.dirname(__file__), 'VERSION')
+try:
+    with open(_VERSION_FILE, 'r', encoding='utf-8') as _vf:
+        _APP_VERSION = _vf.read().strip()
+except Exception:
+    _APP_VERSION = 'unknown'
+app.jinja_env.globals['APP_VERSION'] = _APP_VERSION
+
 # CSRF 必须在 register_blueprints 之前 init，但 login 路由要豁免（外部 POST）
 csrf = CSRFProtect(app)
 

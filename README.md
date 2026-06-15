@@ -10,6 +10,7 @@
 - [快速开始](#快速开始)
 - [部署到 Ubuntu 24](#部署到-ubuntu-24)
 - [在线更新](#在线更新)
+- [版本信息](#版本信息)
 - [项目结构](#项目结构)
 - [模块说明](#模块说明)
 - [数据库模型](#数据库模型)
@@ -195,6 +196,23 @@ sudo journalctl -u itsm -f          # 查看实时日志
 sudo systemctl restart itsm         # 重启服务
 sudo bash /opt/itsm/scripts/backup.sh   # 手动备份
 ```
+
+---
+
+## 版本信息
+
+### 查看版本
+
+- **系统概览页**：`/system` → 数据库卡片显示当前版本号
+- **侧边栏底部**：每页左下角显示版本号
+- **VERSION 文件**：`cat VERSION`
+- **更新时**：`update.sh` 自动显示版本变更（旧版本 → 新版本）
+
+### 版本历史
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
+
+当前版本：**v1.0.0**
 
 ---
 
