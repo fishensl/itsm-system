@@ -49,10 +49,14 @@ git stash pop 2>/dev/null || true
 echo "[5/6] 更新 Python 依赖..."
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
-# ---- 6. 数据库迁移 ----
-if [ -f "${APP_DIR}/scripts/migrate.sh" ]; then
-    bash "${APP_DIR}/scripts/migrate.sh"
-fi
+# ---- 6. 数据库迁移 + schema 同步 ----
+# init_db() 内部幂等：db.create_all() 建新表 + ensure_schema() 补列 + seed_all() 写权限/角色
+echo "[6/6] 数据库 schema 同步..."
+cd "${APP_DIR}"
+ITSM_SECRET_KEY="$(grep -E '^ITSM_SECRET_KEY=' .env 2>/dev/null | cut -d= -f2-)" \
+ITSM_ENV=production \
+FLASK_ENV=production \
+"${VENV}/bin/python" -c "from app import init_db; init_db(); print('[OK] schema + seed 已同步')"
 
 # ---- 6.5 重新安装 systemd service（路径自适配）----
 echo "[6.5/7] 重新安装 systemd service..."
