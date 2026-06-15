@@ -6,7 +6,7 @@
 # ============================================================
 set -euo pipefail
 
-APP_DIR="/opt/itsm"
+APP_DIR="${ITSM_APP_DIR:-/opt/itsm}"
 REPO_URL="${ITSM_REPO_URL:-https://github.com/fishensl/itsm-system.git}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
