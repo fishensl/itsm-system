@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}{% import "_ui.html" as ui %}
+
+{{ ui.page_header('编辑故障单' if fault else '新建故障单', 'pencil' if fault else 'plus-circle') }}
+
+<div class="card">
+    <div class="card-body">
+        <form method="post" id="faultForm">
+            {# 第 1 行：基本信息 #}
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">选择客户 <span class="text-danger">*</span></label>
+                    <select name="customer_id" class="form-select" required>
+                        <option value="">-- 选择客户 --</option>
+                        {% for c in customers %}
+                        <option value="{{ c.id }}" {% if fault and fault.customer_id == c.id %}selected{% elif preselected_customer_id is defined and preselected_customer_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">故障标题 <span class="text-danger">*</span></label>
+                    <input type="text" name="title" class="form-control" required value="{{ fault.title if fault else '' }}" placeholder="如：XX机房核心交换机故障">
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">处理人</label>
+                    <input type="text" name="handler" class="form-control" value="{{ fault.handler if fault else (current_user.realname if current_user.is_authenticated else '') }}" placeholder="如：张三">
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">故障类型</label>
+                    <select name="fault_type" class="form-select">
+                        <option value="">-- 选择 --</option>
+                        {% for t in fault_types %}
+                        <option value="{{ t.name }}" {% if fault and fault.fault_type == t.name %}selected{% endif %}>{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            {# 第 2 行：时间与结果 #}
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">故障时间</label>
+                    <input type="datetime-local" name="fault_time" class="form-control"
+                           value="{{ fault.fault_time.strftime('%Y-%m-%dT%H:%M') if fault else '' }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">恢复时间</label>
+                    <input type="datetime-local" name="recovery_time" class="form-control"
+                           value="{{ fault.recovery_time.strftime('%Y-%m-%dT%H:%M') if fault and fault.recovery_time else '' }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">处理结果</label>
+                    <select name="result" class="form-select">
+                        <option value="已解决" {% if fault and fault.result=='已解决' %}selected{% endif %}>已解决</option>
+                        <option value="待观察" {% if fault and fault.result=='待观察' %}selected{% endif %}>待观察</option>
+                        <option value="未解决" {% if fault and fault.result=='未解决' %}selected{% endif %}>未解决</option>
+                    </select>
+                </div>
+            </div>
+
+            {# 第 3 行：影响范围 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">影响范围</label>
+                    <input type="text" name="impact_range" class="form-control" value="{{ fault.impact_range if fault else '' }}" placeholder="如：影响XX部门共50人办公网络">
+                </div>
+            </div>
+
+            {# 第 4 行：故障描述 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">故障描述 <span class="text-danger">*</span></label>
+                    <textarea name="fault_description" class="form-control" rows="4" required placeholder="详细描述故障现象...">{{ fault.fault_description if fault else '' }}</textarea>
+                </div>
+            </div>
+
+            {# 第 5 行：故障原因分析 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">故障原因分析</label>
+                    <textarea name="fault_cause" class="form-control" rows="4" placeholder="分析故障根因...">{{ fault.fault_cause if fault else '' }}</textarea>
+                </div>
+            </div>
+
+            {# 第 6 行：解决方案 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">解决方案</label>
+                    <textarea name="solution" class="form-control" rows="4" placeholder="详细描述处理过程...">{{ fault.solution if fault else '' }}</textarea>
+                </div>
+            </div>
+
+            {# 按钮区 #}
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存并生成报告</button>
+                <a href="{{ url_for('ops.fault_list') }}" class="btn btn-secondary">取消</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

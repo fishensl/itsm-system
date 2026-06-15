@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('巡检任务', 'list-task') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新建任务</button>
+{% endcall %}
+<div class="card">
+    <div class="card-body">
+        {% if tasks %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr><th>ID</th><th>标题</th><th>类型</th><th>状态</th><th>客户</th><th>计划日期</th><th>优先级</th><th>操作</th></tr>
+                </thead>
+                <tbody>
+                {% for t in tasks %}
+                {% set cust = t.customer_rel %}
+                <tr>
+                    <td>{{ t.id }}</td>
+                    <td><a href="{{ url_for('ops.inspection_task_detail', id=t.id) }}"><strong>{{ t.title }}</strong></a></td>
+                    <td><span class="badge bg-{{ 'primary' if t.task_type=='计划' else 'warning' if t.task_type=='突发' else 'info' }}">{{ t.task_type }}</span></td>
+                    <td><span class="badge bg-{{ 'secondary' if t.status=='待执行' else 'primary' if t.status=='执行中' else 'success' if t.status=='已完成' else 'danger' }}">{{ t.status }}</span></td>
+                    <td>{{ cust.name if cust else '-' }}</td>
+                    <td>{{ t.planned_start }} ~ {{ t.planned_end }}</td>
+                    <td><span class="badge bg-{{ 'danger' if t.priority=='高' else 'warning' if t.priority=='中' else 'secondary' }}">{{ t.priority }}</span></td>
+                    <td>
+                        {% if t.status in ('待执行', '执行中') %}
+                        <a href="{{ url_for('ops.inspection_add', customer_id=t.customer_id, task_id=t.id) }}" class="btn btn-sm btn-outline-success" title="执行巡检"><i class="bi-play-fill"></i></a>
+                        {% endif %}
+                        <button class="btn btn-sm btn-outline-primary" onclick="editTask({{ t.id }},'{{ t.title }}','{{ t.task_type }}','{{ t.status }}',{{ t.customer_id }},'{{ t.planned_start or '' }}','{{ t.planned_end or '' }}','{{ t.priority }}','{{ t.remark or '' }}')"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(
+                            view_url=url_for('ops.inspection_task_detail', id=t.id),
+                            delete_url=url_for('ops.inspection_task_delete', id=t.id),
+                            delete_confirm='确定删除？') }}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}{{ eui.empty_state('bi-list-task', '暂无巡检任务') }}{% endif %}
+    </div>
+</div>
+
+<!-- Add modal -->
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">新建巡检任务</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="{{ url_for('ops.inspection_task_add') }}">
+<div class="modal-body">
+<div class="row">
+<div class="col-md-6 mb-3"><label class="form-label">标题 <span class="text-danger">*</span></label><input type="text" name="title" class="form-control" required></div>
+<div class="col-md-3 mb-3"><label class="form-label">类型</label><select name="task_type" class="form-select"><option value="计划">计划</option><option value="突发">突发</option><option value="智能">智能</option></select></div>
+<div class="col-md-3 mb-3"><label class="form-label">优先级</label><select name="priority" class="form-select"><option value="中">中</option><option value="高">高</option><option value="低">低</option></select></div>
+<div class="col-md-6 mb-3"><label class="form-label">客户 <span class="text-danger">*</span></label><select name="customer_id" class="form-select" required><option value="">--选择--</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+<div class="col-md-6 mb-3"><label class="form-label">任务模板 <small class="text-muted">(V11 新模板体系，推荐)</small></label><select name="task_template_id" class="form-select"><option value="">--不选--</option>{% for tt in task_templates %}<option value="{{ tt.id }}">{{ tt.name }}（{{ tt.inspection_type or tt.category }}）</option>{% endfor %}</select></div>
+<div class="col-md-6 mb-3"><label class="form-label">计划开始</label><input type="date" name="planned_start" class="form-control"></div>
+<div class="col-md-6 mb-3"><label class="form-label">计划结束</label><input type="date" name="planned_end" class="form-control"></div>
+<div class="col-md-12 mb-3"><label class="form-label">巡检人员（多选）</label><div class="row">{% for ins in inspectors %}<div class="col-md-4"><div class="form-check"><input class="form-check-input" type="checkbox" name="inspector_ids" value="{{ ins.id }}" id="add_ins_{{ ins.id }}"><label class="form-check-label" for="add_ins_{{ ins.id }}">{{ ins.name }}</label></div></div>{% endfor %}</div></div>
+<div class="col-md-12 mb-3"><label class="form-label">备注</label><textarea name="remark" class="form-control" rows="2"></textarea></div>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">创建</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+
+<!-- Edit modal -->
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">编辑巡检任务</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" id="editForm">
+<div class="modal-body">
+<div class="row">
+<div class="col-md-6 mb-3"><label class="form-label">标题</label><input type="text" name="title" id="edit_title" class="form-control" required></div>
+<div class="col-md-3 mb-3"><label class="form-label">类型</label><select name="task_type" id="edit_task_type" class="form-select"><option value="计划">计划</option><option value="突发">突发</option><option value="智能">智能</option></select></div>
+<div class="col-md-3 mb-3"><label class="form-label">状态</label><select name="status" id="edit_status" class="form-select"><option value="待执行">待执行</option><option value="执行中">执行中</option><option value="已完成">已完成</option><option value="已取消">已取消</option></select></div>
+<div class="col-md-6 mb-3"><label class="form-label">客户</label><select name="customer_id" id="edit_customer" class="form-select">{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+<div class="col-md-6 mb-3"><label class="form-label">优先级</label><select name="priority" id="edit_priority" class="form-select"><option value="中">中</option><option value="高">高</option><option value="低">低</option></select></div>
+<div class="col-md-6 mb-3"><label class="form-label">备注</label><textarea name="remark" id="edit_remark" class="form-control" rows="2"></textarea></div>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function editTask(id,title,type,status,cid,ps,pe,priority,remark){
+    document.getElementById('edit_title').value=title;
+    document.getElementById('edit_task_type').value=type;
+    document.getElementById('edit_status').value=status;
+    document.getElementById('edit_customer').value=cid;
+    document.getElementById('edit_priority').value=priority;
+    document.getElementById('edit_remark').value=remark||'';
+    document.getElementById('editForm').action='/inspection-tasks/edit/'+id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+</script>
+{% endblock %}

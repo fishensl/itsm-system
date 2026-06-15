@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('项目管理', 'diagram-3') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增项目</button>
+{% endcall %}
+<div class="content-card">
+    {% if projects %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead><tr><th>ID</th><th>名称</th><th>客户</th><th>负责人</th><th>进度</th><th>状态</th><th>预算</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for p in projects %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td><strong>{{ p.name }}</strong></td>
+                    <td>{{ p.customer_rel.name if p.customer_rel else '-' }}</td>
+                    <td>{{ p.manager }}</td>
+                    <td><div class="progress" style="height:6px;"><div class="progress-bar" style="width:{{ p.progress }}%;"></div></div><small>{{ p.progress }}%</small></td>
+                    <td><span class="badge bg-{{ 'success' if p.status=='已完成' else 'primary' if p.status=='进行中' else 'warning' if p.status=='已暂停' else 'secondary' }}">{{ p.status }}</span></td>
+                    <td>{{ p.budget }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editP({{ p.id }},'{{ p.name }}',{{ p.customer_id or 'null' }},'{{ p.manager or '' }}',{{ p.progress }},'{{ p.status }}',{{ p.budget }})"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(delete_url=url_for('sales.project_delete', id=p.id), delete_confirm='确定删除？') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ eui.empty_state('bi-diagram-3', '暂无项目') }}
+    {% endif %}
+</div>
+</div>
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>新增项目</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" action="{{ url_for('sales.project_add') }}"><div class="modal-body"><div class="mb-3"><label class="form-label">名称 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required></div><div class="mb-3"><label class="form-label">客户</label><select name="customer_id" class="form-select">{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">负责人</label><input type="text" name="manager" class="form-control"></div><div class="mb-3"><label class="form-label">状态</label><select name="status" class="form-select">{% for s in ['未启动','进行中','已完成','已暂停'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">预算</label><input type="number" name="budget" class="form-control" step="0.01" value="0"></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>编辑项目</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" id="editForm"><div class="modal-body"><div class="mb-3"><label class="form-label">名称</label><input type="text" name="name" id="edit_name" class="form-control" required></div><div class="mb-3"><label class="form-label">负责人</label><input type="text" name="manager" id="edit_manager" class="form-control"></div><div class="mb-3"><label class="form-label">进度 (%)</label><input type="number" name="progress" id="edit_progress" class="form-control" min="0" max="100"></div><div class="mb-3"><label class="form-label">状态</label><select name="status" id="edit_status" class="form-select">{% for s in ['未启动','进行中','已完成','已暂停'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">预算</label><input type="number" name="budget" id="edit_budget" class="form-control" step="0.01"></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+{% endblock %}{% block scripts %}<script>function editP(id,name,cid,manager,progress,status,budget){document.getElementById('edit_name').value=name;document.getElementById('edit_manager').value=manager||'';document.getElementById('edit_progress').value=progress;document.getElementById('edit_status').value=status;document.getElementById('edit_budget').value=budget;document.getElementById('editForm').action='/projects/edit/'+id;new bootstrap.Modal(document.getElementById('editModal')).show();}</script>{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <a href="{{ url_for('ops.inspection_edit', id=inspection.id) }}" class="btn btn-primary btn-sm"><i class="bi-pencil"></i> 编辑</a>
+        <a href="{{ url_for('ops.inspection_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">基本信息</div>
+    <div class="card-body">
+        <table class="table table-sm">
+            <tr><td style="width:120px">标题</td><td><strong>{{ inspection.title }}</strong></td></tr>
+            <tr><td>客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
+            <tr><td>巡检人员</td>
+                <td>
+                    {{ inspection.inspector_name or inspection.inspector or '-' }}
+                    {% if inspection.inspector_phone %}
+                    <small class="text-muted ms-2"><i class="bi-telephone"></i> {{ inspection.inspector_phone }}</small>
+                    {% endif %}
+                </td></tr>
+            <tr><td>巡检日期</td><td>{{ inspection.inspection_date }}</td></tr>
+            <tr><td>巡检地点</td><td>{{ inspection.location or '-' }}</td></tr>
+            <tr><td>总体状态</td>
+                <td><span class="badge bg-{{ 'success' if inspection.overall_status=='正常' else 'warning' if inspection.overall_status=='警告' else 'danger' }}">{{ inspection.overall_status }}</span></td></tr>
+            <tr><td>生成报告</td>
+                <td>{% if inspection.report_file %}
+                    <a href="{{ url_for('ops.report_download', filename=inspection.report_file.replace('\\', '/').split('/')[-1]) }}" class="btn btn-sm btn-success"><i class="bi-file-earmark-word"></i> 下载报告</a>
+                    {% else %}<span class="text-muted">未生成</span>{% endif %}
+                </td></tr>
+        </table>
+    </div>
+</div>
+
+{% set content = inspection.content_json | from_json %}
+{% if content %}
+<div class="card">
+    <div class="card-header">巡检明细</div>
+    <div class="card-body">
+        {% for dc in content %}
+        <div class="card mb-2">
+            <div class="card-header py-2">
+                <strong>{{ dc.device or '未知设备' }}</strong>
+                {% if dc.ip %}<code class="ms-2">{{ dc.ip }}</code>{% endif %}
+            </div>
+            <div class="card-body py-2">
+                <table class="table table-sm table-bordered mb-0">
+                    <thead><tr><th>检查项</th><th>结果</th><th>备注</th></tr></thead>
+                    <tbody>
+                        {% for item in dc.get('items', []) %}
+                        <tr>
+                            <td>{{ item.name }}</td>
+                            <td>
+                                <span class="badge bg-{{ 'success' if item.result=='正常' else 'danger' if item.result=='异常' else 'warning' }}">
+                                    {{ item.result }}
+                                </span>
+                            </td>
+                            <td>{{ item.remark or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">巡检结论</div>
+    <div class="card-body">
+        <p>{{ inspection.conclusion or '无异常。' }}</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

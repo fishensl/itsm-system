@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block content %}{% import "_ui.html" as ui %}
+
+{{ ui.page_header('编辑工单' if ticket else '新建工单', 'pencil' if ticket else 'plus-circle') }}
+
+<div class="card">
+    <div class="card-body">
+        <form method="post" id="ticketForm">
+            <input type="hidden" name="symptoms_json" id="symptomsJson" value="">
+            <input type="hidden" name="affected_components_json" id="componentsJson" value="">
+
+            {# 第 1 行：基本信息 #}
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">工单标题 <span class="text-danger">*</span></label>
+                    <input type="text" name="title" class="form-control" required value="{{ ticket.title if ticket else '' }}" placeholder="如：核心交换机宕机">
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">来源</label>
+                    <select name="source_type" class="form-select" {% if ticket %}disabled{% endif %}>
+                        {% for s in ['客户报修','巡检发现','手动创建','定期维护'] %}
+                        <option value="{{ s }}" {% if (ticket and ticket.source_type==s) or (not ticket and s=='手动创建') %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">优先级</label>
+                    <select name="priority" class="form-select">
+                        {% for p in ['紧急','高','中','低'] %}
+                        <option value="{{ p }}" {% if (ticket and ticket.priority==p) or (not ticket and p=='中') %}selected{% endif %}>{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">严重级别</label>
+                    <select name="severity_level" class="form-select">
+                        <option value="">-- 选择 --</option>
+                        {% for sl in severity_levels %}
+                        <option value="{{ sl }}" {% if ticket and ticket.severity_level==sl %}selected{% endif %}>{{ sl }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">客户 <span class="text-danger">*</span></label>
+                    <select name="customer_id" class="form-select" required>
+                        <option value="">-- 选择 --</option>
+                        {% for c in customers %}
+                        <option value="{{ c.id }}" {% if (ticket and ticket.customer_id==c.id) or (preselected_customer_id and preselected_customer_id==c.id) %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            {# 第 2 行：故障分类 #}
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">故障类型</label>
+                    <select name="fault_category_id" class="form-select">
+                        <option value="">-- 不选 --</option>
+                        {% for ft in fault_types %}<option value="{{ ft.id }}" {% if ticket and ticket.fault_category_id==ft.id %}selected{% endif %}>{{ ft.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">故障分类（一级）</label>
+                    <select name="fault_category_level1" class="form-select" id="faultLevel1" onchange="updateFaultLevel2()">
+                        <option value="">-- 选择 --</option>
+                        {% for cat in fault_category_level1 %}
+                        <option value="{{ cat }}" {% if ticket and ticket.fault_category_level1==cat %}selected{% endif %}>{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">故障分类（二级）</label>
+                    <select name="fault_category_level2" class="form-select" id="faultLevel2">
+                        <option value="">-- 选择 --</option>
+                        {% if ticket and ticket.fault_category_level1 and ticket.fault_category_level2 %}
+                        {% for sub in fault_category_level2.get(ticket.fault_category_level1, []) %}
+                        <option value="{{ sub }}" {% if ticket.fault_category_level2==sub %}selected{% endif %}>{{ sub }}</option>
+                        {% endfor %}
+                        {% endif %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">根因分类</label>
+                    <select name="root_cause_category" class="form-select">
+                        <option value="">-- 选择 --</option>
+                        {% for rc in root_cause_categories %}
+                        <option value="{{ rc }}" {% if ticket and ticket.root_cause_category==rc %}selected{% endif %}>{{ rc }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            {# 第 3 行：关联设备与报修信息 #}
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">关联设备</label>
+                    <select name="related_device_id" class="form-select">
+                        <option value="">-- 不关联 --</option>
+                        {% for d in devices %}<option value="{{ d.id }}" {% if ticket and ticket.related_device_id==d.id %}selected{% endif %}>{{ d.device_name }} ({{ d.ip_address or '无IP' }})</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">报修人</label>
+                    <input type="text" name="reporter" class="form-control" value="{{ ticket.reporter if ticket else '' }}" placeholder="如：张三">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">报修电话</label>
+                    <input type="text" name="reporter_phone" class="form-control" value="{{ ticket.reporter_phone if ticket else '' }}" placeholder="如：13800138000">
+                </div>
+            </div>
+
+            {# 第 4 行：影响范围 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">影响范围</label>
+                    <input type="text" name="impact_scope" class="form-control" placeholder="如：全网断网、某部门无法上网" value="{{ ticket.impact_scope if ticket else '' }}">
+                </div>
+            </div>
+
+            {# 第 5 行：问题描述 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">问题描述</label>
+                    <textarea name="description" class="form-control" rows="4" placeholder="详细描述问题...">{{ ticket.description if ticket else '' }}</textarea>
+                </div>
+            </div>
+
+            {# 症状动态行 #}
+            <div class="card mb-3">
+                <div class="card-header py-2">
+                    <i class="bi-heart-pulse"></i> 症状描述
+                    <button type="button" class="btn btn-sm btn-outline-primary float-end" onclick="addSymptom()"><i class="bi-plus"></i> 添加症状</button>
+                </div>
+                <div class="card-body" id="symptomsContainer">
+                    {% if ticket and ticket.symptoms_json %}
+                    {% set symptoms = ticket.symptoms_json|from_json %}
+                    {% for s in symptoms %}
+                    <div class="row mb-1 symptom-row">
+                        <div class="col-md-4"><input type="text" name="symptom_desc[]" class="form-control form-control-sm" placeholder="症状描述" value="{{ s.symptom|default('', true) }}"></div>
+                        <div class="col-md-4"><input type="text" name="symptom_detail[]" class="form-control form-control-sm" placeholder="详情" value="{{ s.detail|default('', true) }}"></div>
+                        <div class="col-md-3"><input type="text" name="symptom_duration[]" class="form-control form-control-sm" placeholder="持续时间" value="{{ s.duration|default('', true) }}"></div>
+                        <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.symptom-row').remove()"><i class="bi-x"></i></button></div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            {# 标签 #}
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">标准化标签 <small class="text-muted">（回车添加，便于知识库检索）</small></label>
+                    <div class="d-flex flex-wrap gap-1 mb-1" id="tagsContainer">
+                        {% if ticket and ticket.normalized_tags %}
+                        {% for tag in ticket.normalized_tags.split(',') %}
+                        {% if tag.strip() %}
+                        <span class="badge bg-secondary">{{ tag.strip() }} <button type="button" class="btn-close btn-close-white ms-1" style="font-size:0.6em" onclick="this.parentElement.remove()"></button></span>
+                        {% endif %}
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                    <input type="text" id="tagInput" class="form-control form-control-sm" placeholder="输入标签后按回车添加" onkeydown="if(event.key==='Enter'){addTag(this);event.preventDefault();}">
+                    <input type="hidden" name="normalized_tags" id="normalizedTagsInput" value="{{ ticket.normalized_tags if ticket else '' }}">
+                </div>
+            </div>
+
+            {# 按钮区 #}
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary" onclick="collectStructuredData()"><i class="bi-save"></i> {{ '保存' if ticket else '创建' }}</button>
+                <a href="{{ url_for('ops.ticket_list') }}" class="btn btn-secondary">取消</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const faultLevel2Map = {{ fault_category_level2 | tojson | safe }};
+
+function updateFaultLevel2() {
+    var level1 = document.getElementById('faultLevel1').value;
+    var level2Select = document.getElementById('faultLevel2');
+    level2Select.innerHTML = '<option value="">-- 选择 --</option>';
+    if (level1 && faultLevel2Map[level1]) {
+        faultLevel2Map[level1].forEach(function(sub) {
+            level2Select.innerHTML += '<option value="' + sub + '">' + sub + '</option>';
+        });
+    }
+}
+
+function addSymptom() {
+    var container = document.getElementById('symptomsContainer');
+    var div = document.createElement('div');
+    div.className = 'row mb-1 symptom-row';
+    div.innerHTML = '<div class="col-md-4"><input type="text" name="symptom_desc[]" class="form-control form-control-sm" placeholder="症状描述"></div>' +
+        '<div class="col-md-4"><input type="text" name="symptom_detail[]" class="form-control form-control-sm" placeholder="详情"></div>' +
+        '<div class="col-md-3"><input type="text" name="symptom_duration[]" class="form-control form-control-sm" placeholder="持续时间"></div>' +
+        '<div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest(\'.symptom-row\').remove()"><i class="bi-x"></i></button></div>';
+    container.appendChild(div);
+}
+
+function addTag(input) {
+    var tag = input.value.trim();
+    if (!tag) return;
+    var container = document.getElementById('tagsContainer');
+    var span = document.createElement('span');
+    span.className = 'badge bg-secondary';
+    span.innerHTML = tag + ' <button type="button" class="btn-close btn-close-white ms-1" style="font-size:0.6em" onclick="this.parentElement.remove()"></button>';
+    container.appendChild(span);
+    input.value = '';
+}
+
+function collectStructuredData() {
+    // Collect symptoms
+    var symptoms = [];
+    document.querySelectorAll('.symptom-row').forEach(function(row) {
+        var desc = row.querySelector('[name="symptom_desc[]"]');
+        var detail = row.querySelector('[name="symptom_detail[]"]');
+        var duration = row.querySelector('[name="symptom_duration[]"]');
+        if (desc && desc.value.trim()) {
+            symptoms.push({symptom: desc.value.trim(), detail: (detail?detail.value.trim():''), duration: (duration?duration.value.trim():'')});
+        }
+    });
+    document.getElementById('symptomsJson').value = JSON.stringify(symptoms);
+
+    // Collect tags
+    var tags = [];
+    document.querySelectorAll('#tagsContainer .badge').forEach(function(badge) {
+        var text = badge.textContent.trim().replace('×', '').trim();
+        if (text) tags.push(text);
+    });
+    var hiddenTag = document.getElementById('normalizedTagsInput').value;
+    if (hiddenTag) {
+        hiddenTag.split(',').forEach(function(t) { if (t.trim() && !tags.includes(t.trim())) tags.push(t.trim()); });
+    }
+    document.getElementById('normalizedTagsInput').value = tags.join(',');
+}
+
+// Initialize fault level 2 on load
+document.addEventListener('DOMContentLoaded', function() {
+    {% if ticket and ticket.fault_category_level1 %}
+    updateFaultLevel2();
+    {% endif %}
+});
+</script>
+{% endblock %}

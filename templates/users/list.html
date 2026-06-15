@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('用户管理', 'people-cog') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增用户</button>
+{% endcall %}
+<div class="card">
+    <div class="card-body">
+        {% set items = users %}
+        {% if items %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>用户名</th>
+                        <th>姓名</th>
+                        <th>角色</th>
+                        <th>部门</th>
+                        <th>电话</th>
+                        <th>邮箱</th>
+                        <th>证书</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in items %}
+                    <tr>
+                        <td>{{ u.id }}</td>
+                        <td><strong>{{ u.username }}</strong></td>
+                        <td>{{ u.realname or '-' }}</td>
+                        <td>
+                            {% if u.role == 'admin' %}
+                            <span class="badge bg-danger">系统管理员</span>
+                            {% elif u.role == 'sales' %}
+                            <span class="badge bg-warning text-dark">销售人员</span>
+                            {% elif u.role == 'viewer' %}
+                            <span class="badge bg-secondary">查看者</span>
+                            {% else %}
+                            <span class="badge bg-info">运维工程师</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.department_rel %}
+                            {{ u.department_rel.name }}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ u.phone or '-' }}</td>
+                        <td>{{ u.email or '-' }}</td>
+                        <td>
+                            {% set certs = u.cert_list() %}
+                            {% if certs %}
+                                {% for c in certs %}<span class="badge bg-success me-1">{{ c }}</span>{% endfor %}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.is_active %}
+                            <span class="badge bg-success">启用</span>
+                            {% else %}
+                            <span class="badge bg-secondary">停用</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap">
+                            {{ ui.table_actions(edit_url=url_for('user_edit', id=u.id)) }}
+                            <button type="button" class="btn btn-sm btn-outline-warning"
+                                    data-bs-toggle="modal" data-bs-target="#resetPwdModal"
+                                    data-uid="{{ u.id }}" data-uname="{{ u.username }}"
+                                    title="重置密码">
+                                <i class="bi-key"></i>
+                            </button>
+                            {{ ui.table_actions(
+                                delete_url=url_for('user_delete', id=u.id) if u.id != 1 else '',
+                                delete_confirm='确定删除用户 ' ~ u.username ~ '？'
+                            ) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ pagination_bar(page, total_pages, has_prev, has_next, prev_page, next_page, total, start, end) }}
+        {% else %}
+        {{ eui.empty_state('bi-people', '暂无用户') }}
+        {% endif %}
+    </div>
+</div>
+
+<!-- 新增弹窗 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">新增用户</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" action="{{ url_for('user_list') }}">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">用户名 <span class="text-danger">*</span></label>
+                            <input type="text" name="username" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">密码</label>
+                            <input type="text" name="password" class="form-control" value="123456">
+                            <small class="text-muted">默认密码 123456</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">姓名</label>
+                            <input type="text" name="realname" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">角色</label>
+                            <select name="role" class="form-select">
+                                <option value="operator">运维工程师</option>
+                                <option value="sales">销售人员</option>
+                                <option value="viewer">查看者</option>
+                                <option value="admin">系统管理员</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">所属部门</label>
+                            <select name="department_id" class="form-select">
+                                <option value="">-- 不指定 --</option>
+                                {% for d in departments %}
+                                <option value="{{ d.id }}">{{ d.name }}{% if d.parent %} ({{ d.parent.name }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">手机号码</label>
+                            <input type="text" name="phone" class="form-control" placeholder="13812345678">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label">邮箱</label>
+                            <input type="email" name="email" class="form-control" placeholder="user@example.com">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label">资质证书（可多选）</label>
+                            <div class="border rounded p-2">
+                                {% for grp in CERT_CATEGORIES %}
+                                <div class="mb-2">
+                                    <strong class="text-primary">{{ grp.group }}</strong>
+                                    <div class="row g-2 mt-1">
+                                        {% for v in grp['items'] %}
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="form-check">
+                                                <input class="form-check-input" type="checkbox" name="certifications" value="{{ v }}">
+                                                <span class="form-check-label">{{ v }}</span>
+                                            </label>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- V13: 重置密码弹窗 -->
+<div class="modal fade" id="resetPwdModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi-key"></i> 重置密码 <span id="resetPwdUserLabel" class="text-muted"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="resetPwdForm">
+                <div class="modal-body">
+                    <div class="alert alert-warning small mb-3">
+                        <i class="bi-exclamation-triangle"></i> 该操作会强制重置所选用户的登录密码，无需原密码。
+                    </div>
+                    <label class="form-label">新密码 <span class="text-danger">*</span></label>
+                    <input type="text" name="new_password" class="form-control" minlength="6" required placeholder="至少 6 位">
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-warning">确认重置</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var modal = document.getElementById('resetPwdModal');
+    if (!modal) return;
+    modal.addEventListener('show.bs.modal', function (event) {
+        var trigger = event.relatedTarget;
+        if (!trigger) return;
+        var uid = trigger.getAttribute('data-uid');
+        var uname = trigger.getAttribute('data-uname') || '';
+        document.getElementById('resetPwdForm').action = '/users/' + uid + '/reset_password';
+        document.getElementById('resetPwdUserLabel').textContent = uname ? '— ' + uname : '';
+        var pwdInput = modal.querySelector('input[name="new_password"]');
+        if (pwdInput) { pwdInput.value = ''; setTimeout(function(){ pwdInput.focus(); }, 200); }
+    });
+})();
+</script>
+
+<!-- 编辑跳转已改为独立页 /users/edit/<id>，无需 modal -->
+
+{% endblock %}

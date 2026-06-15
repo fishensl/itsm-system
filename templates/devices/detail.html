@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <button class="btn btn-sm btn-outline-primary" onclick="editDevice({{ device.id }})"><i class="bi-pencil"></i> 编辑</button>
+        <a href="{{ url_for('asset.device_delete', id=device.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('确定删除该设备？')"><i class="bi-trash"></i> 删除</a>
+        <a href="{{ url_for('asset.device_list') }}" class="btn btn-sm btn-secondary">返回列表</a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 基本信息 -->
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi-info-circle"></i> 基本信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted" width="120">设备名称</td><td><strong>{{ device.device_name }}</strong></td></tr>
+                    <tr><td class="text-muted">设备类型</td><td><span class="badge bg-secondary">{{ device.device_type or '-' }}</span></td></tr>
+                    <tr><td class="text-muted">品牌</td><td>{{ device.brand or '-' }}</td></tr>
+                    <tr><td class="text-muted">型号</td><td>{{ device.model or '-' }}</td></tr>
+                    <tr><td class="text-muted">序列号</td><td><code>{{ device.serial_number or '-' }}</code></td></tr>
+                    <tr><td class="text-muted">所属客户</td>
+                        <td>
+                            {% if customer %}
+                            <a href="{{ url_for('customer.customer_detail', id=customer.id) }}">{{ customer.name }}</a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr><td class="text-muted">安装位置</td><td>{{ device.location or '-' }}</td></tr>
+                    <tr><td class="text-muted">备注</td><td>{{ device.remark or '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 网络信息 -->
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi-hdd-network"></i> 网络与登录信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted" width="120">IP 地址</td><td><code>{{ device.ip_address or '-' }}:{{ device.port }}</code></td></tr>
+                    <tr><td class="text-muted">登录方式</td><td><span class="badge bg-secondary">{{ device.login_method or '-' }}</span></td></tr>
+                    <tr><td class="text-muted">登录用户</td><td>{{ device.username or '-' }}</td></tr>
+                    <tr><td class="text-muted">登录密码</td>
+                        <td>
+                            <span class="password-mask" style="cursor:pointer;font-family:monospace;" onclick="togglePwd(this)" data-pwd="{{ password }}">••••••••</span>
+                            <i class="bi-eye text-muted" style="cursor:pointer;margin-left:4px" onclick="togglePwdIcon(this)" data-pwd="{{ password }}"></i>
+                            <i class="bi-copy text-muted" style="cursor:pointer;margin-left:4px" onclick="copyPwd(this)" data-pwd="{{ password }}"></i>
+                        </td>
+                    </tr>
+                    <tr><td class="text-muted">接口</td>
+                        <td>
+                            {% if interface_list %}
+                            {% for iface in interface_list %}
+                            <code class="me-1">{{ iface }}</code>
+                            {% endfor %}
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- 维保信息 -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi-shield-check"></i> 维保与状态</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted" width="120">系统版本</td><td><code>{{ device.os_version or '-' }}</code></td></tr>
+                    <tr><td class="text-muted">规则库版本</td><td><code>{{ device.rule_version or '-' }}</code></td></tr>
+                    <tr><td class="text-muted">授权截止</td><td>{{ device.license_expiry.strftime('%Y-%m-%d') if device.license_expiry else '-' }}</td></tr>
+                    <tr><td class="text-muted">剩余天数</td>
+                        <td>
+                            {% if remaining is not none %}
+                                {% if remaining < 0 %}
+                                <span class="badge bg-danger">已过期 {{ -remaining }} 天</span>
+                                {% elif remaining <= 30 %}
+                                <span class="badge bg-warning text-dark">{{ remaining }} 天</span>
+                                {% else %}
+                                <span class="badge bg-success">{{ remaining }} 天</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr><td class="text-muted">维修状态</td>
+                        <td>
+                            {% if device.is_maintenance %}
+                            <span class="badge bg-warning text-dark">有过维修</span>
+                            {% else %}
+                            <span class="text-muted">无维修过</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr><td class="text-muted">使用状态</td>
+                        <td>
+                            {% if device.is_in_use %}
+                            <span class="badge bg-success">在用</span>
+                            {% else %}
+                            <span class="badge bg-secondary">停用</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr><td class="text-muted">创建时间</td><td>{{ device.created_at.strftime('%Y-%m-%d %H:%M') if device.created_at else '-' }}</td></tr>
+                    <tr><td class="text-muted">更新时间</td><td>{{ device.updated_at.strftime('%Y-%m-%d %H:%M') if device.updated_at else '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 密码修改历史 -->
+<div class="card">
+    <div class="card-header"><i class="bi-clock-history"></i> 密码修改历史</div>
+    <div class="card-body">
+        {% if history_data %}
+        <table class="table table-sm table-hover">
+            <thead><tr><th>#</th><th>历史密码</th><th>修改人</th><th>修改时间</th><th>备注</th></tr></thead>
+            <tbody>
+                {% for h in history_data %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td><code>{{ h.password }}</code></td>
+                    <td>{{ h.changed_by }}</td>
+                    <td>{{ h.created_at }}</td>
+                    <td>{{ h.remark }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-3 text-muted">暂无历史密码记录</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 编辑弹窗（复用 devices/list.html 的模态逻辑，这里需要的 JS 通过内联脚本提供） -->
+<div class="modal fade" id="deviceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deviceModalTitle">编辑设备</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="deviceForm">
+                <input type="hidden" name="edit_id" id="editId" value="{{ device.id }}">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">所属客户 <span class="text-danger">*</span></label>
+                            <select name="customer_id" class="form-select" required>
+                                <option value="">-- 选择客户 --</option>
+                                {% for c in all_customers %}
+                                <option value="{{ c.id }}" {% if c.id == device.customer_id %}selected{% endif %}>{{ c.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">设备名称 <span class="text-danger">*</span></label>
+                            <input type="text" name="device_name" class="form-control" required value="{{ device.device_name }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">设备类型</label>
+                            <select name="device_type" class="form-select">
+                                <option value="">-- 选择 --</option>
+                                {% for t in device_types %}
+                                <option value="{{ t.name }}" {% if t.name == device.device_type %}selected{% endif %}>{{ t.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">品牌</label>
+                            <input type="text" name="brand" class="form-control" value="{{ device.brand or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">型号</label>
+                            <input type="text" name="model" class="form-control" value="{{ device.model or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">IP地址</label>
+                            <input type="text" name="ip_address" class="form-control" value="{{ device.ip_address or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">序列号</label>
+                            <input type="text" name="serial_number" class="form-control" value="{{ device.serial_number or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">安装位置</label>
+                            <input type="text" name="location" class="form-control" value="{{ device.location or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">系统版本</label>
+                            <input type="text" name="os_version" class="form-control" value="{{ device.os_version or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">规则库版本</label>
+                            <input type="text" name="rule_version" class="form-control" value="{{ device.rule_version or '' }}">
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label class="form-label">授权截止</label>
+                            <input type="date" name="license_expiry" class="form-control" value="{{ device.license_expiry.strftime('%Y-%m-%d') if device.license_expiry else '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">登录方式</label>
+                            <select name="login_method" class="form-select">
+                                <option value="">-- 选择 --</option>
+                                {% for m in ['SSH', 'Telnet', 'Web', 'Console', 'API', '其他'] %}
+                                <option value="{{ m }}" {% if m == device.login_method %}selected{% endif %}>{{ m }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label class="form-label">端口</label>
+                            <input type="number" name="port" class="form-control" value="{{ device.port }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">登录用户名</label>
+                            <input type="text" name="username" class="form-control" value="{{ device.username or '' }}">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">登录密码</label>
+                            <input type="text" name="password" class="form-control" value="{{ password }}" placeholder="留空则不修改">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">修改备注</label>
+                            <input type="text" name="pwd_remark" class="form-control" placeholder="例：月度密码更换">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check form-check-inline mt-2">
+                                <input class="form-check-input" type="checkbox" name="is_maintenance" id="chkMaintenance" {% if device.is_maintenance %}checked{% endif %}>
+                                <label class="form-check-label" for="chkMaintenance">有过维修</label>
+                            </div>
+                            <div class="form-check form-check-inline mt-2">
+                                <input class="form-check-input" type="checkbox" name="is_in_use" id="chkInUse" {% if device.is_in_use %}checked{% endif %}>
+                                <label class="form-check-label" for="chkInUse">是否在用</label>
+                            </div>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">备注</label>
+                            <textarea name="remark" class="form-control" rows="2">{{ device.remark or '' }}</textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePwd(el) {
+    const isMasked = el.textContent === '••••••••';
+    el.textContent = isMasked ? el.dataset.pwd : '••••••••';
+    const eye = el.parentElement.querySelector('.fa-eye, .fa-eye-slash');
+    if (eye) {
+        eye.className = isMasked ? 'bi-eye-slash text-muted' : 'bi-eye text-muted';
+        eye.style.cssText = 'cursor:pointer;margin-left:4px';
+    }
+}
+function togglePwdIcon(el) {
+    const cell = el.parentElement;
+    const mask = cell.querySelector('.password-mask');
+    const isEye = el.className.includes('fa-eye') && !el.className.includes('fa-eye-slash');
+    if (isEye) {
+        mask.textContent = mask.dataset.pwd;
+        el.className = 'bi-eye-slash text-muted';
+    } else {
+        mask.textContent = '••••••••';
+        el.className = 'bi-eye text-muted';
+    }
+    el.style.cssText = 'cursor:pointer;margin-left:4px';
+}
+function copyPwd(el) {
+    navigator.clipboard.writeText(el.dataset.pwd).then(function() { alert('密码已复制'); });
+}
+function editDevice(id) {
+    document.getElementById('deviceForm').action = '{{ url_for("asset.device_edit", id=0) }}'.replace('/0', '/' + id);
+    new bootstrap.Modal(document.getElementById('deviceModal')).show();
+}
+document.getElementById('deviceForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi-arrow-clockwise"></i> 保存中...';
+    fetch(form.action, { method: 'POST', body: new FormData(form) })
+        .then(function(resp) {
+            if (resp.redirected || resp.ok) {
+                bootstrap.Modal.getInstance(document.getElementById('deviceModal')).hide();
+                location.reload();
+            } else {
+                alert('保存失败，请重试');
+            }
+        })
+        .catch(function(err) { alert('操作失败'); console.error(err); })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi-save"></i> 保存';
+        });
+});
+</script>
+{% endblock %}

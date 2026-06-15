@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <a href="{{ url_for('ops.inspection_add', customer_id=customer.id) }}" class="btn btn-outline-warning btn-sm"><i class="bi-clipboard-check"></i> 为此客户新建巡检</a>
+        <a href="{{ url_for('ops.ticket_add') }}" class="btn btn-outline-danger btn-sm"><i class="bi-exclamation-triangle"></i> 为此客户建工单</a>
+        <a href="{{ url_for('customer.customer_edit', id=customer.id) }}" class="btn btn-primary btn-sm"><i class="bi-pencil"></i> 编辑</a>
+        <a href="{{ url_for('customer.customer_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header">客户信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td>客户级别</td><td><span class="badge bg-{{ 'danger' if customer.level=='核心' else 'warning' if customer.level=='重点' else 'info' }}">{{ customer.level or '常规' }}</span></td></tr>
+                    <tr><td>联系人</td><td>{{ customer.contact_person or '-' }}</td></tr>
+                    <tr><td>电话</td><td>{{ customer.phone or '-' }}</td></tr>
+                    <tr><td>邮箱</td><td>{{ customer.email or '-' }}</td></tr>
+                    <tr><td>所属地区</td><td>
+                      {% if customer.region_rel and customer.region_rel.parent %}
+                        {{ customer.region_rel.parent.name }} - {{ customer.region_rel.name }}
+                      {% elif customer.region_rel %}
+                        {{ customer.region_rel.name }}
+                      {% else %}
+                        {{ customer.city or '-' }}
+                      {% endif %}
+                    </td></tr>
+                    <tr><td>地址</td><td>{{ customer.address or '-' }}</td></tr>
+                    <tr><td>巡检频率</td><td>{{ customer.inspection_frequency or '-' }}</td></tr>
+                    <tr><td>驻场服务</td><td>{% if customer.has_onsite %}<span class="text-success">✓ 有</span>{% else %}—{% endif %}</td></tr>
+                    <tr><td>攻防演练</td><td>{% if customer.has_drill %}<span class="text-primary">✓ 有</span>{% else %}—{% endif %}</td></tr>
+                    <tr><td>关联设备</td><td><strong>{{ customer.device_count or devices|length }}</strong> 台</td></tr>
+                    <tr><td>备注</td><td>{{ customer.remark or '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <ul class="nav nav-tabs" id="tab">
+            <li class="nav-item"><a class="nav-link active" href="#devices" data-bs-toggle="tab">设备 ({{ devices|length }})</a></li>
+            <li class="nav-item"><a class="nav-link" href="#inspections" data-bs-toggle="tab">巡检记录 ({{ inspections|length }})</a></li>
+            <li class="nav-item"><a class="nav-link" href="#faults" data-bs-toggle="tab">故障记录 ({{ faults|length }})</a></li>
+            <li class="nav-item"><a class="nav-link" href="#topologies" data-bs-toggle="tab">拓扑图 ({{ topologies|length }})</a></li>
+        </ul>
+        <div class="tab-content mt-3">
+            <div class="tab-pane active" id="devices">
+                {% if devices %}
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>设备名称</th><th>类型</th><th>品牌</th><th>型号</th><th>IP</th><th>操作</th></tr></thead>
+                    <tbody>
+                    {% for d in devices %}
+                    <tr>
+                        <td><a href="{{ url_for('asset.device_detail', id=d.id) }}">{{ d.device_name }}</a></td>
+                        <td>{{ d.device_type }}</td><td>{{ d.brand }}</td><td>{{ d.model }}</td><td>{{ d.ip_address }}</td>
+                        <td><a href="{{ url_for('asset.device_detail', id=d.id) }}" class="btn btn-sm btn-outline-info"><i class="bi-eye"></i></a></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}<p class="text-muted">暂无设备</p>{% endif %}
+            </div>
+            <div class="tab-pane" id="inspections">
+                {% if inspections %}
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>标题</th><th>日期</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody>
+                    {% for i in inspections %}
+                    <tr><td>{{ i.title }}</td><td>{{ i.inspection_date }}</td><td><span class="badge bg-{{ 'success' if i.overall_status=='正常' else 'warning' }}">{{ i.overall_status }}</span></td>
+                        <td><a href="{{ url_for('ops.inspection_detail', id=i.id) }}" class="btn btn-sm btn-outline-info"><i class="bi-eye"></i></a></td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}<p class="text-muted">暂无巡检记录</p>{% endif %}
+            </div>
+            <div class="tab-pane" id="faults">
+                {% if faults %}
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>标题</th><th>故障时间</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody>
+                    {% for f in faults %}
+                    <tr><td>{{ f.title }}</td><td>{{ f.fault_time.strftime('%Y-%m-%d') if f.fault_time else '' }}</td><td>{{ f.fault_type }}</td>
+                        <td><span class="badge bg-{{ 'success' if f.result=='已解决' else 'warning' }}">{{ f.result }}</span></td>
+                        <td><a href="{{ url_for('ops.fault_detail', id=f.id) }}" class="btn btn-sm btn-outline-info"><i class="bi-eye"></i></a></td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}<p class="text-muted">暂无故障记录</p>{% endif %}
+            </div>
+            <div class="tab-pane" id="topologies">
+                {% if topologies %}
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>名称</th><th>描述</th><th>上传时间</th></tr></thead>
+                    <tbody>
+                    {% for m in topologies %}
+                    <tr>
+                        <td>
+                            <strong>{{ m.name }}</strong>
+                            <span class="ms-2">
+                            {% for t in m.files %}
+                                {% if t.file_type == 'pdf' %}
+                                <a href="/static/{{ t.file_path }}" target="_blank" class="text-decoration-none me-1" title="点击预览 PDF"><i class="bi-file-earmark-pdf text-danger" style="font-size:1.2em;"></i></a>
+                                {% elif t.file_type == 'visio' %}
+                                <a href="/static/{{ t.file_path }}" download class="text-decoration-none me-1" title="点击下载 Visio"><i class="bi-file-earmark-break text-primary" style="font-size:1.2em;"></i></a>
+                                {% elif t.file_type == 'image' %}
+                                <a href="/static/{{ t.file_path }}" target="_blank" class="text-decoration-none me-1" title="点击预览图片"><i class="bi-file-earmark-image text-success" style="font-size:1.2em;"></i></a>
+                                {% else %}
+                                <a href="/static/{{ t.file_path }}" download class="text-decoration-none me-1" title="点击下载"><i class="bi-file-earmark text-secondary" style="font-size:1.2em;"></i></a>
+                                {% endif %}
+                            {% endfor %}
+                            </span>
+                        </td>
+                        <td><small class="text-muted">{{ m.first.description or '-' }}</small></td>
+                        <td><small>{{ m.first.created_at.strftime('%Y-%m-%d') if m.first.created_at else '-' }}</small></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}<p class="text-muted">该客户暂无拓扑图，<a href="{{ url_for('topology_list') }}">前往上传</a></p>{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

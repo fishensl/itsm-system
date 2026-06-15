@@ -1,0 +1,801 @@
+# -*- coding: utf-8 -*-
+"""资产管理蓝图：设备 CRUD / 详情 / 导入 / 导出 / API
+
+业务规则下沉到 services/device_service.py。
+拓扑/配置备份/采集（device_collect, config_backups, topologies）由于
+业务复杂、模板互相引用多，暂留 app.py 中。
+"""
+import os
+import tempfile
+from datetime import date
+from flask import (Blueprint, render_template, request, redirect, url_for,
+                   flash, send_from_directory, jsonify, current_app)
+from flask_login import login_required, current_user
+from models import (Device, Customer, PasswordHistory, db, DeviceType, Brand,
+                    NetworkType, CustomField, Region, DeviceFirmware)
+from sqlalchemy.orm import joinedload
+from utils.pagination import paginate, paginate_render_args
+from utils.crypto import decrypt_password
+from services.device_service import (create_device_from_form, update_device_from_form,
+                                      delete_device)
+from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT, MAX_IMPORT_ROWS
+from utils.permission import require_permission
+
+
+def api_view(func):
+    """标记为 API 端点：自动豁免 CSRF（与 app.py 中的 api_view 同等作用）"""
+    from flask_wtf.csrf import CSRFProtect
+    try:
+        csrf = current_app.extensions.get('csrf')
+        if csrf is not None:
+            return csrf.exempt(func)
+    except Exception:
+        pass
+    return func
+
+
+asset_bp = Blueprint('asset', __name__)
+
+
+# ============================ 设备列表 ============================
+@asset_bp.route('/devices')
+@login_required
+@require_permission('device:view')
+def device_list():
+    model_filter = request.args.get('model', '')
+    brand_filter = request.args.get('brand', '')
+    type_filter = request.args.get('device_type', '')
+    customer_filter = request.args.get('customer_id', '', type=int)
+    search = request.args.get('search', '')
+    page = request.args.get('page', 1, type=int)
+    query = Device.query
+    if search:
+        query = query.filter(
+            Device.device_name.contains(search) |
+            Device.ip_address.contains(search) |
+            Device.brand.contains(search)
+        )
+    if model_filter:
+        query = query.filter(Device.model == model_filter)
+    if brand_filter:
+        query = query.filter(Device.brand == brand_filter)
+    if type_filter:
+        query = query.filter(Device.device_type == type_filter)
+    if customer_filter:
+        query = query.filter(Device.customer_id == customer_filter)
+    # 预加载关联：customer / region_rel（详情/地区列） / region.parent（地区名拼接）
+    query = query.options(
+        joinedload(Device.customer).joinedload(Customer.region_rel).joinedload(Region.parent),
+        joinedload(Device.region_rel).joinedload(Region.parent),
+    )
+    query = query.order_by(Device.id.desc())
+    pag = paginate(query, page=page)
+    customers = Customer.query.order_by(Customer.name).all()
+    models_list = db.session.query(Device.model).distinct().filter(Device.model != '').all()
+    brands_list = db.session.query(Device.brand).distinct().filter(Device.brand != '').all()
+    types_list = db.session.query(Device.device_type).distinct().filter(Device.device_type != '').all()
+    # 按地市 → 客户 分组（供"地市折叠→客户折叠→设备表"三段式 UI 使用）
+    # 数据来源：当前页 pag['items']（已应用筛选/搜索/分页）
+    city_data = {}
+    # 用 dict 临时按 customer 分组
+    by_customer = {}
+    for d in pag['items']:
+        # 为模板附加剩余天数（不修改 ORM 对象本身）
+        if d.license_expiry:
+            d._days_to_expiry = (d.license_expiry - date.today()).days
+        else:
+            d._days_to_expiry = None
+        cid = d.customer_id
+        by_customer.setdefault(cid, []).append(d)
+    # 客户字典（含 region_rel 父子）
+    cust_ids = [cid for cid in by_customer.keys() if cid is not None]
+    cust_map = {}
+    if cust_ids:
+        for c in Customer.query.options(joinedload(Customer.region_rel).joinedload(Region.parent)).filter(Customer.id.in_(cust_ids)).all():
+            cust_map[c.id] = c
+    for cid, devs in by_customer.items():
+        c = cust_map.get(cid)
+        if c:
+            if c.region_rel and c.region_rel.parent:
+                city = c.region_rel.parent.name
+            elif c.region_rel:
+                city = c.region_rel.name
+            else:
+                city = c.city or '未分配地市'
+        else:
+            city = '未分配客户'
+        city_data.setdefault(city, []).append({
+            'customer': c,
+            'devices': devs,
+        })
+    return render_template(
+        'devices/list.html', **paginate_render_args(pag),
+        customers=customers,
+        models_list=[m[0] for m in models_list if m[0]],
+        brands_list=[b[0] for b in brands_list if b[0]],
+        types_list=[t[0] for t in types_list if t[0]],
+        city_data=city_data,
+        filters={
+            'model': model_filter, 'brand': brand_filter,
+            'device_type': type_filter, 'customer_id': customer_filter,
+            'search': search,
+        }
+    )
+
+
+# ============================ 设备新增 ============================
+@asset_bp.route('/devices/add', methods=['POST'])
+@login_required
+@require_permission('device:add')
+def device_add():
+    try:
+        d = create_device_from_form(request.form)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('设备添加失败')
+        flash(str(e) or '设备添加失败', 'danger')
+        return redirect(url_for('asset.device_list'))
+    _sync_customer_device_count(d.customer_id)
+    flash('设备添加成功', 'success')
+    return redirect(url_for('asset.device_list'))
+
+
+@asset_bp.route('/devices/edit-page/<int:id>', methods=['GET'])
+@login_required
+@require_permission('device:edit')
+def device_edit_page(id):
+    # 编辑已改为 AJAX 弹窗，此页面仅保留兼容重定向
+    return redirect(url_for('asset.device_list'))
+
+
+@asset_bp.route('/devices/edit/<int:id>', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def device_edit(id):
+    try:
+        form = request.form.copy()
+        form['changed_by_name'] = current_user.realname or current_user.username
+        d = update_device_from_form(id, form)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('设备编辑失败')
+        flash(str(e) or '设备更新失败', 'danger')
+        return redirect(url_for('asset.device_list'))
+    new_cid = d.customer_id
+    _sync_customer_device_count(new_cid)
+    flash('设备信息已更新', 'success')
+    return redirect(url_for('asset.device_list'))
+
+
+@asset_bp.route('/devices/delete/<int:id>')
+@login_required
+@require_permission('device:delete')
+def device_delete(id):
+    try:
+        cid = delete_device(id)
+    except Exception as e:
+        db.session.rollback()
+        flash(str(e) or '设备删除失败', 'danger')
+        return redirect(url_for('asset.device_list'))
+    _sync_customer_device_count(cid)
+    flash('设备已删除', 'success')
+    return redirect(url_for('asset.device_list'))
+
+
+# ============================ 设备详情 ============================
+@asset_bp.route('/devices/<int:id>')
+@login_required
+@require_permission('device:view')
+def device_detail(id):
+    import json as _json
+    d = Device.query.get_or_404(id)
+    customer = Customer.query.get(d.customer_id) if d.customer_id else None
+    password = decrypt_password(d.password_encrypted) if d.password_encrypted else ''
+    remaining = (d.license_expiry - date.today()).days if d.license_expiry else None
+    interface_list = _json.loads(d.interface) if d.interface and d.interface.startswith('[') else (
+        [d.interface] if d.interface else []
+    )
+    histories = PasswordHistory.query.filter_by(device_id=id)\
+        .order_by(PasswordHistory.id.desc()).limit(20).all()
+    return render_template('devices/detail.html',
+                           device=d, customer=customer, password=password,
+                           remaining=remaining, interface_list=interface_list,
+                           histories=histories)
+
+
+# ============================ API: 设备 JSON ============================
+@asset_bp.route('/api/devices/<int:id>')
+@login_required
+@api_view
+def api_device_get(id):
+    import json as _json
+    d = Device.query.get_or_404(id)
+    return jsonify({
+        'id': d.id,
+        'customer_id': d.customer_id,
+        'region_id': d.region_id,
+        'device_name': d.device_name,
+        'device_type': d.device_type,
+        'brand': d.brand,
+        'model': d.model,
+        'serial_number': d.serial_number or '',
+        'ip_address': d.ip_address,
+        'port': d.port,
+        'username': d.username,
+        'password': decrypt_password(d.password_encrypted) if d.password_encrypted else '',
+        'login_method': d.login_method,
+        'location': d.location,
+        'interface': _json.loads(d.interface) if d.interface and d.interface.startswith('[') else (
+            [d.interface] if d.interface else []
+        ),
+        'os_version': d.os_version,
+        'rule_version': d.rule_version,
+        'is_maintenance': d.is_maintenance,
+        'is_in_use': d.is_in_use,
+        'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+        'remark': d.remark,
+    })
+
+
+# CSRF 豁免（API）
+def api_view(func):
+    from flask_wtf.csrf import CSRFProtect
+    ext = current_app.extensions.get('csrf')
+    if ext is not None:
+        return ext.exempt(func)
+    return func
+
+
+# ============================ 设备导入/导出 ============================
+@asset_bp.route('/devices/export', methods=['POST'])
+@login_required
+@require_permission('device:view')
+def device_export():
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    search = request.args.get('search', '')
+    customer_filter = request.args.get('customer_id', '', type=int)
+    query = Device.query
+    if search:
+        query = query.filter(
+            Device.device_name.contains(search) |
+            Device.ip_address.contains(search) |
+            Device.brand.contains(search)
+        )
+    if customer_filter:
+        query = query.filter(Device.customer_id == customer_filter)
+    devices = query.order_by(Device.id.desc()).all()
+    selected_cols = request.form.getlist('export_columns')
+    all_columns = {
+        'customer_name': '所属客户', 'device_name': '设备名称', 'device_type': '设备类型',
+        'brand': '品牌', 'model': '型号', 'serial_number': '序列号', 'ip_address': 'IP地址',
+        'port': '端口', 'username': '登录用户名', 'password': '登录密码',
+        'license_expiry': '授权截止日期', 'login_method': '登录方式', 'location': '安装位置',
+        'os_version': '系统版本', 'rule_version': '规则库版本',
+        'is_maintenance': '是否维修', 'is_in_use': '是否在用',
+        'license_remaining_days': '剩余天数', 'remark': '备注',
+    }
+    if not selected_cols:
+        selected_cols = list(all_columns.keys())
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '设备信息'
+    header_font = Font(name='微软雅黑', bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='1890FF', end_color='096DD9', fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                        top=Side(style='thin'), bottom=Side(style='thin'))
+    headers = [all_columns[c] for c in selected_cols]
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font; cell.fill = header_fill
+        cell.alignment = header_align; cell.border = thin_border
+    for row_idx, d in enumerate(devices, 2):
+        license_remaining = (d.license_expiry - date.today()).days if d.license_expiry else ''
+        data_map = {
+            'customer_name': d.customer.name if d.customer else '',
+            'device_name': d.device_name, 'device_type': d.device_type,
+            'brand': d.brand, 'model': d.model,
+            'serial_number': d.serial_number or '',
+            'ip_address': d.ip_address, 'port': d.port,
+            'username': d.username,
+            'password': decrypt_password(d.password_encrypted) if d.password_encrypted else '',
+            'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+            'login_method': d.login_method, 'location': d.location or '',
+            'os_version': d.os_version or '', 'rule_version': d.rule_version or '',
+            'is_maintenance': '是' if d.is_maintenance else '否',
+            'is_in_use': '是' if d.is_in_use else '否',
+            'license_remaining_days': license_remaining,
+            'remark': d.remark or '',
+        }
+        for col_idx, c in enumerate(selected_cols, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=data_map.get(c, ''))
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical='center')
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+    wb.save(tmp.name)
+    tmp.close()
+    return send_from_directory(
+        os.path.dirname(tmp.name), os.path.basename(tmp.name),
+        as_attachment=True,
+        download_name=f'设备导出_{date.today().isoformat()}.xlsx'
+    )
+
+
+@asset_bp.route('/devices/import', methods=['POST'])
+@login_required
+@require_permission('device:add')
+def device_import():
+    """批量导入设备信息"""
+    if 'import_file' not in request.files:
+        flash('请选择要导入的 Excel 文件', 'danger')
+        return redirect(url_for('asset.device_list'))
+    f = request.files['import_file']
+    ok, err, _ = validate_upload(f, ALLOWED_EXCEL_EXT, max_size_mb=20)
+    if not ok:
+        flash(err, 'danger')
+        return redirect(url_for('asset.device_list'))
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    success_count = 0
+    error_count = 0
+    errors = []
+    try:
+        wb, ws, err = open_excel(tmp, app=current_app)
+        if err:
+            flash(err[0], err[1])
+            return redirect(url_for('asset.device_list'))
+
+        header_row = [cell.value for cell in ws[1]]
+        col_map = {}
+        for idx, h in enumerate(header_row):
+            if h:
+                col_map[str(h).strip()] = idx
+
+        field_mapping = {
+            '所属客户': 'customer_name', '设备名称': 'device_name', '设备类型': 'device_type',
+            '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
+            '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
+            '授权截止日期': 'license_expiry', '登录方式': 'login_method', '安装位置': 'location',
+            '系统版本': 'os_version', '规则库版本': 'rule_version', '备注': 'remark',
+        }
+
+        for row_idx in range(2, ws.max_row + 1):
+            row_data = {}
+            for cn, idx in col_map.items():
+                val = ws.cell(row=row_idx, column=idx + 1).value
+                field = field_mapping.get(cn)
+                if field:
+                    row_data[field] = str(val).strip() if val else ''
+
+            device_name = row_data.get('device_name', '')
+            if not device_name:
+                error_count += 1
+                errors.append(f'第{row_idx}行：设备名称为空，跳过')
+                continue
+
+            customer = None
+            if 'customer_name' in row_data and row_data['customer_name']:
+                customer = Customer.query.filter_by(name=row_data['customer_name']).first()
+                if not customer:
+                    flash(f'客户 "{row_data["customer_name"]}" 不存在', 'warning')
+            try:
+                from services.device_service import _parse_date
+                from utils.crypto import encrypt_password as _ep
+                plain_password = row_data.get('password', '')
+                encrypted = _ep(plain_password) if plain_password else ''
+                license_expiry = _parse_date(row_data.get('license_expiry'))
+
+                d = Device(
+                    customer_id=customer.id if customer else None,
+                    device_name=device_name,
+                    device_type=row_data.get('device_type', ''),
+                    brand=row_data.get('brand', ''),
+                    model=row_data.get('model', ''),
+                    serial_number=row_data.get('serial_number', ''),
+                    ip_address=row_data.get('ip_address', ''),
+                    port=int(row_data.get('port', 22)) if row_data.get('port') else 22,
+                    username=row_data.get('username', ''),
+                    password_encrypted=encrypted,
+                    login_method=row_data.get('login_method', ''),
+                    os_version=row_data.get('os_version', ''),
+                    rule_version=row_data.get('rule_version', ''),
+                    is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
+                    is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
+                    license_expiry=license_expiry,
+                    remark=row_data.get('remark', ''),
+                )
+                db.session.add(d)
+                db.session.commit()
+                success_count += 1
+            except Exception as e:
+                db.session.rollback()
+                error_count += 1
+                errors.append(f'第{row_idx}行（{device_name}）：{e}')
+
+        msg = f'导入完成：成功 {success_count} 条'
+        if error_count:
+            msg += f'，失败 {error_count} 条'
+            for err in errors[:5]:
+                flash(err, 'danger')
+        flash(msg, 'success' if success_count else 'danger')
+    finally:
+        cleanup_temp_file(tmp)
+    return redirect(url_for('asset.device_list'))
+
+
+# ============================ 内部工具 ============================
+def _sync_customer_device_count(customer_id):
+    """同步客户的 device_count 冗余字段（蓝图内部使用）"""
+    if not customer_id:
+        return
+    from models import Customer
+    from app import calculate_customer_tier
+    cnt = Device.query.filter_by(customer_id=customer_id).count()
+    c = Customer.query.get(customer_id)
+    if c:
+        c.device_count = cnt
+        auto_tier = calculate_customer_tier(cnt, c.has_onsite, c.has_drill)
+        if c.level not in ('核心', '重点', '常规') or not c.level:
+            c.level = auto_tier
+        db.session.commit()
+
+
+# ============================ 设备配置子路由 ============================
+@asset_bp.route("/device-types", methods=["GET", "POST"])
+@login_required
+@require_permission("device:view")
+def device_type_list():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if name:
+            dt = DeviceType(name=name, sort_order=int(request.form.get("sort_order") or 0))
+            db.session.add(dt); db.session.commit()
+            flash("已添加", "success")
+        return redirect(url_for("asset.device_type_list"))
+    types = DeviceType.query.order_by(DeviceType.sort_order, DeviceType.id).all()
+    return render_template("device_types/list.html", types=types)
+
+
+@asset_bp.route("/device-types/edit/<int:id>", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def device_type_edit(id):
+    dt = DeviceType.query.get_or_404(id)
+    dt.name = (request.form.get("name") or dt.name).strip()
+    dt.sort_order = int(request.form.get("sort_order") or 0)
+    db.session.commit()
+    flash("已更新", "success")
+    return redirect(url_for("asset.device_type_list"))
+
+
+@asset_bp.route("/device-types/delete/<int:id>")
+@login_required
+@require_permission("device:delete")
+def device_type_delete(id):
+    DeviceType.query.filter_by(id=id).delete()
+    db.session.commit()
+    flash("已删除", "success")
+    return redirect(url_for("asset.device_type_list"))
+
+
+@asset_bp.route("/device-brands", methods=["GET", "POST"])
+@login_required
+@require_permission("device:view")
+def brand_list():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        sort_order = int(request.form.get("sort_order") or 0)
+        if name:
+            b = Brand(name=name, sort_order=sort_order)
+            db.session.add(b); db.session.commit()
+            flash("已添加", "success")
+        return redirect(url_for("asset.brand_list"))
+    brands = Brand.query.order_by(Brand.sort_order, Brand.id).all()
+    return render_template("brands/list.html", brands=brands)
+
+
+@asset_bp.route("/device-brands/edit/<int:id>", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def brand_edit(id):
+    b = Brand.query.get_or_404(id)
+    b.name = (request.form.get("name") or b.name).strip()
+    if request.form.get("sort_order") is not None:
+        b.sort_order = int(request.form.get("sort_order") or 0)
+    db.session.commit()
+    flash("已更新", "success")
+    return redirect(url_for("asset.brand_list"))
+
+
+@asset_bp.route("/device-brands/delete/<int:id>")
+@login_required
+@require_permission("device:delete")
+def brand_delete(id):
+    Brand.query.filter_by(id=id).delete()
+    db.session.commit()
+    flash("已删除", "success")
+    return redirect(url_for("asset.brand_list"))
+
+
+@asset_bp.route("/device-network-types", methods=["GET", "POST"])
+@login_required
+@require_permission("device:view")
+def network_type_list():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if name:
+            n = NetworkType(name=name)
+            db.session.add(n); db.session.commit()
+            flash("已添加", "success")
+        return redirect(url_for("asset.network_type_list"))
+    types = NetworkType.query.order_by(NetworkType.id).all()
+    return render_template("network_types/list.html", types=types)
+
+
+@asset_bp.route("/device-network-types/edit/<int:id>", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def network_type_edit(id):
+    n = NetworkType.query.get_or_404(id)
+    n.name = (request.form.get("name") or n.name).strip()
+    db.session.commit()
+    flash("已更新", "success")
+    return redirect(url_for("asset.network_type_list"))
+
+
+@asset_bp.route("/device-network-types/delete/<int:id>")
+@login_required
+@require_permission("device:delete")
+def network_type_delete(id):
+    NetworkType.query.filter_by(id=id).delete()
+    db.session.commit()
+    flash("已删除", "success")
+    return redirect(url_for("asset.network_type_list"))
+
+
+@asset_bp.route("/device-custom-fields", methods=["GET", "POST"])
+@login_required
+@require_permission("device:view")
+def custom_field_list():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if name:
+            f = CustomField(name=name, field_type=request.form.get("field_type", "text"))
+            db.session.add(f); db.session.commit()
+            flash("已添加", "success")
+        return redirect(url_for("asset.custom_field_list"))
+    fields = CustomField.query.order_by(CustomField.id).all()
+    return render_template("custom_fields/list.html", fields=fields)
+
+
+@asset_bp.route("/device-custom-fields/edit/<int:id>", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def custom_field_edit(id):
+    f = CustomField.query.get_or_404(id)
+    f.name = (request.form.get("name") or f.name).strip()
+    f.field_type = request.form.get("field_type", f.field_type)
+    db.session.commit()
+    flash("已更新", "success")
+    return redirect(url_for("asset.custom_field_list"))
+
+
+@asset_bp.route("/device-custom-fields/delete/<int:id>")
+@login_required
+@require_permission("device:delete")
+def custom_field_delete(id):
+    CustomField.query.filter_by(id=id).delete()
+    db.session.commit()
+    flash("已删除", "success")
+    return redirect(url_for("asset.custom_field_list"))
+
+
+# ============================ 设备类型 add（之前漏了） ============================
+@asset_bp.route("/device-types/add", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def device_type_add():
+    name = (request.form.get("name") or "").strip()
+    if name:
+        dt = DeviceType(name=name, sort_order=int(request.form.get("sort_order") or 0))
+        db.session.add(dt); db.session.commit()
+        flash("已添加", "success")
+    return redirect(url_for("asset.device_type_list"))
+
+
+# ============================ 品牌 add（之前漏了） ============================
+@asset_bp.route("/device-brands/add", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def brand_add():
+    name = (request.form.get("name") or "").strip()
+    sort_order = int(request.form.get("sort_order") or 0)
+    if name:
+        b = Brand(name=name, sort_order=sort_order)
+        db.session.add(b); db.session.commit()
+        flash("已添加", "success")
+    return redirect(url_for("asset.brand_list"))
+
+
+# ============================ 网络类型 add ============================
+@asset_bp.route("/device-network-types/add", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def network_type_add():
+    name = (request.form.get("name") or "").strip()
+    if name:
+        n = NetworkType(name=name)
+        db.session.add(n); db.session.commit()
+        flash("已添加", "success")
+    return redirect(url_for("asset.network_type_list"))
+
+
+# ============================ 自定义字段 add ============================
+@asset_bp.route("/device-custom-fields/add", methods=["POST"])
+@login_required
+@require_permission("device:edit")
+def custom_field_add():
+    name = (request.form.get("name") or "").strip()
+    if name:
+        f = CustomField(name=name, field_type=request.form.get("field_type", "text"))
+        db.session.add(f); db.session.commit()
+        flash("已添加", "success")
+    return redirect(url_for("asset.custom_field_list"))
+
+
+# ============================ 设备固件版本库 (V12) ============================
+def _parse_date_arg(s):
+    if not s: return None
+    try:
+        return date.fromisoformat(s.strip())
+    except Exception:
+        return None
+
+
+@asset_bp.route('/device-firmwares')
+@login_required
+@require_permission('device:view')
+def firmware_list():
+    """固件版本库列表 — 按 brand+model 分组展示，附带使用该型号的设备列表（用于版本对比）"""
+    brand_filter = request.args.get('brand', '')
+    model_filter = request.args.get('model', '')
+    type_filter = request.args.get('firmware_type', '')
+
+    q = DeviceFirmware.query
+    if brand_filter:
+        q = q.filter(DeviceFirmware.brand == brand_filter)
+    if model_filter:
+        q = q.filter(DeviceFirmware.model == model_filter)
+    if type_filter:
+        q = q.filter(DeviceFirmware.firmware_type == type_filter)
+    firmwares = q.order_by(
+        DeviceFirmware.brand, DeviceFirmware.model,
+        DeviceFirmware.firmware_type, DeviceFirmware.is_latest.desc(),
+        DeviceFirmware.release_date.desc()
+    ).all()
+
+    # 按 (brand, model) 分组：每组下再按 firmware_type 分组
+    from collections import OrderedDict
+    grouped = OrderedDict()
+    for fw in firmwares:
+        key = (fw.brand or '未分类', fw.model or '未分类型号')
+        grouped.setdefault(key, OrderedDict()).setdefault(fw.firmware_type or '其他', []).append(fw)
+
+    # 为每组挂上设备清单（同 brand+model 的所有设备，便于对比版本）
+    group_devices = {}
+    for (brand, model) in grouped.keys():
+        devs = Device.query.filter_by(brand=brand, model=model).all()
+        group_devices[(brand, model)] = devs
+
+    # 筛选下拉
+    all_brands = sorted(set(b for b, _ in grouped.keys() if b))
+    all_models = sorted(set(m for _, m in grouped.keys() if m))
+    all_types = ['系统固件', '规则库', 'BIOS', '其他']
+
+    return render_template('device_firmwares/list.html',
+                           grouped=grouped, group_devices=group_devices,
+                           all_brands=all_brands, all_models=all_models, all_types=all_types,
+                           brand_filter=brand_filter, model_filter=model_filter, type_filter=type_filter)
+
+
+@asset_bp.route('/device-firmwares/add', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def firmware_add():
+    is_latest = request.form.get('is_latest') == 'on'
+    fw = DeviceFirmware(
+        brand=(request.form.get('brand') or '').strip(),
+        model=(request.form.get('model') or '').strip(),
+        firmware_type=request.form.get('firmware_type', '系统固件'),
+        version=(request.form.get('version') or '').strip(),
+        release_date=_parse_date_arg(request.form.get('release_date')),
+        changelog=request.form.get('changelog', ''),
+        download_url=request.form.get('download_url', ''),
+        file_size_mb=float(request.form.get('file_size_mb') or 0) if request.form.get('file_size_mb') else 0,
+        md5_checksum=request.form.get('md5_checksum', ''),
+        is_latest=is_latest,
+        min_compatible_hardware=request.form.get('min_compatible_hardware', ''),
+        upgrade_guide=request.form.get('upgrade_guide', ''),
+        remark=request.form.get('remark', ''),
+    )
+    if not fw.brand or not fw.model or not fw.version:
+        flash('品牌/型号/版本号为必填项', 'danger')
+        return redirect(url_for('asset.firmware_list'))
+    # 同 brand+model+firmware_type 仅一条 is_latest=True
+    if is_latest:
+        DeviceFirmware.query.filter_by(brand=fw.brand, model=fw.model, firmware_type=fw.firmware_type
+                                       ).update({'is_latest': False})
+    db.session.add(fw); db.session.commit()
+    flash('已添加固件版本', 'success')
+    return redirect(url_for('asset.firmware_list'))
+
+
+@asset_bp.route('/device-firmwares/edit/<int:id>', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def firmware_edit(id):
+    fw = DeviceFirmware.query.get_or_404(id)
+    fw.brand = (request.form.get('brand') or fw.brand).strip()
+    fw.model = (request.form.get('model') or fw.model).strip()
+    fw.firmware_type = request.form.get('firmware_type', fw.firmware_type)
+    fw.version = (request.form.get('version') or fw.version).strip()
+    fw.release_date = _parse_date_arg(request.form.get('release_date')) or fw.release_date
+    fw.changelog = request.form.get('changelog', fw.changelog)
+    fw.download_url = request.form.get('download_url', fw.download_url)
+    try:
+        if request.form.get('file_size_mb'):
+            fw.file_size_mb = float(request.form['file_size_mb'])
+    except (TypeError, ValueError):
+        pass
+    fw.md5_checksum = request.form.get('md5_checksum', fw.md5_checksum)
+    fw.min_compatible_hardware = request.form.get('min_compatible_hardware', fw.min_compatible_hardware)
+    fw.upgrade_guide = request.form.get('upgrade_guide', fw.upgrade_guide)
+    fw.remark = request.form.get('remark', fw.remark)
+    new_is_latest = request.form.get('is_latest') == 'on'
+    if new_is_latest and not fw.is_latest:
+        # 切换为最新 → 清掉同组其他 latest
+        DeviceFirmware.query.filter(
+            DeviceFirmware.brand == fw.brand,
+            DeviceFirmware.model == fw.model,
+            DeviceFirmware.firmware_type == fw.firmware_type,
+            DeviceFirmware.id != fw.id,
+        ).update({'is_latest': False})
+    fw.is_latest = new_is_latest
+    db.session.commit()
+    flash('已更新', 'success')
+    return redirect(url_for('asset.firmware_list'))
+
+
+@asset_bp.route('/device-firmwares/delete/<int:id>')
+@login_required
+@require_permission('device:delete')
+def firmware_delete(id):
+    fw = DeviceFirmware.query.get(id)
+    if fw:
+        db.session.delete(fw); db.session.commit()
+    flash('已删除', 'success')
+    return redirect(url_for('asset.firmware_list'))
+
+
+@asset_bp.route('/api/firmwares/match-device/<int:device_id>')
+@login_required
+@require_permission('device:view')
+def api_firmware_match_device(device_id):
+    """V12: 给定设备 id，返回该设备 brand+model 下所有固件版本（以及最新版本标记）"""
+    d = Device.query.get_or_404(device_id)
+    fws = DeviceFirmware.query.filter_by(brand=d.brand, model=d.model).order_by(
+        DeviceFirmware.firmware_type, DeviceFirmware.is_latest.desc(), DeviceFirmware.release_date.desc()
+    ).all()
+    return jsonify({
+        'device': {
+            'id': d.id, 'name': d.device_name, 'brand': d.brand, 'model': d.model,
+            'os_version': d.os_version or '', 'rule_version': d.rule_version or '',
+        },
+        'firmwares': [{
+            'id': fw.id, 'firmware_type': fw.firmware_type, 'version': fw.version,
+            'release_date': fw.release_date.isoformat() if fw.release_date else '',
+            'is_latest': fw.is_latest,
+            'changelog': fw.changelog, 'download_url': fw.download_url,
+            'upgrade_guide': fw.upgrade_guide,
+        } for fw in fws],
+    })

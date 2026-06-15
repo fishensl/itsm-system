@@ -1,0 +1,102 @@
+{# 通用 UI 宏
+   用法: {% import "_ui.html" as ui %}
+#}
+
+{# 页面头部
+   {% call ui.page_header('工单管理', 'ticket-detailed') %}
+       <a href="..." class="btn btn-primary">新建工单</a>
+   {% endcall %}
+#}
+{% macro page_header(title, icon) -%}
+{%- if caller is defined and caller %}<div class="page-toolbar"><div class="actions">{{ caller() }}</div></div>{%- endif -%}
+{%- endmacro %}
+
+{# 筛选栏容器
+   {% call ui.filter_bar() %}
+       <form method="get" class="row g-2 align-items-center">...</form>
+   {% endcall %}
+#}
+{% macro filter_bar() -%}
+{%- if caller is defined and caller %}<div class="card mb-3 filter-bar"><div class="card-body py-2">{{ caller() }}</div></div>{%- endif -%}
+{%- endmacro %}
+
+{# 表格操作按钮组
+   {{ ui.table_actions(
+       view_url=url_for('...detail'),
+       edit_url=url_for('...edit'),
+       delete_url=url_for('...delete'),
+       delete_confirm='确定删除该工单？') }}
+#}
+{% macro table_actions(view_url='', edit_url='', delete_url='', delete_confirm='确定删除？') %}
+{% if view_url %}<a href="{{ view_url }}" class="btn btn-sm btn-outline-info" title="查看"><i class="bi-eye"></i></a>{% endif %}
+{% if edit_url %}<a href="{{ edit_url }}" class="btn btn-sm btn-outline-primary" title="编辑"><i class="bi-pencil"></i></a>{% endif %}
+{% if delete_url %}<a href="{{ delete_url }}" class="btn btn-sm btn-outline-danger" title="删除" onclick="return confirm('{{ delete_confirm }}')"><i class="bi-trash"></i></a>{% endif %}
+{% endmacro %}
+
+{# 指标卡片
+   {{ ui.metric_card('people', total_users, '用户总数', '+3 本月新增', 'primary') }}
+#}
+{% macro metric_card(icon, value, label, sub='', accent='primary') %}
+<div class="stat-card">
+    <div class="stat-icon {{ accent }}"><i class="bi-{{ icon }}"></i></div>
+    <div class="stat-info">
+        <h3>{{ value }}</h3>
+        <p>{{ label }}{% if sub %} <span class="text-muted">| {{ sub }}</span>{% endif %}</p>
+    </div>
+</div>
+{% endmacro %}
+
+{# 小指标卡片（系统概览等资源卡）
+   {{ ui.resource_card('CPU', 'bi-cpu', 45, '4 核 / 8 线程') }}
+#}
+{% macro resource_card(title, icon, percent, detail='') %}
+<div class="card h-100">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+                <h6 class="text-muted mb-1">{{ title }}</h6>
+                <h4 class="mb-0">{{ percent }}%</h4>
+            </div>
+            <i class="bi {{ icon }} text-primary fs-4"></i>
+        </div>
+        <div class="progress mb-2" style="height:6px;">
+            <div class="progress-bar" style="width:{{ percent }}%"></div>
+        </div>
+        {% if detail %}<small class="text-muted">{{ detail }}</small>{% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+{# 优先级徽章 #}
+{% macro priority_badge(priority) %}
+{% set color = 'danger' if priority=='紧急' else 'warning' if priority=='高' else 'info' if priority=='中' else 'secondary' %}
+<span class="badge bg-{{ color }}">{{ priority }}</span>
+{% endmacro %}
+
+{# 工单状态徽章 #}
+{% macro ticket_status_badge(status) %}
+{% set colors = {
+    '待派单':'secondary','待接单':'info','处理中':'primary','待审核':'warning',
+    '待验收':'warning','已完成':'success','已关闭':'dark'
+} %}
+<span class="badge bg-{{ colors[status]|default('secondary') }}">{{ status }}</span>
+{% endmacro %}
+
+{# 照片上传展示区（仅结构，配合 JS 使用）
+   {{ ui.photo_upload_field('现场照片', photos, 'site-photo') }}
+#}
+{% macro photo_upload_field(label, photos=[], list_class='photo-list') %}
+<div class="mb-3">
+    <label class="form-label">{{ label }}</label>
+    <div class="{{ list_class }} d-flex flex-wrap gap-2 mb-2">
+        {% for p in photos %}
+        <div class="photo-item position-relative d-inline-block">
+            <img src="/{{ p }}" class="rounded" style="width:120px;height:90px;object-fit:cover;border:1px solid var(--border);">
+            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1" style="font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>
+            <input type="hidden" class="photo-path" value="{{ p }}">
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addPhoto(this)"><i class="bi-camera"></i> 添加照片</button>
+</div>
+{% endmacro %}

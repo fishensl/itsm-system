@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <a href="{{ url_for('ops.knowledge_base_edit', id=kb.id) }}" class="btn btn-primary btn-sm"><i class="bi-pencil"></i> 编辑</a>
+        <a href="{{ url_for('ops.knowledge_base_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi-file-earmark-text"></i> 正文</div>
+            <div class="card-body">
+                <div style="white-space:pre-wrap;line-height:1.8;font-size:14px;">{{ kb.content }}</div>
+            </div>
+        </div>
+
+        {# V7 附件 #}
+        {% if kb.attachments.count() > 0 %}
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi-paperclip"></i> 附件 ({{ kb.attachments.count() }})</div>
+            <div class="card-body">
+                <div class="row g-2">
+                {% for att in kb.attachments %}
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center p-2 border rounded">
+                        <div class="me-2" style="font-size:32px;">
+                        {% if att.file_ext == '.pdf' %}
+                            <i class="bi-file-earmark-pdf text-danger"></i>
+                        {% elif att.file_ext in ('.png','.jpg','.jpeg','.gif','.bmp','.webp') %}
+                            <i class="bi-file-earmark-image text-success"></i>
+                        {% elif att.file_ext in ('.doc','.docx') %}
+                            <i class="bi-file-earmark-word text-primary"></i>
+                        {% elif att.file_ext in ('.xls','.xlsx') %}
+                            <i class="bi-file-earmark-excel text-success"></i>
+                        {% else %}
+                            <i class="bi-file-earmark text-secondary"></i>
+                        {% endif %}
+                        </div>
+                        <div class="flex-grow-1" style="min-width:0;">
+                            <div class="text-truncate" title="{{ att.file_name }}"><strong>{{ att.file_name }}</strong></div>
+                            <small class="text-muted">{{ (att.file_size / 1024)|round(1) }} KB · {{ att.uploaded_by }}</small>
+                        </div>
+                        <div>
+                        {% if att.file_ext in ('.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp') %}
+                            <button class="btn btn-sm btn-outline-info" onclick="previewAtt('{{ url_for('ops.knowledge_base_attachment_preview', kb_id=kb.id, att_id=att.id) }}', '{{ att.file_ext }}', '{{ att.file_name }}')" title="预览"><i class="bi-eye"></i></button>
+                        {% endif %}
+                            <a href="{{ url_for('ops.knowledge_base_attachment_download', kb_id=kb.id, att_id=att.id) }}" class="btn btn-sm btn-outline-success" title="下载"><i class="bi-download"></i></a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header">信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted">分类</td><td><span class="badge bg-{{ 'danger' if kb.category in ('故障处置','故障案例') else 'info' if kb.category in ('技术手册','设备手册') else 'warning' if kb.category=='巡检经验' else 'success' if kb.category=='项目经验' else 'primary' if kb.category=='业务经验' else 'secondary' }}">{{ kb.category }}</span></td></tr>
+                    <tr><td class="text-muted">标签</td><td>{{ kb.tags or '-' }}</td></tr>
+                    <tr><td class="text-muted">设备类型</td><td>{{ kb.related_device_type or '-' }}</td></tr>
+                    <tr><td class="text-muted">浏览</td><td>{{ kb.view_count }} 次</td></tr>
+                    <tr><td class="text-muted">创建人</td><td>{{ kb.created_by }}</td></tr>
+                    <tr><td class="text-muted">日期</td><td>{{ kb.created_at.strftime('%Y-%m-%d %H:%M') if kb.created_at else '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+        {% if ticket or fault %}
+        <div class="card">
+            <div class="card-header">关联</div>
+            <div class="card-body">
+                {% if ticket %}<p>📌 <a href="{{ url_for('ops.ticket_detail', id=ticket.id) }}">工单 #{{ ticket.number }}: {{ ticket.title }}</a></p>{% endif %}
+                {% if fault %}<p>⚠️ <a href="{{ url_for('ops.fault_detail', id=fault.id) }}">故障 #{{ fault.id }}: {{ fault.title }}</a></p>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{# 预览 Modal #}
+<div class="modal fade" id="previewModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
+    <div class="modal-header">
+        <h5 class="modal-title" id="previewTitle">附件预览</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body p-0 bg-light" id="previewBody" style="min-height:500px;text-align:center;"></div>
+</div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function previewAtt(url, ext, name) {
+    var body = document.getElementById('previewBody');
+    document.getElementById('previewTitle').textContent = '预览 - ' + name;
+    if (ext === '.pdf') {
+        body.innerHTML = '<iframe src="' + url + '" style="width:100%;height:75vh;border:0;"></iframe>';
+    } else {
+        body.innerHTML = '<img src="' + url + '" style="max-width:100%;max-height:75vh;display:block;margin:0 auto;">';
+    }
+    new bootstrap.Modal(document.getElementById('previewModal')).show();
+}
+</script>
+{% endblock %}

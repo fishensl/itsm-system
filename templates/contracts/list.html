@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('合同管理', 'file-earmark-lock') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增合同</button>
+{% endcall %}
+<div class="content-card">
+    {% if contracts %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead><tr><th>ID</th><th>编号</th><th>标题</th><th>客户</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for c in contracts %}
+                <tr>
+                    <td>{{ c.id }}</td>
+                    <td>{{ c.number }}</td>
+                    <td><strong>{{ c.title }}</strong></td>
+                    <td>{{ c.customer_rel.name if c.customer_rel else '-' }}</td>
+                    <td>{{ c.amount }}</td>
+                    <td><span class="badge bg-{{ 'success' if c.status=='已完成' else 'primary' if c.status=='执行中' else 'info' if c.status=='已签' else 'secondary' }}">{{ c.status }}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editC({{ c.id }},'{{ c.title }}',{{ c.customer_id or 'null' }},'{{ c.status }}',{{ c.amount }})"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(delete_url=url_for('sales.contract_delete', id=c.id), delete_confirm='确定删除？') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ eui.empty_state('bi-file-earmark-lock', '暂无合同') }}
+    {% endif %}
+</div>
+</div>
+
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>新增合同</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" action="{{ url_for('sales.contract_add') }}"><div class="modal-body"><div class="mb-3"><label class="form-label">编号</label><input type="text" name="number" class="form-control"></div><div class="mb-3"><label class="form-label">标题 <span class="text-danger">*</span></label><input type="text" name="title" class="form-control" required></div><div class="mb-3"><label class="form-label">客户</label><select name="customer_id" class="form-select">{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">金额</label><input type="number" name="amount" class="form-control" step="0.01" value="0"></div><div class="mb-3"><label class="form-label">状态</label><select name="status" class="form-select">{% for s in ['草签','已签','执行中','已完成','已终止'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>编辑合同</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" id="editForm"><div class="modal-body"><div class="mb-3"><label class="form-label">标题</label><input type="text" name="title" id="edit_title" class="form-control" required></div><div class="mb-3"><label class="form-label">金额</label><input type="number" name="amount" id="edit_amount" class="form-control" step="0.01"></div><div class="mb-3"><label class="form-label">状态</label><select name="status" id="edit_status" class="form-select">{% for s in ['草签','已签','执行中','已完成','已终止'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+{% endblock %}{% block scripts %}<script>function editC(id,title,cid,status,amount){document.getElementById('edit_title').value=title;document.getElementById('edit_amount').value=amount;document.getElementById('edit_status').value=status;document.getElementById('editForm').action='/contracts/edit/'+id;new bootstrap.Modal(document.getElementById('editModal')).show();}</script>{% endblock %}

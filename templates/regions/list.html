@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('地区管理', 'geo-alt') %}    <button class="btn btn-outline-secondary btn-sm me-2" onclick="toggleAllRegions()">
+        <i class="bi-arrows-expand" id="regionExpandIcon"></i> <span id="regionExpandText">全部展开</span>
+    </button>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增地区</button>
+{% endcall %}
+<div class="content-card">
+    <div class="card-body">
+        {% if cities %}
+        <div id="regionTree" class="region-tree">
+            {% for c in cities %}
+            <div class="region-city-card" data-city-id="{{ c.id }}">
+                <div class="region-city-header" onclick="toggleRegionCity({{ c.id }})">
+                    <i class="bi bi-chevron-down region-arrow" id="region-arrow-{{ c.id }}"></i>
+                    <i class="bi bi-geo-alt-fill text-primary"></i>
+                    <strong class="flex-grow-1">{{ c.name }}</strong>
+                    <span class="badge bg-secondary me-2" id="region-count-{{ c.id }}">{{ c.children|length }}</span>
+                    <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); addRegionChild({{ c.id }}, '{{ c.name }}')" title="为{{ c.name }}添加区/县">
+                        <i class="bi-plus-lg"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-info ms-1" onclick="event.stopPropagation(); editRegion({{ c.id }}, '{{ c.name }}', null, {{ c.sort_order }})" title="编辑{{ c.name }}">
+                        <i class="bi-pencil"></i>
+                    </button>
+                    <span class="ms-1" onclick="event.stopPropagation();">
+                        {{ ui.table_actions(delete_url=url_for('customer.region_delete', id=c.id), delete_confirm='确定删除 {{ c.name }} 及其所有区/县？') }}
+                    </span>
+                </div>
+                <div class="region-children" id="region-children-{{ c.id }}">
+                    {% if c.children %}
+                    <table class="table table-sm region-children-table mb-0">
+                        <tbody>
+                        {% for d in c.children %}
+                        <tr>
+                            <td style="width:50px;"><span class="text-muted small">{{ loop.index }}</span></td>
+                            <td><i class="bi bi-geo-alt text-muted me-1"></i>{{ d.name }}</td>
+                            <td style="width:60px;" class="text-muted small text-center">序 {{ d.sort_order }}</td>
+                            <td class="text-end" style="width:140px;">
+                                <button class="btn btn-sm btn-outline-primary" onclick="editRegion({{ d.id }}, '{{ d.name }}', {{ c.id }}, {{ d.sort_order }})" title="编辑"><i class="bi-pencil"></i></button>
+                                {{ ui.table_actions(delete_url=url_for('customer.region_delete', id=d.id), delete_confirm='确定删除 {{ d.name }}？') }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="region-empty">该地市暂无下级区/县，点击右上角 + 添加</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% if not cities %}
+{{ eui.empty_state('bi-geo-alt', '暂无地区', '点击右上角「新增地区」添加') }}
+        {% endif %}
+        {% else %}
+{{ eui.empty_state('bi-geo-alt', '暂无地区', '点击右上角「新增地区」添加') }}
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.region-tree { display: flex; flex-direction: column; gap: 10px; }
+.region-city-card {
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow .18s ease;
+}
+.region-city-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.region-city-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--primary-soft);
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    user-select: none;
+    font-size: 14px;
+}
+.region-city-header strong { font-size: 14px; color: var(--gray-900); }
+.region-arrow { transition: transform .25s ease; color: var(--gray-500); font-size: 13px; }
+.region-city-card.collapsed .region-arrow { transform: rotate(-90deg); }
+.region-city-card.collapsed .region-children { display: none; }
+.region-children { background: var(--surface-muted); }
+.region-children-table { margin-bottom: 0; }
+.region-children-table td { padding: 8px 12px; vertical-align: middle; border-color: var(--border-soft); }
+.region-children-table tr:last-child td { border-bottom: none; }
+.region-empty { padding: 14px 20px; color: var(--gray-400); font-size: 13px; text-align: center; font-style: italic; }
+:root[data-theme="dark"] .region-city-header {
+    background: linear-gradient(135deg, rgba(96,165,250,0.10), rgba(34,211,238,0.05));
+}
+</style>
+
+<!-- 新增弹窗 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title"><i class="bi-plus-lg"></i> 新增地区</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" action="{{ url_for('customer.region_add') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">地区名称 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" class="form-control" required placeholder="例如：吉安市 / 东湖区">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">上级地区 <small class="text-muted">(留空则为顶级地市)</small></label>
+                        <select name="parent_id" id="add_parent_id" class="form-select">
+                            <option value="">-- 顶级（无上级） --</option>
+                            {% for c in cities %}
+                            <option value="{{ c.id }}">{{ c.name }}（地市）</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" class="form-control" value="0" style="width:100px;">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title"><i class="bi-pencil"></i> 编辑地区</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" id="editForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">地区名称 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" id="edit_name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">上级地区 <small class="text-muted">(留空则为顶级地市)</small></label>
+                        <select name="parent_id" id="edit_parent_id" class="form-select">
+                            <option value="">-- 顶级（无上级） --</option>
+                            {% for c in cities %}
+                            <option value="{{ c.id }}">{{ c.name }}（地市）</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" id="edit_sort_order" class="form-control" value="0" style="width:100px;">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleRegionCity(cityId) {
+    var card = document.querySelector('.region-city-card[data-city-id="' + cityId + '"]');
+    if (card) {
+        card.classList.toggle('collapsed');
+        try { localStorage.setItem('regionCity_' + cityId, card.classList.contains('collapsed') ? '0' : '1'); } catch(e){}
+    }
+}
+function toggleAllRegions() {
+    var cards = document.querySelectorAll('.region-city-card');
+    var anyOpen = Array.from(cards).some(function(c){return !c.classList.contains('collapsed');});
+    cards.forEach(function(c){
+        if (anyOpen) c.classList.add('collapsed');
+        else c.classList.remove('collapsed');
+        var id = c.getAttribute('data-city-id');
+        try { localStorage.setItem('regionCity_' + id, anyOpen ? '0' : '1'); } catch(e){}
+    });
+    var icon = document.getElementById('regionExpandIcon');
+    var text = document.getElementById('regionExpandText');
+    icon.className = anyOpen ? 'bi bi-arrows-expand' : 'bi bi-arrows-collapse';
+    text.textContent = anyOpen ? '全部展开' : '全部折叠';
+}
+function addRegionChild(cityId, cityName) {
+    var modal = new bootstrap.Modal(document.getElementById('addModal'));
+    var sel = document.getElementById('add_parent_id');
+    if (sel) {
+        sel.value = cityId;
+    }
+    var input = document.querySelector('#addModal input[name="name"]');
+    if (input) { input.value = ''; input.focus(); }
+    modal.show();
+}
+function editRegion(id, name, parentId, sortOrder) {
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_parent_id').value = parentId || '';
+    document.getElementById('edit_sort_order').value = sortOrder;
+    document.getElementById('editForm').action = '/regions/edit/' + id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+// 恢复折叠/展开状态
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.region-city-card').forEach(function(c){
+        var id = c.getAttribute('data-city-id');
+        var saved = localStorage.getItem('regionCity_' + id);
+        // 第一次默认全部展开，便于浏览区/县
+        if (saved === '0') c.classList.add('collapsed');
+    });
+});
+</script>
+{% endblock %}

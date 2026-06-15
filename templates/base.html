@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}IT运维综合管理系统{% endblock %}</title>
+    <script>
+        (function() {
+            var savedTheme = localStorage.getItem('appTheme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme-pages.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <button class="mobile-menu-toggle" type="button" onclick="toggleSidebar()" aria-label="切换菜单">
+        <i class="bi-list"></i>
+    </button>
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+    <!-- 侧边栏 -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-brand-icon">
+                <i class="bi-hdd-network"></i>
+            </div>
+            <div class="sidebar-brand-copy sidebar-text">
+                <span class="sidebar-brand-title">IT运维综合管理系统</span>
+            </div>
+            <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">
+                <i class="bi-chevron-left"></i>
+            </button>
+        </div>
+        <ul class="nav flex-column" id="sidebarGroups">
+            {# 权限辅助函数 #}
+            {% set p = has_perm %}
+
+            {% for grp in sidebar_groups %}
+                {% if grp.enabled %}
+                    {% if grp.single_link %}
+                        {# 工作台（单链接） #}
+                        <li class="nav-item {% if request_path == grp.single_link.url %}active-group{% endif %}">
+                            <a class="nav-link {% if request_path == grp.single_link.url %}active{% endif %}"
+                               href="{{ grp.single_link.url }}" title="{{ grp.title }}">
+                                <i class="{{ grp.single_link.icon or grp.icon }}"></i>
+                                <span class="sidebar-text">{{ grp.single_link.name }}</span>
+                            </a>
+                        </li>
+                    {% else %}
+                        {# 多子项组 #}
+                        {% set is_active_grp = false %}
+                        {% if grp.children %}
+                            {% for c in grp.children %}
+                                {% if request_path.startswith(c.url.split('?')[0]) %}{% set is_active_grp = true %}{% endif %}
+                            {% endfor %}
+                        {% endif %}
+                        <li class="nav-group {% if is_active_grp %}active open{% endif %}" data-group="{{ grp.key }}">
+                            <a class="nav-group-toggle" onclick="toggleGroup(this)">
+                                <i class="{{ grp.icon }}"></i><span class="sidebar-text">{{ grp.title }}</span>
+                                <i class="bi-chevron-down arrow"></i>
+                            </a>
+                            <ul class="nav-sub">
+                                {% for c in grp.children %}
+                                    {% if not c.perm or p(c.perm) %}
+                                    {# active 判定：
+                                       - URL 含 ?category=xxx：仅当当前 path 完全相等且 request.args.category 等于该值时 active
+                                       - URL 不含 ?：当前 path 完全相等且当前请求无 category 参数时 active
+                                       - URL 是子路径（如 /knowledge-base/add）：path 必须完全相等
+                                    #}
+                                    {% set is_link_active = false %}
+                                    {% if '?category=' in c.url %}
+                                        {% set _path_part = c.url.split('?')[0] %}
+                                        {% set _cat = c.url.split('?category=')[-1] %}
+                                        {% if request_path == _path_part and request.args.get('category') == _cat %}
+                                            {% set is_link_active = true %}
+                                        {% endif %}
+                                    {% else %}
+                                        {% if request_path == c.url and not request.args.get('category') %}
+                                            {% set is_link_active = true %}
+                                        {% endif %}
+                                    {% endif %}
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if is_link_active %}active{% endif %}"
+                                           href="{{ c.url }}" title="{{ c.name }}">
+                                            <i class="{{ c.icon }}"></i><span class="sidebar-text">{{ c.name }}</span>
+                                        </a>
+                                    </li>
+                                    {% endif %}
+                                {% endfor %}
+                            </ul>
+                        </li>
+                    {% endif %}
+                {% endif %}
+            {% endfor %}
+        </ul>
+
+        <div class="sidebar-footer">
+            <button class="nav-link theme-toggle" type="button" onclick="toggleTheme()" title="切换主题">
+                <i class="bi-moon-stars" id="themeToggleIcon"></i><span class="sidebar-text" id="themeToggleText">深色模式</span>
+            </button>
+            {% if current_user.is_authenticated %}
+            <a class="nav-link" href="{{ url_for('me_change_password') }}" title="修改密码">
+                <i class="bi-key"></i><span class="sidebar-text">修改密码</span>
+            </a>
+            {% endif %}
+            <a class="nav-link" href="javascript:void(0)" onclick="logout()" title="退出登录">
+                <i class="bi-box-arrow-right"></i><span class="sidebar-text">退出登录</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        {%- block breadcrumb -%}
+        {%- set path = request_path -%}
+        {# 兼容性：所有 is_* 变量（为面包屑提供上下文判断） #}
+        {%- set is_biz_customer = path.startswith('/customers') -%}
+        {%- set is_biz_region = path.startswith('/regions') -%}
+        {%- set is_cat = path.startswith('/customer-categories') -%}
+        {%- set is_dev_list = path.startswith('/devices') and not path.startswith('/device-') -%}
+        {%- set is_dev_sub = path.startswith('/device-brands') or path.startswith('/device-network-types') or path.startswith('/device-custom-fields') or path.startswith('/device-types') -%}
+        {%- set is_dev_related = path.startswith('/topologies') -%}
+        {%- set is_dev = is_dev_list or is_dev_sub or is_dev_related -%}
+        {%- set is_insp_list = path.startswith('/inspections') and not path.startswith('/inspection-') -%}
+        {%- set is_insp_tpl = path.startswith('/inspection-templates') -%}
+        {%- set is_insp_person = path.startswith('/inspectors') -%}
+        {%- set is_insp_task = path.startswith('/inspection-tasks') or path.startswith('/task-dispatch') -%}
+        {%- set is_task_tpl = path.startswith('/task-templates') -%}
+        {%- set is_device_check_tpl = path.startswith('/device-check-templates') -%}
+        {%- set is_insp = is_insp_list or is_insp_tpl or is_insp_person or is_insp_task or path.startswith('/task-dispatch') -%}
+        {%- set is_ticket = path.startswith('/tickets') -%}
+        {%- set is_fault = path.startswith('/faults') or path.startswith('/fault-types') -%}
+        {%- set is_kb = path.startswith('/knowledge-base') -%}
+        {%- set is_reports = path.startswith('/reports') and not path.startswith('/dashboard') -%}
+        {%- set is_ops = is_insp or is_ticket or is_fault or is_reports or is_task_tpl or is_device_check_tpl -%}
+        {%- set is_opp = path.startswith('/opportunit') -%}
+        {%- set is_quote = path.startswith('/quotation') -%}
+        {%- set is_contract = path.startswith('/contract') -%}
+        {%- set is_project = path.startswith('/project') -%}
+        {%- set is_sales = is_opp or is_quote or is_contract or is_project -%}
+        {%- set is_spare_part = path.startswith('/spare-parts') -%}
+        {%- set is_spare_stock = path.startswith('/spare-stocks') -%}
+        {%- set is_purchase = path.startswith('/purchase-orders') -%}
+        {%- set is_sales_order = path.startswith('/sales-orders') -%}
+        {%- set is_spare = is_spare_part or is_spare_stock or is_purchase or is_sales_order -%}
+        {%- set is_dash = path.startswith('/dashboard/reports') -%}
+        {%- set is_ai = path.startswith('/ai-config') -%}
+        {%- set is_user = path.startswith('/users') -%}
+        {%- set is_perm = path.startswith('/permissions') -%}
+        {%- set is_dept = path.startswith('/departments') -%}
+        {%- set is_sys_overview = path == '/system' -%}
+        {%- set is_sys_sidebar = path.startswith('/system/sidebar') -%}
+        {%- set is_sys_path = path.startswith('/system') -%}
+        {%- set is_sys = is_sys_path or is_dept or is_user or is_perm or is_ai or is_dash -%}
+        {%- set is_contract_task = path.startswith('/contract-tasks') -%}
+        <div class="breadcrumb-nav"><a href="/"><i class="bi-house"></i> 首页</a>{% if is_biz_customer %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('customer')">客户管理</a><span class="separator">›</span><span class="current">客户列表</span>{% elif is_biz_region %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('customer')">客户管理</a><span class="separator">›</span><span class="current">地区管理</span>{% elif is_cat %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('customer')">客户管理</a><span class="separator">›</span><span class="current">单位类别</span>{% elif is_dev %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('dev')">资产管理</a>{% if is_dev_list %}<span class="separator">›</span><span class="current">设备列表</span>{% elif path.startswith('/device-types') %}<span class="separator">›</span><span class="current">设备类型</span>{% elif path.startswith('/device-brands') %}<span class="separator">›</span><span class="current">品牌管理</span>{% elif path.startswith('/device-network-types') %}<span class="separator">›</span><span class="current">网络类型</span>{% elif path.startswith('/device-custom-fields') %}<span class="separator">›</span><span class="current">自定义字段</span>{% elif path.startswith('/topologies') %}<span class="separator">›</span><span class="current">拓扑图</span>{% endif %}{% elif is_ops %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('ops')">运维管理</a>{% if is_insp_list %}<span class="separator">›</span><span class="current">巡检记录</span>{% elif is_insp_task or path.startswith('/task-dispatch') %}<span class="separator">›</span><span class="current">巡检任务</span>{% elif is_insp_tpl %}<span class="separator">›</span><span class="current">巡检模板</span>{% elif is_insp_person %}<span class="separator">›</span><span class="current">巡检人员</span>{% elif is_ticket %}<span class="separator">›</span><span class="current">工单管理</span>{% elif is_fault %}<span class="separator">›</span><span class="current">故障记录</span>{% elif is_reports %}<span class="separator">›</span><span class="current">报告管理</span>{% elif is_task_tpl %}<span class="separator">›</span><span class="current">任务模板</span>{% elif is_device_check_tpl %}<span class="separator">›</span><span class="current">设备模板</span>{% endif %}{% elif is_kb %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('kb')">知识库</a>{% if request.args.get('category') %}<span class="separator">›</span><span class="current">{{ request.args.get('category') }}</span>{% elif path == '/knowledge-base/add' %}<span class="separator">›</span><span class="current">新增知识</span>{% elif path.startswith('/knowledge-base/edit') %}<span class="separator">›</span><span class="current">编辑</span>{% elif '/knowledge-base/' in path %}<span class="separator">›</span><span class="current">详情</span>{% else %}<span class="separator">›</span><span class="current">全部知识</span>{% endif %}{% elif is_spare %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('spare')">备件管理</a>{% if is_spare_part %}<span class="separator">›</span><span class="current">备件档案</span>{% elif is_spare_stock %}<span class="separator">›</span><span class="current">库存管理</span>{% elif is_purchase %}<span class="separator">›</span><span class="current">采购入库</span>{% elif is_sales_order %}<span class="separator">›</span><span class="current">销售出库</span>{% endif %}{% elif is_sales %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('sales')">销售管理</a>{% if is_opp %}<span class="separator">›</span><span class="current">商机跟进</span>{% elif is_quote %}<span class="separator">›</span><span class="current">报价单</span>{% elif is_contract %}<span class="separator">›</span><a href="/contracts">合同管理</a>{% if is_contract_task %}<span class="separator">›</span><span class="current">合同巡检配置</span>{% else %}<span class="separator">›</span><span class="current">合同管理</span>{% endif %}{% elif is_project %}<span class="separator">›</span><span class="current">项目管理</span>{% endif %}{% elif is_sys or is_dept %}<span class="separator">›</span><a href="javascript:void(0)" onclick="openGroup('sys')">系统管理</a>{% if is_dept %}<span class="separator">›</span><span class="current">部门管理</span>{% elif is_user %}<span class="separator">›</span><span class="current">用户管理</span>{% elif is_perm %}<span class="separator">›</span><span class="current">权限管理</span>{% elif is_ai %}<span class="separator">›</span><span class="current">AI 对接</span>{% elif is_dash %}<span class="separator">›</span><span class="current">数据报表</span>{% elif is_sys_sidebar %}<span class="separator">›</span><span class="current">侧栏自定义</span>{% elif is_sys_overview %}<span class="separator">›</span><span class="current">系统概览</span>{% endif %}{% endif %}</div>
+        {%- endblock %}
+
+        {%- with messages = get_flashed_messages(with_categories=true) -%}
+            {%- if messages -%}
+                {%- for category, message in messages -%}
+                <div class="alert alert-{{ category if category in ['success','danger','warning','info'] else 'info' }} alert-dismissible fade show">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+                {%- endfor -%}
+            {%- endif -%}
+        {%- endwith -%}
+
+        {%- block content -%}{%- endblock -%}
+    </main>
+
+    <div class="toast-container position-fixed top-0 end-0 p-3"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/layout.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/form-validate.js') }}"></script>
+    <script>
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('appTheme', theme);
+        var icon = document.getElementById('themeToggleIcon');
+        var text = document.getElementById('themeToggleText');
+        if (icon) icon.className = theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
+        if (text) text.textContent = theme === 'dark' ? '浅色模式' : '深色模式';
+        document.dispatchEvent(new CustomEvent('themechange', { detail: { theme: theme } }));
+    }
+    function toggleTheme() {
+        var t = document.documentElement.getAttribute('data-theme') || 'light';
+        applyTheme(t === 'dark' ? 'light' : 'dark');
+    }
+    function toggleSidebar() {
+        var sidebar = document.getElementById('sidebar');
+        var overlay = document.getElementById('sidebarOverlay');
+        if (window.innerWidth <= 992) {
+            sidebar.classList.toggle('mobile-open');
+            overlay.classList.toggle('show');
+            return;
+        }
+        var isCollapsed = sidebar.classList.toggle('collapsed');
+        localStorage.setItem('sidebarCollapsed', isCollapsed);
+    }
+    function closeSidebar() {
+        var sidebar = document.getElementById('sidebar');
+        var overlay = document.getElementById('sidebarOverlay');
+        sidebar.classList.remove('mobile-open');
+        overlay.classList.remove('show');
+    }
+    // 折叠/展开组
+    function toggleGroup(el) {
+        if (window.innerWidth <= 992 && document.getElementById('sidebar').classList.contains('collapsed')) return;
+        var group = el.parentElement;
+        group.classList.toggle('open');
+        // 记住展开状态
+        var groupName = group.getAttribute('data-group');
+        if (groupName) {
+            var open = group.classList.contains('open');
+            try { localStorage.setItem('sidebarGroup_' + groupName, open ? '1' : '0'); } catch(e){}
+        }
+    }
+    function openGroup(name) {
+        var g = document.querySelector('.nav-group[data-group="' + name + '"]');
+        if (g) g.classList.add('open');
+    }
+    // 默认全部折叠 + 恢复记忆
+    document.addEventListener('DOMContentLoaded', function() {
+        if (window.innerWidth > 992 && localStorage.getItem('sidebarCollapsed') === 'true') {
+            document.getElementById('sidebar').classList.add('collapsed');
+        }
+        // 默认全部折叠
+        document.querySelectorAll('.nav-group').forEach(function(g){
+            var name = g.getAttribute('data-group');
+            if (name) {
+                var saved = localStorage.getItem('sidebarGroup_' + name);
+                if (saved === '1') g.classList.add('open');
+                // 不主动加 open（默认折叠）
+            }
+        });
+        applyTheme(localStorage.getItem('appTheme') || 'light');
+    });
+    function showToast(message, type) {
+        type = type || 'info';
+        var container = document.querySelector('.toast-container');
+        var icons = { success: 'check-circle', danger: 'x-circle', warning: 'exclamation-triangle', info: 'info-circle' };
+        var toast = document.createElement('div');
+        toast.className = 'toast toast-' + type + ' show';
+        toast.innerHTML = '<i class="bi-' + icons[type] + '"></i><span>' + message + '</span><button type="button" class="btn-close" data-bs-dismiss="toast"></button>';
+        container.appendChild(toast);
+        setTimeout(function(){ toast.classList.remove('show'); setTimeout(function(){ toast.remove(); }, 300); }, 3000);
+    }
+    function logout() {
+        if (confirm('确定要退出登录吗？')) { window.location.href = '/logout'; }
+    }
+    // ====== CSRF 自动注入：所有表单 + 所有 fetch ======
+    document.addEventListener('DOMContentLoaded', function() {
+        // 从 cookie 读取 CSRF token（Flask-WTF 默认存在 'csrf_token' cookie 中）
+        function getCsrfToken() {
+            var m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+            return m ? decodeURIComponent(m[1]) : '';
+        }
+        // 1) 给所有 <form method="post"> 自动追加 csrf_token 隐藏域
+        document.querySelectorAll('form').forEach(function(form) {
+            var method = (form.getAttribute('method') || 'GET').toUpperCase();
+            if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH' && method !== 'DELETE') return;
+            if (form.querySelector('input[name="csrf_token"]')) return;
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = getCsrfToken();
+            form.appendChild(input);
+        });
+        // 2) 包装 fetch 自动附加 X-CSRFToken 头
+        var _origFetch = window.fetch;
+        window.fetch = function(url, opts) {
+            opts = opts || {};
+            if ((opts.method || 'GET').toUpperCase() !== 'GET') {
+                var headers = opts.headers || {};
+                if (headers instanceof Headers) {
+                    if (!headers.has('X-CSRFToken')) headers.set('X-CSRFToken', getCsrfToken());
+                } else {
+                    if (!headers['X-CSRFToken'] && !headers['X-CSRF-Token']) {
+                        headers['X-CSRFToken'] = getCsrfToken();
+                    }
+                }
+                opts.headers = headers;
+            }
+            return _origFetch.call(this, url, opts);
+        };
+    });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

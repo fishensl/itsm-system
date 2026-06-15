@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenv
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Runtime data
+logs/
+*.log
+reports/
+uploads/
+backups/
+
+# Static uploads
+static/uploads/knowledge/*
+static/uploads/spare_parts/*
+static/uploads/topologies/*
+
+# Database
+instance/*.db
+instance/*.db.*
+
+# Secrets
+.secret.key
+.env
+.env.*
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,71 @@
+{# 空状态宏：当列表为空时显示
+   用法: {% import "_empty_state.html" as ui %}{{ ui.empty_state('bi-people', '暂无客户数据', '点击右上角「新增」开始添加') }}
+#}
+{% macro empty_state(icon='bi-inbox', title='暂无数据', hint='', action_url='', action_text='') %}
+<div class="empty-state text-center py-5 text-muted">
+    <i class="bi {{ icon }} empty-state-icon"></i>
+    <p class="empty-state-title mb-1">{{ title }}</p>
+    {% if hint %}<p class="small mb-3 opacity-75">{{ hint }}</p>{% endif %}
+    {% if action_url and action_text %}
+    <a href="{{ action_url }}" class="btn btn-sm btn-primary mt-2">
+        <i class="bi-plus-lg me-1"></i>{{ action_text }}
+    </a>
+    {% endif %}
+</div>
+{% endmacro %}
+
+
+{# 加载中占位
+   用法: {% import "_empty_state.html" as ui %}{{ ui.loading(text='加载中...') }}
+#}
+{% macro loading(text='加载中...') %}
+<div class="loading-overlay text-center py-4 text-muted">
+    <div class="spinner-border spinner-border-sm text-primary" role="status" style="vertical-align:middle;">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <span class="ms-2">{{ text }}</span>
+</div>
+{% endmacro %}
+
+
+{# 徽章（统一风格）
+   用法: {{ ui.badge('核心', 'danger') }}
+#}
+{% macro badge(text, color='secondary') %}
+<span class="badge bg-{{ color }}">{{ text }}</span>
+{% endmacro %}
+
+
+{# 级别徽章（按客户级别显示对应颜色）
+   用法: {{ ui.level_badge(customer.level) }}
+#}
+{% macro level_badge(level) %}
+{% if level == '核心' %}<span class="badge bg-danger">核心</span>
+{% elif level == '重点' %}<span class="badge bg-warning">重点</span>
+{% else %}<span class="badge bg-info">常规</span>
+{% endif %}
+{% endmacro %}
+
+
+{# 状态徽章
+   用法: {{ ui.status_badge('已完成', 'success') }}
+#}
+{% macro status_badge(status, color='') %}
+{% if not color %}
+    {% if status in ['已完成', '已解决', '已发布', '已签', '成交', '正常', '在用'] %}{% set color = 'success' %}
+    {% elif status in ['待审核', '处理中', '执行中', '进行中', '待验收', '警告'] %}{% set color = 'warning' %}
+    {% elif status in ['已退回', '失败', '已拒绝', '已关闭', '异常', '紧急'] %}{% set color = 'danger' %}
+    {% elif status in ['待派单', '待接单', '待执行', '中'] %}{% set color = 'info' %}
+    {% else %}{% set color = 'secondary' %}
+    {% endif %}
+{% endif %}
+<span class="badge bg-{{ color }}">{{ status or '-' }}</span>
+{% endmacro %}
+
+
+{# 数字格式化（千分位）
+   用法: {{ ui.thousands(1234567) }} -> "1,234,567"
+#}
+{% macro thousands(n) %}
+{{ "{:,}".format(n or 0) }}
+{% endmacro %}

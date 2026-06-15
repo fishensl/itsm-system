@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}{% set p = preset or {} %}
+<div class="content-card">
+<form method="post" enctype="multipart/form-data">
+<input type="hidden" name="related_ticket_id" value="{{ (kb.related_ticket_id if kb else p.get('related_ticket_id','')) or '' }}">
+<input type="hidden" name="related_fault_id" value="{{ (kb.related_fault_id if kb else p.get('related_fault_id','')) or '' }}">
+<div class="row">
+    <div class="col-md-8 mb-3">
+        <label class="form-label">标题 <span class="text-danger">*</span></label>
+        <input type="text" name="title" class="form-control" required value="{{ kb.title if kb else p.get('title','') }}">
+    </div>
+    <div class="col-md-4 mb-3">
+        <label class="form-label">分类</label>
+        <select name="category" class="form-select">
+            {% set cur_cat = kb.category if kb else p.get('category','故障处置') %}
+            {% for c in ['故障处置','技术手册','项目经验','业务经验','内部规范','巡检经验','其他'] %}
+            <option value="{{ c }}" {% if cur_cat == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-6 mb-3">
+        <label class="form-label">关联设备类型</label>
+        <input type="text" name="related_device_type" class="form-control" value="{{ kb.related_device_type if kb else p.get('related_device_type','') }}" placeholder="如：交换机/路由器">
+    </div>
+    <div class="col-md-6 mb-3">
+        <label class="form-label">标签（逗号分隔）</label>
+        <input type="text" name="tags" class="form-control" value="{{ kb.tags if kb else p.get('tags','') }}" placeholder="如：交换机,配置,故障">
+    </div>
+    <div class="col-12 mb-3">
+        <label class="form-label">内容（支持 Markdown）</label>
+        <textarea name="content" class="form-control" rows="14" style="font-family:Consolas,monospace;font-size:13px;">{{ kb.content if kb else p.get('content','') }}</textarea>
+    </div>
+    {% if kb %}
+    <div class="col-12 mb-3">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="is_published" value="1" {% if kb.is_published %}checked{% endif %}>
+            <label class="form-check-label">发布</label>
+        </div>
+    </div>
+    {% endif %}
+    <div class="col-12 mb-3">
+        <label class="form-label">附件 <small class="text-muted">（支持 PDF/Word/Excel/图片，可多选）</small></label>
+        <input type="file" name="attachments" class="form-control" multiple
+               accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.txt">
+        {% if kb and kb.attachments.count() > 0 %}
+        <div class="mt-2">
+            <small class="text-muted">已有附件：</small>
+            <ul class="list-group list-group-flush mt-1">
+            {% for att in kb.attachments %}
+                <li class="list-group-item d-flex justify-content-between align-items-center px-2 py-1">
+                    <span><i class="bi-file-earmark"></i> {{ att.file_name }} <small class="text-muted">({{ (att.file_size / 1024)|round(1) }} KB)</small></span>
+                    <span>
+                        <a href="{{ url_for('ops.knowledge_base_attachment_download', kb_id=kb.id, att_id=att.id) }}" class="btn btn-sm btn-outline-success"><i class="bi-download"></i></a>
+                        <form method="post" action="{{ url_for('ops.knowledge_base_attachment_delete', kb_id=kb.id, att_id=att.id) }}" class="d-inline" onsubmit="return confirm('确定删除此附件？')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi-trash"></i></button>
+                        </form>
+                    </span>
+                </li>
+            {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+</div>
+<button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存</button>
+<a href="{{ url_for('ops.knowledge_base_list') }}" class="btn btn-secondary">取消</a>
+</form>
+</div>
+{% endblock %}

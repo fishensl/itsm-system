@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block head_extra %}
+<style>
+.tt-card { transition: transform .15s; }
+.tt-card:hover { transform: translateY(-2px); }
+.dt-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--border-soft); border-radius:6px; margin-bottom:6px; background:var(--surface); }
+.dt-row .drag-handle { cursor: grab; color: var(--gray-500); }
+.dt-row.dragging { opacity:.5; }
+.section-row { padding:6px 10px; border:1px solid var(--border-soft); border-radius:6px; margin-bottom:6px; display:flex; align-items:center; gap:10px; }
+</style>
+{% endblock %}
+{% block content %}{% call ui.page_header('巡检任务模板', 'tasks') %}    <button class="btn btn-primary btn-sm" onclick="openAddTT()"><i class="bi-plus-lg"></i> 新建任务模板</button>
+{% endcall %}
+<div class="alert alert-info py-2 mb-3 small">
+    <i class="bi-info-circle me-1"></i> 任务模板定义巡检任务的<strong>整份报告骨架</strong>：章节配置 + 一组按顺序排列的<a href="/device-check-templates" class="alert-link">设备检查模板</a>（即报告的 3.1, 3.2, ... 子表）。
+    支持<strong>按客户自动匹配</strong>：选择目标客户后，系统会按客户的设备清单自动加载推荐的设备模板。
+</div>
+
+{% if templates %}
+<div class="row">
+{% for tt in templates %}
+{% set ordered_dts = tt.get_ordered_device_templates() %}
+<div class="col-md-6 mb-3">
+<div class="card tt-card h-100">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <strong>{{ tt.name }}</strong>
+        <div>
+            <button class="btn btn-sm btn-outline-primary edit-tt-btn"
+                    data-id="{{ tt.id }}"
+                    data-name="{{ tt.name }}"
+                    data-category="{{ tt.category or '' }}"
+                    data-inspection-type="{{ tt.inspection_type or '月度巡检' }}"
+                    data-frequency="{{ tt.frequency or '' }}"
+                    data-customer-tier="{{ tt.customer_tier or 'all' }}"
+                    data-remark="{{ tt.remark or '' }}"
+                    data-sections="{{ tt.sections_json or '{}' }}"
+                    data-device-ids="{% for dt in ordered_dts %}{{ dt.id }}{% if not loop.last %},{% endif %}{% endfor %}"><i class="bi-pencil"></i></button>
+            {{ ui.table_actions(delete_url='/task-templates/delete/' ~ tt.id, delete_confirm='确定删除？') }}
+        </div>
+    </div>
+    <div class="card-body py-2">
+        <div class="mb-1">
+            <span class="badge bg-info me-1">{{ tt.inspection_type or tt.category }}</span>
+            {% if tt.frequency %}<span class="badge bg-secondary me-1">{{ tt.frequency }}</span>{% endif %}
+            <span class="badge bg-{{ 'danger' if tt.customer_tier=='核心' else 'warning' if tt.customer_tier=='重点' else 'info' }}">{{ tt.customer_tier or '全部' }}</span>
+        </div>
+        {% if ordered_dts %}
+        <div class="mt-2 small">
+            <span class="text-muted">关联设备模板（按顺序）：</span>
+            {% for dt in ordered_dts %}
+            <span class="badge bg-light text-dark border me-1 mb-1">3.{{ loop.index }} {{ dt.name }}</span>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted small mt-2">（无关联设备模板）</div>
+        {% endif %}
+        {% if tt.remark %}<p class="text-muted small mt-1 mb-0">{{ tt.remark[:80] }}</p>{% endif %}
+    </div>
+</div>
+</div>
+{% endfor %}
+</div>
+{% else %}{{ eui.empty_state('bi-tasks', '暂无任务模板', '点击右上角新建') }}{% endif %}
+
+<!-- Modal -->
+<div class="modal fade" id="ttModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title" id="ttModalTitle">新建巡检任务模板</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="/task-templates/add" id="ttForm" onsubmit="return collectTT()">
+<input type="hidden" name="device_template_ids_ordered" id="ttDeviceIdsOrdered" value="">
+<input type="hidden" name="sections_json" id="ttSectionsJson" value="{}">
+<div class="modal-body">
+
+<!-- 基本信息 -->
+<div class="row">
+<div class="col-md-4 mb-3"><label class="form-label">模板名称 <span class="text-danger">*</span></label><input type="text" name="name" id="ttName" class="form-control" required placeholder="如：水科院季度巡检"></div>
+<div class="col-md-3 mb-3"><label class="form-label">巡检类型</label><select name="inspection_type" id="ttInsType" class="form-select">
+{% for it in ['月度巡检','季度巡检','年度巡检','攻防演练专项','漏洞扫描专项','应急巡检'] %}<option value="{{ it }}">{{ it }}</option>{% endfor %}
+</select></div>
+<div class="col-md-2 mb-3"><label class="form-label">推荐频率</label><select name="frequency" id="ttFreq" class="form-select"><option value="">--不限--</option>{% for f in ['每月','每季度','每半年','每年'] %}<option value="{{ f }}">{{ f }}</option>{% endfor %}</select></div>
+<div class="col-md-3 mb-3"><label class="form-label">适用客户级别</label><select name="customer_tier" id="ttTier" class="form-select"><option value="all">全部</option><option value="核心">核心</option><option value="重点">重点</option><option value="常规">常规</option></select></div>
+</div>
+
+<!-- 章节配置 -->
+<div class="card mb-3">
+<div class="card-header py-2"><i class="bi-list-ol"></i> 报告章节配置 <small class="text-muted">— 取消勾选则该章节不出现在报告中</small></div>
+<div class="card-body p-2" id="ttSectionsContainer"><!-- 动态渲染 --></div>
+</div>
+
+<!-- 自动匹配 -->
+<div class="card mb-3">
+<div class="card-header py-2 d-flex align-items-center gap-2 flex-wrap">
+    <i class="bi-magic"></i> 按客户设备清单自动匹配
+    <select id="ttMatchCustomer" class="form-select form-select-sm" style="max-width:240px;">
+        <option value="">-- 选择目标客户 --</option>
+        {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="autoMatchTemplates()"><i class="bi-search"></i> 匹配</button>
+    <small class="text-muted ms-2">将根据该客户的设备清单分组,自动加载推荐的设备模板到下方</small>
+</div>
+<div class="card-body p-2" id="ttMatchPreview" style="display:none;"><!-- 匹配预览 --></div>
+</div>
+
+<!-- 子表列表（设备模板 - 有序） -->
+<div class="card mb-3">
+<div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <span><i class="bi-list-check"></i> 子表列表（设备检查模板，有序）<small class="text-muted ms-1">— 拖动调序，对应报告 3.1 / 3.2 / ...</small></span>
+    <div class="d-flex gap-2 align-items-center">
+        <select id="ttDtPicker" class="form-select form-select-sm" style="max-width:280px;"><option value="">-- 选择设备模板添加 --</option>
+        {% for dt in device_templates %}<option value="{{ dt.id }}" data-name="{{ dt.name }}" data-cat="{{ dt.device_category }}">{{ dt.name }} ({{ dt.device_category }})</option>{% endfor %}
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addPickedDt()"><i class="bi-plus-lg"></i> 添加</button>
+    </div>
+</div>
+<div class="card-body p-2" id="ttDtList" style="min-height:80px;"><!-- 动态行 --></div>
+</div>
+
+<div class="mb-3"><label class="form-label">备注</label><input type="text" name="remark" id="ttRemark" class="form-control"></div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form>
+</div></div></div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ===== 默认章节配置（与 migrate_v10.py 同步） =====
+const DEFAULT_SECTIONS = [
+    {key:'overview',           title:'一、总体情况',         enabled:true},
+    {key:'quarterly_work',     title:'二、季度运维工作内容',  enabled:true},
+    {key:'inspection_records', title:'三、巡检记录表',        enabled:true},
+    {key:'photos',             title:'四、现场图片',         enabled:true},
+    {key:'faults',             title:'五、故障工单',         enabled:true},
+    {key:'topology',           title:'六、网络拓扑图',        enabled:true},
+    {key:'asset_ledger',       title:'八、设备台账',         enabled:true},
+    {key:'suggestions',        title:'九、运行建议',         enabled:true},
+    {key:'support_contacts',   title:'十、售后服务电话',      enabled:true},
+];
+
+// 设备模板下拉数据（用于子表行展示）
+const DT_INDEX = {};
+document.querySelectorAll('#ttDtPicker option').forEach(function(o){
+    if (o.value) DT_INDEX[o.value] = {id:o.value, name:o.dataset.name, cat:o.dataset.cat};
+});
+
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ===== 章节渲染 =====
+function renderSections(secs) {
+    var container = document.getElementById('ttSectionsContainer');
+    container.innerHTML = '';
+    secs.forEach(function(s, idx){
+        var div = document.createElement('div');
+        div.className = 'section-row';
+        div.dataset.key = s.key;
+        div.innerHTML = `
+            <div class="form-check form-check-inline mb-0">
+                <input type="checkbox" class="form-check-input section-enabled" id="sec_${idx}" ${s.enabled !== false ? 'checked' : ''}>
+                <label class="form-check-label small" for="sec_${idx}">启用</label>
+            </div>
+            <input type="text" class="form-control form-control-sm section-title" value="${escAttr(s.title)}" style="max-width:300px;">
+            <small class="text-muted">key: ${s.key}</small>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function collectSections() {
+    var rows = document.querySelectorAll('#ttSectionsContainer .section-row');
+    var secs = [];
+    rows.forEach(function(row){
+        secs.push({
+            key: row.dataset.key,
+            title: row.querySelector('.section-title').value,
+            enabled: row.querySelector('.section-enabled').checked,
+        });
+    });
+    return {sections: secs};
+}
+
+// ===== 子表（设备模板 - 有序）=====
+function renderDtList(ids) {
+    var container = document.getElementById('ttDtList');
+    container.innerHTML = '';
+    ids.forEach(function(id, idx){
+        var info = DT_INDEX[id] || {id: id, name: '(已删除模板 #'+id+')', cat: '?'};
+        var row = document.createElement('div');
+        row.className = 'dt-row';
+        row.dataset.id = id;
+        row.draggable = true;
+        row.innerHTML = `
+            <span class="drag-handle"><i class="bi-grip-vertical"></i></span>
+            <span class="badge bg-primary">3.${idx+1}</span>
+            <strong class="flex-grow-1">${escAttr(info.name)}</strong>
+            <span class="badge bg-light text-dark border">${escAttr(info.cat)}</span>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.dt-row').remove(); refreshDtNumbers();"><i class="bi-x-lg"></i></button>
+        `;
+        // Drag events
+        row.addEventListener('dragstart', function(e){ row.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+        row.addEventListener('dragend', function(){ row.classList.remove('dragging'); refreshDtNumbers(); });
+        row.addEventListener('dragover', function(e){
+            e.preventDefault();
+            var dragging = container.querySelector('.dragging');
+            if (!dragging || dragging === row) return;
+            var rect = row.getBoundingClientRect();
+            var after = (e.clientY - rect.top) > rect.height/2;
+            container.insertBefore(dragging, after ? row.nextSibling : row);
+        });
+        container.appendChild(row);
+    });
+}
+
+function refreshDtNumbers() {
+    document.querySelectorAll('#ttDtList .dt-row').forEach(function(row, idx){
+        var b = row.querySelector('.badge.bg-primary');
+        if (b) b.textContent = '3.' + (idx+1);
+    });
+}
+
+function addPickedDt() {
+    var sel = document.getElementById('ttDtPicker');
+    if (!sel.value) return;
+    var existing = Array.from(document.querySelectorAll('#ttDtList .dt-row')).map(function(r){return r.dataset.id;});
+    if (existing.indexOf(sel.value) >= 0) {
+        alert('该设备模板已添加');
+        return;
+    }
+    var ids = existing.concat([sel.value]);
+    renderDtList(ids);
+    sel.value = '';
+}
+
+function collectDtIds() {
+    return Array.from(document.querySelectorAll('#ttDtList .dt-row')).map(function(r){return r.dataset.id;});
+}
+
+// ===== 自动匹配 =====
+function autoMatchTemplates() {
+    var cid = document.getElementById('ttMatchCustomer').value;
+    if (!cid) {
+        alert('请先选择目标客户');
+        return;
+    }
+    var preview = document.getElementById('ttMatchPreview');
+    preview.style.display = '';
+    preview.innerHTML = '<div class="text-muted small p-2">加载中...</div>';
+    fetch('/api/customers/'+cid+'/match-device-templates')
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            renderMatchPreview(data);
+        })
+        .catch(function(e){
+            preview.innerHTML = '<div class="text-danger small p-2">匹配失败：'+e+'</div>';
+        });
+}
+
+function renderMatchPreview(data) {
+    var preview = document.getElementById('ttMatchPreview');
+    if (!data || !data.groups || data.groups.length === 0) {
+        preview.innerHTML = '<div class="text-muted small p-2">该客户暂无设备数据</div>';
+        return;
+    }
+    var html = '<div class="small mb-2">客户共 <strong>'+data.total_devices+'</strong> 台设备，按设备类型分 '+data.groups.length+' 组：</div>';
+    data.groups.forEach(function(g){
+        html += '<div class="border rounded p-2 mb-2">';
+        html += '<div class="d-flex justify-content-between align-items-center mb-1"><strong><i class="bi-tag me-1"></i>'+escAttr(g.device_category)+' · '+g.devices_count+' 台</strong>';
+        if (g.matched_templates.length > 0) {
+            html += '<button type="button" class="btn btn-sm btn-outline-primary" onclick="applyMatchedGroup(\''+escAttr(g.device_category)+'\')"><i class="bi-plus"></i> 添加最佳匹配</button>';
+        }
+        html += '</div>';
+        if (g.matched_templates.length === 0) {
+            html += '<div class="text-warning small">⚠ 未找到匹配的设备模板，请先到 <a href="/device-check-templates" target="_blank">设备检查模板</a> 创建</div>';
+        } else {
+            html += '<div class="small">推荐模板：';
+            g.matched_templates.forEach(function(t, i){
+                html += ' <a href="javascript:void(0)" onclick="addMatchedTemplate('+t.id+')" class="badge bg-'+(i===0?'primary':'light text-dark border')+' me-1" title="命中分 '+t.match_score+'">'+escAttr(t.name)+'</a>';
+            });
+            html += '</div>';
+        }
+        html += '</div>';
+    });
+    html += '<div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-success" onclick="applyAllMatched()"><i class="bi-check2-all"></i> 一键添加所有最佳匹配</button>';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById(\'ttMatchPreview\').style.display=\'none\';">收起</button></div>';
+    preview.innerHTML = html;
+    preview._matchData = data;
+}
+
+function addMatchedTemplate(tplId) {
+    var existing = collectDtIds();
+    if (existing.indexOf(String(tplId)) >= 0) {
+        // 已添加，闪烁提示
+        return;
+    }
+    renderDtList(existing.concat([String(tplId)]));
+}
+
+function applyMatchedGroup(cat) {
+    var data = document.getElementById('ttMatchPreview')._matchData;
+    if (!data) return;
+    var grp = data.groups.find(function(g){return g.device_category === cat;});
+    if (!grp || grp.matched_templates.length === 0) return;
+    addMatchedTemplate(grp.matched_templates[0].id);
+}
+
+function applyAllMatched() {
+    var data = document.getElementById('ttMatchPreview')._matchData;
+    if (!data) return;
+    var existing = collectDtIds();
+    data.groups.forEach(function(g){
+        if (g.matched_templates.length === 0) return;
+        var firstId = String(g.matched_templates[0].id);
+        if (existing.indexOf(firstId) < 0) existing.push(firstId);
+    });
+    renderDtList(existing);
+}
+
+// ===== 提交收集 =====
+function collectTT() {
+    var ids = collectDtIds();
+    document.getElementById('ttDeviceIdsOrdered').value = ids.join(',');
+    document.getElementById('ttSectionsJson').value = JSON.stringify(collectSections());
+    return true;
+}
+
+// ===== 打开模态框 =====
+function openAddTT() {
+    document.getElementById('ttModalTitle').textContent = '新建巡检任务模板';
+    document.getElementById('ttForm').action = '/task-templates/add';
+    document.getElementById('ttName').value = '';
+    document.getElementById('ttInsType').value = '月度巡检';
+    document.getElementById('ttFreq').value = '';
+    document.getElementById('ttTier').value = 'all';
+    document.getElementById('ttRemark').value = '';
+    document.getElementById('ttMatchCustomer').value = '';
+    document.getElementById('ttMatchPreview').style.display = 'none';
+    document.getElementById('ttMatchPreview').innerHTML = '';
+    renderSections(JSON.parse(JSON.stringify(DEFAULT_SECTIONS)));
+    renderDtList([]);
+    new bootstrap.Modal(document.getElementById('ttModal')).show();
+}
+
+function openEditTT(data) {
+    document.getElementById('ttModalTitle').textContent = '编辑巡检任务模板';
+    document.getElementById('ttForm').action = '/task-templates/edit/' + data.id;
+    document.getElementById('ttName').value = data.name || '';
+    document.getElementById('ttInsType').value = data.inspectionType || '月度巡检';
+    document.getElementById('ttFreq').value = data.frequency || '';
+    document.getElementById('ttTier').value = data.customerTier || 'all';
+    document.getElementById('ttRemark').value = data.remark || '';
+    document.getElementById('ttMatchCustomer').value = '';
+    document.getElementById('ttMatchPreview').style.display = 'none';
+    document.getElementById('ttMatchPreview').innerHTML = '';
+    // sections
+    var secs;
+    try { secs = JSON.parse(data.sections || '{}').sections; } catch(e) { secs = null; }
+    if (!secs || !secs.length) secs = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
+    renderSections(secs);
+    // device template ids (ordered)
+    var ids = (data.deviceIds || '').split(',').filter(function(x){return x;});
+    renderDtList(ids);
+    new bootstrap.Modal(document.getElementById('ttModal')).show();
+}
+
+document.querySelectorAll('.edit-tt-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+        openEditTT({
+            id: this.dataset.id,
+            name: this.dataset.name,
+            inspectionType: this.dataset.inspectionType,
+            frequency: this.dataset.frequency,
+            customerTier: this.dataset.customerTier,
+            remark: this.dataset.remark,
+            sections: this.dataset.sections,
+            deviceIds: this.dataset.deviceIds,
+        });
+    });
+});
+</script>
+{% endblock %}

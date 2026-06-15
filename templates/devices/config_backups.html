@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block content %}
+{% call ui.page_header('配置备份 - ' ~ device.device_name, 'clock-history') %}
+    <a href="{{ url_for('asset.device_detail', id=device.id) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回设备详情</a>
+{% endcall %}
+
+<!-- diff 对比面板 -->
+{% if diff_lines and a_id and b_id %}
+{% set a = backups|selectattr('id','equalto',a_id)|first %}
+{% set b = backups|selectattr('id','equalto',b_id)|first %}
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-files me-1 text-success"></i> 版本对比</span>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="small text-muted">v{{ a_id }} vs v{{ b_id }}</span>
+            <span class="badge bg-danger">-{{ diff_lines|selectattr('tag','equalto','delete')|list|length }} 行</span>
+            <span class="badge bg-success">+{{ diff_lines|selectattr('tag','equalto','insert')|list|length }} 行</span>
+            <span class="badge bg-warning text-dark">{{ diff_lines|selectattr('tag','equalto','replace')|list|length }} 变更</span>
+            <a href="{{ url_for('asset.device_config_backups', id=device.id) }}" class="btn btn-sm btn-outline-secondary">清除对比</a>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="d-flex">
+            <div class="col p-2 diff-panel border-end">
+                <div class="small text-muted mb-1 px-2 fw-bold">v{{ a_id }}（旧）</div>
+                {% for dl in diff_lines %}
+                    <div class="diff-line px-2 {% if dl.tag=='delete' %}removed{% elif dl.tag=='replace' %}modified{% elif dl.tag=='insert' %}added{% endif %}">
+                        {% if dl.line_a %}{{ dl.line_a }}{% else %}&nbsp;{% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="col p-2 diff-panel">
+                <div class="small text-muted mb-1 px-2 fw-bold">v{{ b_id }}（新）</div>
+                {% for dl in diff_lines %}
+                    <div class="diff-line px-2 {% if dl.tag=='insert' %}added{% elif dl.tag=='replace' %}modified{% elif dl.tag=='delete' %}removed{% endif %}">
+                        {% if dl.line_b %}{{ dl.line_b }}{% else %}&nbsp;{% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 新增备份 + 采集按钮 -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between">
+        <span><i class="bi bi-plus-circle"></i> 新增备份</span>
+        <div>
+            <a href="{{ url_for('asset.device_collect', id=device.id) }}" class="btn btn-sm btn-outline-info"><i class="bi bi-terminal"></i> 从设备采集</a>
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('asset.device_config_backup_add', id=device.id) }}">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">备份类型</label>
+                    <select name="backup_type" class="form-select form-select-sm">
+                        <option>运行配置</option><option>启动配置</option><option>全部配置</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">方式</label>
+                    <select name="backup_method" class="form-select form-select-sm">
+                        <option>手动输入</option><option>文件上传</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mb-3">
+                <textarea name="config_content" class="form-control" rows="10" style="font-family:Consolas,monospace;font-size:13px;" placeholder="粘贴设备配置，如 display current-config / show running-config 的输出..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> 保存备份</button>
+        </form>
+    </div>
+</div>
+
+<!-- 备份列表 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-ul"></i> 备份历史（{{ backups|length }}）</span>
+        <small class="text-muted">勾选两个版本后点击「对比」</small>
+    </div>
+    <div class="card-body p-0">
+        {% if backups %}
+        <form method="get" action="{{ url_for('asset.device_config_backup_compare', id=device.id) }}" id="compareForm">
+        <div class="table-responsive">
+            <table class="table data-table table-hover compact-table mb-0">
+                <thead><tr>
+                    <th style="width:50px;">对比</th>
+                    <th style="width:60px;">#</th>
+                    <th>类型</th>
+                    <th style="width:90px;">方式</th>
+                    <th style="width:100px;">日期</th>
+                    <th>内容预览</th>
+                    <th style="width:100px;" class="text-end">操作</th>
+                </tr></thead>
+                <tbody>
+                {% for b in backups %}
+                <tr>
+                    <td><input type="checkbox" name="v" value="{{ b.id }}" class="form-check-input" onchange="checkCompare(this)"></td>
+                    <td>{{ b.id }}</td>
+                    <td>{{ b.backup_type }}</td>
+                    <td><span class="badge bg-{{ 'info' if 'SSH' in b.backup_method or 'Telnet' in b.backup_method else 'secondary' }}">{{ b.backup_method }}</span></td>
+                    <td><small>{{ b.backup_date }}</small></td>
+                    <td><code style="font-size:11px;">{{ (b.config_content or '')[:60] }}{% if b.config_content and b.config_content|length > 60 %}...{% endif %}</code></td>
+                    <td class="text-end">
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="viewConfig({{ b.id }})" title="查看"><i class="bi bi-eye"></i></button>
+                        <a href="{{ url_for('asset.device_config_backup_delete', id=device.id, bid=b.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('确定删除？')" title="删除"><i class="bi bi-trash"></i></a>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="p-2 d-flex align-items-center gap-2" id="compareBar" style="display:none !important;">
+            <span class="small text-muted" id="compareCount">已选 0 个</span>
+            <button type="submit" class="btn btn-sm btn-success" id="compareBtn" disabled><i class="bi bi-files"></i> 对比选中版本</button>
+        </div>
+        </form>
+        {% else %}
+        <div class="text-center py-4 text-muted"><p>暂无备份记录</p></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 查看配置弹窗 -->
+<div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">配置详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body"><textarea id="configContent" class="form-control config-view" readonly></textarea></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 获取所有备份内容（后端传递）
+var configData = {
+{% for b in backups %}
+  {{ b.id }}: {{ b.config_content|tojson|safe }},
+{% endfor %}
+};
+function viewConfig(id) {
+    document.getElementById('configContent').value = configData[id] || '(空)';
+    new bootstrap.Modal(document.getElementById('viewModal')).show();
+}
+
+// 对比选择逻辑
+function checkCompare(cb) {
+    var checked = document.querySelectorAll('input[name="v"]:checked');
+    var bar = document.getElementById('compareBar');
+    var btn = document.getElementById('compareBtn');
+    var txt = document.getElementById('compareCount');
+    if (checked.length === 2) {
+        // 只允许选 2 个，阻止更多
+        if (cb.checked) {
+            document.querySelectorAll('input[name="v"]').forEach(function(c){
+                if (c !== cb) c.checked = false;
+            });
+            cb.checked = true;
+        }
+        bar.style.display = 'flex';
+        btn.disabled = false;
+        txt.textContent = '对比 v' + checked[0].value + ' vs v' + checked[1].value;
+        // 重写 form action
+        var form = document.getElementById('compareForm');
+        form.action = form.action.replace(/\?.*/, '') + '?a=' + checked[0].value + '&b=' + checked[1].value;
+    } else if (checked.length > 2) {
+        cb.checked = false;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+</script>
+<style>
+.diff-line { border-bottom: 1px solid var(--border-soft); min-height: 22px; white-space: pre-wrap; }
+.diff-panel { font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; overflow-x: auto; max-height: 500px; overflow-y: auto; }
+.config-view { height: 60vh; font-family: Consolas, monospace; font-size: 13px; background: var(--code-bg); color: var(--code-text); }
+.compact-table td { padding: 4px 8px !important; font-size: 13px; }
+</style>
+{% endblock %}

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}系统概览 · 系统管理{% endblock %}
+{% block content %}
+{% call ui.page_header('系统概览', 'gear') %}{% endcall %}
+
+<!-- 1. 资源监控（顶行，3张大卡片） -->
+<h6 class="text-muted mb-2"><i class="bi-speedometer2 me-1"></i>资源监控</h6>
+{% if resources.available %}
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        {{ ui.resource_card('CPU', 'bi-cpu', resources.cpu_percent, resources.cpu_count ~ ' 逻辑核心 / ' ~ resources.cpu_count_physical ~ ' 物理核心') }}
+    </div>
+    <div class="col-md-4">
+        {{ ui.resource_card('内存', 'bi-memory', resources.memory_percent, resources.memory_used_gb ~ ' / ' ~ resources.memory_total_gb ~ ' GB · 可用 ' ~ resources.memory_available_gb ~ ' GB') }}
+    </div>
+    <div class="col-md-4">
+        {{ ui.resource_card('磁盘 (系统盘)', 'bi-hdd', resources.disk_percent, resources.disk_used_gb ~ ' / ' ~ resources.disk_total_gb ~ ' GB · 可用 ' ~ resources.disk_free_gb ~ ' GB') }}
+    </div>
+</div>
+{% else %}
+<div class="alert alert-warning py-2 mb-4"><i class="bi-exclamation-triangle"></i> 资源监控不可用：{{ resources.error or '请安装 psutil' }}</div>
+{% endif %}
+
+<!-- 2. 业务数据统计（紧凑卡片，单行7列） -->
+<h6 class="text-muted mb-2"><i class="bi-bar-chart me-1"></i>业务数据统计</h6>
+<div class="row g-2 mb-4">
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-people-fill text-primary fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.user_count }}<small class="text-muted">/{{ stats.user_total }}</small></div>
+        <small class="text-muted">活跃用户</small>
+    </div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-diagram-3 text-info fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.department_count }}</div>
+        <small class="text-muted">部门</small>
+    </div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-people text-warning fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.customer_count }}</div>
+        <small class="text-muted">客户</small>
+    </div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-router text-success fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.device_count }}</div>
+        <small class="text-muted">设备</small>
+    </div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-diagram-2 text-primary fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.topology_count }}</div>
+        <small class="text-muted">拓扑图</small>
+    </div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-clipboard-data fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.inspection_count }}</div>
+        <small class="text-muted">巡检记录</small>
+    </div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body py-2">
+        <i class="bi-ticket-detailed text-danger fs-4"></i>
+        <div class="fw-bold fs-5">{{ stats.ticket_count }}</div>
+        <small class="text-muted">工单</small>
+    </div></div></div>
+</div>
+
+<!-- 3. 系统信息 + 数据库 + 最近用户（同一行） -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header py-2"><i class="bi-pc-display me-1"></i>系统信息</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <tr><th width="120">操作系统</th><td>{{ sys_info.os_name }} {{ sys_info.os_release }}</td></tr>
+                    <tr><th>架构</th><td>{{ sys_info.machine }}</td></tr>
+                    <tr><th>主机名</th><td><code class="small">{{ sys_info.hostname }}</code></td></tr>
+                    <tr><th>Python</th><td>{{ sys_info.python_version }}</td></tr>
+                    {% if resources.available %}
+                    <tr><th>系统启动</th><td><small>{{ resources.boot_time }}</small></td></tr>
+                    <tr><th>应用 PID</th><td><code>{{ resources.process_pid }}</code> · 启动 <small class="text-muted">{{ resources.process_start }}</small></td></tr>
+                    <tr><th>应用内存</th><td><strong>{{ resources.process_memory_mb }}</strong> MB</td></tr>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header py-2"><i class="bi-database me-1"></i>数据库</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <tr><th width="120">引擎</th><td><span class="badge bg-info">{{ db_info.engine }}</span></td></tr>
+                    <tr><th>版本</th><td><code>{{ db_info.version }}</code></td></tr>
+                    {% if db_info.path %}
+                    <tr><th>路径</th><td><small class="text-muted">{{ db_info.path }}</small></td></tr>
+                    {% endif %}
+                    {% if db_info.size_mb %}
+                    <tr><th>大小</th><td><strong>{{ db_info.size_mb }}</strong> MB</td></tr>
+                    {% endif %}
+                    <tr><th>系统版本</th><td><strong>v3.1</strong> <small class="text-muted ms-1">(V6.1.2)</small></td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <span><i class="bi-clock-history me-1"></i>最近用户</span>
+                <a href="{{ url_for('user_list') }}" class="text-decoration-none small">全部 ›</a>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for u in recent_users %}
+                <li class="list-group-item d-flex justify-content-between align-items-center py-1 px-2">
+                    <div>
+                        <strong>{{ u.realname or u.username }}</strong>
+                        <small class="text-muted ms-1">@{{ u.username }}</small>
+                    </div>
+                    {% if u.role == 'admin' %}<span class="badge bg-danger">管理员</span>
+                    {% elif u.role == 'operator' %}<span class="badge bg-info">运维</span>
+                    {% elif u.role == 'sales' %}<span class="badge bg-warning text-dark">销售</span>
+                    {% else %}<span class="badge bg-secondary">查看</span>{% endif %}
+                </li>
+                {% else %}
+                <li class="list-group-item text-muted text-center py-2">暂无用户</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- 4. 组件版本 -->
+<h6 class="text-muted mb-2"><i class="bi-box-seam me-1"></i>组件版本</h6>
+<div class="card">
+    <div class="card-body py-3">
+        <div class="row g-2">
+            {% for name, ver in components.items() %}
+            <div class="col-md-3 col-sm-6">
+                <div class="d-flex justify-content-between align-items-center px-2 py-1 border rounded">
+                    <span><i class="bi-box me-1 text-muted"></i>{{ name }}</span>
+                    <code class="small">{{ ver }}</code>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

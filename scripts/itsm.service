@@ -1,0 +1,23 @@
+[Unit]
+Description=ITSM Operations Management System
+After=network.target
+
+[Service]
+Type=simple
+User=itsm
+Group=itsm
+WorkingDirectory=/opt/itsm
+EnvironmentFile=/opt/itsm/.env
+ExecStart=/opt/itsm/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 wsgi:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/itsm/instance /opt/itsm/logs /opt/itsm/reports /opt/itsm/uploads /opt/itsm/backups /opt/itsm/static/uploads
+
+[Install]
+WantedBy=multi-user.target

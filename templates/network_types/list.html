@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('网络类型管理', 'diagram-3') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增类型</button>
+{% endcall %}
+<div class="content-card">
+{% if types %}
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+<thead><tr><th>ID</th><th>名称</th><th>排序</th><th>操作</th></tr></thead>
+<tbody>
+{% for t in types %}
+<tr><td>{{ t.id }}</td><td><span class="badge bg-info">{{ t.name }}</span></td><td>{{ t.sort_order }}</td>
+<td>
+<button class="btn btn-sm btn-outline-primary" onclick="editItem({{ t.id }},'{{ t.name }}',{{ t.sort_order }})"><i class="bi-pencil"></i></button>
+{{ ui.table_actions(delete_url=url_for('asset.network_type_delete', id=t.id), delete_confirm='确定删除？') }}
+</td></tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}{{ eui.empty_state('bi-diagram-3', '暂无网络类型') }}{% endif %}
+</div></div>
+
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">新增网络类型</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="{{ url_for('asset.network_type_add') }}">
+<div class="modal-body">
+<div class="mb-3"><label class="form-label">名称 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required placeholder="如：内网/外网/DMZ"></div>
+<div class="mb-3"><label class="form-label">排序</label><input type="number" name="sort_order" class="form-control" value="0" style="width:100px;"></div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">编辑网络类型</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" id="editForm">
+<div class="modal-body">
+<div class="mb-3"><label class="form-label">名称 <span class="text-danger">*</span></label><input type="text" name="name" id="edit_name" class="form-control" required></div>
+<div class="mb-3"><label class="form-label">排序</label><input type="number" name="sort_order" id="edit_sort" class="form-control" value="0" style="width:100px;"></div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function editItem(id,name,sort){document.getElementById('edit_name').value=name;document.getElementById('edit_sort').value=sort;document.getElementById('editForm').action='/device-network-types/edit/'+id;new bootstrap.Modal(document.getElementById('editModal')).show();}
+</script>
+{% endblock %}

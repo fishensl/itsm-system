@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block content %}
+{% call ui.page_header('机柜管理', 'hdd-rack') %}
+    <button class="btn btn-primary btn-sm me-2" onclick="showLocationModal()"><i class="bi-plus-lg"></i> 新增位置</button>
+    <button class="btn btn-primary btn-sm" onclick="showCabinetModal()"><i class="bi-plus-lg"></i> 新增机柜</button>
+{% endcall %}
+
+<div class="row">
+    {# 左侧：位置树 + 机柜列表 #}
+    <div class="col-md-3">
+        <div class="card mb-3">
+            <div class="card-header py-2"><i class="bi-geo-alt"></i> 位置 (<span id="locCount">0</span>)</div>
+            <div class="card-body p-2" id="locationsList" style="max-height:300px;overflow-y:auto;">
+                <div class="text-muted small text-center py-3">加载中...</div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header py-2"><i class="bi-collection"></i> 机柜 (<span id="rackCount">0</span>)</div>
+            <div class="card-body p-2" id="cabinetsList" style="max-height:500px;overflow-y:auto;">
+                <div class="text-muted small text-center py-3">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    {# 右侧：机柜可视化 + 设备列表 #}
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <span id="rackTitle"><i class="bi-collection"></i> 选择机柜查看详情</span>
+                <div id="rackActions" style="display:none;">
+                    <button class="btn btn-sm btn-success me-1" onclick="showInstallModal()"><i class="bi-plus-circle"></i> 设备上架</button>
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="showCabinetEdit()"><i class="bi-pencil"></i> 编辑</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteCabinet()"><i class="bi-trash"></i> 删除</button>
+                </div>
+            </div>
+            <div class="card-body" id="rackDetail" style="min-height:600px;">
+                <div class="text-muted text-center py-5">
+                    <i class="bi-arrow-left" style="font-size:48px;"></i>
+                    <p class="mt-3">请从左侧选择机柜</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============== 新增位置 Modal ============== #}
+<div class="modal fade" id="locationModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">新增位置</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <div class="mb-3"><label class="form-label">客户（可选）</label>
+            <select id="loc_customer_id" class="form-select">
+                <option value="">-- 不关联 --</option>
+                {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="mb-3"><label class="form-label">楼栋 <span class="text-danger">*</span></label>
+            <input id="loc_building" type="text" class="form-control" placeholder="如：A 栋"></div>
+        <div class="mb-3"><label class="form-label">楼层</label>
+            <input id="loc_floor" type="text" class="form-control" placeholder="如：3F"></div>
+        <div class="mb-3"><label class="form-label">备注</label>
+            <textarea id="loc_remark" class="form-control" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="saveLocation()">保存</button></div>
+</div></div></div>
+
+{# ============== 新增/编辑机柜 Modal ============== #}
+<div class="modal fade" id="cabinetModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="cabinetModalTitle">新增机柜</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <input type="hidden" id="cab_id">
+        <div class="mb-3"><label class="form-label">所属位置 <span class="text-danger">*</span></label>
+            <select id="cab_location_id" class="form-select"></select></div>
+        <div class="mb-3"><label class="form-label">机柜名称 <span class="text-danger">*</span></label>
+            <input id="cab_name" type="text" class="form-control" placeholder="如：A1-01"></div>
+        <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">总 U 数</label>
+                <input id="cab_total_u" type="number" class="form-control" value="42" min="1" max="60"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">颜色</label>
+                <input id="cab_color" type="color" class="form-control form-control-color" value="#0d6efd"></div>
+        </div>
+        <div class="mb-3"><label class="form-label">PDU 额定总功率 (W)</label>
+            <input id="cab_pdu_total_w" type="number" class="form-control" value="0" min="0"></div>
+        <div class="mb-3"><label class="form-label">备注</label>
+            <textarea id="cab_remark" class="form-control" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="saveCabinet()">保存</button></div>
+</div></div></div>
+
+{# ============== 设备上架 Modal ============== #}
+<div class="modal fade" id="installModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">设备上架</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <ul class="nav nav-tabs mb-3">
+            <li class="nav-item"><a class="nav-link active" href="#tab-managed" data-bs-toggle="tab">从设备列表</a></li>
+            <li class="nav-item"><a class="nav-link" href="#tab-manual" data-bs-toggle="tab">手动录入</a></li>
+        </ul>
+        <div class="tab-content">
+            <div class="tab-pane active" id="tab-managed">
+                <div class="mb-3"><label class="form-label">选择设备 <span class="text-danger">*</span></label>
+                    <select id="inst_device_id" class="form-select">
+                        <option value="">-- 请选择 --</option>
+                    </select>
+                    <small class="text-muted">仅展示设备列表中的全部设备；新设备未托管，请切换到"手动录入"。</small>
+                </div>
+            </div>
+            <div class="tab-pane" id="tab-manual">
+                <div class="row">
+                    <div class="col-md-6 mb-3"><label class="form-label">设备名称 <span class="text-danger">*</span></label>
+                        <input id="inst_manual_name" type="text" class="form-control"></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">IP 地址</label>
+                        <input id="inst_manual_ip" type="text" class="form-control"></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">品牌</label>
+                        <input id="inst_manual_brand" type="text" class="form-control"></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">型号</label>
+                        <input id="inst_manual_model" type="text" class="form-control"></div>
+                </div>
+            </div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-md-4 mb-3"><label class="form-label">起始 U 位 <span class="text-danger">*</span></label>
+                <input id="inst_start_u" type="number" class="form-control" value="1" min="1"></div>
+            <div class="col-md-4 mb-3"><label class="form-label">占用 U 数 <span class="text-danger">*</span></label>
+                <input id="inst_occupy_u" type="number" class="form-control" value="1" min="1"></div>
+            <div class="col-md-4 mb-3"><label class="form-label">额定功耗 (W)</label>
+                <input id="inst_rated_w" type="number" class="form-control" value="0" min="0"></div>
+        </div>
+        <div class="mb-3"><label class="form-label">备注</label>
+            <textarea id="inst_remark" class="form-control" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="saveInstall()">上架</button></div>
+</div></div></div>
+
+{# ============== 调整安装位置 Modal ============== #}
+<div class="modal fade" id="adjustModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">调整安装位置</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <input type="hidden" id="adj_id">
+        <div class="mb-3"><label class="form-label">设备名称</label>
+            <input id="adj_name" type="text" class="form-control" disabled></div>
+        <div class="row">
+            <div class="col-md-4 mb-3"><label class="form-label">起始 U 位</label>
+                <input id="adj_start_u" type="number" class="form-control" min="1"></div>
+            <div class="col-md-4 mb-3"><label class="form-label">占用 U 数</label>
+                <input id="adj_occupy_u" type="number" class="form-control" min="1"></div>
+            <div class="col-md-4 mb-3"><label class="form-label">额定功耗 (W)</label>
+                <input id="adj_rated_w" type="number" class="form-control" min="0"></div>
+        </div>
+        <div class="mb-3"><label class="form-label">备注</label>
+            <textarea id="adj_remark" class="form-control" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="saveAdjust()">保存</button></div>
+</div></div></div>
+
+<style>
+.rack-visual { display:flex; gap:20px; align-items:flex-start; }
+.rack-frame { width: 280px; background:var(--gray-800); border-radius:var(--radius-md); padding:8px; }
+.rack-frame-header { color:#fff; text-align:center; font-size:13px; padding:4px 0; border-bottom:1px solid var(--gray-700); }
+.rack-u { display:flex; flex-direction:column; gap:1px; padding:4px 0; }
+.u-row { height:18px; background:var(--gray-700); color:var(--gray-500); font-size:10px; padding:0 4px; display:flex; align-items:center; border-left:3px solid var(--gray-900); cursor:default; }
+.u-row.empty { background:var(--gray-700); }
+.u-row.installed { background:var(--primary); color:#fff; cursor:pointer; }
+.u-row.installed:hover { filter:brightness(0.9); }
+.u-row .u-label { width:30px; flex-shrink:0; opacity:0.5; font-family:monospace; }
+.u-row .u-content { flex-grow:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rack-card { cursor:pointer; padding:8px; margin-bottom:6px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); transition:all 0.2s; }
+.rack-card:hover { border-color:var(--primary); background:var(--surface-muted); }
+.rack-card.active { border-color:var(--primary); background:var(--primary-soft); }
+.loc-card { cursor:pointer; padding:6px 8px; margin-bottom:4px; border-radius:var(--radius-sm); font-size:13px; }
+.loc-card:hover { background:var(--surface-muted); }
+.loc-card.active { background:var(--primary-soft); font-weight:bold; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentLocationId = null;
+let currentRackId = null;
+let allCabinets = [];
+let allLocations = [];
+let allDevices = [];
+
+// ============================ 加载数据 ============================
+async function loadLocations() {
+    const r = await fetch('/api/rack/locations');
+    const data = await r.json();
+    allLocations = data.items;
+    document.getElementById('locCount').textContent = data.items.length;
+    const html = ['<div class="loc-card ' + (currentLocationId === null ? 'active' : '') + '" onclick="selectLocation(null)"><i class="bi-list-ul"></i> 全部位置</div>'];
+    for (const loc of data.items) {
+        const cls = currentLocationId === loc.id ? 'active' : '';
+        html.push(`<div class="loc-card ${cls}" onclick="selectLocation(${loc.id})">
+            <i class="bi-geo-alt-fill"></i> ${loc.building} ${loc.floor || ''}
+            ${loc.customer_name ? '<small class="text-muted d-block">'+loc.customer_name+'</small>' : ''}
+            <small class="text-muted">${loc.rack_count} 个机柜</small>
+            <a class="float-end text-danger" onclick="event.stopPropagation(); deleteLocation(${loc.id})"><i class="bi-x"></i></a>
+        </div>`);
+    }
+    document.getElementById('locationsList').innerHTML = html.join('') || '<div class="text-muted small text-center py-3">暂无位置</div>';
+}
+
+async function loadCabinets() {
+    let url = '/api/rack/cabinets';
+    if (currentLocationId) url += '?location_id=' + currentLocationId;
+    const r = await fetch(url);
+    const data = await r.json();
+    allCabinets = data.items;
+    document.getElementById('rackCount').textContent = data.items.length;
+    const html = [];
+    for (const c of data.items) {
+        const cls = currentRackId === c.id ? 'active' : '';
+        const pctColor = c.used_pct > 80 ? 'danger' : c.used_pct > 50 ? 'warning' : 'success';
+        html.push(`<div class="rack-card ${cls}" onclick="selectRack(${c.id})">
+            <div class="d-flex justify-content-between align-items-center">
+                <strong style="color:${c.color}">${c.name}</strong>
+                <small class="text-muted">${c.location_name}</small>
+            </div>
+            <div class="progress mt-1" style="height:4px;">
+                <div class="progress-bar bg-${pctColor}" style="width:${c.used_pct}%"></div>
+            </div>
+            <small class="text-muted">${c.used_u}/${c.total_u}U · ${c.install_count} 台 · ${c.used_w}W</small>
+        </div>`);
+    }
+    document.getElementById('cabinetsList').innerHTML = html.join('') || '<div class="text-muted small text-center py-3">暂无机柜</div>';
+}
+
+async function selectLocation(loc_id) {
+    currentLocationId = loc_id;
+    currentRackId = null;
+    await loadLocations();
+    await loadCabinets();
+    document.getElementById('rackDetail').innerHTML = '<div class="text-muted text-center py-5"><i class="bi-arrow-left" style="font-size:48px;"></i><p class="mt-3">请从左侧选择机柜</p></div>';
+    document.getElementById('rackActions').style.display = 'none';
+    document.getElementById('rackTitle').innerHTML = '<i class="bi-collection"></i> 选择机柜查看详情';
+}
+
+async function selectRack(rack_id) {
+    currentRackId = rack_id;
+    await loadCabinets();
+    const r = await fetch('/api/rack/cabinets/' + rack_id);
+    const data = await r.json();
+    renderRackDetail(data);
+}
+
+function renderRackDetail(rack) {
+    document.getElementById('rackTitle').innerHTML = `<i class="bi-collection-fill"></i> ${rack.name} <small class="text-muted">${rack.location_name}</small>`;
+    document.getElementById('rackActions').style.display = '';
+
+    // 构建 U 位映射 1..total_u
+    const uMap = {};
+    for (let u = 1; u <= rack.total_u; u++) uMap[u] = null;
+    for (const inst of rack.installs) {
+        for (let u = inst.start_u; u < inst.start_u + inst.occupy_u; u++) {
+            uMap[u] = inst;
+        }
+    }
+
+    // 渲染 U 位（从顶部 total_u 开始，到 1）
+    const uHtml = [];
+    let lastInstallId = null;
+    for (let u = rack.total_u; u >= 1; u--) {
+        const inst = uMap[u];
+        if (inst) {
+            const isFirst = (u === inst.start_u + inst.occupy_u - 1);
+            const cls = 'installed';
+            const content = isFirst ? `<strong>${inst.name}</strong> <small>${inst.brand} ${inst.model}</small> ${inst.ip ? '<small>('+inst.ip+')</small>' : ''}` : '';
+            uHtml.push(`<div class="u-row ${cls}" onclick="adjustInstall(${inst.id})" title="${inst.name} (${inst.start_u}-${inst.start_u+inst.occupy_u-1}U)">
+                <span class="u-label">${u}U</span><span class="u-content">${content}</span>
+            </div>`);
+        } else {
+            uHtml.push(`<div class="u-row empty"><span class="u-label">${u}U</span><span class="u-content">空</span></div>`);
+        }
+    }
+
+    // 设备列表
+    const devHtml = ['<table class="table table-sm table-hover"><thead><tr><th>U位</th><th>名称</th><th>品牌型号</th><th>IP</th><th>来源</th><th>功耗</th><th></th></tr></thead><tbody>'];
+    for (const inst of rack.installs.sort((a,b) => b.start_u - a.start_u)) {
+        devHtml.push(`<tr>
+            <td><code>${inst.start_u}-${inst.start_u+inst.occupy_u-1}U</code></td>
+            <td><strong>${inst.name}</strong></td>
+            <td><small>${inst.brand} ${inst.model}</small></td>
+            <td><small>${inst.ip || '-'}</small></td>
+            <td>${inst.kind === '托管' ? '<span class="badge bg-success">托管</span>' : '<span class="badge bg-secondary">手动</span>'}</td>
+            <td><small>${inst.rated_w || 0}W</small></td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="adjustInstall(${inst.id})"><i class="bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteInstall(${inst.id})"><i class="bi-trash"></i></button>
+            </td>
+        </tr>`);
+    }
+    devHtml.push('</tbody></table>');
+    if (rack.installs.length === 0) {
+        devHtml[devHtml.length-1] = '<p class="text-muted text-center py-3">该机柜暂无设备</p>';
+    }
+
+    // 计算占用率
+    const usedU = rack.installs.reduce((s, i) => s + (i.occupy_u || 0), 0);
+    const usedW = rack.installs.reduce((s, i) => s + (i.rated_w || 0), 0);
+    const pctU = rack.total_u ? Math.round(usedU * 100 / rack.total_u) : 0;
+    const pctW = rack.pdu_total_w ? Math.round(usedW * 100 / rack.pdu_total_w) : 0;
+
+    document.getElementById('rackDetail').innerHTML = `
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <div class="card border-0 bg-light"><div class="card-body py-2 text-center">
+                    <small class="text-muted">U 位占用</small>
+                    <h5 class="mb-0">${usedU}/${rack.total_u}U <small class="text-${pctU>80?'danger':pctU>50?'warning':'success'}">${pctU}%</small></h5>
+                </div></div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 bg-light"><div class="card-body py-2 text-center">
+                    <small class="text-muted">PDU 功率</small>
+                    <h5 class="mb-0">${usedW}W / ${rack.pdu_total_w || '-'}W ${rack.pdu_total_w ? '<small class="text-'+(pctW>80?'danger':pctW>50?'warning':'success')+'">'+pctW+'%</small>' : ''}</h5>
+                </div></div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 bg-light"><div class="card-body py-2 text-center">
+                    <small class="text-muted">设备数</small>
+                    <h5 class="mb-0">${rack.installs.length} 台</h5>
+                </div></div>
+            </div>
+        </div>
+        <div class="rack-visual">
+            <div class="rack-frame">
+                <div class="rack-frame-header" style="background:${rack.color}">${rack.name}</div>
+                <div class="rack-u">${uHtml.join('')}</div>
+            </div>
+            <div style="flex:1;">${devHtml.join('')}</div>
+        </div>
+    `;
+}
+
+// ============================ 模态框：位置 ============================
+function showLocationModal() {
+    document.getElementById('loc_customer_id').value = '';
+    document.getElementById('loc_building').value = '';
+    document.getElementById('loc_floor').value = '';
+    document.getElementById('loc_remark').value = '';
+    new bootstrap.Modal(document.getElementById('locationModal')).show();
+}
+
+async function saveLocation() {
+    const data = {
+        customer_id: document.getElementById('loc_customer_id').value || null,
+        building: document.getElementById('loc_building').value.trim(),
+        floor: document.getElementById('loc_floor').value.trim(),
+        remark: document.getElementById('loc_remark').value,
+    };
+    if (!data.building) { alert('楼栋不能为空'); return; }
+    const r = await fetch('/api/rack/locations', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    });
+    const ret = await r.json();
+    if (ret.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('locationModal')).hide();
+        await loadLocations();
+    } else {
+        alert(ret.error || '保存失败');
+    }
+}
+
+async function deleteLocation(id) {
+    if (!confirm('确认删除此位置？')) return;
+    const r = await fetch('/api/rack/locations/' + id, {method: 'DELETE'});
+    const ret = await r.json();
+    if (ret.ok) {
+        if (currentLocationId === id) currentLocationId = null;
+        await loadLocations();
+    } else {
+        alert(ret.error || '删除失败');
+    }
+}
+
+// ============================ 模态框：机柜 ============================
+function showCabinetModal(rack) {
+    const sel = document.getElementById('cab_location_id');
+    sel.innerHTML = '<option value="">-- 选择位置 --</option>';
+    for (const loc of allLocations) {
+        sel.innerHTML += `<option value="${loc.id}">${loc.building} ${loc.floor || ''}</option>`;
+    }
+    if (rack) {
+        document.getElementById('cabinetModalTitle').textContent = '编辑机柜';
+        document.getElementById('cab_id').value = rack.id;
+        document.getElementById('cab_location_id').value = rack.location_id || '';
+        document.getElementById('cab_name').value = rack.name;
+        document.getElementById('cab_total_u').value = rack.total_u;
+        document.getElementById('cab_color').value = rack.color;
+        document.getElementById('cab_pdu_total_w').value = rack.pdu_total_w;
+        document.getElementById('cab_remark').value = rack.remark;
+    } else {
+        document.getElementById('cabinetModalTitle').textContent = '新增机柜';
+        document.getElementById('cab_id').value = '';
+        document.getElementById('cab_location_id').value = currentLocationId || '';
+        document.getElementById('cab_name').value = '';
+        document.getElementById('cab_total_u').value = 42;
+        document.getElementById('cab_color').value = '#0d6efd';
+        document.getElementById('cab_pdu_total_w').value = 0;
+        document.getElementById('cab_remark').value = '';
+    }
+    new bootstrap.Modal(document.getElementById('cabinetModal')).show();
+}
+
+async function showCabinetEdit() {
+    const r = await fetch('/api/rack/cabinets/' + currentRackId);
+    const rack = await r.json();
+    showCabinetModal(rack);
+}
+
+async function saveCabinet() {
+    const id = document.getElementById('cab_id').value;
+    const data = {
+        location_id: document.getElementById('cab_location_id').value || null,
+        name: document.getElementById('cab_name').value.trim(),
+        total_u: parseInt(document.getElementById('cab_total_u').value) || 42,
+        color: document.getElementById('cab_color').value,
+        pdu_total_w: parseInt(document.getElementById('cab_pdu_total_w').value) || 0,
+        remark: document.getElementById('cab_remark').value,
+    };
+    if (!data.name) { alert('名称不能为空'); return; }
+    const url = id ? '/api/rack/cabinets/' + id : '/api/rack/cabinets';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+        method, headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    });
+    const ret = await r.json();
+    if (ret.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('cabinetModal')).hide();
+        await loadCabinets();
+        if (currentRackId) selectRack(currentRackId);
+    } else {
+        alert(ret.error || '保存失败');
+    }
+}
+
+async function deleteCabinet() {
+    if (!currentRackId) return;
+    if (!confirm('确认删除此机柜？将一并清除所有上架记录。')) return;
+    const r = await fetch('/api/rack/cabinets/' + currentRackId, {method: 'DELETE'});
+    const ret = await r.json();
+    if (ret.ok) {
+        currentRackId = null;
+        await loadCabinets();
+        document.getElementById('rackDetail').innerHTML = '<div class="text-muted text-center py-5"><i class="bi-trash"></i><p class="mt-3">机柜已删除</p></div>';
+        document.getElementById('rackActions').style.display = 'none';
+    } else {
+        alert(ret.error || '删除失败');
+    }
+}
+
+// ============================ 模态框：上架 ============================
+async function showInstallModal() {
+    if (!currentRackId) { alert('请先选择机柜'); return; }
+    // 加载设备
+    const r = await fetch('/api/rack/devices/all');
+    const data = await r.json();
+    allDevices = data.items;
+    const sel = document.getElementById('inst_device_id');
+    sel.innerHTML = '<option value="">-- 请选择 --</option>';
+    for (const d of data.items) {
+        const tag = d.installed ? ' (已上架)' : '';
+        sel.innerHTML += `<option value="${d.id}" ${d.installed ? 'disabled' : ''}>${d.name}${tag} - ${d.brand} ${d.model} ${d.ip}</option>`;
+    }
+    document.getElementById('inst_manual_name').value = '';
+    document.getElementById('inst_manual_ip').value = '';
+    document.getElementById('inst_manual_brand').value = '';
+    document.getElementById('inst_manual_model').value = '';
+    document.getElementById('inst_start_u').value = 1;
+    document.getElementById('inst_occupy_u').value = 1;
+    document.getElementById('inst_rated_w').value = 0;
+    document.getElementById('inst_remark').value = '';
+    new bootstrap.Modal(document.getElementById('installModal')).show();
+}
+
+async function saveInstall() {
+    const isManaged = document.querySelector('#tab-managed').classList.contains('active');
+    const data = {
+        rack_id: currentRackId,
+        device_id: isManaged ? (document.getElementById('inst_device_id').value || null) : null,
+        manual_name: !isManaged ? document.getElementById('inst_manual_name').value : '',
+        manual_brand: !isManaged ? document.getElementById('inst_manual_brand').value : '',
+        manual_model: !isManaged ? document.getElementById('inst_manual_model').value : '',
+        manual_ip: !isManaged ? document.getElementById('inst_manual_ip').value : '',
+        start_u: parseInt(document.getElementById('inst_start_u').value) || 1,
+        occupy_u: parseInt(document.getElementById('inst_occupy_u').value) || 1,
+        rated_w: parseInt(document.getElementById('inst_rated_w').value) || 0,
+        remark: document.getElementById('inst_remark').value,
+    };
+    if (isManaged && !data.device_id) { alert('请选择设备'); return; }
+    if (!isManaged && !data.manual_name) { alert('请填写设备名称'); return; }
+    const r = await fetch('/api/rack/installs', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    });
+    const ret = await r.json();
+    if (ret.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('installModal')).hide();
+        selectRack(currentRackId);
+    } else {
+        alert(ret.error || '上架失败');
+    }
+}
+
+async function adjustInstall(install_id) {
+    // 查找当前上架记录
+    const r = await fetch('/api/rack/cabinets/' + currentRackId);
+    const rack = await r.json();
+    const inst = rack.installs.find(i => i.id === install_id);
+    if (!inst) return;
+    document.getElementById('adj_id').value = inst.id;
+    document.getElementById('adj_name').value = inst.name;
+    document.getElementById('adj_start_u').value = inst.start_u;
+    document.getElementById('adj_occupy_u').value = inst.occupy_u;
+    document.getElementById('adj_rated_w').value = inst.rated_w;
+    document.getElementById('adj_remark').value = inst.remark || '';
+    new bootstrap.Modal(document.getElementById('adjustModal')).show();
+}
+
+async function saveAdjust() {
+    const id = document.getElementById('adj_id').value;
+    const data = {
+        start_u: parseInt(document.getElementById('adj_start_u').value),
+        occupy_u: parseInt(document.getElementById('adj_occupy_u').value),
+        rated_w: parseInt(document.getElementById('adj_rated_w').value) || 0,
+        remark: document.getElementById('adj_remark').value,
+    };
+    const r = await fetch('/api/rack/installs/' + id, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    });
+    const ret = await r.json();
+    if (ret.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('adjustModal')).hide();
+        selectRack(currentRackId);
+    } else {
+        alert(ret.error || '保存失败');
+    }
+}
+
+async function deleteInstall(install_id) {
+    if (!confirm('确认下架此设备？')) return;
+    const r = await fetch('/api/rack/installs/' + install_id, {method: 'DELETE'});
+    const ret = await r.json();
+    if (ret.ok) {
+        selectRack(currentRackId);
+    } else {
+        alert(ret.error || '下架失败');
+    }
+}
+
+// ============================ 初始化 ============================
+loadLocations();
+loadCabinets();
+</script>
+{% endblock %}

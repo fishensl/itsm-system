@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <a href="{{ url_for('ops.inspection_add', customer_id=task.customer_id, task_id=task.id) }}" class="btn btn-primary btn-sm me-2"><i class="bi-play-fill"></i> 开始执行</a>
+        {% if task.status == '待执行' %}
+        <form method="post" action="{{ url_for('ops.inspection_task_edit', id=task.id) }}" style="display:inline">
+            <input type="hidden" name="title" value="{{ task.title }}">
+            <input type="hidden" name="task_type" value="{{ task.task_type }}">
+            <input type="hidden" name="status" value="执行中">
+            <input type="hidden" name="customer_id" value="{{ task.customer_id }}">
+            <input type="hidden" name="priority" value="{{ task.priority }}">
+            <input type="hidden" name="remark" value="{{ task.remark or '' }}">
+            <button type="submit" class="btn btn-warning btn-sm me-2"><i class="bi-arrow-right-circle"></i> 标记执行中</button>
+        </form>
+        {% endif %}
+        {% if task.status in ('待执行', '执行中') %}
+        <form method="post" action="{{ url_for('ops.inspection_task_edit', id=task.id) }}" style="display:inline">
+            <input type="hidden" name="title" value="{{ task.title }}">
+            <input type="hidden" name="task_type" value="{{ task.task_type }}">
+            <input type="hidden" name="status" value="已完成">
+            <input type="hidden" name="customer_id" value="{{ task.customer_id }}">
+            <input type="hidden" name="priority" value="{{ task.priority }}">
+            <input type="hidden" name="remark" value="{{ task.remark or '' }}">
+            <button type="submit" class="btn btn-success btn-sm me-2"><i class="bi-check-circle"></i> 标记已完成</button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('ops.inspection_task_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">任务信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted">标题</td><td><strong>{{ task.title }}</strong></td></tr>
+                    <tr><td class="text-muted">类型</td><td><span class="badge bg-{{ 'primary' if task.task_type=='计划' else 'warning' if task.task_type=='突发' else 'info' }}">{{ task.task_type }}</span></td></tr>
+                    <tr><td class="text-muted">状态</td><td><span class="badge bg-{{ 'secondary' if task.status=='待执行' else 'primary' if task.status=='执行中' else 'success' if task.status=='已完成' else 'danger' }}">{{ task.status }}</span></td></tr>
+                    <tr><td class="text-muted">优先级</td><td><span class="badge bg-{{ 'danger' if task.priority=='高' else 'warning' if task.priority=='中' else 'secondary' }}">{{ task.priority }}</span></td></tr>
+                    <tr><td class="text-muted">客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
+                    <tr><td class="text-muted">计划日期</td><td>{{ task.planned_start }} ~ {{ task.planned_end }}</td></tr>
+                    <tr><td class="text-muted">巡检模板</td><td>{{ template.name if template else '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">人员 & 设备</div>
+            <div class="card-body">
+                <p class="mb-2"><strong>巡检人员：</strong>{% if inspector_names %}{% for n in inspector_names %}<span class="badge bg-info me-1">{{ n }}</span>{% endfor %}{% else %}<span class="text-muted">-</span>{% endif %}</p>
+                <p><strong>巡检设备（{{ devices|length }} 台）：</strong></p>
+                {% if devices %}
+                <ul class="list-group list-group-flush">{% for d in devices %}<li class="list-group-item py-1"><i class="bi-server text-secondary me-2"></i>{{ d.device_name }} <code class="ms-2">{{ d.ip_address }}</code></li>{% endfor %}</ul>
+                {% else %}<p class="text-muted">暂无</p>{% endif %}
+            </div>
+        </div>
+        <div class="card"><div class="card-header">备注</div><div class="card-body"><p>{{ task.remark or '-' }}</p></div></div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header"><i class="bi-clock-history"></i> 巡检记录 ({{ records|length }})</div>
+    <div class="card-body">
+        {% if records %}
+        <table class="table table-sm table-hover">
+            <thead><tr><th>ID</th><th>标题</th><th>人员</th><th>日期</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+            {% for r in records %}
+            <tr><td>{{ r.id }}</td><td>{{ r.title }}</td><td>{{ r.inspector }}</td><td>{{ r.inspection_date }}</td>
+            <td><span class="badge bg-{{ 'success' if r.overall_status=='正常' else 'warning' }}">{{ r.overall_status }}</span></td>
+            <td><a href="{{ url_for('ops.inspection_detail', id=r.id) }}" class="btn btn-sm btn-outline-info"><i class="bi-eye"></i></a></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<p class="text-muted">暂无巡检记录</p>{% endif %}
+    </div>
+</div>
+{% endblock %}

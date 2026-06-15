@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('拓扑图管理', 'diagram-3') %}    <button class="btn btn-sm btn-outline-secondary me-2" onclick="toggleAll()">
+        <i class="bi-arrows-expand"></i> 全部展开/收起
+    </button>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal"><i class="bi-upload"></i> 上传拓扑图</button>
+{% endcall %}
+{# 搜索框 #}
+{% call ui.filter_bar() %}<form method="get" class="row g-2 align-items-center">
+    <div class="col-md-4"><input type="text" name="search" class="form-control form-control-sm" placeholder="搜索名称/描述/客户..." value="{{ search or '' }}"></div>
+    <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary"><i class="bi-search"></i> 搜索</button></div>
+    {% if search %}<div class="col-auto"><a href="{{ url_for('topology_list') }}" class="btn btn-sm btn-outline-secondary">清除</a></div>{% endif %}
+</form>
+{% endcall %}
+{% if grouped %}
+<div class="accordion" id="topoAccordion">
+    {% for cust_name, items in grouped %}
+    <div class="accordion-item">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cust-{{ loop.index }}">
+                <i class="bi-people me-2"></i>
+                <strong>{{ cust_name }}</strong>
+                <span class="badge bg-primary ms-2">{{ items|length }} 张拓扑图</span>
+            </button>
+        </h2>
+        <div id="cust-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#topoAccordion">
+            <div class="accordion-body p-0">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light"><tr>
+                        <th>名称</th>
+                        <th>描述</th>
+                        <th>上传人</th>
+                        <th>上传时间</th>
+                        <th style="width:90px">操作</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for m in items %}
+                    {# 一行 = 一张拓扑图（同名同客户合并），多文件类型横向排列图标 #}
+                    <tr>
+                        <td>
+                            <strong>{{ m.name }}</strong>
+                            {# 文件类型图标（按 image/pdf/visio/other 顺序展示） #}
+                            <span class="ms-2">
+                            {% for t in m.files %}
+                                {% if t.file_type == 'pdf' %}
+                                <a href="/static/{{ t.file_path }}" target="_blank" class="text-decoration-none me-1" title="点击预览 PDF（{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}）" data-topo-id="{{ t.id }}">
+                                    <i class="bi-file-earmark-pdf text-danger" style="font-size:1.25em;"></i>
+                                </a>
+                                {% elif t.file_type == 'visio' %}
+                                <a href="/static/{{ t.file_path }}" download class="text-decoration-none me-1" title="点击下载 Visio 文件（{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}）" data-topo-id="{{ t.id }}">
+                                    <i class="bi-file-earmark-break text-primary" style="font-size:1.25em;"></i>
+                                </a>
+                                {% elif t.file_type == 'image' %}
+                                <a href="/static/{{ t.file_path }}" target="_blank" class="text-decoration-none me-1" title="点击预览图片（{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}）" data-topo-id="{{ t.id }}">
+                                    <i class="bi-file-earmark-image text-success" style="font-size:1.25em;"></i>
+                                </a>
+                                {% else %}
+                                <a href="/static/{{ t.file_path }}" download class="text-decoration-none me-1" title="点击下载（{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}）" data-topo-id="{{ t.id }}">
+                                    <i class="bi-file-earmark text-secondary" style="font-size:1.25em;"></i>
+                                </a>
+                                {% endif %}
+                            {% endfor %}
+                            </span>
+                        </td>
+                        <td><small class="text-muted">{{ (m.first.description or '-')|truncate(40) }}</small></td>
+                        <td><small>{{ m.first.upload_by or '-' }}</small></td>
+                        <td><small>{{ m.first.created_at.strftime('%Y-%m-%d') if m.first.created_at else '-' }}</small></td>
+                        <td>
+                            {# 删除：因为可能多文件，弹出确认整组删除 #}
+                            <button class="btn btn-sm btn-outline-danger"
+                                    onclick="deleteTopoGroup({{ m.files|map(attribute='id')|list|tojson }}, '{{ m.name|e }}')"
+                                    title="删除此拓扑图（{{ m.files|length }} 个文件）">
+                                <i class="bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+{{ eui.empty_state('bi-diagram-3', '暂无拓扑图' if not search else '未找到匹配的拓扑图', '点击「上传拓扑图」添加' if not search else '') }}
+{% endif %}
+
+<div class="modal fade" id="uploadModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">上传拓扑图</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="{{ url_for('topology_upload') }}" enctype="multipart/form-data">
+<div class="modal-body">
+<div class="mb-3"><label class="form-label">拓扑图类型 <span class="text-danger">*</span></label>
+    <select name="topo_type" id="topoTypeSelect" class="form-select" required>
+        <option value="网络拓扑图">网络拓扑图</option>
+        <option value="会议室拓扑图">会议室拓扑图</option>
+        <option value="业务拓扑图">业务拓扑图</option>
+        <option value="机房拓扑图">机房拓扑图</option>
+        <option value="存储拓扑图">存储拓扑图</option>
+        <option value="安全拓扑图">安全拓扑图</option>
+    </select>
+</div>
+<div class="mb-3"><label class="form-label">名称 <small class="text-muted">(留空时按"客户+类型+日期"自动拼接)</small></label>
+    <input type="text" name="name" id="topoNameInput" class="form-control" placeholder="留空则自动命名">
+</div>
+<div class="mb-3"><label class="form-label">描述</label><textarea name="description" class="form-control" rows="2"></textarea></div>
+<div class="mb-3"><label class="form-label">客户（可选）</label>
+    <select name="customer_id" id="topoCustomerSelect" class="form-select">
+        <option value="">-- 不关联 --</option>
+        {% for c in all_customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+</div>
+<div class="mb-3"><label class="form-label">地区（可选）</label>
+    <select name="region_id" class="form-select"><option value="">-- 不关联 --</option>{% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
+</div>
+<div class="mb-3"><label class="form-label">文件 <span class="text-danger">*</span></label>
+    <input type="file" name="topo_file" class="form-control" accept=".jpg,.jpeg,.png,.gif,.bmp,.pdf,.vsd,.vsdx" required>
+    <small class="text-muted">支持 JPG/PNG/PDF/Visio 文件</small>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary"><i class="bi-upload"></i> 上传</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form>
+<script>
+(function() {
+    var typeSel = document.getElementById('topoTypeSelect');
+    var custSel = document.getElementById('topoCustomerSelect');
+    var nameIn = document.getElementById('topoNameInput');
+    if (!typeSel || !custSel || !nameIn) return;
+    function autoName() {
+        if (nameIn.dataset.touched === '1') return;
+        var type = typeSel.options[typeSel.selectedIndex].text;
+        var custText = custSel.options[custSel.selectedIndex] ? custSel.options[custSel.selectedIndex].text : '';
+        custText = custText && custText !== '-- 不关联 --' ? custText : '';
+        var d = new Date();
+        var ymd = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+        var composed = (custText ? custText : '') + type + ymd;
+        nameIn.value = composed; nameIn.placeholder = composed;
+    }
+    typeSel.addEventListener('change', autoName);
+    custSel.addEventListener('change', autoName);
+    nameIn.addEventListener('input', function() { nameIn.dataset.touched = '1'; });
+    autoName();
+})();
+
+function toggleAll() {
+    var acc = document.getElementById('topoAccordion');
+    if (!acc) return;
+    var items = acc.querySelectorAll('.accordion-collapse');
+    var anyCollapsed = Array.from(items).some(function(el) { return !el.classList.contains('show'); });
+    items.forEach(function(el) {
+        if (anyCollapsed) el.classList.add('show');
+        else el.classList.remove('show');
+    });
+}
+
+// V6.1.1：删除一组同名拓扑图（多文件）
+async function deleteTopoGroup(ids, name) {
+    if (!ids || !ids.length) return;
+    var msg = ids.length === 1
+        ? '确定删除拓扑图「' + name + '」？'
+        : '此拓扑图「' + name + '」共 ' + ids.length + ' 个文件，确定全部删除？';
+    if (!confirm(msg)) return;
+    for (var i = 0; i < ids.length; i++) {
+        try {
+            await fetch('/topologies/delete/' + ids[i], {credentials: 'same-origin'});
+        } catch(e) { /* ignore */ }
+    }
+    window.location.reload();
+}
+</script>
+</div></div></div>
+{% endblock %}

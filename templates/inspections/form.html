@@ -1,0 +1,1170 @@
+{% extends "base.html" %}
+{% block content %}{% import "_ui.html" as ui %}
+{% if preselected_task_id %}
+<input type="hidden" name="task_id" form="inspectionForm" value="{{ preselected_task_id }}">
+{% endif %}
+{{ ui.page_header('编辑巡检' if inspection else '新建巡检', 'pencil' if inspection else 'plus-circle') }}
+
+<div class="card">
+    <div class="card-body">
+        <form method="post" id="inspectionForm">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">选择客户 <span class="text-danger">*</span></label>
+                    <select name="customer_id" class="form-select" required id="customerSelect">
+                        <option value="">-- 选择客户 --</option>
+                        {% for c in customers %}
+                        <option value="{{ c.id }}" data-address="{{ c.address }}"
+                            {% if inspection and inspection.customer_id == c.id %}selected
+                            {% elif preselected_customer_id is defined and preselected_customer_id == c.id %}selected
+                            {% endif %}>
+                            {{ c.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">巡检标题 <span class="text-danger">*</span></label>
+                    <input type="text" name="title" class="form-control" required value="{{ inspection.title if inspection else '' }}" placeholder="例如：季度网络巡检">
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">巡检人员</label>
+                    {# V13: value 改为 user_id；显示用关联 User 的姓名；保存时后端冻结快照到 inspector_name/phone #}
+                    {% set _self_uid = (current_user.linked_inspectors[0].user_id if current_user.is_authenticated and current_user.linked_inspectors else None) %}
+                    <select name="inspector_user_id" class="form-select">
+                        <option value="">-- 选择 --</option>
+                        {% for ins in inspectors %}
+                            {% if ins.linked_user %}
+                            <option value="{{ ins.user_id }}"
+                                    {% if (inspection and inspection.inspector_user_id == ins.user_id)
+                                       or (inspection and not inspection.inspector_user_id and inspection.inspector == ins.linked_user.realname)
+                                       or (not inspection and _self_uid == ins.user_id) %}selected{% endif %}>
+                                {{ ins.linked_user.realname or ins.linked_user.username }}
+                            </option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">巡检日期</label>
+                    <input type="date" name="inspection_date" class="form-control" value="{{ inspection.inspection_date if inspection else '' }}">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">巡检地点</label>
+                    <input type="text" name="location" id="locationInput" class="form-control bg-light"
+                           value="{{ inspection.location if inspection else '' }}" readonly
+                           title="自动从客户信息中获取">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">总体状态</label>
+                    <select name="overall_status" class="form-select">
+                        <option value="正常" {% if inspection and inspection.overall_status=='正常' %}selected{% endif %}>正常</option>
+                        <option value="警告" {% if inspection and inspection.overall_status=='警告' %}selected{% endif %}>警告</option>
+                        <option value="异常" {% if inspection and inspection.overall_status=='异常' %}selected{% endif %}>异常</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 巡检设备自动匹配区 V4 -->
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi-server"></i> 巡检设备清单</span>
+                    <button type="button" class="btn btn-sm btn-outline-info" onclick="loadCustomerDevices()"><i class="bi-arrow-repeat"></i> 刷新匹配</button>
+                </div>
+                <div class="card-body" id="devicesContainer">
+                    <div class="text-muted text-center py-3" id="noDeviceHint">选择客户后，系统将自动列出设备并匹配模板</div>
+                    <div class="text-center d-none py-3" id="devicesLoading">
+                        <div class="spinner-border spinner-border-sm text-primary me-2"></div>正在加载设备列表...
+                    </div>
+                </div>
+            </div>
+
+            {% set sections = inspection.sections_json|from_json if inspection and inspection.sections_json else {} %}
+            <div class="card mt-3" id="reportSections">
+                <div class="card-header"><i class="bi-file-earmark-text"></i> 报告章节内容</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">二、季度运维工作内容</label>
+                            <div class="ms-3">
+                                <div class="mb-2">
+                                    <label class="form-label small">2.1 季度巡检</label>
+                                    <textarea name="s_q2_1" class="form-control" rows="2" placeholder="请填写季度巡检情况">{{ sections.get('q2_1', '') }}</textarea>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small">2.2 机房环境检查</label>
+                                    <textarea name="s_q2_2" class="form-control" rows="2" placeholder="请填写机房环境检查情况">{{ sections.get('q2_2', '') }}</textarea>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small">2.3 设备配置备份</label>
+                                    <textarea name="s_q2_3" class="form-control" rows="2" placeholder="请填写设备配置备份情况">{{ sections.get('q2_3', '') }}</textarea>
+                                    <div class="mt-1">
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="addSectionPhoto(this, 'q2_3')"><i class="bi-camera"></i> 添加照片</button>
+                                    </div>
+                                    <div class="q2_3-photo-list mt-1 d-flex gap-2 flex-wrap">
+                                        {% for p in sections.get('q2_3_photos', []) %}
+                                        <div class="photo-item position-relative d-inline-block">
+                                            <img src="/{{ p }}" class="rounded border" style="width:120px;height:90px;object-fit:cover;">
+                                            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                            <input type="hidden" class="section-photo" data-section="q2_3" value="{{ p }}">
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small">2.4 标签及线缆检查</label>
+                                    <textarea name="s_q2_4" class="form-control" rows="2" placeholder="请填写标签及线缆检查情况">{{ sections.get('q2_4', '') }}</textarea>
+                                    <div class="mt-1">
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="addSectionPhoto(this, 'q2_4')"><i class="bi-camera"></i> 添加照片</button>
+                                    </div>
+                                    <div class="q2_4-photo-list mt-1 d-flex gap-2 flex-wrap">
+                                        {% for p in sections.get('q2_4_photos', []) %}
+                                        <div class="photo-item position-relative d-inline-block">
+                                            <img src="/{{ p }}" class="rounded border" style="width:120px;height:90px;object-fit:cover;">
+                                            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                            <input type="hidden" class="section-photo" data-section="q2_4" value="{{ p }}">
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">四、网络拓扑图</label>
+                            <textarea name="s_network_topology" class="form-control" rows="2" placeholder="请描述网络拓扑情况">{{ sections.get('network_topology', '') }}</textarea>
+                            <div class="mt-1">
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="addTopologyPhoto(this)"><i class="bi-image"></i> 上传拓扑图</button>
+                                <span class="text-muted ms-2 small">支持 jpg/png</span>
+                            </div>
+                            <div class="topology-photo-list mt-1 d-flex gap-2 flex-wrap">
+                                {% set topo_photos = sections.get('topology_photos', []) %}
+                                {% for p in topo_photos %}
+                                <div class="photo-item position-relative d-inline-block">
+                                    <img src="/{{ p }}" class="rounded border" style="width:150px;height:100px;object-fit:cover;">
+                                    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                    <input type="hidden" class="topology-photo-path" value="{{ p }}">
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">五、设备台账</label>
+                            <p class="text-muted small mb-1">报告中将自动调用本次巡检设备的设备管理信息</p>
+                            <textarea name="s_device_ledger" class="form-control" rows="2" placeholder="补充说明（可选）">{{ sections.get('device_ledger', '') }}</textarea>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">六、防汛网络运行建议</label>
+                            <textarea name="s_flood_advice" class="form-control" rows="3" placeholder="请填写防汛网络运行建议">{{ sections.get('flood_advice', '') }}</textarea>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">七、售后服务电话及联系人</label>
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    <label class="form-label small">技术支持</label>
+                                    <input type="text" name="s_tech_support" class="form-control" placeholder="技术支持电话" value="{{ sections.get('tech_support', '') }}">
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                    <label class="form-label small">投诉与建议</label>
+                                    <input type="text" name="s_complaint" class="form-control" placeholder="投诉建议电话" value="{{ sections.get('complaint', '') }}">
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                    <label class="form-label small">业主签字</label>
+                                    <input type="text" name="s_owner_sign" class="form-control" placeholder="业主签字" value="{{ sections.get('owner_sign', '') }}">
+                                </div>
+                            </div>
+                            <p class="mb-0 mt-2">运维公司：江西丰功信息技术有限公司</p>
+                            <div class="mt-1">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="addSealImage(this)"><i class="bi-postage"></i> 上传印章图片</button>
+                                <span class="text-muted ms-2 small">建议透明背景 PNG，将在报告中显示</span>
+                            </div>
+                            <div class="seal-preview mt-1">
+                                {% set seal = sections.get('seal_image', '') %}
+                                {% if seal %}
+                                <div class="photo-item position-relative d-inline-block">
+                                    <img src="/{{ seal }}" class="rounded border" style="height:60px;">
+                                    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                    <input type="hidden" class="seal-image-path" value="{{ seal }}">
+                                </div>
+                                {% endif %}
+                            </div>
+                            <p class="mb-0 mt-1">报告生成日期：<span id="reportDateDisplay"></span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <input type="hidden" name="content_json" id="contentJson" value="{{ devices_json or '[]' }}">
+            <input type="hidden" name="sections_json" id="sectionsJson" value="{{ inspection.sections_json if inspection and inspection.sections_json else '{}' }}">
+            <input type="hidden" name="field_values_json" id="fieldValuesJson" value="{{ inspection.field_values_json if inspection else '{}' }}">
+            <input type="hidden" name="skip_reasons_json" id="skipReasonsJson" value="{{ inspection.skip_reasons_json if inspection else '{}' }}">
+            <input type="hidden" name="device_ids_json" id="deviceIdsJson" value="[]">
+
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary" onclick="return saveInspection()"><i class="bi-save"></i> 保存并生成报告</button>
+                <a href="{{ url_for('ops.inspection_list') }}" class="btn btn-secondary">取消</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 设备卡片模板（一个字段一行） -->
+<template id="deviceTemplate">
+    <div class="device-item card mb-2 border-primary">
+        <div class="card-header py-1 d-flex justify-content-between align-items-center bg-light">
+            <strong class="device-name-display"></strong>
+            <span class="badge bg-secondary device-type-badge"></span>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDevice(this)"><i class="bi-x-lg"></i></button>
+        </div>
+        <div class="card-body py-2">
+            <div class="row g-1 mb-2">
+                <div class="col-md-6 small">📌 安装位置：<span class="device-location text-muted"></span></div>
+                <div class="col-md-6 small">🔧 设备型号：<span class="device-model-display text-muted"></span></div>
+                <div class="col-md-6 small">🌐 IP地址：<span class="device-ip-display text-muted"></span></div>
+                <div class="col-md-6 small">💻 系统版本：<span class="device-osversion text-muted"></span></div>
+                <div class="col-md-6 small">⏱ 系统运行时间：<input type="text" class="form-control form-control-sm device-uptime d-inline-block" style="width:150px" placeholder="如：30天"></div>
+            </div>
+            <hr class="my-1">
+            <div class="check-items"></div>
+            <div class="mt-2 d-flex gap-2 flex-wrap">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addCheckItem(this)"><i class="bi-plus-lg"></i> 添加检查项</button>
+                <button type="button" class="btn btn-sm btn-outline-info" onclick="addPhoto(this)"><i class="bi-camera"></i> 现场检查照片</button>
+            </div>
+            <div class="photo-list mt-2 d-flex gap-2 flex-wrap"></div>
+        </div>
+    </div>
+</template>
+
+<template id="checkItemTemplate">
+    <div class="row mb-1 align-items-center check-item">
+        <div class="col-md-4">
+            <input type="text" class="form-control form-control-sm check-name" placeholder="检查项（如：运行状态）">
+        </div>
+        <div class="col-md-3">
+            <select class="form-select form-select-sm check-result">
+                <option value="正常">正常</option>
+                <option value="异常">异常</option>
+                <option value="警告">警告</option>
+                <option value="不适用">不适用</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <input type="text" class="form-control form-control-sm check-remark" placeholder="备注">
+        </div>
+        <div class="col-md-1">
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.check-item').remove()"><i class="bi-x-lg"></i></button>
+        </div>
+    </div>
+</template>
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _deviceList = [];
+let _addedIds = new Set();
+
+// 加载巡检模板（用于检查项自动匹配）
+window._templates = [];
+(function() {
+    fetch('/api/inspection-templates')
+        .then(function(r) { return r.json(); })
+        .then(function(t) { window._templates = t; })
+        .catch(function() {});
+})();
+
+document.addEventListener('DOMContentLoaded', function() {
+    var sel = document.getElementById('customerSelect');
+    if (sel) sel.addEventListener('change', function() { onCustomerChange(this); });
+    // 如果客户已预选，自动加载设备
+    if (sel && sel.value) {
+        setTimeout(function() { onCustomerChange(sel); }, 300);
+    }
+});
+function onCustomerChange(sel) {
+    const cid = sel.value;
+    const address = sel.options[sel.selectedIndex]?.dataset?.address || '';
+    document.getElementById('locationInput').value = address;
+
+    _addedIds.clear();
+    const selEl = document.getElementById('deviceSelector');
+    selEl.innerHTML = '<option value="">-- 从设备库中选择 --</option>';
+    selEl.disabled = true;
+    document.getElementById('devicesContainer').innerHTML =
+        '<div class="text-muted text-center py-3" id="noDeviceHint">选择客户后自动加载设备</div>';
+
+    if (!cid) return;
+
+    fetch('/api/customers/' + cid + '/devices')
+        .then(r => { if (!r.ok) throw new Error('API error ' + r.status); return r.json(); })
+        .then(devices => {
+            console.log('Devices loaded:', devices.length, devices);
+            _deviceList = devices;
+            // 先创建设备卡片
+            for (var di = 0; di < devices.length; di++) {
+                var d = devices[di];
+                try { addDeviceCard(d); } catch(e) { console.error('card error:', d.id, e); }
+                _addedIds.add(d.id);
+            }
+            // 填充下拉选项
+            selEl.disabled = devices.length === 0;
+            selEl.options.length = 1; // 保留第一个空选项
+            for (var di = 0; di < devices.length; di++) {
+                var d = devices[di];
+                var opt = document.createElement('option');
+                opt.value = d.id;
+                opt.text = d.device_name + (d.ip_address ? ' (' + d.ip_address + ')' : '');
+                opt.setAttribute('data-name', d.device_name);
+                opt.setAttribute('data-ip', d.ip_address || '');
+                opt.setAttribute('data-type', d.device_type || '');
+                opt.setAttribute('data-model', d.model || '');
+                opt.setAttribute('data-osversion', d.os_version || '');
+                opt.setAttribute('data-cname', d.customer_name || '');
+                opt.setAttribute('data-caddr', d.customer_address || '');
+                opt.setAttribute('data-location', d.location || '');
+                selEl.appendChild(opt);
+            }
+            if (devices.length === 0) {
+                document.getElementById('devicesContainer').innerHTML =
+                    '<div class="text-muted text-center py-3">该客户暂无设备</div>';
+            }
+        }).catch(function(err) {
+            console.error('fetch error:', err);
+            alert('加载设备失败：' + err.message);
+        });
+}
+
+function addSelectedDevice(sel) {
+    const val = sel.value;
+    if (!val) return;
+    const opt = sel.options[sel.selectedIndex];
+    const deviceId = parseInt(val);
+    if (_addedIds.has(deviceId)) {
+        alert('该设备已在巡检清单中');
+        sel.value = '';
+        return;
+    }
+    function ga(name) { return opt.getAttribute(name) || ''; }
+    addDeviceCard({
+        device_name: ga('data-name'),
+        ip_address: ga('data-ip'),
+        device_type: ga('data-type'),
+        model: ga('data-model'),
+        os_version: ga('data-osversion'),
+        location: ga('data-location'),
+        customer_name: ga('data-cname'),
+        customer_address: ga('data-caddr'),
+    });
+    _addedIds.add(deviceId);
+    sel.value = '';
+}
+
+function addAllDevices() {
+    const sel = document.getElementById('deviceSelector');
+    const options = sel.querySelectorAll('option');
+    let count = 0;
+    for (var oi = 0; oi < options.length; oi++) {
+        var opt = options[oi];
+        if (!opt.value) continue;
+        var deviceId = parseInt(opt.value);
+        if (_addedIds.has(deviceId)) continue;
+        function ga(name) { return opt.getAttribute(name) || ''; }
+        addDeviceCard({
+            device_name: ga('data-name'),
+            ip_address: ga('data-ip'),
+            device_type: ga('data-type'),
+            model: ga('data-model'),
+            os_version: ga('data-osversion'),
+            location: ga('data-location'),
+            customer_name: ga('data-cname'),
+            customer_address: ga('data-caddr'),
+        });
+        _addedIds.add(deviceId);
+        count++;
+    }
+    if (count === 0) alert('所有设备已添加');
+}
+
+function addDeviceCard(deviceData) {
+    // deviceData: {device_name, ip_address, device_type, model, os_version, customer_name, customer_address}
+    document.getElementById('noDeviceHint')?.remove();
+    const tmpl = document.getElementById('deviceTemplate');
+    const clone = tmpl.content.cloneNode(true);
+
+    const name = deviceData.device_name || '';
+    const dtype = deviceData.device_type || '';
+
+    clone.querySelector('.device-name-display').textContent = name;
+    clone.querySelector('.device-type-badge').textContent = dtype || '未分类';
+    clone.querySelector('.device-location').textContent = deviceData.location || '-';
+    clone.querySelector('.device-model-display').textContent = deviceData.model || '-';
+    clone.querySelector('.device-ip-display').textContent = deviceData.ip_address || '-';
+    clone.querySelector('.device-osversion').textContent = deviceData.os_version || '-';
+
+    // 按设备类型匹配模板检查项
+    const itemsContainer = clone.querySelector('.check-items');
+    var matchedItems = null;
+    if (dtype && window._templates) {
+        var t = window._templates.find(function(t) { return t.device_type === dtype && t.items && t.items.length > 0; });
+        if (t) matchedItems = t.items;
+    }
+    if (!matchedItems) {
+        matchedItems = [{name:'运行状态',default_result:'正常'},{name:'CPU使用率',default_result:'正常'},{name:'内存使用率',default_result:'正常'},{name:'端口状态',default_result:'正常'},{name:'告警检查',default_result:'正常'}];
+    }
+    matchedItems.forEach(function(item) {
+        var itm = document.getElementById('checkItemTemplate').content.cloneNode(true);
+        itm.querySelector('.check-name').value = item.name || '';
+        itm.querySelector('.check-result').value = item.default_result || '正常';
+        itemsContainer.appendChild(itm);
+    });
+
+    document.getElementById('devicesContainer').appendChild(clone);
+}
+
+function addCheckItem(btn) {
+    const container = btn.closest('.device-item').querySelector('.check-items');
+    const tmpl = document.getElementById('checkItemTemplate');
+    container.appendChild(tmpl.content.cloneNode(true));
+}
+
+// 设置报告日期
+function setReportDate() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    document.getElementById('reportDateDisplay').textContent = y + '年' + m + '月' + day + '日';
+}
+
+// 拓扑图上传
+function addTopologyPhoto(btn) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = function() {
+        var file = input.files[0];
+        if (!file) return;
+        if (file.size > 10 * 1024 * 1024) { alert('图片不能超过10MB'); return; }
+        var formData = new FormData();
+        formData.append('photo', file);
+        var btnParent = btn.closest('.mb-3');
+        var list = btnParent.querySelector('.topology-photo-list');
+        var placeholder = document.createElement('div');
+        placeholder.innerHTML = '<i class="bi-arrow-clockwise"></i> 上传中...';
+        list.appendChild(placeholder);
+        fetch('/api/upload-photo', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { placeholder.innerHTML = '<span class="text-danger">失败</span>'; return; }
+                placeholder.outerHTML = '<div class="photo-item" style="position:relative;display:inline-block;">' +
+                    '<img src="/' + data.path + '" style="width:150px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
+                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                    '<input type="hidden" class="topology-photo-path" value="' + data.path + '">' +
+                    '</div>';
+            })
+            .catch(function() { placeholder.innerHTML = '<span class="text-danger">上传失败</span>'; });
+    };
+    input.click();
+}
+
+// 章节照片上传（通用）
+function addSectionPhoto(btn, section) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = function() {
+        var file = input.files[0];
+        if (!file || file.size > 10 * 1024 * 1024) { alert('图片不能超过10MB'); return; }
+        var formData = new FormData();
+        formData.append('photo', file);
+        var list = btn.closest('.mb-2').querySelector('.' + section + '-photo-list');
+        var ph = document.createElement('div');
+        ph.innerHTML = '<i class="bi-arrow-clockwise"></i>';
+        list.appendChild(ph);
+        fetch('/api/upload-photo', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { ph.innerHTML = '失败'; return; }
+                ph.outerHTML = '<div class="photo-item" style="position:relative;display:inline-block;">' +
+                    '<img src="/' + data.path + '" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
+                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                    '<input type="hidden" class="section-photo" data-section="' + section + '" value="' + data.path + '">' +
+                    '</div>';
+            });
+    };
+    input.click();
+}
+
+// 上传印章图片
+function addSealImage(btn) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg';
+    input.onchange = function() {
+        var file = input.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) { alert('图片不能超过5MB'); return; }
+        var formData = new FormData();
+        formData.append('photo', file);
+        var container = btn.closest('.mb-3').querySelector('.seal-preview');
+        container.innerHTML = '<i class="bi-arrow-clockwise"></i> 上传中...';
+        fetch('/api/upload-photo', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { container.innerHTML = '<span class="text-danger">失败</span>'; return; }
+                container.innerHTML = '<div class="photo-item" style="position:relative;display:inline-block;">' +
+                    '<img src="/' + data.path + '" style="height:60px;border-radius:4px;border:1px solid #ddd;">' +
+                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-8px;right:-8px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                    '<input type="hidden" class="seal-image-path" value="' + data.path + '">' +
+                    '</div>';
+            })
+            .catch(function() { container.innerHTML = '<span class="text-danger">上传失败</span>'; });
+    };
+    input.click();
+}
+
+// 添加现场照片（上传到服务器，存路径）
+function addPhoto(btn) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = function() {
+        var photoList = btn.closest('.device-item').querySelector('.photo-list');
+        for (var i = 0; i < input.files.length; i++) {
+            var file = input.files[i];
+            if (file.size > 10 * 1024 * 1024) { alert('图片不能超过10MB'); continue; }
+            // 逐个上传到服务器
+            var formData = new FormData();
+            formData.append('photo', file);
+            var placeholder = document.createElement('div');
+            placeholder.className = 'photo-item';
+            placeholder.style.cssText = 'display:inline-block;text-align:center;padding:10px;';
+            placeholder.innerHTML = '<i class="bi-arrow-clockwise"></i> 上传中...';
+            photoList.appendChild(placeholder);
+            fetch('/api/upload-photo', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) { placeholder.innerHTML = '<span class="text-danger">上传失败</span>'; return; }
+                    placeholder.innerHTML = '<div style="position:relative;display:inline-block;">' +
+                        '<img src="' + data.url + '" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
+                        '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.parentElement.remove()">×</button>' +
+                        '<input type="hidden" class="photo-path" value="' + data.path + '">' +
+                        '</div>';
+                })
+                .catch(function() { placeholder.innerHTML = '<span class="text-danger">上传失败</span>'; });
+        }
+    };
+    input.click();
+}
+
+function removeDevice(btn) {
+    const card = btn.closest('.device-item');
+    const name = card.querySelector('.device-name-display')?.textContent || '';
+    const matching = _deviceList.find(function(d) { return d.device_name === name; });
+    if (matching) _addedIds.delete(matching.id);
+    card.remove();
+    if (document.querySelectorAll('.device-item').length === 0) {
+        document.getElementById('devicesContainer').innerHTML =
+            '<div class="text-muted text-center py-3" id="noDeviceHint">选择客户后自动加载设备</div>';
+    }
+}
+
+function saveInspection() {
+    const devices = [];
+    document.querySelectorAll('.device-item').forEach(el => {
+        const device = {
+            device: el.querySelector('.device-name-display')?.textContent || '',
+            ip: el.querySelector('.device-ip-display')?.textContent || '',
+            type: el.querySelector('.device-type-badge')?.textContent || '',
+            model: el.querySelector('.device-model-display')?.textContent || '',
+            os_version: el.querySelector('.device-osversion')?.textContent || '',
+            location: el.querySelector('.device-location')?.textContent || '',
+            uptime: el.querySelector('.device-uptime')?.value || '',
+            items: [],
+            photos: []
+        };
+        el.querySelectorAll('.check-item').forEach(ci => {
+            device.items.push({
+                name: ci.querySelector('.check-name').value,
+                result: ci.querySelector('.check-result').value,
+                remark: ci.querySelector('.check-remark').value
+            });
+        });
+        el.querySelectorAll('.photo-path').forEach(p => {
+            device.photos.push(p.value);
+        });
+        devices.push(device);
+    });
+    if (devices.length === 0) {
+        alert('请至少添加一个巡检设备');
+        return false;
+    }
+    document.getElementById('contentJson').value = JSON.stringify(devices);
+    // 保存章节内容
+    var topoPhotos = [];
+    document.querySelectorAll('.topology-photo-path').forEach(function(el) { topoPhotos.push(el.value); });
+    var sealEl = document.querySelector('.seal-image-path');
+    // 收集章节照片（按 section 分组）
+    var q2_3_photos = []; var q2_4_photos = [];
+    document.querySelectorAll('.section-photo').forEach(function(el) {
+        if (el.dataset.section === 'q2_3') q2_3_photos.push(el.value);
+        if (el.dataset.section === 'q2_4') q2_4_photos.push(el.value);
+    });
+    var sections = {
+        network_topology: document.querySelector('[name="s_network_topology"]')?.value || '',
+        topology_photos: topoPhotos,
+        q2_1: document.querySelector('[name="s_q2_1"]')?.value || '',
+        q2_2: document.querySelector('[name="s_q2_2"]')?.value || '',
+        q2_3: document.querySelector('[name="s_q2_3"]')?.value || '',
+        q2_4: document.querySelector('[name="s_q2_4"]')?.value || '',
+        q2_3_photos: q2_3_photos,
+        q2_4_photos: q2_4_photos,
+        device_ledger: document.querySelector('[name="s_device_ledger"]')?.value || '',
+        flood_advice: document.querySelector('[name="s_flood_advice"]')?.value || '',
+        tech_support: document.querySelector('[name="s_tech_support"]')?.value || '',
+        complaint: document.querySelector('[name="s_complaint"]')?.value || '',
+        owner_sign: document.querySelector('[name="s_owner_sign"]')?.value || '',
+        seal_image: sealEl ? sealEl.value : '',
+    };
+    document.getElementById('sectionsJson').value = JSON.stringify(sections);
+    for (const d of devices) {
+        if (!d.device) { alert('请填写设备名称'); return false; }
+    }
+    return true;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    setReportDate();
+{% if inspection and devices_json %}
+    const data = JSON.parse('{{ devices_json | replace("'", "\\'") | safe }}');
+    if (data && data.length > 0) {
+        setTimeout(() => {
+            data.forEach(d => {
+                addDeviceCard({
+                    device_name: d.device,
+                    ip_address: d.ip,
+                    device_type: d.type,
+                    model: d.model || '',
+                    os_version: d.os_version || '',
+                    location: d.location || '',
+                    customer_name: '',
+                    customer_address: ''
+                });
+                const container = document.getElementById('devicesContainer');
+                const last = container.lastElementChild;
+                if (last) {
+                    // 设置运行时间
+                    const uptime = last.querySelector('.device-uptime');
+                    if (uptime && d.uptime) uptime.value = d.uptime;
+                    // 加载检查项
+                    const ciContainer = last.querySelector('.check-items');
+                    ciContainer.innerHTML = '';
+                    (d.items || []).forEach(item => {
+                        const tmpl = document.getElementById('checkItemTemplate').content.cloneNode(true);
+                        tmpl.querySelector('.check-name').value = item.name || '';
+                        tmpl.querySelector('.check-result').value = item.result || '正常';
+                        tmpl.querySelector('.check-remark').value = item.remark || '';
+                        ciContainer.appendChild(tmpl);
+                    });
+                    // 加载照片
+                    if (d.photos && d.photos.length > 0) {
+                        var photoList = last.querySelector('.photo-list');
+                        photoList.innerHTML = '';
+                        d.photos.forEach(function(path) {
+                            var div = document.createElement('div');
+                            div.className = 'photo-item';
+                            div.style.cssText = 'position:relative;display:inline-block;';
+                            div.innerHTML = '<img src="/' + path + '" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
+                                '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                                '<input type="hidden" class="photo-path" value="' + path + '">';
+                            photoList.appendChild(div);
+                        });
+                    }
+                }
+            });
+        }, 500);
+    }
+{% endif %}
+});
+
+// ============================================================
+// V4: 设备自动匹配 + 复合巡检表单
+// ============================================================
+var customerSelect = document.getElementById('customerSelect');
+var currentCustomerId = {{ inspection.customer_id if inspection else 0 }};
+
+if (customerSelect) {
+    customerSelect.addEventListener('change', function() {
+        currentCustomerId = this.value;
+        if (currentCustomerId) { loadCustomerDevices(); }
+    });
+    // 编辑模式：自动加载
+    if (currentCustomerId) { loadCustomerDevices(); }
+}
+
+function loadCustomerDevices() {
+    var container = document.getElementById('devicesContainer');
+    var hint = document.getElementById('noDeviceHint');
+    var loading = document.getElementById('devicesLoading');
+    if (!currentCustomerId) {
+        container.innerHTML = '';
+        container.appendChild(hint);
+        hint.classList.remove('d-none');
+        return;
+    }
+    hint.classList.add('d-none');
+    if (loading) loading.classList.remove('d-none');
+
+    fetch('/api/customers/' + currentCustomerId + '/devices-with-templates')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            container.innerHTML = '';
+            if (!data.devices || data.devices.length === 0) {
+                container.innerHTML = '<div class="text-muted text-center py-3">该客户暂无可巡检设备</div>';
+                return;
+            }
+            // 按类别分组
+            var grouped = {};
+            data.devices.forEach(function(d) {
+                var cat = d.matched_template_category || '其他';
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(d);
+            });
+            var catOrder = ['服务器','网络设备','安全设备','UPS','空调','其他'];
+            catOrder.forEach(function(cat) {
+                if (grouped[cat]) {
+                    container.innerHTML += '<h6 class="mt-3 mb-2 text-muted"><i class="bi-folder2 me-2"></i>' + cat + ' (' + grouped[cat].length + '台)</h6>';
+                    grouped[cat].forEach(function(d) { renderDeviceCard(d, container); });
+                }
+            });
+        })
+        .catch(function() { container.innerHTML = '<div class="text-danger text-center py-3">加载失败，请刷新重试</div>'; });
+}
+
+function renderDeviceCard(d, container) {
+    var card = document.createElement('div');
+    card.className = 'device-item card mb-2 border-primary';
+    card.id = 'deviceCard_' + d.device_id;
+    card.dataset.deviceId = d.device_id;
+    card.dataset.templateId = d.matched_template_id || '';
+
+    var matchBadge = d.match_type === 'model' ? '🎯 型号匹配' : d.match_type === 'device_type' ? '🔧 类型匹配' : '⚠️ 未匹配';
+    var matchColor = d.match_type === 'none' ? 'text-danger' : 'text-success';
+
+    card.innerHTML =
+        '<div class="card-header py-1 d-flex justify-content-between align-items-center bg-light">' +
+            '<strong>' + d.device_name + '</strong>' +
+            '<div><span class="badge bg-' + (d.match_type !== 'none' ? 'info' : 'warning') + ' me-1">' + d.matched_template_name + '</span>' +
+            '<small class="' + matchColor + '">' + matchBadge + '</small></div>' +
+        '</div>' +
+        '<div class="card-body py-2">' +
+            '<div class="row g-1 mb-2 small text-muted">' +
+                '<div class="col-md-3">📍 ' + (d.location || '-') + '</div>' +
+                '<div class="col-md-3">🔧 ' + (d.model || '-') + '</div>' +
+                '<div class="col-md-3">🌐 ' + (d.ip_address || '-') + '</div>' +
+                '<div class="col-md-3">💻 ' + (d.os_version || '-') + '</div>' +
+            '</div>' +
+            '<div class="row g-1 small text-muted mb-2">' +
+                '<div class="col-md-6">⏱ 系统运行时间：<input type="text" class="form-control form-control-sm d-inline-block" style="width:140px" placeholder="如：30天 2小时" data-device="' + d.device_id + '" data-field="系统运行时间"></div>' +
+            '</div>' +
+            '<hr class="my-1"><div class="check-items" id="checkItems_' + d.device_id + '">' +
+            '<div class="text-center text-muted py-2 small">请先为设备关联巡检模板</div></div>' +
+        '</div>';
+    container.appendChild(card);
+
+    // 加载模板检查项
+    if (d.matched_template_id) {
+        fetch('/api/inspection-templates')
+            .then(function(r) { return r.json(); })
+            .then(function(templates) {
+                var t = templates.find(function(x) { return x.id === d.matched_template_id; });
+                if (t && t.items) {
+                    var itemsDiv = document.getElementById('checkItems_' + d.device_id);
+                    itemsDiv.innerHTML = '';
+                    t.items.forEach(function(item, idx) {
+                        if (item.enabled === false) return;
+                        itemsDiv.appendChild(renderCheckItem(item, d.device_id, idx));
+                    });
+                }
+            });
+    }
+}
+
+function renderCheckItem(item, deviceId, idx) {
+    var div = document.createElement('div');
+    div.className = 'row mb-1 align-items-center check-item';
+    div.dataset.field = item.name;
+    div.dataset.deviceId = deviceId;
+    div.dataset.fieldType = item.field_type || 'text';
+
+    var labelHtml = '<label class="col-form-label col-form-label-sm col-md-3 text-end" title="' + (item.help_text || '') + '">' +
+        item.name + (item.required ? '<span class="text-danger">*</span>' : '') +
+        (item.help_text ? '<i class="bi-info-circle text-info ms-1" title="' + item.help_text + '"></i>' : '') +
+        '</label>';
+
+    var inputHtml = '';
+    switch (item.field_type || 'text') {
+        case 'dropdown':
+            var opts = (item.options || '正常,异常').split(',');
+            inputHtml = '<select class="form-select form-select-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '">';
+            opts.forEach(function(o) { inputHtml += '<option>' + o.trim() + '</option>'; });
+            inputHtml += '</select>';
+            // Skip reason area for required+allow_skip dropdowns
+            if (item.required && item.allow_skip) {
+                inputHtml += '<div class="skip-area mt-1 d-none">' +
+                    '<select class="form-select form-select-sm skip-reason" style="width:auto"><option value="">--跳过原因--</option>' +
+                    (item.skip_reasons || '').split(',').map(function(r){return '<option>'+r.trim()+'</option>';}).join('') +
+                    '<option value="其他">其他</option></select>' +
+                    '<textarea class="form-control form-control-sm mt-1 skip-detail" rows="1" placeholder="详细说明"></textarea></div>';
+            }
+            break;
+        case 'text':
+            inputHtml = '<input type="text" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '" placeholder="' + (item.placeholder || '') + '">';
+            break;
+        case 'multiline_text':
+            inputHtml = '<textarea class="form-control form-control-sm check-value" rows="2" data-device="' + deviceId + '" data-field="' + item.name + '" placeholder="' + (item.placeholder || '') + '"></textarea>';
+            break;
+        case 'number':
+            inputHtml = '<input type="number" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '" step="0.1">';
+            break;
+        case 'date':
+            inputHtml = '<input type="date" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '">';
+            break;
+        case 'image':
+            inputHtml = '<input type="file" class="form-control form-control-sm check-photo" accept="image/*" data-device="' + deviceId + '" data-field="' + item.name + '" onchange="uploadCheckPhoto(this)">';
+            break;
+        default:
+            inputHtml = '<input type="text" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '">';
+    }
+
+    div.innerHTML = labelHtml + '<div class="col-md-8">' + inputHtml + '</div>';
+
+    // Dropdown change: show skip reason if "非正常" value selected
+    if (item.field_type === 'dropdown' && item.required && item.allow_skip) {
+        setTimeout(function() {
+            var sel = div.querySelector('.check-value');
+            if (sel) {
+                sel.addEventListener('change', function() {
+                    var skipArea = this.parentElement.querySelector('.skip-area');
+                    if (skipArea) {
+                        var normalVals = ['正常', '符合要求'];
+                        skipArea.classList.toggle('d-none', normalVals.includes(this.value));
+                    }
+                });
+            }
+        }, 0);
+    }
+
+    return div;
+}
+
+function uploadCheckPhoto(input) {
+    var file = input.files[0];
+    if (!file) return;
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/api/upload-photo', {method:'POST', body:formData})
+        .then(function(r){return r.json();})
+        .then(function(data){
+            if (data.path) {
+                // Show preview
+                var preview = document.createElement('img');
+                preview.src = '/' + data.path;
+                preview.style.cssText = 'width:80px;height:60px;object-fit:cover;margin-top:4px;border-radius:4px;';
+                preview.dataset.photoPath = data.path;
+                input.parentElement.appendChild(preview);
+                input.type = 'hidden';
+                input.value = data.path;
+            }
+        });
+}
+
+// 收集所有设备的检查项值为 JSON
+function saveInspection() {
+    var fieldValues = {};
+    var skipReasons = {};
+    var deviceIds = [];
+
+    document.querySelectorAll('.device-item').forEach(function(card) {
+        var did = card.dataset.deviceId;
+        if (!did) return;
+        deviceIds.push(parseInt(did));
+        var devName = card.querySelector('strong');
+        var devKey = devName ? devName.textContent : ('设备' + did);
+
+        fieldValues[devKey] = {};
+        skipReasons[devKey] = {};
+
+        card.querySelectorAll('.check-value').forEach(function(el) {
+            var fname = el.dataset.field;
+            if (!fname) return;
+            fieldValues[devKey][fname] = el.value;
+            // Check for skip reason
+            var skipArea = el.parentElement.querySelector('.skip-area');
+            if (skipArea && !skipArea.classList.contains('d-none')) {
+                var reason = skipArea.querySelector('.skip-reason');
+                var detail = skipArea.querySelector('.skip-detail');
+                if (reason && reason.value) {
+                    skipReasons[devKey][fname] = {reason: reason.value, detail: detail ? detail.value : ''};
+                }
+            }
+        });
+
+        // Also collect uptime
+        var uptimeInput = card.querySelector('[data-field="系统运行时间"]');
+        if (uptimeInput && uptimeInput.value) {
+            fieldValues[devKey]['系统运行时间'] = uptimeInput.value;
+        }
+    });
+
+    document.getElementById('fieldValuesJson').value = JSON.stringify(fieldValues);
+    document.getElementById('skipReasonsJson').value = JSON.stringify(skipReasons);
+    document.getElementById('deviceIdsJson').value = JSON.stringify(deviceIds);
+    // 提交成功后清掉草稿（在表单 action 真正提交后由路由 redirect，无法 hook 成功事件——所以在 unload 前不删，提交后由用户手动删/或下次进入时检测到记录已生成自动清理）
+    if (window._draftDeleteOnSubmit) {
+        try { window._draftDeleteOnSubmit(); } catch(e) {}
+    }
+    return true;
+}
+
+// ============================ V11: 草稿自动保存 ============================
+(function setupDraftAutoSave(){
+    // 仅在新建/编辑模式启用
+    var taskIdEl = document.querySelector('[name="task_id"]');
+    var inspectionIdEl = document.querySelector('[name="inspection_id"]');  // 编辑模式（如果有）
+    var formTypeBase = 'inspection';
+    var relatedId = null;
+    if (inspectionIdEl && inspectionIdEl.value) {
+        // 编辑模式：以巡检记录 id 关联
+        relatedId = parseInt(inspectionIdEl.value);
+        formTypeBase = 'inspection_edit';
+    } else if (taskIdEl && taskIdEl.value) {
+        // 新建模式：以任务 id 关联
+        relatedId = parseInt(taskIdEl.value);
+    } else {
+        // 无 task_id 也无 inspection_id：用 0 做匿名草稿
+        relatedId = 0;
+    }
+    var formType = formTypeBase;
+    var saveTimer = null;
+    var lastSavedHash = '';
+    var indicator = null;
+
+    function getIndicator(){
+        if (indicator) return indicator;
+        var bar = document.createElement('div');
+        bar.id = 'draftIndicator';
+        bar.className = 'draft-indicator';
+        bar.innerHTML = '<i class="bi-cloud-check me-1 text-success"></i><span class="draft-text">草稿已保存</span>';
+        document.body.appendChild(bar);
+        indicator = bar;
+        return indicator;
+    }
+
+    function setIndicator(text, type){
+        var bar = getIndicator();
+        bar.style.display = '';
+        var icon = type==='saving' ? '<i class="bi-arrow-repeat me-1 text-primary"></i>'
+                : type==='error'  ? '<i class="bi-exclamation-triangle me-1 text-danger"></i>'
+                : '<i class="bi-cloud-check me-1 text-success"></i>';
+        bar.innerHTML = icon + '<span class="draft-text">'+text+'</span>';
+        clearTimeout(bar._hideT);
+        if (type !== 'saving') bar._hideT = setTimeout(function(){ bar.style.display='none'; }, 3500);
+    }
+
+    function snapshot(){
+        // 收集表单核心字段（不含文件）
+        var form = document.querySelector('form');
+        if (!form) return null;
+        var data = {};
+        // 1. 原生字段
+        Array.from(form.elements).forEach(function(el){
+            if (!el.name) return;
+            if (el.type === 'file') return;
+            if (el.type === 'checkbox' || el.type === 'radio') {
+                if (el.checked) {
+                    if (data[el.name]) data[el.name] = [].concat(data[el.name], [el.value]);
+                    else data[el.name] = el.value;
+                }
+            } else {
+                data[el.name] = el.value;
+            }
+        });
+        // 2. 设备区块的所有 input/select/textarea（包括动态生成的）
+        var devData = [];
+        document.querySelectorAll('.device-item').forEach(function(card){
+            var dev = {meta:{}, items:[]};
+            // 设备元数据
+            card.querySelectorAll('input[data-field], select[data-field], textarea[data-field]').forEach(function(el){
+                dev.meta[el.dataset.field] = el.value;
+            });
+            // 检查项 — 兼容多种结构
+            card.querySelectorAll('.check-item, .check-row').forEach(function(it){
+                var name = it.querySelector('.check-name'); var result = it.querySelector('.check-result');
+                var remark = it.querySelector('.check-remark'); var skip = it.querySelector('.skip-reason');
+                var skipDetail = it.querySelector('.skip-detail');
+                dev.items.push({
+                    name: name ? name.value : '',
+                    result: result ? result.value : '',
+                    remark: remark ? remark.value : '',
+                    skip_reason: skip ? skip.value : '',
+                    skip_detail: skipDetail ? skipDetail.value : '',
+                });
+            });
+            devData.push(dev);
+        });
+        data['__devices__'] = devData;
+        return data;
+    }
+
+    function saveDraft(){
+        var data = snapshot();
+        if (!data) return;
+        var json = JSON.stringify(data);
+        if (json === lastSavedHash) return;  // 无变化不保存
+        setIndicator('正在保存草稿...', 'saving');
+        fetch('/api/drafts/save', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({form_type: formType, related_id: relatedId, form_data_json: json}),
+            credentials:'same-origin',
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(res){
+            if (res.success) {
+                lastSavedHash = json;
+                var t = new Date();
+                var hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0'), ss = String(t.getSeconds()).padStart(2,'0');
+                setIndicator('草稿已保存 ('+hh+':'+mm+':'+ss+')', 'ok');
+            } else {
+                setIndicator('保存失败: '+(res.error||'未知'), 'error');
+            }
+        })
+        .catch(function(e){ setIndicator('保存失败: '+e, 'error'); });
+    }
+
+    function restoreDraft() {
+        return fetch('/api/drafts/load?form_type='+encodeURIComponent(formType)+'&related_id='+relatedId, {credentials:'same-origin'})
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+                if (!res.success || !res.form_data_json || res.form_data_json === '{}') return false;
+                var data;
+                try { data = JSON.parse(res.form_data_json); } catch(e) { return false; }
+                if (!data || Object.keys(data).length === 0) return false;
+                var ts = res.updated_at ? new Date(res.updated_at).toLocaleString() : '未知';
+                if (!confirm('检测到未保存的草稿（'+ts+'），是否恢复？\n\n点"取消"将放弃草稿继续填写空表。')) {
+                    // 用户拒绝 → 删除草稿
+                    fetch('/api/drafts/delete', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({form_type: formType, related_id: relatedId}),
+                        credentials:'same-origin',
+                    });
+                    return false;
+                }
+                // 恢复表单字段
+                applyDraft(data);
+                return true;
+            })
+            .catch(function(){ return false; });
+    }
+
+    function applyDraft(data) {
+        // 1. 原生字段
+        var form = document.querySelector('form');
+        if (!form) return;
+        Object.keys(data).forEach(function(k){
+            if (k === '__devices__') return;
+            var els = form.querySelectorAll('[name="'+k+'"]');
+            if (els.length === 0) return;
+            if (els[0].type === 'checkbox' || els[0].type === 'radio') {
+                var vals = Array.isArray(data[k]) ? data[k] : [data[k]];
+                els.forEach(function(el){ el.checked = vals.indexOf(el.value) >= 0; });
+            } else {
+                els[0].value = data[k];
+                // 触发 change 事件（让 onCustomerChange 等联动逻辑执行）
+                els[0].dispatchEvent(new Event('change', {bubbles:true}));
+            }
+        });
+        // 2. 设备区块——延迟应用，等设备卡片加载完
+        var devData = data['__devices__'] || [];
+        if (devData.length === 0) return;
+        // 等设备卡片渲染完成（监听 devicesContainer 变化）
+        var attempts = 0, maxAttempts = 20;
+        var iv = setInterval(function(){
+            attempts++;
+            var cards = document.querySelectorAll('.device-item');
+            if (cards.length === 0 && attempts < maxAttempts) return;
+            clearInterval(iv);
+            cards.forEach(function(card, idx){
+                var dev = devData[idx]; if (!dev) return;
+                Object.keys(dev.meta || {}).forEach(function(k){
+                    var el = card.querySelector('[data-field="'+k+'"]');
+                    if (el) el.value = dev.meta[k];
+                });
+                var items = card.querySelectorAll('.check-item, .check-row');
+                (dev.items || []).forEach(function(it, j){
+                    var iEl = items[j]; if (!iEl) return;
+                    var n = iEl.querySelector('.check-name'); if (n && it.name) n.value = it.name;
+                    var r = iEl.querySelector('.check-result'); if (r && it.result) { r.value = it.result; r.dispatchEvent(new Event('change',{bubbles:true})); }
+                    var rm = iEl.querySelector('.check-remark'); if (rm && it.remark) rm.value = it.remark;
+                    var sk = iEl.querySelector('.skip-reason'); if (sk && it.skip_reason) sk.value = it.skip_reason;
+                    var skd = iEl.querySelector('.skip-detail'); if (skd && it.skip_detail) skd.value = it.skip_detail;
+                });
+            });
+            setIndicator('已恢复草稿', 'ok');
+        }, 500);
+    }
+
+    // 输入时延迟保存（5s 防抖），整体每 30s 强制保存
+    function scheduleSave(){
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveDraft, 5000);
+    }
+
+    // 页面加载完后：先尝试恢复，再启动定时器
+    function init(){
+        restoreDraft().finally(function(){
+            // 监听整个表单输入
+            document.addEventListener('input', scheduleSave, true);
+            document.addEventListener('change', scheduleSave, true);
+            // 每 30s 强制保存一次
+            setInterval(saveDraft, 30000);
+            // 离开页面前最后一次保存
+            window.addEventListener('beforeunload', function(){
+                // 同步使用 sendBeacon 保证发出
+                if (navigator.sendBeacon) {
+                    var json = JSON.stringify(snapshot() || {});
+                    if (json !== lastSavedHash) {
+                        var blob = new Blob([JSON.stringify({form_type: formType, related_id: relatedId, form_data_json: json})], {type:'application/json'});
+                        navigator.sendBeacon('/api/drafts/save', blob);
+                    }
+                }
+            });
+        });
+    }
+
+    // 提交成功后清理（saveInspection 会调用此函数）
+    window._draftDeleteOnSubmit = function(){
+        if (navigator.sendBeacon) {
+            var blob = new Blob([JSON.stringify({form_type: formType, related_id: relatedId})], {type:'application/json'});
+            navigator.sendBeacon('/api/drafts/delete', blob);
+        } else {
+            fetch('/api/drafts/delete', {method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({form_type: formType, related_id: relatedId}), credentials:'same-origin', keepalive:true});
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+// ====== END 草稿自动保存 ======
+</script>
+{% endblock %}

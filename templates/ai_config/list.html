@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('AI 对接配置', 'robot') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增配置</button>
+{% endcall %}
+<div class="row">
+{% if configs %}
+{% for cfg in configs %}
+<div class="col-md-6 mb-3">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><strong>{{ cfg.provider }}</strong> - {{ cfg.model_name }}</span>
+            <span class="badge bg-{{ 'success' if cfg.is_enabled else 'secondary' }}">{{ '启用' if cfg.is_enabled else '停用' }}</span>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm mb-2">
+                <tr><td class="text-muted">端点</td><td><code>{{ cfg.api_endpoint[:60] or '-' }}</code></td></tr>
+                <tr><td class="text-muted">最大Token</td><td>{{ cfg.max_tokens }}</td></tr>
+                <tr><td class="text-muted">温度</td><td>{{ cfg.temperature }}</td></tr>
+            </table>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary" onclick="editCfg({{ cfg.id }},'{{ cfg.provider }}','{{ cfg.api_endpoint }}','{{ cfg.model_name }}',{{ cfg.max_tokens }},{{ cfg.temperature }},{{ 'true' if cfg.is_enabled else 'false' }})"><i class="bi-pencil"></i> 编辑</button>
+                <button class="btn btn-outline-info test-btn" data-id="{{ cfg.id }}"><i class="bi bi-plug"></i> 测试连接</button>
+                <a href="{{ url_for('ai_config_delete', id=cfg.id) }}" class="btn btn-outline-danger" onclick="return confirm('确定删除？')"><i class="bi-trash"></i></a>
+            </div>
+            <span class="test-result ms-2 small" id="test_{{ cfg.id }}"></span>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}<div class="col-12">{{ eui.empty_state('bi-robot', '暂无 AI 配置') }}</div>{% endif %}
+</div>
+
+<!-- Add modal -->
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">新增 AI 配置</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="/ai-config/add">
+<div class="modal-body">
+<div class="row">
+<div class="col-md-4 mb-3"><label class="form-label">提供商</label><select name="provider" class="form-select"><option>OpenAI</option><option>Anthropic</option><option>Ollama</option><option>自定义API</option></select></div>
+<div class="col-md-4 mb-3"><label class="form-label">模型名称</label><input type="text" name="model_name" class="form-control" value="gpt-4"></div>
+<div class="col-md-4 mb-3"><label class="form-label">最大Token</label><input type="number" name="max_tokens" class="form-control" value="2048"></div>
+<div class="col-md-8 mb-3"><label class="form-label">API 端点</label><input type="text" name="api_endpoint" class="form-control" placeholder="https://api.openai.com/v1/chat/completions"></div>
+<div class="col-md-4 mb-3"><label class="form-label">温度</label><input type="number" name="temperature" class="form-control" step="0.1" value="0.7"></div>
+<div class="col-md-12 mb-3"><label class="form-label">API Key</label><input type="password" name="api_key" class="form-control" placeholder="sk-..."></div>
+<div class="col-md-12 mb-3"><label class="form-label">巡检提示词模板</label><textarea name="inspection_prompt_template" class="form-control" rows="3" placeholder="分析以下设备巡检数据：{device_info}"></textarea></div>
+<div class="col-md-12 mb-3"><label class="form-label">故障提示词模板</label><textarea name="fault_prompt_template" class="form-control" rows="3" placeholder="分析以下故障信息：{ticket_info}"></textarea></div>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div>
+</form></div></div></div>
+
+<!-- Edit modal -->
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">编辑 AI 配置</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" id="editForm">
+<div class="modal-body">
+<div class="row">
+<div class="col-md-4 mb-3"><label class="form-label">提供商</label><select name="provider" id="edit_provider" class="form-select"><option>OpenAI</option><option>Anthropic</option><option>Ollama</option><option>自定义API</option></select></div>
+<div class="col-md-4 mb-3"><label class="form-label">模型名称</label><input type="text" name="model_name" id="edit_model" class="form-control"></div>
+<div class="col-md-4 mb-3"><label class="form-label">最大Token</label><input type="number" name="max_tokens" id="edit_max_tokens" class="form-control"></div>
+<div class="col-md-8 mb-3"><label class="form-label">API 端点</label><input type="text" name="api_endpoint" id="edit_endpoint" class="form-control"></div>
+<div class="col-md-4 mb-3"><label class="form-label">温度</label><input type="number" name="temperature" id="edit_temp" class="form-control" step="0.1"></div>
+<div class="col-md-12 mb-3"><label class="form-label">API Key（留空不更新）</label><input type="password" name="api_key" class="form-control" placeholder="sk-..." autocomplete="off"></div>
+<div class="col-md-12 mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_enabled" id="edit_enabled" value="1"><label class="form-check-label">启用</label></div></div>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div>
+</form></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function editCfg(id,provider,endpoint,model,max_tokens,temp,enabled){
+    document.getElementById('edit_provider').value=provider;
+    document.getElementById('edit_endpoint').value=endpoint;
+    document.getElementById('edit_model').value=model;
+    document.getElementById('edit_max_tokens').value=max_tokens;
+    document.getElementById('edit_temp').value=temp;
+    document.getElementById('edit_enabled').checked=enabled;
+    document.getElementById('editForm').action='/ai-config/edit/'+id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+document.querySelectorAll('.test-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+        var id=this.dataset.id;
+        var resultEl=document.getElementById('test_'+id);
+        resultEl.textContent='测试中...';
+        fetch('/ai-config/test/'+id,{method:'POST'}).then(r=>r.json()).then(function(d){
+            resultEl.textContent=d.ok?'✓ '+d.message:'✗ '+d.error;
+            resultEl.className='test-result ms-2 small text-'+(d.ok?'success':'danger');
+        }).catch(function(){resultEl.textContent='✗ 网络错误';});
+    });
+});
+</script>
+{% endblock %}

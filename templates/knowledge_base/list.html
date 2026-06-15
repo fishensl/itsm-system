@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('知识库', 'book') %}    <a href="{{ url_for('ops.knowledge_base_add') }}" class="btn btn-primary btn-sm"><i class="bi-plus-lg"></i> 新增条目</a>
+{% endcall %}
+{% call ui.filter_bar() %}<form method="get" class="row g-2 align-items-center">
+    <div class="col-md-3"><input type="text" name="search" class="form-control form-control-sm" placeholder="搜索标题/标签/内容..." value="{{ search or '' }}"></div>
+    <div class="col-md-2">
+        <select name="category" class="form-select form-select-sm">
+            <option value="">全部分类</option>
+            {% for c in ['故障处置','技术手册','项目经验','业务经验','内部规范','巡检经验','其他'] %}
+            <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary">搜索</button></div>
+</form>
+{% endcall %}
+<div class="content-card">
+{% if items %}
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+<thead><tr><th>ID</th><th>标题</th><th>分类</th><th>标签</th><th>浏览</th><th>创建人</th><th>日期</th><th>操作</th></tr></thead>
+<tbody>
+{% for k in items %}
+<tr>
+    <td>{{ k.id }}</td>
+    <td><a href="{{ url_for('ops.knowledge_base_detail', id=k.id) }}"><strong>{{ k.title }}</strong></a></td>
+    <td>{% set cat_color = 'danger' if k.category in ('故障处置','故障案例') else 'info' if k.category in ('技术手册','设备手册') else 'warning' if k.category=='巡检经验' else 'success' if k.category=='项目经验' else 'primary' if k.category=='业务经验' else 'secondary' %}{{ eui.status_badge(k.category or '其他', cat_color) }}</td>
+    <td><small>{{ k.tags or '-' }}</small></td>
+    <td>{{ k.view_count or 0 }}</td>
+    <td>{{ k.created_by }}</td>
+    <td><small>{{ k.created_at.strftime('%Y-%m-%d') if k.created_at else '' }}</small></td>
+    <td>{{ ui.table_actions(
+        edit_url=url_for('ops.knowledge_base_edit', id=k.id),
+        delete_url=url_for('ops.knowledge_base_delete', id=k.id),
+        delete_confirm='确定删除？') }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{{ pagination_bar(page, total_pages, has_prev, has_next, prev_page, next_page, total, start, end, search) }}
+{% else %}{{ eui.empty_state('bi-book', '暂无知识库条目') }}{% endif %}
+</div></div>
+{% endblock %}

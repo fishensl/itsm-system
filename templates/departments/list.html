@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block title %}部门管理 - IT运维综合管理系统{% endblock %}
+{% block head_extra %}
+<style>
+.dept-tree { list-style:none; padding-left:0; }
+.dept-tree ul { list-style:none; padding-left:24px; }
+.dept-tree li { margin-bottom:2px; }
+.dept-row { display:flex; align-items:center; padding:8px 12px; border-radius:6px; transition:background .15s; cursor:default; }
+.dept-row:hover { background:var(--primary-soft); }
+.dept-row .toggle-icon { width:20px; text-align:center; cursor:pointer; color:var(--gray-500); margin-right:4px; flex-shrink:0; }
+.dept-row .toggle-icon:hover { color:var(--primary); }
+.dept-name { font-weight:600; flex:1; }
+.dept-meta { display:flex; gap:16px; align-items:center; font-size:13px; color:var(--gray-500); }
+.dept-meta span { white-space:nowrap; }
+.dept-actions { margin-left:8px; display:flex; gap:4px; }
+.dept-children { overflow:hidden; transition:max-height .3s ease; }
+.dept-children.collapsed { max-height:0 !important; }
+</style>
+{% endblock %}
+{% block content %}{% call ui.page_header('部门管理', 'diagram-3') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增部门</button>
+{% endcall %}
+<div class="card">
+    <div class="card-body">
+        {% if tree %}
+        <ul class="dept-tree">
+        {% macro render_node(node) %}
+            <li>
+                <div class="dept-row">
+                    <span class="toggle-icon" onclick="toggleDept(this)" data-target="dept-children-{{ node.id }}">
+                        {% if node.children %}<i class="bi-chevron-down"></i>{% else %}<i class="bi-dot"></i>{% endif %}
+                    </span>
+                    <span class="dept-name">{{ node.name }}</span>
+                    <span class="dept-meta">
+                        <span><i class="bi-person-gear me-1"></i>{{ node.head_name or '未指定主管' }}</span>
+                        <span><i class="bi-people me-1"></i>{{ node.member_count }} 人</span>
+                        <span class="badge bg-{{ 'primary' if not node.parent_id else 'secondary' }}">{{ '一级' if not node.parent_id else '二级' }}</span>
+                    </span>
+                    <span class="dept-actions">
+                        <button class="btn btn-sm btn-outline-primary" onclick="editDept({{ node.id }},'{{ node.name|e }}',{{ node.parent_id or 'null' }},{{ node.head_id or 'null' }},{{ node.sort_order }})"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(delete_url=url_for('departments.dept_delete', id=node.id), delete_confirm='确定删除部门「{{ node.name }}」？') }}
+                    </span>
+                </div>
+                {% if node.children %}
+                <ul class="dept-children" id="dept-children-{{ node.id }}" style="max-height:2000px;">
+                    {% for child in node.children %}
+                    {{ render_node(child) }}
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+        {% endmacro %}
+        {% for node in tree %}
+            {{ render_node(node) }}
+        {% endfor %}
+        </ul>
+        {% else %}
+        {{ eui.empty_state('bi-diagram-3', '暂无部门数据') }}
+        {% endif %}
+    </div>
+</div>
+
+<!-- 新增部门弹窗 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5>新增部门</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" action="{{ url_for('departments.dept_add') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">部门名称 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" class="form-control" required placeholder="如：运维科">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">上级部门</label>
+                        <select name="parent_id" class="form-select">
+                            <option value="">-- 无（顶级部门）--</option>
+                            {% for d in all_depts %}{% if not d.parent_id %}
+                            <option value="{{ d.id }}">{{ d.name }}</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">部门主管</label>
+                        <select name="head_id" class="form-select">
+                            <option value="">-- 选择 --</option>
+                            {% for u in users %}
+                            <option value="{{ u.id }}">{{ u.realname or u.username }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" class="form-control" value="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑部门弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5>编辑部门</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" id="editForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">部门名称 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" id="edit_name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">上级部门</label>
+                        <select name="parent_id" id="edit_parent" class="form-select">
+                            <option value="">-- 无（顶级部门）--</option>
+                            {% for d in all_depts %}{% if not d.parent_id %}
+                            <option value="{{ d.id }}">{{ d.name }}</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">部门主管</label>
+                        <select name="head_id" id="edit_head" class="form-select">
+                            <option value="">-- 选择 --</option>
+                            {% for u in users %}
+                            <option value="{{ u.id }}">{{ u.realname or u.username }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" id="edit_sort" class="form-control" value="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editDept(id, name, parentId, headId, sortOrder) {
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_parent').value = parentId || '';
+    document.getElementById('edit_head').value = headId || '';
+    document.getElementById('edit_sort').value = sortOrder || 0;
+    document.getElementById('editForm').action = '/departments/edit/' + id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+function toggleDept(el) {
+    var targetId = el.getAttribute('data-target');
+    var ul = document.getElementById(targetId);
+    if (!ul) return;
+    var icon = el.querySelector('i');
+    if (ul.classList.contains('collapsed')) {
+        ul.classList.remove('collapsed');
+        ul.style.maxHeight = '2000px';
+        if (icon) { icon.className = 'bi-chevron-down'; }
+    } else {
+        ul.classList.add('collapsed');
+        if (icon) { icon.className = 'bi-chevron-right'; }
+    }
+}
+</script>
+{% endblock %}

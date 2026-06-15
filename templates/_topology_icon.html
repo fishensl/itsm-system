@@ -1,0 +1,10 @@
+{# 拓扑图文件类型图标 — 接收 t 变量（Topology 对象），输出图标 + 标签 #}
+{% if t.file_type == 'image' %}
+<i class="bi-file-earmark-image text-success" title="图片"></i>
+{% elif t.file_type == 'visio' %}
+<i class="bi-file-earmark-break text-primary" title="Visio"></i>
+{% elif t.file_type == 'pdf' %}
+<i class="bi-file-earmark-pdf text-danger" title="PDF"></i>
+{% else %}
+<i class="bi-file-earmark text-secondary" title="其他"></i>
+{% endif %}

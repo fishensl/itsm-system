@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('报价单', 'file-earmark-text') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增报价单</button>
+{% endcall %}
+<div class="content-card">
+    {% if quotes %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead><tr><th>ID</th><th>单号</th><th>客户</th><th>总金额</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for q in quotes %}
+                <tr>
+                    <td>{{ q.id }}</td>
+                    <td>{{ q.number }}</td>
+                    <td>{{ q.customer_rel.name if q.customer_rel else '-' }}</td>
+                    <td>{{ q.total_amount }}</td>
+                    <td><span class="badge bg-{{ 'success' if q.status=='已接受' else 'danger' if q.status=='已拒绝' else 'warning' if q.status=='已发送' else 'secondary' }}">{{ q.status }}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editQ({{ q.id }},'{{ q.number }}',{{ q.customer_id or 'null' }},'{{ q.status }}',{{ q.total_amount }})"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(delete_url=url_for('sales.quotation_delete', id=q.id), delete_confirm='确定删除？') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ eui.empty_state('bi-file-earmark-text', '暂无报价单') }}
+    {% endif %}
+</div>
+</div>
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>新增报价单</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" action="{{ url_for('sales.quotation_add') }}"><div class="modal-body"><div class="mb-3"><label class="form-label">单号</label><input type="text" name="number" class="form-control"></div><div class="mb-3"><label class="form-label">客户</label><select name="customer_id" class="form-select">{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">总金额</label><input type="number" name="total_amount" class="form-control" step="0.01" value="0"></div><div class="mb-3"><label class="form-label">状态</label><select name="status" class="form-select">{% for s in ['草稿','已发送','已接受','已拒绝'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>编辑报价单</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" id="editForm"><div class="modal-body"><div class="mb-3"><label class="form-label">单号</label><input type="text" name="number" id="edit_number" class="form-control"></div><div class="mb-3"><label class="form-label">总金额</label><input type="number" name="total_amount" id="edit_amount" class="form-control" step="0.01"></div><div class="mb-3"><label class="form-label">状态</label><select name="status" id="edit_status" class="form-select">{% for s in ['草稿','已发送','已接受','已拒绝'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+{% endblock %}{% block scripts %}<script>function editQ(id,number,cid,status,amount){document.getElementById('edit_number').value=number;document.getElementById('edit_amount').value=amount;document.getElementById('edit_status').value=status;document.getElementById('editForm').action='/quotations/edit/'+id;new bootstrap.Modal(document.getElementById('editModal')).show();}</script>{% endblock %}

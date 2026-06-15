@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block title %}权限管理 · 系统管理{% endblock %}
+{% block head_extra %}
+<style>
+.perm-chip {
+    display: inline-block;
+    padding: 3px 8px;
+    margin: 2px 3px;
+    font-size: 11px;
+    border-radius: 4px;
+    border: 1px solid var(--border-soft);
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.perm-chip.on { background: rgba(16,185,129,0.10); color: #059669; border-color: rgba(16,185,129,0.35); }
+.perm-chip.off { background: var(--surface-muted); color: var(--gray-400); }
+</style>
+{% endblock %}
+{% block content %}{% call ui.page_header('权限管理', 'shield-lock') %}    <a href="{{ url_for('user_list') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi-people-fill"></i> 用户角色分配
+    </a>
+{% endcall %}
+<div class="alert alert-info py-2 small mb-3">
+    <i class="bi-info-circle me-1"></i>
+    本页展示各角色拥有的权限码。权限码定义在 <code>utils/permission.py</code>，修改角色权限请联系系统管理员。
+</div>
+
+<div class="row">
+    {% for role_code, role_name in role_list %}
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="badge bg-{{ 'danger' if role_code=='admin' else 'info' if role_code=='operator' else 'warning' if role_code=='sales' else 'secondary' }} me-2">{{ role_name }}</span>
+                    <small class="text-muted">{{ role_code }}</small>
+                </div>
+                <span class="text-muted small">{{ role_perms.get(role_code, [])|length }} / {{ perm_map|length }} 项</span>
+            </div>
+            <div class="card-body py-2">
+                {% set perms = role_perms.get(role_code, []) %}
+                {% for pcode, plabel in perm_map.items() %}
+                {% set has = pcode in perms %}
+                <span class="perm-chip {{ 'on' if has else 'off' }}" title="{{ pcode }}">{% if has %}✓{% else %}—{% endif %} {{ plabel }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

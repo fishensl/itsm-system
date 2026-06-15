@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}侧栏自定义 - 系统管理{% endblock %}
+{% import "_ui.html" as ui %}
+{% block content %}
+{% call ui.page_header('侧栏自定义', 'list-columns-reverse') %}
+    <a href="{{ url_for('system_settings') }}" class="btn btn-outline-secondary btn-sm me-2">
+        <i class="bi-arrow-left"></i> 返回系统概览
+    </a>
+    <button class="btn btn-outline-warning btn-sm me-2" id="resetBtn">
+        <i class="bi-arrow-counterclockwise"></i> 恢复默认
+    </button>
+    <button class="btn btn-primary" id="saveBtn">
+        <i class="bi-save"></i> 保存
+    </button>
+{% endcall %}
+
+<div class="alert alert-info py-2 mb-3 small">
+    <i class="bi-info-circle me-1"></i>
+    拖拽调整顺序，勾选控制是否显示。当前用户可独立定制；其他用户仍使用各自偏好。
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header"><i class="bi-grip-vertical"></i> 拖拽调整侧栏一级项</div>
+            <ul class="list-group list-group-flush" id="sortableList">
+                {% for g in all_groups %}
+                {% set cg = (current_groups | selectattr('key', 'equalto', g.key) | list | first) %}
+                <li class="list-group-item d-flex align-items-center" data-key="{{ g.key }}">
+                    <i class="bi-grip-vertical text-muted me-2" style="cursor:grab;"></i>
+                    <i class="{{ g.icon }} text-primary me-2" style="width:18px;"></i>
+                    <span class="flex-grow-1 fw-bold">{{ g.title }}</span>
+                    <span class="badge bg-light text-muted me-3">
+                        {% if g.single_link %}
+                        1 个链接
+                        {% else %}
+                        {{ g.children|length }} 个子项
+                        {% endif %}
+                    </span>
+                    <div class="form-check form-switch m-0">
+                        <input class="form-check-input enable-toggle" type="checkbox"
+                               {% if cg and cg.enabled %}checked{% endif %}>
+                        <label class="form-check-label small ms-1">
+                            <span class="toggle-text">{% if cg and cg.enabled %}启用{% else %}禁用{% endif %}</span>
+                        </label>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header"><i class="bi-eye"></i> 预览</div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">启用后侧栏将显示：</p>
+                <ul class="list-unstyled mb-0" id="previewList">
+                    {% for g in all_groups %}
+                    {% set cg = (current_groups | selectattr('key', 'equalto', g.key) | list | first) %}
+                    {% if cg and cg.enabled %}
+                    <li class="mb-1">
+                        <i class="{{ g.icon }} text-primary me-1"></i> <strong>{{ g.title }}</strong>
+                    </li>
+                    {% endif %}
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body small text-muted">
+                <p><i class="bi-lightbulb"></i> <strong>提示：</strong></p>
+                <ul class="ps-3 mb-0">
+                    <li>拖拽行重新排序</li>
+                    <li>勾选/取消勾选控制显示</li>
+                    <li>禁用项保留数据但隐藏入口</li>
+                    <li>无子项可用的禁用组会自动隐藏</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+(function() {
+    var list = document.getElementById('sortableList');
+    if (!list) return;
+    var sortable = Sortable.create(list, {
+        handle: '.bi-grip-vertical',
+        animation: 150,
+        ghostClass: 'bg-light',
+        onEnd: function() { renderPreview(); }
+    });
+
+    // 勾选切换
+    list.querySelectorAll('.enable-toggle').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var text = this.closest('li').querySelector('.toggle-text');
+            if (text) text.textContent = this.checked ? '启用' : '禁用';
+            renderPreview();
+        });
+    });
+
+    function renderPreview() {
+        var items = list.querySelectorAll('li');
+        var html = '';
+        items.forEach(function(li) {
+            var enabled = li.querySelector('.enable-toggle').checked;
+            if (enabled) {
+                var key = li.getAttribute('data-key');
+                var icon = li.querySelector('i.bi-grip-vertical').nextElementSibling.className;
+                var title = li.querySelector('.fw-bold').textContent;
+                html += '<li class="mb-1"><i class="' + icon + ' text-primary me-1"></i> <strong>' + title + '</strong></li>';
+            }
+        });
+        document.getElementById('previewList').innerHTML = html || '<li class="text-muted">侧栏将不显示任何项</li>';
+    }
+
+    // 保存
+    document.getElementById('saveBtn').addEventListener('click', function() {
+        var groups = [];
+        list.querySelectorAll('li').forEach(function(li) {
+            groups.push({
+                key: li.getAttribute('data-key'),
+                enabled: li.querySelector('.enable-toggle').checked
+            });
+        });
+        fetch('{{ url_for("system_sidebar") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': (document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/) || [])[1] || ''
+            },
+            body: JSON.stringify({groups: groups})
+        }).then(function(r){return r.json();}).then(function(d) {
+            if (d.success) {
+                showToast(d.message || '已保存', 'success');
+                setTimeout(function(){ location.reload(); }, 600);
+            } else {
+                showToast(d.message || '保存失败', 'danger');
+            }
+        }).catch(function() {
+            showToast('网络错误', 'danger');
+        });
+    });
+
+    // 重置
+    document.getElementById('resetBtn').addEventListener('click', function() {
+        if (!confirm('确认恢复为系统默认侧栏？')) return;
+        fetch('{{ url_for("api_sidebar_reset") }}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': (document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/) || [])[1] || ''
+            }
+        })
+            .then(function(r){return r.json();})
+            .then(function(d) {
+                if (d.success) {
+                    showToast('已重置', 'success');
+                    setTimeout(function(){ location.reload(); }, 600);
+                }
+            });
+    });
+})();
+</script>
+{% endblock %}

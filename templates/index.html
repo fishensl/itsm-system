@@ -1,0 +1,504 @@
+{% extends "base.html" %}
+{% block title %}工作台 - IT运维综合管理系统{% endblock %}
+{% block breadcrumb %}{% endblock %}
+{% block head_extra %}
+<style>
+.workbench { color: var(--gray-900); }
+.workbench .card-header {
+    padding: 10px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.workbench .card-header > span { display: inline-flex; align-items: center; }
+.workbench .list-group-item { padding: 8px 12px; }
+.workbench .quick-link { transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+.workbench .quick-link:hover { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+</style>
+{% endblock %}
+
+{% block content %}<div class="workbench">
+    <!-- Banner -->
+    <section class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div>
+                    <div class="fw-bold fs-5" id="wbGreeting">
+                        <span id="wbGreetingText">工作台</span>
+                        <span class="badge bg-primary bg-opacity-10 text-primary ms-1">
+                            <i class="bi-person-badge me-1"></i>{{ role_label(role) }}
+                        </span>
+                    </div>
+                    <div class="text-muted small" id="wbDate">--</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="text-end">
+                        <div class="fw-bold fs-5 font-monospace" id="wbTime">--:--:--</div>
+                        <div class="text-muted" style="font-size:11px;" id="wbRefreshTime">数据加载中</div>
+                    </div>
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success">
+                        <span class="d-inline-block rounded-circle bg-success me-1" style="width:6px;height:6px;"></span>
+                        系统运行正常
+                    </span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="刷新">
+                        <i class="bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="openCardCustomizer()" title="自定义卡片">
+                        <i class="bi-sliders"></i> 自定义
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 统计卡片 + 设备类型分布 -->
+    <section class="row g-2 mb-4">
+        {% for m in metrics %}
+        <div class="col-6 col-sm-4 col-md-3 col-lg">
+            <div class="card text-center h-100">
+                <div class="card-body py-2 px-1">
+                    <i class="bi {{ m.icon }} fs-4" style="color:{{ m.accent }}"></i>
+                    <div class="fw-bold fs-5">{{ m.value }}</div>
+                    <small class="text-muted">{{ m.label }}</small>
+                    {% if m.sub %}<small class="text-muted d-block" style="font-size:11px;">{{ m.sub }}</small>{% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% if role in ['admin', 'operator', 'viewer'] %}
+        {% for type_name, count in device_type_stats %}
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <div class="card text-center h-100">
+                <div class="card-body py-2 px-1">
+                    <i class="bi-hdd-stack fs-4 text-primary"></i>
+                    <div class="fw-bold fs-5">{{ count }}</div>
+                    <small class="text-muted">{{ type_name or '未分类' }}</small>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </section>
+
+    <!-- 我的待处理任务 + 运维动态 + 快捷入口 -->
+    <section class="row g-3 mb-4">
+        <!-- 左：我的待处理任务 -->
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-person-check me-1"></i>我的待处理任务</span>
+                    <small>
+                        {% if role == 'operator' or role == 'admin' %}
+                        <span class="badge bg-danger me-1">工单 {{ my_ticket_count }}（含故障）</span>
+                        <span class="badge bg-primary">巡检 {{ my_insp_task_count }}</span>
+                        {% elif role == 'sales' %}
+                        <span class="text-muted">商机跟进与合同执行</span>
+                        {% else %}
+                        <span class="text-muted">只读模式</span>
+                        {% endif %}
+                    </small>
+                </div>
+                <div class="card-body p-0">
+                    {% if my_tasks %}
+                    <ul class="list-group list-group-flush">
+                        {% for t in my_tasks %}
+                        <li class="list-group-item d-flex align-items-center gap-2">
+                            <span class="badge bg-{{ t.type_color }} bg-opacity-10 text-{{ t.type_color }}">{{ t.type_label }}</span>
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="fw-semibold text-truncate">
+                                    <a href="{{ t.url }}" class="text-decoration-none text-reset">{{ t.title[:34] }}</a>
+                                </div>
+                                <small class="text-muted">{{ t.sub }}</small>
+                            </div>
+                            <small class="text-muted text-nowrap">{{ t.time }}</small>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div class="d-flex align-items-center justify-content-center text-muted py-4">
+                        <i class="bi-check-circle text-success me-1"></i> 暂无待处理任务
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 中：运维动态 -->
+        {% if role in ['admin', 'operator', 'viewer'] %}
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-clock-history me-1"></i>运维动态</span>
+                    <small class="text-muted">最近巡检与即将到期</small>
+                </div>
+                <div class="card-body p-0">
+                    {% if recent_inspections %}
+                    <div class="px-3 pt-2"><small class="fw-semibold text-muted">最近巡检</small></div>
+                    <ul class="list-group list-group-flush">
+                        {% for i in recent_inspections[:3] %}
+                        <li class="list-group-item d-flex align-items-center gap-2">
+                            <span class="badge bg-{% if i.overall_status=='正常' %}success{% elif i.overall_status=='异常' %}danger{% else %}warning{% endif %}">{{ i.overall_status }}</span>
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="fw-semibold text-truncate">
+                                    <a href="/inspections/{{ i.id }}" class="text-decoration-none text-reset">{{ i.title[:32] }}</a>
+                                </div>
+                                <small class="text-muted">{{ i.customer_name }} · {{ i.inspection_date }}</small>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+
+                    {% if expiring_devices %}
+                    <div class="px-3 pt-2"><small class="fw-semibold text-muted">授权即将到期</small></div>
+                    <ul class="list-group list-group-flush">
+                        {% for d in expiring_devices[:3] %}
+                        <li class="list-group-item d-flex align-items-center gap-2">
+                            <span class="badge bg-{% if d.remaining_days<0 %}danger{% elif d.remaining_days<=7 %}danger{% else %}primary{% endif %}">
+                                {% if d.remaining_days<0 %}已过期{% else %}{{ d.remaining_days }}天{% endif %}
+                            </span>
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="fw-semibold text-truncate">
+                                    <a href="/devices/{{ d.id }}" class="text-decoration-none text-reset">{{ d.device_name }}</a>
+                                </div>
+                                <small class="text-muted">{{ d.customer_name }} · {{ d.license_expiry }}</small>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+
+                    {% if not recent_inspections and not expiring_devices %}
+                    <div class="d-flex align-items-center justify-content-center text-muted py-4">暂无动态</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 右：快捷入口 -->
+        <div class="col-lg-3">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-lightning-charge me-1"></i>快捷入口</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        {% for q in quick_entries %}
+                        <a href="{{ q.url }}" class="list-group-item list-group-item-action d-flex align-items-center gap-2 quick-link text-decoration-none">
+                            <i class="bi {{ q.icon }} text-primary"></i>
+                            <span class="fw-semibold small">{{ q.title }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% if role == 'sales' %}
+    <!-- 销售视角：商机阶段 + 项目进度 -->
+    <section class="row g-3 mb-4">
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-graph-up me-1"></i>商机阶段分布</span>
+                    <small class="text-muted">共 {{ counts.opp }} 个商机</small>
+                </div>
+                <div class="card-body" style="height:260px;">
+                    <canvas id="stageChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-diagram-3 me-1"></i>项目状态</span>
+                    <small class="text-muted">共 {{ counts.project }} 个项目</small>
+                </div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2">
+                                <span class="text-muted small">进行中</span>
+                                <span class="fw-bold fs-5 font-monospace">{{ counts.project_active }}</span>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2">
+                                <span class="text-muted small">合同总数</span>
+                                <span class="fw-bold fs-5 font-monospace">{{ counts.contract }}</span>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2">
+                                <span class="text-muted small">成交商机</span>
+                                <span class="fw-bold fs-5 font-monospace">{{ counts.opp_deal }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if is_supervisor_user and supervisor_data %}
+    <!-- 主管看板 -->
+    <section class="row g-3 mb-4">
+        <!-- 左：部门任务看板 -->
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-people-fill me-1"></i>部门任务看板</span>
+                    <small class="text-muted">{{ supervisor_data.dept_name }} · 本季度从 {{ supervisor_data.quarter_start }}</small>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% for m in supervisor_data.dept_members %}
+                        <li class="list-group-item d-flex align-items-center gap-2">
+                            <span class="badge bg-primary bg-opacity-10 text-primary">{{ m.task_count }}</span>
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="fw-semibold">{{ m.name }}</div>
+                                <small class="text-muted">已完成 {{ m.completed }} / {{ m.task_count }} 项</small>
+                            </div>
+                            {% if m.task_count > 0 %}
+                            <small class="text-muted text-nowrap">{{ m.completed * 100 // m.task_count }}%</small>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                        {% if supervisor_data.dept_members|length == 0 %}
+                        <li class="list-group-item text-muted text-center py-4">暂无部门成员</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右：季度任务概览 -->
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="bi-graph-up me-1"></i>季度任务概览</span>
+                    <small class="text-muted">本季度 {{ supervisor_data.dept_total }} 项任务</small>
+                </div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <div class="card text-center h-100">
+                                <div class="card-body py-2">
+                                    <i class="bi-send text-warning fs-4"></i>
+                                    <div class="fw-bold fs-5">{{ supervisor_data.dept_pending }}</div>
+                                    <small class="text-muted">待派发</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card text-center h-100">
+                                <div class="card-body py-2">
+                                    <i class="bi-hourglass-split text-primary fs-4"></i>
+                                    <div class="fw-bold fs-5">{{ supervisor_data.dept_in_progress }}</div>
+                                    <small class="text-muted">进行中</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card text-center h-100">
+                                <div class="card-body py-2">
+                                    <i class="bi-check-circle text-success fs-4"></i>
+                                    <div class="fw-bold fs-5">{{ supervisor_data.dept_completed_q }}</div>
+                                    <small class="text-muted">已完成</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card text-center h-100">
+                                <div class="card-body py-2">
+                                    <i class="bi-pie-chart text-info fs-4"></i>
+                                    <div class="fw-bold fs-5">{{ supervisor_data.dept_completion_rate }}</div>
+                                    <small class="text-muted">完成率</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if draft_list %}
+    <!-- 草稿恢复 -->
+    <div class="alert alert-info alert-dismissible fade show my-3" role="alert">
+        <i class="bi-pencil-square me-2"></i> <strong>检测到未保存的草稿</strong>
+        {% for d in draft_list %}
+        <span class="badge bg-secondary ms-1">{{ d.form_type }} {{ '(' + d.related_id|string() + ')' if d.related_id else '(新建)' }}</span>
+        {% endfor %}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 卡片自定义模态框 -->
+<div class="modal fade" id="cardCustomizer" tabindex="-1">
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi-sliders me-2"></i>自定义统计卡片</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">勾选要显示的卡片，拖拽调整排序</p>
+                <div id="cardCheckList" class="d-flex flex-column gap-1">
+                    <!-- JS 填充 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary me-auto" onclick="resetCards()"><i class="bi-arrow-counterclockwise"></i> 恢复默认</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="saveCards()"><i class="bi-check-lg"></i> 保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+var charts = [];
+var cardPool = {};
+var currentCards = [];
+var defaultCards = [];
+
+function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function updateClock(){
+    var n=new Date(),h=n.getHours(),g=h<12?'早上好':h<18?'下午好':'晚上好';
+    var name = {{ (current_user.realname or current_user.username) | tojson | safe }};
+    document.getElementById('wbGreetingText').textContent = g + '，' + name;
+    document.getElementById('wbDate').textContent=n.toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+    document.getElementById('wbTime').textContent=n.toLocaleTimeString('zh-CN',{hour12:false});
+    document.getElementById('wbRefreshTime').textContent='更新于 '+n.toLocaleTimeString('zh-CN',{hour12:false});
+}
+
+function openCardCustomizer(){
+    var list = document.getElementById('cardCheckList');
+    list.innerHTML = '';
+    var allKeys = Object.keys(cardPool);
+    var selected = currentCards.filter(function(k){return cardPool[k];});
+    var unselected = allKeys.filter(function(k){return currentCards.indexOf(k)===-1 && cardPool[k];});
+    var ordered = selected.concat(unselected);
+    ordered.forEach(function(k){
+        var c = cardPool[k];
+        var checked = currentCards.indexOf(k) >= 0;
+        var div = document.createElement('div');
+        div.className = 'd-flex align-items-center gap-2 p-2 rounded border ' + (checked ? 'bg-primary bg-opacity-10 border-primary' : 'bg-body-secondary');
+        div.innerHTML = '<i class="bi ' + c.icon + ' text-' + (checked?'primary':'secondary') + '"></i>' +
+            '<span class="flex-grow-1 small fw-bold">' + c.label + '</span>' +
+            '<div class="form-check form-switch mb-0">' +
+            '<input class="form-check-input" type="checkbox" ' + (checked?'checked':'') + ' onchange="toggleCard(\''+k+'\', this)">' +
+            '</div>';
+        list.appendChild(div);
+    });
+    new bootstrap.Modal(document.getElementById('cardCustomizer')).show();
+}
+
+function toggleCard(key, el){
+    if(el.checked){
+        if(currentCards.indexOf(key)===-1) currentCards.push(key);
+        el.parentElement.parentElement.classList.add('bg-primary','bg-opacity-10','border-primary');
+    } else {
+        currentCards = currentCards.filter(function(k){return k!==key;});
+        el.parentElement.parentElement.classList.remove('bg-primary','bg-opacity-10','border-primary');
+    }
+}
+
+function showToast(msg, type){
+    type = type || 'info';
+    var c = document.createElement('div');
+    c.className = 'toast align-items-center text-bg-' + type + ' border-0 position-fixed top-0 end-0 m-3';
+    c.style.zIndex = 9999;
+    c.innerHTML = '<div class="d-flex"><div class="toast-body">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+    document.body.appendChild(c);
+    var t = new bootstrap.Toast(c, {delay: 3000});
+    t.show();
+    c.addEventListener('hidden.bs.toast', function(){ c.remove(); });
+}
+
+function saveCards(){
+    fetch('/api/dashboard/preferences', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({cards:currentCards})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(d.success){
+            var m = bootstrap.Modal.getInstance(document.getElementById('cardCustomizer'));
+            if (m) m.hide();
+            location.reload();
+        } else {
+            showToast('保存失败：' + (d.message || '未知错误'), 'danger');
+        }
+    }).catch(function(){
+        showToast('保存失败，请检查网络', 'danger');
+    });
+}
+
+function resetCards(){
+    if(!confirm('恢复默认卡片布局？')) return;
+    fetch('/api/dashboard/preferences/reset', {method:'POST'})
+        .then(function(r){return r.json();})
+        .then(function(d){
+            if(d.success){
+                var m = bootstrap.Modal.getInstance(document.getElementById('cardCustomizer'));
+                if (m) m.hide();
+                location.reload();
+            } else {
+                showToast('重置失败：' + (d.message || '未知错误'), 'danger');
+            }
+        })
+        .catch(function(){
+            showToast('重置失败，请检查网络', 'danger');
+        });
+}
+
+document.addEventListener('DOMContentLoaded',function(){
+    cardPool = {{ card_pool | tojson }};
+    currentCards = {{ preferred_cards | tojson }};
+    defaultCards = {{ role_default_cards | tojson }};
+
+    updateClock(); setInterval(updateClock, 1000);
+
+    Chart.defaults.color = cssVar('--gray-500');
+    Chart.defaults.borderColor = cssVar('--border-soft');
+
+    {% if device_type_stats and role in ['admin', 'operator', 'viewer'] %}
+    // 设备类型分布不再使用 doughnut 图表，改为顶部 7 列风格卡片展示所有类型
+    // 如需保留图表，可在此恢复
+    {% endif %}
+
+    {% if role == 'sales' %}
+    var sc = document.getElementById('stageChart');
+    if (sc) {
+        fetch('/api/dashboard/opportunity-stages').then(function(r){return r.json();}).then(function(d){
+            if (d.success) {
+                new Chart(sc, {
+                    type: 'bar',
+                    data: {
+                        labels: d.labels,
+                        datasets: [{ label: '商机数', data: d.values, backgroundColor: cssVar('--primary'), borderRadius: 4 }]
+                    },
+                    options: { responsive:true, maintainAspectRatio:false,
+                        plugins:{ legend:{display:false} },
+                        scales:{ y:{ beginAtZero:true, ticks:{stepSize:1} } } }
+                });
+            }
+        }).catch(function(){});
+    }
+    {% endif %}
+});
+</script>
+{% endblock %}

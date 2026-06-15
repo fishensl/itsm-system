@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block content %}<div class="card">
+    <div class="card-body">
+        <form method="post" id="customerForm">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">客户名称 <span class="text-danger">*</span></label>
+                    <input type="text" name="name" class="form-control" required value="{{ customer.name if customer else '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">联系人</label>
+                    <input type="text" name="contact_person" class="form-control" value="{{ customer.contact_person if customer else '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">电话</label>
+                    <input type="text" name="phone" class="form-control" value="{{ customer.phone if customer else '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">邮箱</label>
+                    <input type="email" name="email" class="form-control" value="{{ customer.email if customer else '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">所属地市 <span class="text-danger">*</span></label>
+                    <select name="city_id" id="citySelect" class="form-select" required>
+                        <option value="">-- 请选择地市 --</option>
+                        {% for r in top_level_regions %}
+                        <option value="{{ r.id }}" {% if selected_city_id == r.id %}selected{% endif %}>{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">所属区/县 <small class="text-muted">(选填)</small></label>
+                    <select name="region_id" id="districtSelect" class="form-select">
+                        <option value="">-- 请先选择地市 --</option>
+                        {% for r in district_regions %}
+                        <option value="{{ r.id }}" {% if customer and customer.region_id == r.id %}selected{% endif %}>{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">留空表示市级客户；选择区/县时默认级别为「常规」</small>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">单位类别</label>
+                    <select name="category_id" class="form-select">
+                        <option value="">-- 不填 --</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}" {% if customer and customer.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">客户级别 <span class="text-muted small">(自动计算)</span></label>
+                    <div class="input-group">
+                        <select name="level" class="form-select">
+                            <option value="auto" {% if not customer or customer.level in ('核心','重点','常规') %}selected{% endif %}>自动（智能定级）</option>
+                            {% for lv in ['核心','重点','常规'] %}
+                            <option value="{{ lv }}" {% if customer and customer.level == lv and customer.level %}selected{% endif %}>{{ lv }}</option>
+                            {% endfor %}
+                        </select>
+                        {% if customer %}
+                        <span class="input-group-text badge bg-{{ 'danger' if customer.level=='核心' else 'warning' if customer.level=='重点' else 'info' }}">{{ customer.level or '常规' }}</span>
+                        {% endif %}
+                    </div>
+                    <small class="text-muted">核心: ≥50台且(驻场或演练) | 重点: ≥30台或驻场或演练 | 常规: 其余</small>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">巡检频率</label>
+                    <select name="inspection_frequency" class="form-select">
+                        <option value="">-- 不填 --</option>
+                        {% for freq in ['每月','每季度','每半年','每年'] %}
+                        <option value="{{ freq }}" {% if customer and customer.inspection_frequency == freq %}selected{% endif %}>{{ freq }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">附加服务</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" name="has_onsite" id="has_onsite" {% if customer and customer.has_onsite %}checked{% endif %}>
+                        <label class="form-check-label" for="has_onsite">有驻场服务</label>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="has_drill" id="has_drill" {% if customer and customer.has_drill %}checked{% endif %}>
+                        <label class="form-check-label" for="has_drill">有攻防演练</label>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">客户来源</label>
+                    <select name="source" class="form-select">
+                        <option value="">-- 不填 --</option>
+                        {% for src in ['转介绍','展会','线上','电话','其他'] %}
+                        <option value="{{ src }}" {% if customer and customer.source == src %}selected{% endif %}>{{ src }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">地址</label>
+                    <input type="text" name="address" class="form-control" value="{{ customer.address if customer else '' }}">
+                </div>
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">备注</label>
+                    <textarea name="remark" class="form-control" rows="3">{{ customer.remark if customer else '' }}</textarea>
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存</button>
+                <a href="{{ url_for('customer.customer_list') }}" class="btn btn-secondary">取消</a>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+(function(){
+    var citySelect = document.getElementById('citySelect');
+    var districtSelect = document.getElementById('districtSelect');
+    if (!citySelect || !districtSelect) return;
+
+    function loadDistricts(cityId, keepSelected){
+        if (!cityId) {
+            districtSelect.innerHTML = '<option value="">-- 请先选择地市 --</option>';
+            return;
+        }
+        districtSelect.innerHTML = '<option value="">加载中...</option>';
+        fetch('/api/regions/children/' + cityId)
+            .then(function(r){return r.json();})
+            .then(function(d){
+                var opts = '<option value="">-- 请选择区/县 --</option>';
+                if (d.success) {
+                    d.items.forEach(function(it){
+                        var sel = (keepSelected && String(it.id) === String(keepSelected)) ? ' selected' : '';
+                        opts += '<option value="' + it.id + '"' + sel + '>' + it.name + '</option>';
+                    });
+                } else {
+                    opts = '<option value="">-- 加载失败 --</option>';
+                }
+                districtSelect.innerHTML = opts;
+            })
+            .catch(function(){
+                districtSelect.innerHTML = '<option value="">-- 网络错误 --</option>';
+            });
+    }
+
+    citySelect.addEventListener('change', function(){
+        loadDistricts(this.value, null);
+    });
+
+    // 页面加载时，如果已有 customer.region_id，则根据其父地区重新拉取区/县列表
+    // （后端已预先填充 district_regions，但若通过切换 city 重选则需要重新拉取）
+    var preselected = districtSelect.value;
+    if (preselected) {
+        // 已经有选中的 district，保留现状
+    }
+    // P4-4.1: 客户端表单验证
+    var form = document.getElementById('customerForm') || document.querySelector('form[method="post"]');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            if (!validateForm(form, {
+                'name':      { required: true, maxLen: 128, label: '客户名称' },
+                'contact_person': { maxLen: 64, label: '联系人' },
+                'phone':     { pattern: /^[\d\-\+\s]{0,32}$/, patternMsg: '电话格式不正确', label: '电话' },
+                'email':     { pattern: /^$|^[\w.+-]+@[\w-]+\.[\w.-]+$/, patternMsg: '邮箱格式不正确', label: '邮箱' }
+            })) {
+                e.preventDefault();
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

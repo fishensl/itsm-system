@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('库存管理', 'layers') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增库存</button>
+{% endcall %}
+<div class="content-card">
+    {% if stocks %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead><tr><th>ID</th><th>备件</th><th>位置</th><th>数量</th><th>单价</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for s in stocks %}
+                {% set p = s.spare_part_rel %}
+                <tr>
+                    <td>{{ s.id }}</td>
+                    <td>{{ p.name if p else '-' }}</td>
+                    <td>{{ s.location }}</td>
+                    <td>{{ s.quantity }}</td>
+                    <td>{{ s.unit_price }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editS({{ s.id }},{{ s.spare_part_id }},'{{ s.location }}',{{ s.quantity }},{{ s.unit_price }})"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(delete_url=url_for('spare.spare_stock_delete', id=s.id), delete_confirm='确定删除？') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ eui.empty_state('bi-layers', '暂无库存') }}
+    {% endif %}
+</div>
+</div>
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">新增库存</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" action="{{ url_for('spare.spare_stock_add') }}"><div class="modal-body"><div class="mb-3"><label class="form-label">备件</label><select name="spare_part_id" class="form-select" required><option value="">--选择--</option>{% for p in parts %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">位置</label><input type="text" name="location" class="form-control"></div><div class="mb-3"><label class="form-label">数量</label><input type="number" name="quantity" class="form-control" value="0"></div><div class="mb-3"><label class="form-label">单价</label><input type="number" name="unit_price" class="form-control" step="0.01" value="0"></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">编辑库存</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" id="editForm"><div class="modal-body"><div class="mb-3"><label class="form-label">位置</label><input type="text" name="location" id="edit_loc" class="form-control"></div><div class="mb-3"><label class="form-label">数量</label><input type="number" name="quantity" id="edit_qty" class="form-control"></div><div class="mb-3"><label class="form-label">单价</label><input type="number" name="unit_price" id="edit_price" class="form-control" step="0.01"></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+{% endblock %}{% block scripts %}<script>function editS(id,pid,loc,qty,price){document.getElementById('edit_loc').value=loc;document.getElementById('edit_qty').value=qty;document.getElementById('edit_price').value=price;document.getElementById('editForm').action='/spare-stocks/edit/'+id;new bootstrap.Modal(document.getElementById('editModal')).show();}</script>{% endblock %}

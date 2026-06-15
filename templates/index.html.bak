@@ -1,0 +1,426 @@
+{% extends "base.html" %}
+{% block title %}工作台 - IT运维综合管理系统{% endblock %}
+{% block breadcrumb %}{% endblock %}
+{% block head_extra %}
+<style>
+.workbench { color: var(--gray-900); }
+.wb-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow); }
+.wb-greeting { font-size: 18px; font-weight: 700; margin-bottom: 3px; }
+.wb-sub { color: var(--gray-500); font-size: 12px; }
+.wb-role-pill { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:999px; background:var(--primary-soft); color:var(--primary); font-size:11.5px; font-weight:700; margin-left:8px; }
+.wb-banner-right { display: flex; align-items: center; gap: 10px; }
+.wb-time { font-family: Consolas, monospace; font-size: 20px; font-weight: 700; line-height: 1; color: var(--gray-900); }
+.wb-date { margin-top: 3px; color: var(--gray-500); font-size: 11px; }
+.wb-status-pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--success); color: var(--success); background: var(--success-soft); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.wb-status-pill.warn { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
+.wb-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.wb-refresh { width: 30px; height: 30px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--gray-700); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.wb-refresh:hover { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
+.wb-refresh.spinning i { animation: wbSpin .8s linear infinite; }
+@keyframes wbSpin { to { transform: rotate(360deg); } }
+.wb-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.wb-metric { position: relative; min-height: 96px; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow); overflow: hidden; }
+.wb-metric::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent, var(--primary)); }
+.wb-metric-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.wb-metric-icon { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-md); color: var(--accent, var(--primary)); background: var(--primary-soft); font-size: 15px; }
+.wb-metric-value { margin-top: 6px; font-family: Consolas, monospace; font-size: 24px; font-weight: 800; line-height: 1; color: var(--gray-900); }
+.wb-metric-label { margin-top: 6px; font-size: 12.5px; font-weight: 700; color: var(--gray-700); }
+.wb-metric-sub { margin-top: 3px; font-size: 11.5px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-grid { display: grid; grid-template-columns: 1.35fr .85fr; gap: 16px; margin-bottom: 16px; }
+.wb-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow); padding: 16px; min-width: 0; }
+.wb-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.wb-title { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; color: var(--gray-900); }
+.wb-title i { color: var(--primary); }
+.wb-panel-sub { color: var(--gray-500); font-size: 11.5px; }
+.wb-list { display: flex; flex-direction: column; gap: 6px; }
+.wb-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface-muted); border: 1px solid var(--border-soft); border-radius: var(--radius-md); }
+.wb-row-main { min-width: 0; flex: 1; }
+.wb-row-title { font-size: 12.5px; font-weight: 700; color: var(--gray-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-row-sub { margin-top: 2px; font-size: 11.5px; color: var(--gray-500); }
+.wb-tag { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.wb-tag.primary { color: var(--primary); background: var(--primary-soft); }
+.wb-tag.success { color: var(--success); background: var(--success-soft); }
+.wb-tag.warning { color: var(--warning); background: var(--warning-soft); }
+.wb-tag.danger { color: var(--danger); background: var(--danger-soft); }
+.wb-tag.info { color: var(--info); background: var(--info-soft); }
+.wb-tag.secondary { color: var(--gray-700); background: var(--gray-200); }
+.wb-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.wb-action { display: flex; align-items: center; gap: 9px; min-height: 50px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--gray-800); background: var(--surface-muted); text-decoration: none; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+.wb-action:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-soft); text-decoration: none; }
+.wb-action i { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-md); background: var(--primary-soft); color: var(--primary); font-size: 14px; flex-shrink: 0; }
+.wb-action-title { font-size: 12.5px; font-weight: 700; line-height: 1.1; }
+.wb-action-sub { margin-top: 2px; color: var(--gray-500); font-size: 11px; line-height: 1.1; }
+.wb-empty { display: flex; align-items: center; justify-content: center; min-height: 90px; color: var(--gray-500); background: var(--surface-muted); border: 1px dashed var(--border); border-radius: var(--radius-md); font-size: 12.5px; }
+.wb-mini-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.wb-type-item { padding: 9px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-muted); }
+.wb-type-name { color: var(--gray-500); font-size: 11.5px; }
+.wb-type-value { margin-top: 5px; font-family: Consolas, monospace; font-size: 20px; font-weight: 800; color: var(--gray-900); }
+.wb-chart { height: 200px; }
+@media (max-width: 1280px) { .wb-metric-grid { grid-template-columns: repeat(3, minmax(0,1fr)); } .wb-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .wb-banner { align-items:flex-start; flex-direction:column; } .wb-banner-right { width:100%; justify-content:space-between; } .wb-metric-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 560px) { .wb-metric-grid,.wb-mini-grid,.wb-actions { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="workbench">
+    <section class="wb-banner">
+        <div>
+            <div class="wb-greeting" id="wbGreeting">工作台<span class="wb-role-pill"><i class="bi-person-badge me-1"></i>{{ role_label(role) }}</span></div>
+            <div class="wb-sub" id="wbDate">--</div>
+        </div>
+        <div class="wb-banner-right">
+            <div><div class="wb-time" id="wbTime">--:--:--</div><div class="wb-date" id="wbRefreshTime">数据加载中</div></div>
+            <div class="wb-status-pill"><span class="wb-dot"></span><span>系统运行正常</span></div>
+            <button class="wb-refresh" onclick="location.reload()" title="刷新"><i class="bi-arrow-clockwise"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="openCardCustomizer()" title="自定义卡片"><i class="bi-sliders"></i> 自定义</button>
+        </div>
+    </section>
+
+    <!-- 角色专属统计卡片 -->
+    <section class="wb-metric-grid">
+        {% for m in metrics %}
+        <div class="wb-metric" style="--accent:{{ m.accent }}">
+            <div class="wb-metric-head"><div class="wb-metric-icon"><i class="bi {{ m.icon }}"></i></div></div>
+            <div class="wb-metric-value">{{ m.value }}</div>
+            <div class="wb-metric-label">{{ m.label }}</div>
+            <div class="wb-metric-sub">{{ m.sub }}</div>
+        </div>
+        {% endfor %}
+    </section>
+
+    <section class="wb-grid">
+        <!-- 左：我的待处理任务 -->
+        <div class="wb-panel">
+            <div class="wb-panel-head">
+                <div>
+                    <div class="wb-title"><i class="bi-person-check"></i> 我的待处理任务</div>
+                    {% if role == 'operator' or role == 'admin' %}
+                    <div class="wb-panel-sub">
+                        <span class="badge bg-danger me-1">工单 {{ my_ticket_count }}（含故障）</span>
+                        <span class="badge bg-primary me-1">巡检 {{ my_insp_task_count }}</span>
+                    </div>
+                    {% elif role == 'sales' %}
+                    <div class="wb-panel-sub">商机跟进与合同执行</div>
+                    {% else %}
+                    <div class="wb-panel-sub">只读模式</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="wb-list">
+                {% if my_tasks %}
+                {% for t in my_tasks %}
+                <div class="wb-row">
+                    <span class="wb-tag {{ t.type_color }}">{{ t.type_label }}</span>
+                    <div class="wb-row-main">
+                        <div class="wb-row-title"><a href="{{ t.url }}" class="text-decoration-none text-reset">{{ t.title[:34] }}</a></div>
+                        <div class="wb-row-sub">{{ t.sub }}</div>
+                    </div>
+                    <span class="text-muted small">{{ t.time }}</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="wb-empty"><i class="bi-check-circle text-success me-1"></i> 暂无待处理任务</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 右：快捷入口（按角色） -->
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-lightning-charge"></i> 快捷入口</div><div class="wb-panel-sub">{{ role_label(role) }}常用功能</div></div></div>
+            <div class="wb-actions">
+                {% for q in quick_entries %}
+                <a href="{{ q.url }}" class="wb-action"><i class="bi {{ q.icon }}"></i><span><span class="wb-action-title">{{ q.title }}</span><span class="wb-action-sub d-block">{{ q.sub }}</span></span></a>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    {% if role in ['admin', 'operator', 'viewer'] %}
+    <section class="wb-grid">
+        <!-- 左：最近巡检 + 即将到期 -->
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-clock-history"></i> 运维动态</div><div class="wb-panel-sub">最近巡检与即将到期</div></div></div>
+            {% if recent_inspections %}
+            <div class="mb-2"><strong style="font-size:12px;color:var(--gray-600);">最近巡检</strong></div>
+            <div class="wb-list mb-2">
+                {% for i in recent_inspections[:3] %}
+                <div class="wb-row">
+                    <span class="wb-tag {% if i.overall_status=='正常' %}success{% elif i.overall_status=='异常' %}danger{% else %}warning{% endif %}">{{ i.overall_status }}</span>
+                    <div class="wb-row-main"><div class="wb-row-title"><a href="/inspections/{{ i.id }}" class="text-decoration-none text-reset">{{ i.title[:32] }}</a></div><div class="wb-row-sub">{{ i.customer_name }} · {{ i.inspection_date }}</div></div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if expiring_devices %}
+            <div class="mb-2"><strong style="font-size:12px;color:var(--gray-600);">授权即将到期</strong></div>
+            <div class="wb-list">
+                {% for d in expiring_devices[:3] %}
+                <div class="wb-row">
+                    <span class="wb-tag {% if d.remaining_days<0 %}danger{% elif d.remaining_days<=7 %}danger{% else %}primary{% endif %}">{% if d.remaining_days<0 %}已过期{% else %}{{ d.remaining_days }}天{% endif %}</span>
+                    <div class="wb-row-main"><div class="wb-row-title"><a href="/devices/{{ d.id }}" class="text-decoration-none text-reset">{{ d.device_name }}</a></div><div class="wb-row-sub">{{ d.customer_name }} · {{ d.license_expiry }}</div></div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if not recent_inspections and not expiring_devices %}
+            <div class="wb-empty">暂无动态</div>
+            {% endif %}
+        </div>
+
+        <!-- 右：设备类型分布 -->
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-pie-chart"></i> 设备类型分布</div><div class="wb-panel-sub">共 {{ counts.device }} 台</div></div></div>
+            {% if device_type_stats %}
+            <div class="wb-mini-grid mb-3">
+                {% for type_name, count in device_type_stats[:3] %}<div class="wb-type-item"><div class="wb-type-name">{{ type_name or '未分类' }}</div><div class="wb-type-value">{{ count }}</div></div>{% endfor %}
+            </div>
+            <div class="wb-chart"><canvas id="vendorChart"></canvas></div>
+            {% else %}
+            <div class="wb-empty">暂无设备</div>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if role == 'sales' %}
+    <!-- 销售视角：商机阶段 + 项目进度 -->
+    <section class="wb-grid">
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-graph-up"></i> 商机阶段分布</div><div class="wb-panel-sub">共 {{ counts.opp }} 个商机</div></div></div>
+            <div class="wb-chart"><canvas id="stageChart"></canvas></div>
+        </div>
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-diagram-3"></i> 项目状态</div><div class="wb-panel-sub">共 {{ counts.project }} 个项目</div></div></div>
+            <div class="wb-mini-grid">
+                <div class="wb-type-item"><div class="wb-type-name">进行中</div><div class="wb-type-value">{{ counts.project_active }}</div></div>
+                <div class="wb-type-item"><div class="wb-type-name">合同总数</div><div class="wb-type-value">{{ counts.contract }}</div></div>
+                <div class="wb-type-item"><div class="wb-type-name">成交商机</div><div class="wb-type-value">{{ counts.opp_deal }}</div></div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if is_supervisor_user and supervisor_data %}
+    <!-- 主管看板 -->
+    <section class="wb-grid" style="margin-top:16px;">
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-people-fill"></i> 部门任务看板</div><div class="wb-panel-sub">{{ supervisor_data.dept_name }} · 本季度从 {{ supervisor_data.quarter_start }}</div></div></div>
+            <div class="wb-list">
+                {% for m in supervisor_data.dept_members %}
+                <div class="wb-row">
+                    <span class="wb-tag primary">{{ m.task_count }}</span>
+                    <div class="wb-row-main">
+                        <div class="wb-row-title">{{ m.name }}</div>
+                        <div class="wb-row-sub">已完成 {{ m.completed }} / {{ m.task_count }} 项</div>
+                    </div>
+                    {% if m.task_count > 0 %}
+                    <span class="text-muted small">{{ m.completed * 100 // m.task_count }}%</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% if supervisor_data.dept_members|length == 0 %}
+                <div class="wb-empty">暂无部门成员</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="wb-panel">
+            <div class="wb-panel-head"><div><div class="wb-title"><i class="bi-graph-up"></i> 季度任务概览</div><div class="wb-panel-sub">本季度 {{ supervisor_data.dept_total }} 项任务</div></div></div>
+            <div class="wb-grid" style="grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+                <div class="wb-metric" style="--accent:var(--warning)"><div class="wb-metric-head"><div class="wb-metric-icon"><i class="bi-send"></i></div></div><div class="wb-metric-value">{{ supervisor_data.dept_pending }}</div><div class="wb-metric-label">待派发</div></div>
+                <div class="wb-metric" style="--accent:var(--primary)"><div class="wb-metric-head"><div class="wb-metric-icon"><i class="bi-hourglass-split"></i></div></div><div class="wb-metric-value">{{ supervisor_data.dept_in_progress }}</div><div class="wb-metric-label">进行中</div></div>
+                <div class="wb-metric" style="--accent:var(--success)"><div class="wb-metric-head"><div class="wb-metric-icon"><i class="bi-check-circle"></i></div></div><div class="wb-metric-value">{{ supervisor_data.dept_completed_q }}</div><div class="wb-metric-label">已完成</div></div>
+                <div class="wb-metric" style="--accent:var(--info)"><div class="wb-metric-head"><div class="wb-metric-icon"><i class="bi-pie-chart"></i></div></div><div class="wb-metric-value">{{ supervisor_data.dept_completion_rate }}</div><div class="wb-metric-label">完成率</div></div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if draft_list %}
+    <!-- 草稿恢复 -->
+    <div class="alert alert-info alert-dismissible fade show" role="alert" style="margin:16px 0;">
+        <i class="bi-pencil-square me-2"></i> <strong>检测到未保存的草稿</strong>
+        {% for d in draft_list %}
+        <span class="badge bg-secondary ms-1">{{ d.form_type }} {{ '(' + d.related_id|string() + ')' if d.related_id else '(新建)' }}</span>
+        {% endfor %}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 卡片自定义模态框 -->
+<div class="modal fade" id="cardCustomizer" tabindex="-1">
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi-sliders me-2"></i>自定义统计卡片</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">勾选要显示的卡片，拖拽调整排序</p>
+                <div id="cardCheckList" class="d-flex flex-column gap-1">
+                    <!-- JS 填充 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary me-auto" onclick="resetCards()"><i class="bi-arrow-counterclockwise"></i> 恢复默认</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" onclick="saveCards()"><i class="bi-check-lg"></i> 保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+var charts = [];
+var cardPool = {};
+var currentCards = [];
+var defaultCards = [];
+
+function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function updateClock(){
+    var n=new Date(),h=n.getHours(),g=h<12?'早上好':h<18?'下午好':'晚上好';
+    var name = {{ (current_user.realname or current_user.username) | tojson | safe }};
+    var roleHtml = '<span class="wb-role-pill"><i class="bi-person-badge me-1"></i>{{ role_label(role) | e }}</span>';
+    var greeting = document.getElementById('wbGreeting');
+    greeting.textContent = g + '，' + name + ' ';
+    greeting.insertAdjacentHTML('beforeend', roleHtml);
+    document.getElementById('wbDate').textContent=n.toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+    document.getElementById('wbTime').textContent=n.toLocaleTimeString('zh-CN',{hour12:false});
+    document.getElementById('wbRefreshTime').textContent='更新于 '+n.toLocaleTimeString('zh-CN',{hour12:false});
+}
+
+function openCardCustomizer(){
+    var list = document.getElementById('cardCheckList');
+    list.innerHTML = '';
+    var allKeys = Object.keys(cardPool);
+    var selected = currentCards.filter(function(k){return cardPool[k];});
+    var unselected = allKeys.filter(function(k){return currentCards.indexOf(k)===-1 && cardPool[k];});
+    var ordered = selected.concat(unselected);
+    ordered.forEach(function(k){
+        var c = cardPool[k];
+        var checked = currentCards.indexOf(k) >= 0;
+        var div = document.createElement('div');
+        div.className = 'd-flex align-items-center gap-2 p-2 rounded border ' + (checked ? 'bg-primary bg-opacity-10 border-primary' : 'bg-body-secondary');
+        div.innerHTML = '<i class="bi ' + c.icon + ' text-' + (checked?'primary':'secondary') + '"></i>' +
+            '<span class="flex-grow-1 small fw-bold">' + c.label + '</span>' +
+            '<div class="form-check form-switch mb-0">' +
+            '<input class="form-check-input" type="checkbox" ' + (checked?'checked':'') + ' onchange="toggleCard(\''+k+'\', this)">' +
+            '</div>';
+        list.appendChild(div);
+    });
+    new bootstrap.Modal(document.getElementById('cardCustomizer')).show();
+}
+
+function toggleCard(key, el){
+    if(el.checked){
+        if(currentCards.indexOf(key)===-1) currentCards.push(key);
+        el.parentElement.parentElement.classList.add('bg-primary','bg-opacity-10','border-primary');
+    } else {
+        currentCards = currentCards.filter(function(k){return k!==key;});
+        el.parentElement.parentElement.classList.remove('bg-primary','bg-opacity-10','border-primary');
+    }
+}
+
+function showToast(msg, type){
+    type = type || 'info';
+    var c = document.createElement('div');
+    c.className = 'toast align-items-center text-bg-' + type + ' border-0 position-fixed top-0 end-0 m-3';
+    c.style.zIndex = 9999;
+    c.innerHTML = '<div class="d-flex"><div class="toast-body">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+    document.body.appendChild(c);
+    var t = new bootstrap.Toast(c, {delay: 3000});
+    t.show();
+    c.addEventListener('hidden.bs.toast', function(){ c.remove(); });
+}
+
+function saveCards(){
+    fetch('/api/dashboard/preferences', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({cards:currentCards})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(d.success){
+            var m = bootstrap.Modal.getInstance(document.getElementById('cardCustomizer'));
+            if (m) m.hide();
+            location.reload();
+        } else {
+            showToast('保存失败：' + (d.message || '未知错误'), 'danger');
+        }
+    }).catch(function(){
+        showToast('保存失败，请检查网络', 'danger');
+    });
+}
+
+function resetCards(){
+    if(!confirm('恢复默认卡片布局？')) return;
+    fetch('/api/dashboard/preferences/reset', {method:'POST'})
+        .then(function(r){return r.json();})
+        .then(function(d){
+            if(d.success){
+                var m = bootstrap.Modal.getInstance(document.getElementById('cardCustomizer'));
+                if (m) m.hide();
+                location.reload();
+            } else {
+                showToast('重置失败：' + (d.message || '未知错误'), 'danger');
+            }
+        })
+        .catch(function(){
+            showToast('重置失败，请检查网络', 'danger');
+        });
+}
+
+document.addEventListener('DOMContentLoaded',function(){
+    cardPool = {{ card_pool | tojson }};
+    currentCards = {{ preferred_cards | tojson }};
+    defaultCards = {{ role_default_cards | tojson }};
+
+    updateClock(); setInterval(updateClock, 1000);
+
+    Chart.defaults.color = cssVar('--gray-500');
+    Chart.defaults.borderColor = cssVar('--border-soft');
+
+    {% if device_type_stats and role in ['admin', 'operator', 'viewer'] %}
+    var vc = document.getElementById('vendorChart');
+    if (vc) {
+        new Chart(vc, {
+            type: 'doughnut',
+            data: {
+                labels: [{% for t,c in device_type_stats %}'{{ t or "未分类" }}',{% endfor %}],
+                datasets: [{ data: [{% for t,c in device_type_stats %}{{ c }},{% endfor %}],
+                    backgroundColor: [cssVar('--chart-1'),cssVar('--chart-2'),cssVar('--chart-3'),cssVar('--chart-4'),cssVar('--chart-5'),cssVar('--chart-6'),cssVar('--chart-7')],
+                    borderWidth: 3, borderColor: cssVar('--surface') }]
+            },
+            options: { responsive:true, maintainAspectRatio:false, cutout:'68%',
+                plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{size:11} } } } }
+        });
+    }
+    {% endif %}
+
+    {% if role == 'sales' %}
+    var sc = document.getElementById('stageChart');
+    if (sc) {
+        fetch('/api/dashboard/opportunity-stages').then(function(r){return r.json();}).then(function(d){
+            if (d.success) {
+                new Chart(sc, {
+                    type: 'bar',
+                    data: {
+                        labels: d.labels,
+                        datasets: [{ label: '商机数', data: d.values, backgroundColor: cssVar('--primary'), borderRadius: 4 }]
+                    },
+                    options: { responsive:true, maintainAspectRatio:false,
+                        plugins:{ legend:{display:false} },
+                        scales:{ y:{ beginAtZero:true, ticks:{stepSize:1} } } }
+                });
+            }
+        }).catch(function(){});
+    }
+    {% endif %}
+});
+</script>
+{% endblock %}

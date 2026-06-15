@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="text-muted">配置 AI 服务，用于智能巡检分析和故障诊断</p>
+
+<div class="card"><div class="card-body">
+<form method="post" action="{{ url_for('ai_config_save') }}">
+<input type="hidden" name="id" value="{{ ai.id if ai else '' }}">
+<div class="row">
+    <div class="col-md-3 mb-3">
+        <label class="form-label">AI 提供商</label>
+        <select name="provider" class="form-select" required>
+            {% for p in ['OpenAI','Anthropic','Ollama','自定义API'] %}
+            <option value="{{ p }}" {% if (ai and ai.provider==p) or (not ai and p=='Ollama') %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+        </select>
+        <small class="text-muted">Ollama 为本地免费方案</small>
+    </div>
+    <div class="col-md-5 mb-3">
+        <label class="form-label">API 端点</label>
+        <input type="text" name="api_endpoint" class="form-control" placeholder="留空用默认" value="{{ ai.api_endpoint if ai else '' }}">
+    </div>
+    <div class="col-md-4 mb-3">
+        <label class="form-label">模型名称</label>
+        <input type="text" name="model_name" class="form-control" placeholder="gpt-4 / llama3 / claude-3" value="{{ ai.model_name if ai else '' }}">
+    </div>
+    <div class="col-md-6 mb-3">
+        <label class="form-label">API Key</label>
+        <input type="password" name="api_key" class="form-control" value="" placeholder="{% if ai and ai.api_key_encrypted %}已设置，留空不修改{% else %}请输入API Key{% endif %}">
+    </div>
+    <div class="col-md-2 mb-3">
+        <label class="form-label">最大 Token</label>
+        <input type="number" name="max_tokens" class="form-control" value="{{ ai.max_tokens if ai else 2048 }}">
+    </div>
+    <div class="col-md-2 mb-3">
+        <label class="form-label">温度</label>
+        <input type="number" step="0.1" name="temperature" class="form-control" value="{{ ai.temperature if ai else 0.7 }}">
+    </div>
+    <div class="col-md-2 mb-3">
+        <label class="form-label">启用</label>
+        <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="is_enabled" value="1" {% if ai and ai.is_enabled %}checked{% endif %}><label class="form-check-label">启用 AI</label></div>
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-12 mb-3">
+        <label class="form-label">巡检分析提示词模板</label>
+        <textarea name="inspection_prompt_template" class="form-control" rows="4" style="font-size:13px;" placeholder="变量: {device_info} {metrics} {history}">{{ ai.inspection_prompt_template if ai else '' }}</textarea>
+    </div>
+    <div class="col-md-12 mb-3">
+        <label class="form-label">故障分析提示词模板</label>
+        <textarea name="fault_prompt_template" class="form-control" rows="4" style="font-size:13px;" placeholder="变量: {ticket_info} {device_info} {logs}">{{ ai.fault_prompt_template if ai else '' }}</textarea>
+    </div>
+</div>
+<button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存配置</button>
+{% if ai and ai.api_key_encrypted %}
+<button type="button" class="btn btn-outline-info ms-2" onclick="testConnection()"><i class="bi bi-plug"></i> 测试连接</button>
+{% endif %}
+</form>
+</div></div>
+
+<div id="testResult" class="mt-3" style="display:none;"><div class="card"><div class="card-header">测试结果</div><div class="card-body"><pre id="testResultContent" style="white-space:pre-wrap;"></pre></div></div></div>
+
+{% if not ai %}
+<div class="alert alert-info mt-3"><i class="bi-lightbulb"></i> <strong>快速开始</strong>：选择 Ollama 提供商，安装 Ollama 后运行 <code>ollama pull llama3</code>，即可使用本地 AI 分析，无需 API Key。</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+function testConnection() {
+    document.getElementById('testResult').style.display = 'block';
+    document.getElementById('testResultContent').textContent = '测试中...';
+    fetch('/api/ai-test', {method:'POST'}).then(r=>r.json()).then(data=>{
+        document.getElementById('testResultContent').textContent = data.success ? '连接成功!\n'+data.result : '连接失败:\n'+data.result;
+    }).catch(e=>{document.getElementById('testResultContent').textContent='请求失败: '+e;});
+}
+</script>
+{% endblock %}

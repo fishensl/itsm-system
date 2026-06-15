@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('设备类型管理', 'tags') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增类型</button>
+{% endcall %}
+<div class="content-card">
+    {% if types %}
+    <div class="table-responsive">
+        <table class="table data-table table-hover align-middle compact-table mb-0">
+            <thead>
+                <tr>
+                    <th style="width:80px;">ID</th>
+                    <th>类型名称</th>
+                    <th style="width:120px;">排序</th>
+                    <th style="width:130px;" class="text-end">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in types %}
+                <tr>
+                    <td>{{ t.id }}</td>
+                    <td><span class="type-pill">{{ t.name }}</span></td>
+                    <td>{{ t.sort_order }}</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-primary" onclick="editType({{ t.id }}, '{{ t.name }}', {{ t.sort_order }})" title="编辑">
+                            <i class="bi-pencil"></i>
+                        </button>
+                        {{ ui.table_actions(delete_url=url_for('asset.device_type_delete', id=t.id), delete_confirm='确定删除类型「{{ t.name }}」？已使用该类型的设备不会自动删除。') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ eui.empty_state('bi-tags', '暂无设备类型', '点击右上角新增') }}
+    {% endif %}
+</div>
+
+<!-- 新增弹窗 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">新增设备类型</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" action="{{ url_for('asset.device_type_add') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">类型名称 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" class="form-control" required placeholder="例如：核心交换机">
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" class="form-control" value="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">编辑设备类型</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" id="editForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">类型名称 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" id="edit_name" class="form-control" required>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" id="edit_sort" class="form-control" value="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.compact-table th { padding: 6px 10px !important; font-size: 12px; }
+.compact-table td { padding: 6px 10px !important; font-size: 13px; line-height: 1.2; }
+.type-pill { display:inline-flex; align-items:center; height:24px; padding:0 10px; border-radius:999px; background:var(--primary-soft); color:var(--primary); font-size:12px; font-weight:700; }
+</style>
+<script>
+function editType(id, name, sort) {
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_sort').value = sort;
+    document.getElementById('editForm').action = '/device-types/edit/' + id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+</script>
+{% endblock %}

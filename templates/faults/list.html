@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('故障记录（历史归档）', 'exclamation-triangle') %}    <a href="/exports/download-template/fault" class="btn btn-outline-secondary btn-sm me-2"><i class="bi-download"></i> 下载模板</a>
+    <a href="{{ url_for('ops.fault_export') }}" class="btn btn-outline-info btn-sm me-2"><i class="bi-file-earmark-excel"></i> 导出Excel</a>
+    <a href="{{ url_for('ops.ticket_add') }}" class="btn btn-primary btn-sm"><i class="bi-plus-lg"></i> 新建工单</a>
+{% endcall %}
+<div class="alert alert-warning py-2 mb-3">
+    <i class="bi-info-circle me-1"></i> <strong>提示：</strong>故障记录为历史归档，仅支持查看和导出。新建故障请使用 <a href="{{ url_for('ops.ticket_add') }}" class="alert-link">工单管理</a>。
+</div>
+
+<!-- 搜索 -->
+{% call ui.filter_bar() %}<form method="get" class="row g-2 align-items-center">
+    <div class="col-auto">
+        <i class="bi-search text-muted"></i>
+    </div>
+    <div class="col-md-4">
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索标题、客户名、故障类型、处理人..." value="{{ search }}">
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">搜索</button>
+        {% if search %}
+        <a href="{{ url_for('ops.fault_list') }}" class="btn btn-sm btn-outline-secondary">清除</a>
+        {% endif %}
+    </div>
+    {% if search %}
+    <div class="col-auto">
+        <span class="text-muted small">搜索 "{{ search }}" 结果：{{ total }} 条</span>
+    </div>
+    {% endif %}
+</form>
+{% endcall %}
+<div class="card">
+    <div class="card-body">
+        {% if items %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>标题</th>
+                        <th>客户</th>
+                        <th>故障时间</th>
+                        <th>类型</th>
+                        <th>处理人</th>
+                        <th>状态</th>
+                        <th>报告</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in items %}
+                    {% set cust = f.customer_rel %}
+                    <tr>
+                        <td>{{ f.id }}</td>
+                        <td><a href="{{ url_for('ops.fault_detail', id=f.id) }}"><strong>{{ f.title }}</strong></a></td>
+                        <td>{{ cust.name if cust else '-' }}</td>
+                        <td>{{ f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '-' }}</td>
+                        <td><span class="badge bg-info">{{ f.fault_type or '-' }}</span></td>
+                        <td>{{ f.handler or '-' }}</td>
+                        <td>
+                            <span class="badge bg-{{ 'success' if f.result=='已解决' else 'warning' if f.result=='待观察' else 'danger' }}">
+                                {{ f.result }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if f.report_file %}
+                            <a href="{{ url_for('ops.report_download', filename=f.report_file.replace('\\', '/').split('/')[-1]) }}" class="btn btn-sm btn-outline-success"><i class="bi-file-earmark-word"></i></a>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {{ ui.table_actions(view_url=url_for('ops.fault_detail', id=f.id)) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ pagination_bar(page, total_pages, has_prev, has_next, prev_page, next_page, total, start, end, search) }}
+        {% else %}
+        {{ eui.empty_state('bi-exclamation-triangle', '未找到匹配的故障记录' if search else '暂无故障记录') }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

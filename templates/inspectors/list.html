@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('巡检人员管理', 'person-cog') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增人员</button>
+{% endcall %}
+<div class="alert alert-info py-2 mb-3 small">
+    <i class="bi-info-circle me-1"></i> 巡检人员从<strong>系统用户</strong>中勾选。
+    姓名、手机、邮箱、证书等信息统一在<a href="{{ url_for('user_list') }}" class="alert-link">用户管理</a>中维护，
+    巡检报告会自动引用用户的姓名与电话（保存时冻结，避免改名影响历史报告）。
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if inspectors %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>用户</th>
+                        <th>姓名</th>
+                        <th>电话</th>
+                        <th>邮箱</th>
+                        <th>证书</th>
+                        <th>状态</th>
+                        <th>备注</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ins in inspectors %}
+                    {% set u = ins.linked_user %}
+                    <tr>
+                        <td>{{ ins.id }}</td>
+                        <td>
+                            {% if u %}
+                            <span class="badge bg-info">@{{ u.username }}</span>
+                            {% else %}
+                            <span class="badge bg-danger">用户已删除</span>
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ u.realname or u.username if u else '-' }}</strong></td>
+                        <td>{{ (u.phone if u else '') or '-' }}</td>
+                        <td>{{ (u.email if u else '') or '-' }}</td>
+                        <td>
+                            {% if u %}
+                                {% set certs = u.cert_list() %}
+                                {% if certs %}
+                                    {% for c in certs %}<span class="badge bg-success me-1">{{ c }}</span>{% endfor %}
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ins.is_active %}
+                            <span class="badge bg-success">启用</span>
+                            {% else %}
+                            <span class="badge bg-secondary">停用</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ ins.remark or '-' }}</td>
+                        <td class="text-nowrap">
+                            <button class="btn btn-sm btn-outline-primary" onclick="editInspector({{ ins.id }}, '{{ (ins.remark or '')|e }}', {{ 'true' if ins.is_active else 'false' }})">
+                                <i class="bi-pencil"></i>
+                            </button>
+                            {{ ui.table_actions(delete_url=url_for('ops.inspector_delete', id=ins.id), delete_confirm='确定取消 {{ (u.realname or u.username) if u else ins.id }} 的巡检人员资格？') }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if page is defined and total_pages is defined and total_pages > 1 %}
+        {{ pagination_bar(page, total_pages, has_prev, has_next, prev_page, next_page, total, start, end) }}
+        {% endif %}
+        {% else %}
+        {{ eui.empty_state('bi-person-cog', '暂无巡检人员', '点击右上角「新增人员」从用户中勾选') }}
+        {% endif %}
+    </div>
+</div>
+
+<!-- 新增弹窗 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">新增巡检人员</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" action="{{ url_for('ops.inspector_add') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">选择用户 <span class="text-danger">*</span></label>
+                        <select name="user_id" class="form-select" required>
+                            <option value="">-- 请选择系统用户 --</option>
+                            {% for u in available_users %}
+                            <option value="{{ u.id }}">
+                                {{ u.realname or u.username }} (@{{ u.username }})
+                                {% if u.department_rel %}· {{ u.department_rel.name }}{% endif %}
+                                {% if u.role == 'admin' %}· 管理员{% else %}· 运维{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">仅显示尚未关联为巡检人员的活跃用户。如需新增账号请先到<a href="{{ url_for('user_list') }}">用户管理</a>。</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注</label>
+                        <textarea name="remark" class="form-control" rows="2" placeholder="可选"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑弹窗 — V13: 仅可改 is_active / remark；要换人请先删再加 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">编辑巡检人员</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="post" id="editForm">
+                <div class="modal-body">
+                    <div class="alert alert-secondary small mb-3">
+                        姓名/手机/邮箱/证书在<a href="{{ url_for('user_list') }}">用户管理</a>中修改。
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注</label>
+                        <textarea name="remark" id="edit_remark" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="form-check">
+                        <input type="checkbox" name="is_active" id="edit_is_active" class="form-check-input" value="on">
+                        <label class="form-check-label">启用</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editInspector(id, remark, active) {
+    document.getElementById('edit_remark').value = remark || '';
+    document.getElementById('edit_is_active').checked = active;
+    document.getElementById('editForm').action = '/inspectors/edit/' + id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+</script>
+{% endblock %}

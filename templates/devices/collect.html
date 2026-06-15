@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <a href="{{ url_for('asset.device_detail', id=device.id) }}" class="btn btn-secondary btn-sm">返回设备详情</a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-{{ 'success' if '成功' in message else 'danger' }} alert-dismissible fade show">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-5">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi-info-circle"></i> 设备信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted">设备名称</td><td><strong>{{ device.device_name }}</strong></td></tr>
+                    <tr><td class="text-muted">IP</td><td><code>{{ device.ip_address }}:{{ device.port }}</code></td></tr>
+                    <tr><td class="text-muted">用户名</td><td>{{ device.username or '-' }}</td></tr>
+                    <tr><td class="text-muted">密码</td><td><span class="password-mask" onclick="togglePwd(this)" data-pwd="{{ password }}" style="cursor:pointer;font-family:monospace;">••••••••</span></td></tr>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><i class="bi-gear"></i> 采集设置</div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label class="form-label">协议</label>
+                        <select name="protocol" class="form-select">
+                            <option value="SSH">SSH</option>
+                            <option value="Telnet">Telnet</option>
+                            <option value="SNMPv2c">SNMPv2c</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">执行命令（每行一条）</label>
+                        <textarea name="commands" class="form-control" rows="6" style="font-family:monospace;">display current-config
+display version
+display interface brief</textarea>
+                        <small class="text-muted">华为/华三用 display，思科用 show</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="bi-play-fill"></i> 开始采集</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header"><i class="bi-clock-history"></i> 最近采集任务</div>
+            <div class="card-body">
+                {% set tasks = device.collect_tasks|list|sort(attribute='id', reverse=True)|batch(10)|first %}
+                {% if tasks %}
+                <table class="table table-sm">
+                    <thead><tr><th>时间</th><th>协议</th><th>状态</th><th>结果</th></tr></thead>
+                    <tbody>
+                    {% for t in tasks %}
+                    <tr><td>{{ t.started_at.strftime('%Y-%m-%d %H:%M') if t.started_at else '-' }}</td>
+                    <td><span class="badge bg-secondary">{{ t.protocol }}</span></td>
+                    <td><span class="badge bg-{{ 'success' if t.status=='success' else 'danger' if t.status=='failed' else 'warning' }}">{{ t.status }}</span></td>
+                    <td><small>{{ t.error_message or 'OK' }}</small></td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}<p class="text-muted">暂无采集记录</p>{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function togglePwd(el){const isMasked=el.textContent==='••••••••';el.textContent=isMasked?el.dataset.pwd:'••••••••';}
+</script>
+{% endblock %}

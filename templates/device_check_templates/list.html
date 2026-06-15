@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block head_extra %}
+<style>
+.cat-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 2px solid var(--border-soft); padding-bottom: 8px; }
+.cat-tab { padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 600; border: 1px solid var(--border-soft); background: var(--surface); color: var(--gray-600); transition: all .2s; white-space: nowrap; }
+.cat-tab:hover { border-color: var(--primary); color: var(--primary); }
+.cat-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.cat-tab .count { margin-left: 4px; opacity: .7; font-size: 11px; }
+.cat-panel { display: none; }
+.cat-panel.active { display: block; }
+.dt-card { transition: transform .15s; }
+.dt-card:hover { transform: translateY(-2px); }
+</style>
+{% endblock %}
+{% block content %}{% call ui.page_header('设备检查模板', 'gear') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增</button>
+{% endcall %}
+<div class="alert alert-info py-2 mb-3 small">
+    <i class="bi-info-circle me-1"></i> 设备检查模板定义某类设备的检查项。每个模板包含一组检查项（检查内容、检查方法、合格标准）。<a href="/task-templates" class="alert-link">任务模板</a> 可组合多个设备模板。
+</div>
+
+{% if grouped %}
+<div class="cat-tabs" id="catTabs">
+    <span class="cat-tab active" data-cat="all">全部 <span class="count">{{ templates|length }}</span></span>
+    {% for cat, items in grouped.items() %}
+    <span class="cat-tab" data-cat="{{ cat }}">{{ cat }} <span class="count">{{ items|length }}</span></span>
+    {% endfor %}
+</div>
+
+{% for cat, items in grouped.items() %}
+<div class="cat-panel" id="panel-{{ cat }}">
+    <h6 class="text-muted mb-2"><i class="bi-tag me-1"></i>{{ cat }} · {{ items|length }} 个模板</h6>
+    <div class="row">
+    {% for t in items %}
+    <div class="col-md-6 col-lg-4 mb-3">
+    <div class="card dt-card h-100">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>{{ t.name }}</strong>
+            <div>
+                <button class="btn btn-sm btn-outline-primary edit-dt-btn"
+                        data-id="{{ t.id }}"
+                        data-name="{{ t.name }}"
+                        data-cat="{{ t.device_category }}"
+                        data-sub="{{ t.device_sub_type or '' }}"
+                        data-items="{{ t.items_json or '[]' }}"
+                        data-remark="{{ t.remark or '' }}"><i class="bi-pencil"></i></button>
+                {{ ui.table_actions(delete_url='/device-check-templates/delete/' ~ t.id, delete_confirm='确定删除？') }}
+            </div>
+        </div>
+        <div class="card-body py-2">
+            {% if t.device_sub_type %}<span class="badge bg-secondary me-1">{{ t.device_sub_type }}</span>{% endif %}
+            <span class="text-muted small">{{ (t.items_json|from_json|list)|length if t.items_json else 0 }} 个检查项</span>
+            {% if t.remark %}<p class="text-muted small mt-1 mb-0">{{ t.remark[:60] }}</p>{% endif %}
+        </div>
+    </div>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+{% endfor %}
+
+<div class="cat-panel active" id="panel-all">
+    <div class="row">
+    {% for t in templates %}
+    <div class="col-md-6 col-lg-4 mb-3">
+    <div class="card dt-card h-100">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>{{ t.name }}</strong>
+            <div>
+                <button class="btn btn-sm btn-outline-primary edit-dt-btn"
+                        data-id="{{ t.id }}"
+                        data-name="{{ t.name }}"
+                        data-cat="{{ t.device_category }}"
+                        data-sub="{{ t.device_sub_type or '' }}"
+                        data-items="{{ t.items_json or '[]' }}"
+                        data-remark="{{ t.remark or '' }}"><i class="bi-pencil"></i></button>
+                {{ ui.table_actions(delete_url='/device-check-templates/delete/' ~ t.id, delete_confirm='确定删除？') }}
+            </div>
+        </div>
+        <div class="card-body py-2">
+            <span class="badge bg-info me-1">{{ t.device_category }}</span>
+            {% if t.device_sub_type %}<span class="badge bg-secondary me-1">{{ t.device_sub_type }}</span>{% endif %}
+            <span class="text-muted small">{{ (t.items_json|from_json|list)|length if t.items_json else 0 }} 个检查项</span>
+            {% if t.remark %}<p class="text-muted small mt-1 mb-0">{{ t.remark[:60] }}</p>{% endif %}
+        </div>
+    </div>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+{% else %}{{ eui.empty_state('bi-gear', '暂无设备检查模板', '点击右上角添加') }}{% endif %}
+
+<!-- Modal -->
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">新增设备检查模板</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="/device-check-templates/add" id="dtForm" onsubmit="return collectDtItems()">
+<div class="modal-body">
+<div class="row">
+<div class="col-md-5 mb-3"><label class="form-label">模板名称 <span class="text-danger">*</span></label><input type="text" name="name" id="dtName" class="form-control" required placeholder="如：网络设备巡检记录表-1"></div>
+<div class="col-md-3 mb-3"><label class="form-label">设备大类 <span class="text-danger">*</span></label><select name="device_category" id="dtCat" class="form-select">{% for cat in ['服务器','网络设备','安全设备','环控设备','会议设备','空调','UPS','存储设备','其他'] %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</select></div>
+<div class="col-md-4 mb-3"><label class="form-label">设备细类</label><input type="text" name="device_sub_type" id="dtSub" class="form-control" placeholder="如：下一代防火墙 / 核心交换机"></div>
+</div>
+<input type="hidden" name="items_json" id="dtItems" value="[]">
+<div class="card mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <span><i class="bi-list-check"></i> 检查项列表 <small class="text-muted">— 每项可设置启用/必填/可跳过+跳过原因/字段类型/标准说明等</small></span>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addDtItemRow()"><i class="bi-plus-lg"></i> 添加检查项</button>
+    </div>
+    <div class="card-body p-2" id="dtItemsContainer" style="max-height:520px;overflow-y:auto;">
+        <!-- 动态行 -->
+    </div>
+</div>
+<div class="mb-3"><label class="form-label">备注</label><input type="text" name="remark" id="dtRemark" class="form-control"></div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+// V6.1.4 富字段动态行 UI — 对齐 inspection_templates，支持启用/必填/可跳过+原因/字段类型/标准说明等
+const DT_FIELD_TYPES = [
+    {value:'status_note',     label:'正常/不正常 + 备注'},
+    {value:'percentage',      label:'正常/不正常 + 百分比'},
+    {value:'ping_test',       label:'Ping包测试'},
+    {value:'status_abnormal', label:'正常/异常 + 备注'},
+    {value:'text',            label:'单行文本'},
+    {value:'multiline_text',  label:'多行文本'},
+    {value:'number',          label:'数字'},
+    {value:'dropdown',        label:'下拉选择'},
+    {value:'image',           label:'图片上传'},
+    {value:'date',            label:'日期'},
+    {value:'version_check',   label:'版本检查（与版本库对比）'},
+];
+
+let dtItemCount = 0;
+
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function addDtItemRow(data) {
+    data = data || {};
+    var idx = dtItemCount++;
+    var container = document.getElementById('dtItemsContainer');
+    var div = document.createElement('div');
+    div.className = 'border rounded p-2 mb-2 dt-item-row';
+    div.id = 'dtItem_' + idx;
+    div.dataset.idx = idx;
+
+    var ft = data.field_type || 'status_note';
+    var ftOpts = DT_FIELD_TYPES.map(function(t){
+        return '<option value="'+t.value+'"'+(ft===t.value?' selected':'')+'>'+t.label+'</option>';
+    }).join('');
+
+    // enabled 默认 true（旧数据无此字段视为启用）
+    var enabledChecked = (data.enabled === false) ? '' : ' checked';
+    var requiredChecked = data.required ? ' checked' : '';
+    var allowSkipChecked = data.allow_skip ? ' checked' : '';
+
+    div.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="badge bg-primary">检查项 #${idx+1}</span>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDtItemRow(${idx})"><i class="bi-x-lg"></i> 删除</button>
+        </div>
+        <div class="row g-1">
+            <div class="col-md-4">
+                <input type="text" class="form-control form-control-sm dt-item-name" placeholder="巡检内容 *（如：检查电源情况）" value="${escAttr(data.name)}">
+            </div>
+            <div class="col-md-3">
+                <select class="form-select form-select-sm dt-item-field-type" onchange="onDtFieldTypeChange(${idx})">${ftOpts}</select>
+            </div>
+            <div class="col-md-5 d-flex align-items-center gap-2 flex-wrap">
+                <div class="form-check form-check-inline mb-0">
+                    <input type="checkbox" class="form-check-input dt-item-enabled" ${enabledChecked}>
+                    <label class="form-check-label small">启用</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                    <input type="checkbox" class="form-check-input dt-item-required" ${requiredChecked} onchange="onDtRequiredChange(${idx})">
+                    <label class="form-check-label small">必填</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                    <input type="checkbox" class="form-check-input dt-item-allow-skip" ${allowSkipChecked} onchange="onDtRequiredChange(${idx})">
+                    <label class="form-check-label small">可跳过</label>
+                </div>
+                <input type="text" class="form-control form-control-sm dt-item-default" placeholder="默认值" value="${escAttr(data.default_result)}" style="max-width:120px;">
+            </div>
+        </div>
+        <div class="row g-1 mt-1">
+            <div class="col-12">
+                <textarea class="form-control form-control-sm dt-item-description" rows="2" placeholder="检查项目说明（如：检查周边和设备内外是否有变形、变色、异味等现象；环境温度、湿度情况）">${escAttr(data.description||data.method)}</textarea>
+            </div>
+        </div>
+        <div class="row g-1 mt-1">
+            <div class="col-md-6">
+                <input type="text" class="form-control form-control-sm dt-item-standard-desc" placeholder="标准说明（如：系统版本不低于V7.0.2，规则库为最新版本）" value="${escAttr(data.standard_desc||data.pass)}">
+            </div>
+            <div class="col-md-6">
+                <input type="text" class="form-control form-control-sm dt-item-help-text" placeholder="帮助提示（如：登录设备执行 display version 查看）" value="${escAttr(data.help_text)}">
+            </div>
+        </div>
+        <div class="row g-1 mt-1 dt-item-extra-dropdown" id="dtItemExtraDropdown_${idx}" style="display:none;">
+            <div class="col-md-12">
+                <input type="text" class="form-control form-control-sm dt-item-options" placeholder="下拉选项（逗号分隔，如：正常,异常,警告）" value="${escAttr(data.options)}">
+            </div>
+        </div>
+        <div class="row g-1 mt-1 dt-item-extra-skip" id="dtItemExtraSkip_${idx}" style="display:none;">
+            <div class="col-md-12">
+                <input type="text" class="form-control form-control-sm dt-item-skip-reasons" placeholder="跳过原因（逗号分隔，如：授权过期无法升级,设备EOL不再支持,客户拒绝升级,其他）" value="${escAttr(data.skip_reasons)}">
+            </div>
+        </div>
+        <div class="row g-1 mt-1 dt-item-extra-ping" id="dtItemExtraPing_${idx}" style="display:none;">
+            <div class="col-md-6">
+                <input type="text" class="form-control form-control-sm dt-item-ping-target" placeholder="默认 Ping 地址（如：10.36.5.60）" value="${escAttr(data.ping_target_default)}">
+            </div>
+        </div>
+        <div class="row g-1 mt-1 dt-item-extra-version" id="dtItemExtraVersion_${idx}" style="display:none;">
+            <div class="col-md-6">
+                <input type="text" class="form-control form-control-sm dt-item-min-version" placeholder="最低系统版本（如：V7.0.2）" value="${escAttr(data.min_version)}">
+            </div>
+            <div class="col-md-6">
+                <input type="text" class="form-control form-control-sm dt-item-min-rule-version" placeholder="最低规则库版本（如：IPS-20260101）" value="${escAttr(data.min_rule_version)}">
+            </div>
+        </div>
+    `;
+    container.appendChild(div);
+    onDtFieldTypeChange(idx);
+    onDtRequiredChange(idx);
+}
+
+function onDtFieldTypeChange(idx) {
+    var row = document.getElementById('dtItem_' + idx);
+    if (!row) return;
+    var ft = row.querySelector('.dt-item-field-type').value;
+    document.getElementById('dtItemExtraDropdown_'+idx).style.display = (ft === 'dropdown') ? '' : 'none';
+    document.getElementById('dtItemExtraPing_'+idx).style.display    = (ft === 'ping_test') ? '' : 'none';
+    document.getElementById('dtItemExtraVersion_'+idx).style.display = (ft === 'version_check') ? '' : 'none';
+}
+
+function onDtRequiredChange(idx) {
+    var row = document.getElementById('dtItem_' + idx);
+    if (!row) return;
+    var required = row.querySelector('.dt-item-required').checked;
+    var allowSkip = row.querySelector('.dt-item-allow-skip').checked;
+    // 仅当 必填 + 可跳过 时才显示跳过原因输入
+    document.getElementById('dtItemExtraSkip_'+idx).style.display = (required && allowSkip) ? '' : 'none';
+}
+
+function removeDtItemRow(idx) {
+    var el = document.getElementById('dtItem_' + idx);
+    if (el) el.remove();
+}
+
+function resetDtItems(items) {
+    document.getElementById('dtItemsContainer').innerHTML = '';
+    dtItemCount = 0;
+    var arr = (items && items.length) ? items : [{}];
+    arr.forEach(function(it){ addDtItemRow(it); });
+}
+
+function collectDtItems() {
+    var rows = document.querySelectorAll('#dtItemsContainer .dt-item-row');
+    var items = [];
+    var order = 0;
+    rows.forEach(function(row){
+        var name = (row.querySelector('.dt-item-name')||{}).value || '';
+        name = name.trim();
+        if (!name) return;
+        items.push({
+            name: name,
+            field_type: row.querySelector('.dt-item-field-type').value,
+            description: (row.querySelector('.dt-item-description')||{}).value || '',
+            standard_desc: (row.querySelector('.dt-item-standard-desc')||{}).value || '',
+            help_text: (row.querySelector('.dt-item-help-text')||{}).value || '',
+            default_result: (row.querySelector('.dt-item-default')||{}).value || '',
+            enabled: row.querySelector('.dt-item-enabled').checked,
+            required: row.querySelector('.dt-item-required').checked,
+            allow_skip: row.querySelector('.dt-item-allow-skip').checked,
+            options: (row.querySelector('.dt-item-options')||{}).value || '',
+            skip_reasons: (row.querySelector('.dt-item-skip-reasons')||{}).value || '',
+            ping_target_default: (row.querySelector('.dt-item-ping-target')||{}).value || '',
+            min_version: (row.querySelector('.dt-item-min-version')||{}).value || '',
+            min_rule_version: (row.querySelector('.dt-item-min-rule-version')||{}).value || '',
+            sort_order: order++,
+        });
+    });
+    if (items.length === 0) {
+        alert('请至少添加一个检查项');
+        return false;
+    }
+    document.getElementById('dtItems').value = JSON.stringify(items);
+    return true;
+}
+
+// 兼容旧数据：{name, method, pass} → 新富字段
+function migrateLegacyItem(it) {
+    if (!it || typeof it !== 'object') return null;
+    // 已是新格式（带 field_type 或 enabled）
+    if (it.field_type || ('enabled' in it) || ('required' in it)) return it;
+    // 旧格式 {name, method, pass} → 转换
+    var desc = it.method || '';
+    return {
+        name: it.name || '',
+        field_type: 'status_note',
+        description: desc,
+        standard_desc: it.pass || '',
+        help_text: '',
+        default_result: '',
+        enabled: true,
+        required: false,
+        allow_skip: false,
+        options: '',
+        skip_reasons: '',
+    };
+}
+
+function openEditDT(data) {
+    document.getElementById('dtName').value = data.name || '';
+    document.getElementById('dtCat').value = data.cat || '';
+    document.getElementById('dtSub').value = data.sub || '';
+    var parsed = [];
+    try {
+        parsed = JSON.parse(data.items || '[]') || [];
+        if (!Array.isArray(parsed)) parsed = [];
+    } catch(e) { parsed = []; }
+    var migrated = parsed.map(migrateLegacyItem).filter(Boolean);
+    resetDtItems(migrated);
+    document.getElementById('dtRemark').value = data.remark || '';
+    document.getElementById('dtForm').action = '/device-check-templates/edit/' + data.id;
+    var _t = document.getElementById('addModal').querySelector('.modal-title');
+    if (_t) _t.textContent = '编辑设备检查模板';
+    new bootstrap.Modal(document.getElementById('addModal')).show();
+}
+
+document.querySelectorAll('.edit-dt-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+        openEditDT({
+            id: this.dataset.id,
+            name: this.dataset.name,
+            cat: this.dataset.cat,
+            sub: this.dataset.sub,
+            items: this.dataset.items,
+            remark: this.dataset.remark,
+        });
+    });
+});
+
+document.getElementById('addModal').addEventListener('hidden.bs.modal',function(){
+    document.getElementById('dtForm').action='/device-check-templates/add';
+    var _t=this.querySelector('.modal-title'); if(_t) _t.textContent='新增设备检查模板';
+    document.getElementById('dtName').value='';
+    document.getElementById('dtSub').value='';
+    document.getElementById('dtRemark').value='';
+    resetDtItems([]);
+});
+// 通过"新增"按钮(data-bs-toggle)打开时主动重置，避免上次编辑的数据残留
+document.getElementById('addModal').addEventListener('show.bs.modal',function(e){
+    if(e.relatedTarget && e.relatedTarget.getAttribute('data-bs-target')==='#addModal'){
+        document.getElementById('dtForm').action='/device-check-templates/add';
+        var _t=this.querySelector('.modal-title'); if(_t) _t.textContent='新增设备检查模板';
+        document.getElementById('dtName').value='';
+        document.getElementById('dtCat').value='网络设备';
+        document.getElementById('dtSub').value='';
+        document.getElementById('dtRemark').value='';
+        resetDtItems([]);
+    }
+});
+// Category tabs
+document.querySelectorAll('.cat-tab').forEach(function(tab){
+    tab.addEventListener('click', function(){
+        document.querySelectorAll('.cat-tab').forEach(function(t){t.classList.remove('active');});
+        document.querySelectorAll('.cat-panel').forEach(function(p){p.classList.remove('active');});
+        tab.classList.add('active');
+        var cat = tab.getAttribute('data-cat');
+        document.getElementById('panel-'+cat).classList.add('active');
+    });
+});
+</script>
+{% endblock %}

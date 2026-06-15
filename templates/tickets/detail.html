@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        {% set colors = {'待派单':'secondary','待接单':'info','处理中':'primary','待审核':'warning','待验收':'warning','已完成':'success','已关闭':'dark'} %}
+        <span class="badge bg-{{ colors[ticket.status]|default('secondary') }} fs-6 me-2">{{ ticket.status }}</span>
+        {% if ticket.status in ('已完成', '已关闭', '已验收') and ticket.solution %}
+        <a href="{{ url_for('ops.knowledge_base_add', ticket_id=ticket.id) }}" class="btn btn-outline-info btn-sm me-2" title="将此工单的解决方案保存为知识库条目">
+            <i class="bi-book"></i> 保存为知识库
+        </a>
+        <form method="post" action="{{ url_for('ops.ticket_archive_as_case', id=ticket.id) }}" class="d-inline" onsubmit="return confirm('将此工单归档为故障案例？\n将自动从工单内容生成知识库条目。')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-success btn-sm me-2" title="一键归档为故障处置案例">
+                <i class="bi-archive"></i> 归档为故障案例
+            </button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('ops.ticket_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-3">
+            <div class="card-header">工单信息</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr><td class="text-muted" width="120">编号</td><td><code>{{ ticket.number }}</code></td></tr>
+                    <tr><td class="text-muted">来源</td><td><span class="badge bg-secondary">{{ ticket.source_type }}</span></td></tr>
+                    <tr><td class="text-muted">优先级</td><td><span class="badge bg-{{ 'danger' if ticket.priority=='紧急' else 'warning' if ticket.priority=='高' else 'info' }}">{{ ticket.priority }}</span></td></tr>
+                    <tr><td class="text-muted">客户</td><td>{% if customer %}<a href="{{ url_for('customer.customer_detail', id=customer.id) }}">{{ customer.name }}</a>{% else %}-{% endif %}</td></tr>
+                    <tr><td class="text-muted">关联设备</td><td>{% if device %}<a href="{{ url_for('asset.device_detail', id=device.id) }}">{{ device.device_name }}</a>{% else %}-{% endif %}</td></tr>
+                    <tr><td class="text-muted">报修人</td><td>{{ ticket.reporter or '-' }} / {{ ticket.reporter_phone or '-' }}</td></tr>
+                    <tr><td class="text-muted">指派</td><td>{% if ticket.assigned_to %}{{ ticket.assigned_to }}<small class="text-muted"> 由 {{ ticket.assigned_by }} 于 {{ ticket.assigned_at.strftime('%m-%d %H:%M') if ticket.assigned_at else '' }} 派单</small>{% else %}-{% endif %}</td></tr>
+                    <tr><td class="text-muted">问题描述</td><td><pre style="white-space:pre-wrap;font-family:inherit;margin:0;">{{ ticket.description or '-' }}</pre></td></tr>
+                    {% if ticket.diagnosis %}<tr><td class="text-muted">诊断分析</td><td><pre style="white-space:pre-wrap;font-family:inherit;margin:0;">{{ ticket.diagnosis }}</pre></td></tr>{% endif %}
+                    {% if ticket.solution %}<tr><td class="text-muted">解决方案</td><td><pre style="white-space:pre-wrap;font-family:inherit;margin:0;">{{ ticket.solution }}</pre></td></tr>{% endif %}
+                    {% if ticket.service_duration %}<tr><td class="text-muted">服务时长</td><td>{{ ticket.service_duration }} 分钟</td></tr>{% endif %}
+                </table>
+            </div>
+        </div>
+
+        <!-- 操作按钮组 -->
+        <div class="card mb-3">
+            <div class="card-header">操作</div>
+            <div class="card-body">
+                {% if ticket.status == '待派单' %}
+                <form method="post" action="{{ url_for('ops.ticket_assign', id=ticket.id) }}" class="row g-2 align-items-end">
+                    <div class="col-auto"><label class="form-label">指派给:</label></div>
+                    <div class="col-md-4">
+                        <input type="text" name="assignee" class="form-control" required
+                               placeholder="输入处理人姓名" list="assigneeHints" autocomplete="off">
+                        <datalist id="assigneeHints">
+                            {% for n in suggested_assignees or [] %}<option value="{{ n }}">{% endfor %}
+                        </datalist>
+                    </div>
+                    <div class="col-auto"><button type="submit" class="btn btn-primary btn-sm">派单</button></div>
+                </form>
+                {% elif ticket.status == '待接单' %}
+                <form method="post" action="{{ url_for('ops.ticket_accept', id=ticket.id) }}">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-hand-thumbs-up"></i> 接单</button>
+                </form>
+                {% elif ticket.status == '处理中' %}
+                <form method="post" action="{{ url_for('ops.ticket_submit', id=ticket.id) }}">
+                    <div class="row">
+                        <div class="col-md-6 mb-2"><label class="form-label">诊断分析</label><textarea name="diagnosis" class="form-control" rows="2" required></textarea></div>
+                        <div class="col-md-6 mb-2"><label class="form-label">解决方案</label><textarea name="solution" class="form-control" rows="2" required></textarea></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi-check-lg"></i> 提交审核</button>
+                </form>
+                {% elif ticket.status == '待审核' %}
+                <form method="post" action="{{ url_for('ops.ticket_audit', id=ticket.id) }}" class="row g-2 align-items-end">
+                    <div class="col-md-6"><label class="form-label">审核意见</label><input type="text" name="comment" class="form-control"></div>
+                    <div class="col-auto"><button type="submit" name="action" value="通过" class="btn btn-success btn-sm">通过</button></div>
+                    <div class="col-auto"><button type="submit" name="action" value="拒绝" class="btn btn-danger btn-sm">拒绝</button></div>
+                </form>
+                {% elif ticket.status == '待验收' %}
+                <form method="post" action="{{ url_for('ops.ticket_accept_check', id=ticket.id) }}" class="row g-2 align-items-end">
+                    <div class="col-md-6"><label class="form-label">验收意见</label><input type="text" name="comment" class="form-control"></div>
+                    <div class="col-auto"><button type="submit" name="action" value="通过" class="btn btn-success btn-sm">通过</button></div>
+                    <div class="col-auto"><button type="submit" name="action" value="退回" class="btn btn-danger btn-sm">退回</button></div>
+                </form>
+                {% else %}
+                <span class="text-muted">工单已完结</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header"><i class="bi-clock-history"></i> 操作日志</div>
+            <div class="card-body">
+                <div class="timeline">
+                {% for l in logs %}
+                <div class="mb-3 pb-2 border-bottom">
+                    <strong class="text-primary">{{ l.action }}</strong>
+                    <small class="text-muted"> · {{ l.operator }} · {{ l.created_at.strftime('%m-%d %H:%M') if l.created_at else '' }}</small>
+                    {% if l.comment %}<div class="small text-muted mt-1">{{ l.comment }}</div>{% endif %}
+                </div>
+                {% else %}
+                <p class="text-muted">暂无日志</p>
+                {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

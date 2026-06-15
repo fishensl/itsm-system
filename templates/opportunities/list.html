@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('商机跟进', 'lightbulb') %}    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增商机</button>
+{% endcall %}
+<div class="content-card">
+    {% if opps %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead><tr><th>ID</th><th>标题</th><th>客户</th><th>阶段</th><th>金额</th><th>负责人</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for o in opps %}
+                <tr>
+                    <td>{{ o.id }}</td>
+                    <td><strong>{{ o.title }}</strong></td>
+                    <td>{{ o.customer_rel.name if o.customer_rel else '-' }}</td>
+                    <td><span class="badge bg-{{ 'success' if o.stage=='成交' else 'warning' if o.stage=='商务谈判' else 'info' if o.stage=='方案报价' else 'secondary' }}">{{ o.stage }}</span></td>
+                    <td>{{ o.expected_amount }}</td>
+                    <td>{{ o.owner }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editO({{ o.id }},'{{ o.title }}',{{ o.customer_id or 'null' }},'{{ o.stage }}',{{ o.expected_amount }},'{{ o.owner or '' }}','{{ o.remark or '' }}')"><i class="bi-pencil"></i></button>
+                        {{ ui.table_actions(delete_url=url_for('sales.opportunity_delete', id=o.id), delete_confirm='确定删除？') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ eui.empty_state('bi-lightbulb', '暂无商机') }}
+    {% endif %}
+</div>
+</div>
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>新增商机</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" action="{{ url_for('sales.opportunity_add') }}"><div class="modal-body"><div class="mb-3"><label class="form-label">标题 <span class="text-danger">*</span></label><input type="text" name="title" class="form-control" required></div><div class="mb-3"><label class="form-label">客户</label><select name="customer_id" class="form-select">{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">阶段</label><select name="stage" class="form-select">{% for s in ['初步接触','需求确认','方案报价','商务谈判','成交','失败'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">预计金额</label><input type="number" name="expected_amount" class="form-control" step="0.01" value="0"></div><div class="mb-3"><label class="form-label">负责人</label><input type="text" name="owner" class="form-control"></div><div class="mb-3"><label class="form-label">备注</label><textarea name="remark" class="form-control" rows="2"></textarea></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>编辑商机</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><form method="post" id="editForm"><div class="modal-body"><div class="mb-3"><label class="form-label">标题</label><input type="text" name="title" id="edit_title" class="form-control" required></div><div class="mb-3"><label class="form-label">阶段</label><select name="stage" id="edit_stage" class="form-select">{% for s in ['初步接触','需求确认','方案报价','商务谈判','成交','失败'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">预计金额</label><input type="number" name="expected_amount" id="edit_amount" class="form-control" step="0.01"></div><div class="mb-3"><label class="form-label">负责人</label><input type="text" name="owner" id="edit_owner" class="form-control"></div><div class="mb-3"><label class="form-label">备注</label><textarea name="remark" id="edit_remark" class="form-control" rows="2"></textarea></div></div><div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button></div></form></div></div></div>
+{% endblock %}{% block scripts %}<script>function editO(id,title,cid,stage,amount,owner,remark){document.getElementById('edit_title').value=title;document.getElementById('edit_stage').value=stage;document.getElementById('edit_amount').value=amount;document.getElementById('edit_owner').value=owner||'';document.getElementById('edit_remark').value=remark||'';document.getElementById('editForm').action='/opportunities/edit/'+id;new bootstrap.Modal(document.getElementById('editModal')).show();}</script>{% endblock %}

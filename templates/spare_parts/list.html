@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('备件档案', 'archive') %}    <a href="/exports/download-template/spare" class="btn btn-outline-secondary btn-sm me-2"><i class="bi-download"></i> 下载模板</a>
+    <a href="{{ url_for('spare.spare_export') }}" class="btn btn-outline-success btn-sm me-2"><i class="bi-file-earmark-excel"></i> 导出Excel</a>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi-plus-lg"></i> 新增备件</button>
+{% endcall %}
+<div class="content-card">
+{% if parts %}
+<div class="table-responsive"><table class="table table-hover align-middle">
+<thead><tr>
+    <th style="width:50px">图片</th>
+    <th>编码</th><th>名称</th><th>品牌</th><th>型号</th>
+    <th>分类</th><th>规格</th><th>单位</th><th>参考价</th><th>最低库存</th>
+    <th style="width:140px">操作</th>
+</tr></thead>
+<tbody>
+{% for p in parts %}
+<tr>
+    <td>
+        {% if p.image_path %}
+        <img src="/static/{{ p.image_path }}" class="rounded" style="width:40px;height:40px;object-fit:cover;" alt="">
+        {% else %}
+        <i class="bi-box-seam text-muted" style="font-size:24px;"></i>
+        {% endif %}
+    </td>
+    <td><code>{{ p.code or '-' }}</code></td>
+    <td><a href="{{ url_for('spare.spare_part_detail', id=p.id) }}"><strong>{{ p.name }}</strong></a></td>
+    <td>{{ p.brand or '-' }}</td>
+    <td>{{ p.model or '-' }}</td>
+    <td>{{ p.category or '-' }}</td>
+    <td>{{ p.specification or '-' }}</td>
+    <td>{{ p.unit or '-' }}</td>
+    <td>{% if p.reference_price %}{{ '%.2f'|format(p.reference_price) }}{% else %}-{% endif %}</td>
+    <td>{{ p.min_stock }}</td>
+    <td>
+        {{ ui.table_actions(
+            view_url=url_for('spare.spare_part_detail', id=p.id),
+            delete_url=url_for('spare.spare_part_delete', id=p.id),
+            delete_confirm='确定删除？') }}
+        <button class="btn btn-sm btn-outline-primary" onclick='editPart({{ p.id }}, {{ p_dicts[loop.index0]|tojson }})' title="编辑"><i class="bi-pencil"></i></button>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}{{ eui.empty_state('bi-archive', '暂无备件') }}{% endif %}
+</div>
+
+{# ============== 新增备件 Modal ============== #}
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">新增备件</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="{{ url_for('spare.spare_part_add') }}" enctype="multipart/form-data">
+<div class="modal-body">
+<div class="row">
+    <div class="col-md-4 mb-3"><label class="form-label">编码</label><input type="text" name="code" class="form-control"></div>
+    <div class="col-md-5 mb-3"><label class="form-label">名称 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required></div>
+    <div class="col-md-3 mb-3"><label class="form-label">单位</label><input type="text" name="unit" class="form-control" value="个"></div>
+
+    <div class="col-md-4 mb-3"><label class="form-label">品牌</label><input type="text" name="brand" class="form-control" placeholder="如：华为/H3C/Cisco"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">型号</label><input type="text" name="model" class="form-control" placeholder="如：S5720-28X-LI"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">厂家</label><input type="text" name="manufacturer" class="form-control" placeholder="生产/供货厂家"></div>
+
+    <div class="col-md-4 mb-3"><label class="form-label">分类</label><input type="text" name="category" class="form-control" placeholder="如：网络/服务器/存储"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">规格</label><input type="text" name="specification" class="form-control" placeholder="简要规格"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">最低库存</label><input type="number" name="min_stock" class="form-control" value="0"></div>
+
+    <div class="col-md-12 mb-3"><label class="form-label">详细参数</label><textarea name="parameters" class="form-control" rows="2" placeholder="如：端口数、速率、功率、尺寸重量等"></textarea></div>
+
+    <div class="col-md-3 mb-3"><label class="form-label">参考价 (元)</label><input type="number" name="reference_price" class="form-control" step="0.01" value="0"></div>
+    <div class="col-md-3 mb-3"><label class="form-label">保修期 (月)</label><input type="number" name="warranty_months" class="form-control" value="0"></div>
+    <div class="col-md-3 mb-3"><label class="form-label">序列号</label><input type="text" name="serial_number" class="form-control"></div>
+    <div class="col-md-3 mb-3"><label class="form-label">备件图片</label><input type="file" name="image" class="form-control" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp"></div>
+
+    <div class="col-md-12 mb-3"><label class="form-label">备注</label><textarea name="remark" class="form-control" rows="2"></textarea></div>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+
+{# ============== 编辑备件 Modal ============== #}
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">编辑备件</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" id="editForm" enctype="multipart/form-data">
+<div class="modal-body">
+<div class="row">
+    <div class="col-md-4 mb-3"><label class="form-label">编码</label><input type="text" name="code" id="e_code" class="form-control"></div>
+    <div class="col-md-5 mb-3"><label class="form-label">名称 <span class="text-danger">*</span></label><input type="text" name="name" id="e_name" class="form-control" required></div>
+    <div class="col-md-3 mb-3"><label class="form-label">单位</label><input type="text" name="unit" id="e_unit" class="form-control"></div>
+
+    <div class="col-md-4 mb-3"><label class="form-label">品牌</label><input type="text" name="brand" id="e_brand" class="form-control"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">型号</label><input type="text" name="model" id="e_model" class="form-control"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">厂家</label><input type="text" name="manufacturer" id="e_manufacturer" class="form-control"></div>
+
+    <div class="col-md-4 mb-3"><label class="form-label">分类</label><input type="text" name="category" id="e_category" class="form-control"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">规格</label><input type="text" name="specification" id="e_specification" class="form-control"></div>
+    <div class="col-md-4 mb-3"><label class="form-label">最低库存</label><input type="number" name="min_stock" id="e_min_stock" class="form-control"></div>
+
+    <div class="col-md-12 mb-3"><label class="form-label">详细参数</label><textarea name="parameters" id="e_parameters" class="form-control" rows="2"></textarea></div>
+
+    <div class="col-md-3 mb-3"><label class="form-label">参考价 (元)</label><input type="number" name="reference_price" id="e_reference_price" class="form-control" step="0.01"></div>
+    <div class="col-md-3 mb-3"><label class="form-label">保修期 (月)</label><input type="number" name="warranty_months" id="e_warranty_months" class="form-control"></div>
+    <div class="col-md-3 mb-3"><label class="form-label">序列号</label><input type="text" name="serial_number" id="e_serial_number" class="form-control"></div>
+    <div class="col-md-3 mb-3">
+        <label class="form-label">更换图片</label>
+        <input type="file" name="image" class="form-control" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp">
+        <small class="text-muted" id="e_current_img"></small>
+    </div>
+
+    <div class="col-md-12 mb-3"><label class="form-label">备注</label><textarea name="remark" id="e_remark" class="form-control" rows="2"></textarea></div>
+</div>
+</div>
+<div class="modal-footer"><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+</form></div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editPart(id, p){
+    document.getElementById('e_code').value = p.code || '';
+    document.getElementById('e_name').value = p.name || '';
+    document.getElementById('e_unit').value = p.unit || '';
+    document.getElementById('e_brand').value = p.brand || '';
+    document.getElementById('e_model').value = p.model || '';
+    document.getElementById('e_manufacturer').value = p.manufacturer || '';
+    document.getElementById('e_category').value = p.category || '';
+    document.getElementById('e_specification').value = p.specification || '';
+    document.getElementById('e_min_stock').value = p.min_stock || 0;
+    document.getElementById('e_parameters').value = p.parameters || '';
+    document.getElementById('e_reference_price').value = p.reference_price || 0;
+    document.getElementById('e_warranty_months').value = p.warranty_months || 0;
+    document.getElementById('e_serial_number').value = p.serial_number || '';
+    document.getElementById('e_remark').value = p.remark || '';
+    document.getElementById('e_current_img').textContent = p.image_path ? '当前: ' + p.image_path : '当前: 无';
+    document.getElementById('editForm').action = '/spare-parts/edit/' + id;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+</script>
+{% endblock %}

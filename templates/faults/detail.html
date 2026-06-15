@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-toolbar">
+    <div class="actions">
+        <a href="{{ url_for('ops.ticket_add') }}" class="btn btn-primary btn-sm"><i class="bi-plus-lg"></i> 转为工单</a>
+        <a href="{{ url_for('ops.fault_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="alert alert-warning py-2 mb-3">
+    <i class="bi-info-circle me-1"></i> <strong>提示：</strong>故障记录为历史归档，仅支持查看。新建故障请使用 <a href="{{ url_for('ops.ticket_add') }}" class="alert-link">工单管理</a>。
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">基本信息</div>
+    <div class="card-body">
+        <table class="table table-sm">
+            <tr><td style="width:120px">标题</td><td><strong>{{ fault.title }}</strong></td></tr>
+            <tr><td>客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
+            <tr><td>处理人</td><td>{{ fault.handler or '-' }}</td></tr>
+            <tr><td>故障时间</td><td>{{ fault.fault_time.strftime('%Y-%m-%d %H:%M') if fault.fault_time else '-' }}</td></tr>
+            <tr><td>恢复时间</td><td>{{ fault.recovery_time.strftime('%Y-%m-%d %H:%M') if fault.recovery_time else '未恢复' }}</td></tr>
+            <tr><td>故障类型</td><td><span class="badge bg-info">{{ fault.fault_type or '-' }}</span></td></tr>
+            <tr><td>影响范围</td><td>{{ fault.impact_range or '-' }}</td></tr>
+            <tr><td>处理结果</td>
+                <td><span class="badge bg-{{ 'success' if fault.result=='已解决' else 'warning' if fault.result=='待观察' else 'danger' }}">{{ fault.result }}</span></td></tr>
+            <tr><td>报告下载</td>
+                <td>{% if fault.report_file %}
+                    <a href="{{ url_for('ops.report_download', filename=fault.report_file.replace('\\', '/').split('/')[-1]) }}" class="btn btn-sm btn-success"><i class="bi-file-earmark-word"></i> 下载报告</a>
+                    {% else %}<span class="text-muted">未生成</span>{% endif %}
+                </td></tr>
+            {% if related_ticket %}
+            <tr><td>关联工单</td>
+                <td>📌 <a href="{{ url_for('ops.ticket_detail', id=related_ticket.id) }}">工单 #{{ related_ticket.number }}: {{ related_ticket.title }}</a>
+                <span class="badge bg-{{ 'success' if related_ticket.status in ('已关闭','已验收') else 'warning' }} ms-2">{{ related_ticket.status }}</span>
+                </td></tr>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header text-danger">故障描述</div>
+    <div class="card-body">
+        <pre style="white-space:pre-wrap;margin:0;font-family:inherit">{{ fault.fault_description or '无' }}</pre>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header text-warning">故障原因分析</div>
+    <div class="card-body">
+        <pre style="white-space:pre-wrap;margin:0;font-family:inherit">{{ fault.fault_cause or '待分析' }}</pre>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header text-success">解决方案</div>
+    <div class="card-body">
+        <pre style="white-space:pre-wrap;margin:0;font-family:inherit">{{ fault.solution or '无' }}</pre>
+    </div>
+</div>
+{% endblock %}
