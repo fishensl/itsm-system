@@ -4,7 +4,7 @@
 {% block content %}
 {% call ui.page_header('角色管理', 'person-badge') %}
     <a href="{{ url_for('permission_list') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi-shield-lock"></i> 权限码总览
+        <i class="bi-shield-lock"></i> 权限总览
     </a>
     {% if has_perm('permission:edit') %}
     <a href="{{ url_for('rbac.role_add') }}" class="btn btn-primary btn-sm">
@@ -15,46 +15,87 @@
 
 <div class="alert alert-info py-2 small mb-3">
     <i class="bi-info-circle me-1"></i>
-    共 {{ roles|length }} 个角色，系统内置 {{ roles|selectattr('is_system')|list|length }} 个。
-    <code>admin</code> 拥有系统全部权限（无需配置），其他角色的权限可点击「配置权限」调整。
+    共 {{ roles|length }} 个角色，<code>admin</code> 拥有系统全部权限（无需配置）。
+    {% if has_perm('permission:edit') %}
+    点击「权限」进入矩阵式勾选页。
+    {% endif %}
 </div>
 
-<div class="row">
-    {% for r in roles %}
-    <div class="col-md-6 col-lg-4 mb-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-2">
-                    <div>
-                        <h5 class="mb-1">{{ r.name }}</h5>
-                        <code class="small text-muted">{{ r.code }}</code>
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>角色</th>
+                    <th>代码</th>
+                    <th>描述</th>
+                    <th>权限</th>
+                    <th>状态</th>
+                    <th class="text-end">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in roles %}
+                <tr>
+                    <td>
+                        <strong>{{ r.name }}</strong>
                         {% if r.is_system %}<span class="badge bg-secondary ms-1">系统内置</span>{% endif %}
-                        {% if not r.is_active %}<span class="badge bg-warning text-dark ms-1">已停用</span>{% endif %}
-                    </div>
-                    <span class="badge bg-info">{{ perm_counts.get(r.id, 0) }} / {{ total_perms }} 项</span>
-                </div>
-                <p class="text-muted small mb-2">{{ r.description or '—' }}</p>
-                <div class="d-flex gap-1 flex-wrap">
-                    <a href="{{ url_for('rbac.role_permissions_edit', rid=r.id) }}" class="btn btn-sm btn-outline-primary">
-                        <i class="bi-grid-3x3-gap"></i> 配置权限
-                    </a>
-                    {% if has_perm('permission:edit') %}
-                    <a href="{{ url_for('rbac.role_edit', rid=r.id) }}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi-pencil"></i> 编辑
-                    </a>
-                    {% if not r.is_system %}
-                    <form method="post" action="{{ url_for('rbac.role_delete', rid=r.id) }}"
-                          class="d-inline" onsubmit="return confirm('确定删除角色「{{ r.name }}」？')">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                    </td>
+                    <td><code>{{ r.code }}</code></td>
+                    <td class="text-muted small">{{ r.description or '—' }}</td>
+                    <td>
+                        <span class="badge bg-info">{{ perm_counts.get(r.id, 0) }} / {{ total_perms }}</span>
+                    </td>
+                    <td>
+                        {% if r.is_active %}
+                        <span class="badge bg-success">启用</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">已停用</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end text-nowrap">
+                        <a href="{{ url_for('rbac.role_permissions_edit', rid=r.id) }}"
+                           class="btn btn-sm btn-outline-primary">
+                            <i class="bi-grid-3x3-gap"></i> 权限
+                        </a>
+                        {% if has_perm('permission:edit') %}
+                        <a href="{{ url_for('rbac.role_edit', rid=r.id) }}"
+                           class="btn btn-sm btn-outline-secondary">
+                            <i class="bi-pencil"></i> 编辑
+                        </a>
+                        {% if not r.is_system %}
+                        <button type="button" class="btn btn-sm btn-outline-danger btn-role-delete"
+                                data-rid="{{ r.id }}" data-name="{{ r.name }}">
                             <i class="bi-trash"></i> 删除
                         </button>
-                    </form>
-                    {% endif %}
-                    {% endif %}
-                </div>
-            </div>
-        </div>
+                        {% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
-    {% endfor %}
 </div>
+
+{% if has_perm('permission:edit') %}
+<script>
+document.querySelectorAll('.btn-role-delete').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var rid = btn.getAttribute('data-rid');
+        var name = btn.getAttribute('data-name') || '';
+        if (!confirm('确定删除角色「' + name + '」？\n（仅当该角色下没有活跃用户时可删）')) return;
+        fetch('/rbac/roles/' + rid + '/delete', {method: 'POST'})
+            .then(function(r) { return r.json().catch(function(){ return {}; }); })
+            .then(function(d) {
+                alert(d.message || '已删除');
+                window.location.reload();
+            })
+            .catch(function() {
+                alert('请求失败');
+            });
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

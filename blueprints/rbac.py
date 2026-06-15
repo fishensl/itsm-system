@@ -11,7 +11,7 @@ URL 前缀：/rbac
   GET  /rbac/roles/<int:rid>/permissions   权限矩阵
   POST /rbac/roles/<int:rid>/permissions   保存勾选
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, jsonify
 from datetime import datetime
 from flask_login import login_required, current_user
 from models import db, Role, RolePermission, Permission, UserPermission, User
@@ -106,19 +106,29 @@ def role_edit(rid):
 def role_delete(rid):
     role = Role.query.get_or_404(rid)
     if role.is_system:
-        flash(f'角色 {role.name} 是系统内置角色，不可删除', 'danger')
+        msg = f'角色 {role.name} 是系统内置角色，不可删除'
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, 'danger')
         return redirect(url_for('rbac.role_list'))
     # 检查是否有用户绑定
     bound_users = User.query.filter_by(role=role.code, is_active=True).count()
     if bound_users > 0:
-        flash(f'角色 {role.name} 还有 {bound_users} 个活跃用户，无法删除。请先将用户改到其他角色。', 'danger')
+        msg = f'角色 {role.name} 还有 {bound_users} 个活跃用户，无法删除。请先将用户改到其他角色。'
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, 'danger')
         return redirect(url_for('rbac.role_list'))
     # 删 role_permissions（级联）
     RolePermission.query.filter_by(role_id=role.id).delete()
+    name = role.name
+    code = role.code
     db.session.delete(role)
     db.session.commit()
-    invalidate_role(role.code)
-    flash(f'角色 {role.name} 已删除', 'success')
+    invalidate_role(code)
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
+        return jsonify({'success': True, 'message': f'角色 {name} 已删除'})
+    flash(f'角色 {name} 已删除', 'success')
     return redirect(url_for('rbac.role_list'))
 
 

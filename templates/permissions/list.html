@@ -1,24 +1,25 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
-{% import "_empty_state.html" as eui %}
-{% block title %}权限管理 · 系统管理{% endblock %}
+{% block title %}权限总览 · 系统管理{% endblock %}
 {% block head_extra %}
 <style>
-.perm-chip {
-    display: inline-block;
-    padding: 3px 8px;
-    margin: 2px 3px;
-    font-size: 11px;
-    border-radius: 4px;
-    border: 1px solid var(--border-soft);
-    line-height: 1.4;
-    white-space: nowrap;
-}
-.perm-chip.on { background: rgba(16,185,129,0.10); color: #059669; border-color: rgba(16,185,129,0.35); }
-.perm-chip.off { background: var(--surface-muted); color: var(--gray-400); }
+.perm-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.perm-matrix th, .perm-matrix td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft, #eef0f3); text-align: center; vertical-align: middle; }
+.perm-matrix thead th { position: sticky; top: 0; background: var(--surface-muted, #f8f9fa); font-weight: 600; z-index: 5; }
+.perm-matrix tbody th { text-align: left; font-weight: 500; background: var(--surface-muted, #f8f9fa); position: sticky; left: 0; z-index: 4; }
+.perm-matrix .perm-name { display: block; font-weight: 500; }
+.perm-matrix .perm-code { display: block; font-family: monospace; font-size: 10px; color: var(--gray-500, #adb5bd); }
+.perm-matrix .cat-row td { background: var(--primary-50, #eef4ff); font-weight: 600; text-align: left; padding: 4px 10px; }
+.perm-matrix .cell-on  { color: #059669; font-size: 18px; line-height: 1; }
+.perm-matrix .cell-off { color: var(--gray-300, #dee2e6); font-size: 14px; }
+.perm-matrix .col-role { min-width: 96px; }
+.perm-matrix .col-perm { min-width: 220px; }
+.perm-matrix .editable { cursor: pointer; transition: background 0.1s; }
+.perm-matrix .editable:hover { background: rgba(13,110,253,0.08); }
 </style>
 {% endblock %}
-{% block content %}{% call ui.page_header('权限管理', 'shield-lock') %}
+{% block content %}
+{% call ui.page_header('权限总览', 'shield-lock') %}
     {% if has_perm('permission:edit') %}
     <a href="{{ url_for('rbac.role_list') }}" class="btn btn-primary btn-sm">
         <i class="bi-person-badge"></i> 角色管理
@@ -28,36 +29,64 @@
         <i class="bi-people-fill"></i> 用户角色分配
     </a>
 {% endcall %}
+
 <div class="alert alert-info py-2 small mb-3">
     <i class="bi-info-circle me-1"></i>
-    本页展示各角色拥有的权限码。权限码定义在 <code>utils/permission.py</code>，
+    行为：行=权限码，列=角色。
     {% if has_perm('permission:edit') %}
-    角色与权限的对应关系可在 <a href="{{ url_for('rbac.role_list') }}">角色管理</a> 中调整。
+    <strong>点击某角色列的单元格</strong>可跳到该角色的权限配置页。
     {% else %}
-    修改角色权限请联系系统管理员。
+    各角色拥有的权限码一览（只读）。
     {% endif %}
 </div>
 
-<div class="row">
-    {% for role_code, role_name in role_list %}
-    <div class="col-md-6 mb-3">
-        <div class="card h-100">
-            <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                <div>
-                    <span class="badge bg-{{ 'danger' if role_code=='admin' else 'info' if role_code=='operator' else 'warning' if role_code=='sales' else 'secondary' }} me-2">{{ role_name }}</span>
-                    <small class="text-muted">{{ role_code }}</small>
-                </div>
-                <span class="text-muted small">{{ role_perms.get(role_code, [])|length }} / {{ perm_map|length }} 项</span>
-            </div>
-            <div class="card-body py-2">
-                {% set perms = role_perms.get(role_code, []) %}
-                {% for pcode, plabel in perm_map.items() %}
-                {% set has = pcode in perms %}
-                <span class="perm-chip {{ 'on' if has else 'off' }}" title="{{ pcode }}">{% if has %}✓{% else %}—{% endif %} {{ plabel }}</span>
-                {% endfor %}
-            </div>
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 72vh;">
+            <table class="perm-matrix">
+                <thead>
+                    <tr>
+                        <th class="col-perm">权限码</th>
+                        {% for role_code, role_name in role_list %}
+                        <th class="col-role">
+                            <span class="badge bg-{{ 'danger' if role_code=='admin' else 'info' if role_code=='operator' else 'warning' if role_code=='sales' else 'secondary' }}">{{ role_name }}</span>
+                            <div class="small text-muted mt-1">{{ role_perms.get(role_code, [])|length }} 项</div>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set ns = namespace(cat='') %}
+                    {% for pcode, plabel in perm_map.items() %}
+                        {% set cat = pcode.split(':')[0] if ':' in pcode else 'system' %}
+                        {% if cat != ns.cat %}
+                            {% set ns.cat = cat %}
+                            <tr class="cat-row"><td colspan="{{ 1 + role_list|length }}">{{ cat }}</td></tr>
+                        {% endif %}
+                        <tr>
+                            <th scope="row">
+                                <span class="perm-name">{{ plabel }}</span>
+                                <span class="perm-code">{{ pcode }}</span>
+                            </th>
+                            {% for role_code, role_name in role_list %}
+                                {% set has = pcode in role_perms.get(role_code, []) %}
+                                {% if has_perm('permission:edit') %}
+                                <td class="editable"
+                                    onclick="window.location='{{ url_for('rbac.role_permissions_edit', rid=role_meta[role_code]) }}'"
+                                    title="跳到「{{ role_name }}」配置权限">
+                                    {% if has %}<span class="cell-on">✓</span>{% else %}<span class="cell-off">—</span>{% endif %}
+                                </td>
+                                {% else %}
+                                <td title="{{ role_name }}：{{ '有' if has else '无' }}">
+                                    {% if has %}<span class="cell-on">✓</span>{% else %}<span class="cell-off">—</span>{% endif %}
+                                </td>
+                                {% endif %}
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
-    {% endfor %}
 </div>
 {% endblock %}

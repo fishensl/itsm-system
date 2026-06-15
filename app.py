@@ -1003,6 +1003,8 @@ def permission_list():
     roles = Role.query.filter_by(is_active=True).order_by(Role.sort_order, Role.id).all()
     role_perms = {}
     role_list = []
+    # [(code, name, rid), ...] 给模板做"点格子跳到该角色配置"用
+    role_meta = {}
     for r in roles:
         perms = frozenset(rp.permission_code for rp in r.role_perms)
         # admin 短路：显示全量
@@ -1010,10 +1012,12 @@ def permission_list():
             perms = set(PERMISSION_MAP.keys())
         role_perms[r.code] = list(perms)
         role_list.append((r.code, r.name))
+        role_meta[r.code] = r.id
     return render_template('permissions/list.html',
                            role_perms=role_perms,
                            perm_map=PERMISSION_MAP,
-                           role_list=role_list)
+                           role_list=role_list,
+                           role_meta=role_meta)
 
 
 @app.route('/ai-config', methods=['GET', 'POST'])
