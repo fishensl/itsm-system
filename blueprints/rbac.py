@@ -2,14 +2,13 @@
 
 URL 前缀：/rbac
 路由：
-  GET  /rbac/roles                         角色列表
   GET  /rbac/roles/add                     新增角色 form
   POST /rbac/roles/add                     保存
   GET  /rbac/roles/<int:rid>/edit          编辑角色 form
   POST /rbac/roles/<int:rid>/edit          保存
   POST /rbac/roles/<int:rid>/delete        删除
   GET  /rbac/roles/<int:rid>/permissions   权限矩阵
-  POST /rbac/roles/<int:rid>/permissions   保存勾选
+  POST /rbac/roles/<int:rid>/permissions   保存勾选（接受 _remove 取消列表）
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, jsonify
 from datetime import datetime
@@ -26,18 +25,6 @@ rbac_bp = Blueprint('rbac', __name__)
 # ============================
 # 角色 CRUD
 # ============================
-
-@rbac_bp.route('/roles')
-@login_required
-@require_permission('permission:view')
-def role_list():
-    roles = Role.query.order_by(Role.sort_order, Role.id).all()
-    # 统计每个角色的权限码数
-    perm_counts = {}
-    for r in roles:
-        perm_counts[r.id] = len([rp.permission_code for rp in r.role_perms])
-    return render_template('rbac/role_list.html', roles=roles, perm_counts=perm_counts,
-                          total_perms=len(PERMISSION_MAP))
 
 
 @rbac_bp.route('/roles/add', methods=['GET', 'POST'])
@@ -66,7 +53,7 @@ def role_add():
         db.session.add(role)
         db.session.commit()
         flash(f'角色 {name} 已创建', 'success')
-        return redirect(url_for('rbac.role_permissions_edit', rid=role.id))
+        return redirect(url_for('permission_list'))
 
     return render_template('rbac/role_form.html', role=None)
 
@@ -94,7 +81,7 @@ def role_edit(rid):
         db.session.commit()
         invalidate_role(role.code)
         flash(f'角色 {name} 已更新', 'success')
-        return redirect(url_for('rbac.role_list'))
+        return redirect(url_for('permission_list'))
 
     return render_template('rbac/role_form.html', role=role)
 
@@ -110,7 +97,7 @@ def role_delete(rid):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
             return jsonify({'success': False, 'message': msg}), 400
         flash(msg, 'danger')
-        return redirect(url_for('rbac.role_list'))
+        return redirect(url_for('permission_list'))
     # 检查是否有用户绑定
     bound_users = User.query.filter_by(role=role.code, is_active=True).count()
     if bound_users > 0:
@@ -118,7 +105,7 @@ def role_delete(rid):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
             return jsonify({'success': False, 'message': msg}), 400
         flash(msg, 'danger')
-        return redirect(url_for('rbac.role_list'))
+        return redirect(url_for('permission_list'))
     # 删 role_permissions（级联）
     RolePermission.query.filter_by(role_id=role.id).delete()
     name = role.name
@@ -129,7 +116,7 @@ def role_delete(rid):
     if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
         return jsonify({'success': True, 'message': f'角色 {name} 已删除'})
     flash(f'角色 {name} 已删除', 'success')
-    return redirect(url_for('rbac.role_list'))
+    return redirect(url_for('permission_list'))
 
 
 # ============================
@@ -145,23 +132,41 @@ def role_permissions_edit(rid):
     if request.method == 'POST':
         # admin 短路：用户传什么都忽略（保证 admin 永远有所有权限）
         if role.code == 'admin':
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
+                return jsonify({'success': False, 'message': 'admin 角色拥有系统全部权限，无需配置'}), 400
             flash('admin 角色拥有系统全部权限，无需配置', 'info')
             return redirect(url_for('rbac.role_permissions_edit', rid=rid))
 
-        # 期望表单：所有提交的 permission_code 即为勾选
+        # 表单语义：
+        #   permission_codes = 要勾选的权限码
+        #   _remove          = 要取消勾选的权限码
+        # 终态 = (existing - _remove) ∪ permission_codes
         submitted = set(request.form.getlist('permission_codes'))
+        to_remove = set(request.form.getlist('_remove'))
+
+        if submitted & to_remove:
+            msg = '权限码冲突：同一权限不能同时在勾选和取消列表中'
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
+                return jsonify({'success': False, 'message': msg}), 400
+            flash(msg, 'danger')
+            return redirect(url_for('rbac.role_permissions_edit', rid=rid))
+
         existing = {rp.permission_code for rp in role.role_perms}
+        target = (existing - to_remove) | submitted
 
         # 新增
-        for code in submitted - existing:
+        for code in target - existing:
             db.session.add(RolePermission(role_id=role.id, permission_code=code))
         # 删除
-        for code in existing - submitted:
+        for code in existing - target:
             rp = RolePermission.query.filter_by(role_id=role.id, permission_code=code).first()
             if rp:
                 db.session.delete(rp)
         db.session.commit()
         invalidate_role(role.code)
+        # fetch 请求返回 JSON（前端 in-place 保存用），普通表单提交走 redirect
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in (request.headers.get('Accept') or ''):
+            return jsonify({'success': True, 'message': f'角色 {role.name} 的权限已更新'})
         flash(f'角色 {role.name} 的权限已更新', 'success')
         return redirect(url_for('rbac.role_permissions_edit', rid=rid))
 

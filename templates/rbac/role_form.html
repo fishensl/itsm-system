@@ -3,8 +3,8 @@
 {% block title %}{{ '编辑' if role else '新建' }}角色 · 权限管理{% endblock %}
 {% block content %}
 {% call ui.page_header(role.name ~ ' — 编辑角色' if role else '新建角色', 'person-plus') %}
-    <a href="{{ url_for('rbac.role_list') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi-arrow-left"></i> 返回角色列表
+    <a href="{{ url_for('permission_list') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi-arrow-left"></i> 返回权限总览
     </a>
 {% endcall %}
 
@@ -52,7 +52,7 @@
                 <button type="submit" class="btn btn-primary">
                     <i class="bi-check-lg"></i> 保存
                 </button>
-                <a href="{{ url_for('rbac.role_list') }}" class="btn btn-secondary">取消</a>
+                <a href="{{ url_for('permission_list') }}" class="btn btn-secondary">取消</a>
                 {% if role %}
                 <a href="{{ url_for('rbac.role_permissions_edit', rid=role.id) }}" class="btn btn-outline-primary ms-auto">
                     <i class="bi-grid-3x3-gap"></i> 配置权限
@@ -62,4 +62,52 @@
         </form>
     </div>
 </div>
+
+{% if role and not role.is_system %}
+<hr class="my-4">
+<div class="card border-danger">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h6 class="text-danger mb-1"><i class="bi-exclamation-triangle"></i> 危险操作</h6>
+                <div class="text-muted small">
+                    删除后不可恢复。如该角色下还有活跃用户，将无法删除。
+                </div>
+            </div>
+            <button type="button" class="btn btn-outline-danger btn-role-delete"
+                    data-rid="{{ role.id }}" data-name="{{ role.name }}">
+                <i class="bi-trash"></i> 删除角色
+            </button>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    function getCookie(name) {
+        var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+    var btn = document.querySelector('.btn-role-delete');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        var rid = btn.getAttribute('data-rid');
+        var name = btn.getAttribute('data-name') || '';
+        if (!confirm('确定删除角色「' + name + '」？\n（仅当该角色下没有活跃用户时可删）')) return;
+        fetch('/rbac/roles/' + rid + '/delete', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrf_token'),
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+            }
+        }).then(function (r) { return r.json().catch(function () { return {success: r.ok, message: 'HTTP ' + r.status}; }); })
+          .then(function (d) {
+              if (d && d.success) { location.href = '{{ url_for("permission_list") }}'; }
+              else alert((d && d.message) || '删除失败');
+          })
+          .catch(function (e) { alert('请求失败：' + e); });
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

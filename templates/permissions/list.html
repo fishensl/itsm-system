@@ -16,6 +16,7 @@
     white-space: nowrap;
     user-select: none;
     transition: all 0.12s;
+    cursor: default;             /* 默认只读 */
 }
 .perm-chip .mark { font-size: 13px; line-height: 1; }
 .perm-chip.on  { background: rgba(16,185,129,0.10); color: #059669; border-color: rgba(16,185,129,0.40); }
@@ -26,15 +27,19 @@
 .perm-chip.btn-able.on:hover  { background: rgba(220,53,69,0.10); border-color: rgba(220,53,69,0.40); color: #dc3545; }
 .perm-chip.flash-on  { animation: flashOn 0.6s; }
 .perm-chip.flash-off { animation: flashOff 0.6s; }
+.perm-chip.pending-add { box-shadow: 0 0 0 2px #10b981 inset; }
+.perm-chip.pending-rm  { box-shadow: 0 0 0 2px #dc3545 inset; opacity: 0.65; }
 @keyframes flashOn  { 0% { background: #10b981; color: #fff; } 100% { background: rgba(16,185,129,0.10); color: #059669; } }
 @keyframes flashOff { 0% { background: #dc3545; color: #fff; } 100% { background: var(--surface-muted); color: var(--gray-500); } }
 </style>
 {% endblock %}
 {% block content %}
 {% call ui.page_header('权限管理', 'shield-lock') %}
-    <a href="{{ url_for('rbac.role_list') }}" class="btn btn-outline-primary btn-sm">
-        <i class="bi-person-badge"></i> 角色管理
+    {% if has_perm('permission:edit') %}
+    <a href="{{ url_for('rbac.role_add') }}" class="btn btn-outline-primary btn-sm">
+        <i class="bi-plus-lg"></i> 新建角色
     </a>
+    {% endif %}
     <a href="{{ url_for('user_list') }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi-people-fill"></i> 用户角色分配
     </a>
@@ -44,7 +49,7 @@
     <i class="bi-info-circle me-1"></i>
     行为：
     {% if has_perm('permission:edit') %}
-    <strong>直接点权限码</strong>即可开启/关闭该角色-权限的勾选（绿色=已开启，灰色=未开启）。右上角"全部/未开启"切换显示。
+    点击卡片右上角 <strong>「编辑」</strong> 按钮进入编辑模式（chip 出现绿/红描边表示待变更），点 <strong>「保存」</strong> 一次性提交，点 <strong>「取消」</strong> 还原。
     {% else %}
     各角色拥有的权限码一览（只读）。
     {% endif %}
@@ -53,6 +58,7 @@
 <div class="row">
     {% for role_code, role_name in role_list %}
     {% set perms = role_perms.get(role_code, []) %}
+    {% set can_edit_card = has_perm('permission:edit') and role_code != 'admin' %}
     <div class="col-md-6 mb-3">
         <div class="card h-100">
             <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -62,10 +68,21 @@
                 </div>
                 <div class="d-flex align-items-center gap-2">
                     <span class="text-muted small me-1"><span class="perm-count">{{ perms|length }}</span> / {{ perm_map|length }} 项</span>
-                    {% if has_perm('permission:edit') and role_code != 'admin' %}
-                    <div class="btn-group btn-group-sm" role="group">
+                    <div class="btn-group btn-group-sm btn-filter-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-filter" data-filter="all">全部</button>
                         <button type="button" class="btn btn-outline-secondary btn-filter" data-filter="off">未开启</button>
+                    </div>
+                    {% if can_edit_card %}
+                    <div class="btn-group btn-group-sm mode-read">
+                        <button type="button" class="btn btn-outline-primary btn-edit">
+                            <i class="bi-pencil"></i> 编辑
+                        </button>
+                    </div>
+                    <div class="btn-group btn-group-sm mode-edit d-none">
+                        <button type="button" class="btn btn-primary btn-save" disabled>
+                            <i class="bi-check-lg"></i> 保存 <span class="badge bg-light text-dark pending-n">0</span>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-cancel">取消</button>
                     </div>
                     {% endif %}
                 </div>
@@ -73,10 +90,10 @@
             <div class="card-body py-2 perm-card-body" data-role="{{ role_code }}" data-rid="{{ role_meta[role_code] }}">
                 {% for pcode, plabel in perm_map.items() %}
                     {% set has = pcode in perms %}
-                    {% if has_perm('permission:edit') and role_code != 'admin' %}
-                    <span class="perm-chip {{ 'on' if has else 'off' }} btn-able"
+                    {% if can_edit_card %}
+                    <span class="perm-chip {{ 'on' if has else 'off' }}"
                           data-code="{{ pcode }}" data-state="{{ 'on' if has else 'off' }}"
-                          title="{{ pcode }}：{{ '点击关闭' if has else '点击开启' }}">
+                          title="{{ pcode }}">
                         <span class="mark">{{ '✓' if has else '+' }}</span> {{ plabel }}
                     </span>
                     {% else %}
@@ -100,6 +117,7 @@
     }
     var csrf = getCookie('csrf_token');
 
+    // 过滤器（全部 / 未开启）—— 维持原行为
     function applyFilter(card) {
         var filter = card.getAttribute('data-filter') || 'all';
         card.querySelectorAll('.perm-chip').forEach(function (chip) {
@@ -112,76 +130,152 @@
         });
     }
 
+    function refreshSaveBtn(card) {
+        // 保存按钮在 .card-header（card 的父容器的子节点），不在 card 自身
+        var root = card.parentElement;
+        var n = card._pending.size;
+        var badge = root.querySelector('.pending-n');
+        if (badge) badge.textContent = n;
+        var saveBtn = root.querySelector('.btn-save');
+        if (saveBtn) saveBtn.disabled = (n === 0);
+    }
+
+    function enterEdit(card) {
+        var root = card.parentElement;
+        card._pending = new Map();
+        root.querySelector('.mode-read').classList.add('d-none');
+        root.querySelector('.mode-edit').classList.remove('d-none');
+        card.querySelectorAll('.perm-chip').forEach(function (c) {
+            c.classList.add('btn-able');
+            c.setAttribute('title', c.getAttribute('data-code') + '：点击切换');
+        });
+        refreshSaveBtn(card);
+    }
+
+    function exitEdit(card) {
+        var root = card.parentElement;
+        // 还原所有 chip 到 data-state（清除 pending 视觉态）
+        card._pending = new Map();
+        card.querySelectorAll('.perm-chip').forEach(function (c) {
+            c.classList.remove('btn-able', 'pending-add', 'pending-rm', 'flash-on', 'flash-off');
+            var state = c.getAttribute('data-state');
+            c.classList.remove('on', 'off');
+            c.classList.add(state);
+            var mark = c.querySelector('.mark');
+            if (mark) mark.textContent = state === 'on' ? '✓' : '+';
+            c.setAttribute('title', c.getAttribute('data-code'));
+        });
+        root.querySelector('.mode-edit').classList.add('d-none');
+        root.querySelector('.mode-read').classList.remove('d-none');
+        refreshSaveBtn(card);
+    }
+
+    function toggleChip(card, chip) {
+        var code = chip.getAttribute('data-code');
+        var dbState = chip.getAttribute('data-state');
+        var pendingState = card._pending.get(code);
+        var baseline = pendingState || dbState;
+        var target = baseline === 'on' ? 'off' : 'on';
+
+        // 视觉更新
+        chip.classList.remove('on', 'off', 'flash-on', 'flash-off', 'pending-add', 'pending-rm');
+        chip.classList.add(target);
+        var mark = chip.querySelector('.mark');
+        if (mark) mark.textContent = target === 'on' ? '✓' : '+';
+
+        // pendingSet
+        if (target === dbState) {
+            card._pending.delete(code);
+        } else {
+            card._pending.set(code, target);
+            chip.classList.add(target === 'on' ? 'pending-add' : 'pending-rm');
+        }
+        refreshSaveBtn(card);
+    }
+
+    function savePending(card) {
+        var root = card.parentElement;
+        var rid = card.getAttribute('data-rid');
+        var saveBtn = root.querySelector('.btn-save');
+        if (saveBtn) saveBtn.disabled = true;
+        var form = new URLSearchParams();
+        card._pending.forEach(function (target, code) {
+            if (target === 'on') form.append('permission_codes', code);
+            else form.append('_remove', code);
+        });
+        fetch('/rbac/roles/' + rid + '/permissions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrf,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: form.toString(),
+        }).then(function (r) {
+            return r.json().catch(function () { return {success: r.ok, message: 'HTTP ' + r.status}; });
+        }).then(function (d) {
+            if (d && d.success === false) {
+                alert('保存失败：' + (d.message || '未知错误'));
+                if (saveBtn) saveBtn.disabled = false;
+            } else {
+                // 清掉所有卡片的 _pending，并置保存标志位
+                // 防止 location.reload() 触发 beforeunload 弹"未保存"提示
+                document.querySelectorAll('.perm-card-body').forEach(function (c) { c._pending = new Map(); });
+                _saving = true;
+                location.reload();
+            }
+        }).catch(function (e) {
+            alert('请求失败：' + e);
+            if (saveBtn) saveBtn.disabled = false;
+        });
+    }
+
+    // 初始化每张卡片
     document.querySelectorAll('.perm-card-body').forEach(function (card) {
+        card._pending = new Map();
         card.setAttribute('data-filter', 'all');
-        card.querySelectorAll('.btn-filter').forEach(function (btn) {
+
+        // 按钮在 .card-header 里，是 card（=card-body）的父容器的子节点
+        var cardRoot = card.parentElement;
+
+        cardRoot.querySelectorAll('.btn-filter').forEach(function (btn) {
             btn.addEventListener('click', function () {
-                card.querySelectorAll('.btn-filter').forEach(function (b) { b.classList.remove('active'); });
+                cardRoot.querySelectorAll('.btn-filter').forEach(function (b) { b.classList.remove('active'); });
                 btn.classList.add('active');
                 card.setAttribute('data-filter', btn.getAttribute('data-filter'));
                 applyFilter(card);
             });
         });
 
-        card.querySelectorAll('.perm-chip.btn-able').forEach(function (chip) {
+        var editBtn = cardRoot.querySelector('.btn-edit');
+        if (editBtn) editBtn.addEventListener('click', function () { enterEdit(card); });
+        var cancelBtn = cardRoot.querySelector('.btn-cancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', function () { exitEdit(card); });
+        var saveBtn = cardRoot.querySelector('.btn-save');
+        if (saveBtn) saveBtn.addEventListener('click', function () {
+            if (card._pending.size === 0) return;
+            savePending(card);
+        });
+
+        card.querySelectorAll('.perm-chip').forEach(function (chip) {
             chip.addEventListener('click', function () {
-                if (chip.getAttribute('data-busy') === '1') return;
-                chip.setAttribute('data-busy', '1');
-                var code = chip.getAttribute('data-code');
-                var state = chip.getAttribute('data-state');
-                var action = state === 'on' ? 'remove' : 'add';
-                var rid = card.getAttribute('data-rid');
-
-                // 乐观更新
-                var newState = action === 'add' ? 'on' : 'off';
-                chip.setAttribute('data-state', newState);
-                chip.classList.remove('on', 'off', 'flash-on', 'flash-off');
-                chip.classList.add(newState, newState === 'on' ? 'flash-on' : 'flash-off');
-                var mark = chip.querySelector('.mark');
-                if (mark) mark.textContent = newState === 'on' ? '✓' : '+';
-                chip.setAttribute('title', code + '：' + (newState === 'on' ? '点击关闭' : '点击开启'));
-
-                // 更新顶部计数
-                var countEl = card.querySelector('.perm-count');
-                if (countEl) {
-                    var n = parseInt(countEl.textContent || '0') + (action === 'add' ? 1 : -1);
-                    countEl.textContent = n;
-                }
-
-                // 真实请求
-                var form = new URLSearchParams();
-                if (action === 'add') form.append('permission_codes', code);
-                // remove 走不同 endpoint：传 _remove 列表
-                else form.append('_remove', code);
-
-                fetch('/rbac/roles/' + rid + '/permissions/toggle', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': csrf,
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                    body: form.toString(),
-                }).then(function (r) { return r.json(); }).then(function (d) {
-                    chip.removeAttribute('data-busy');
-                    if (!d.success) {
-                        alert('保存失败：' + (d.message || '未知错误'));
-                        // 回滚
-                        chip.setAttribute('data-state', state);
-                        chip.classList.remove('on', 'off', 'flash-on', 'flash-off');
-                        chip.classList.add(state);
-                        if (mark) mark.textContent = state === 'on' ? '✓' : '+';
-                        if (countEl) {
-                            var n = parseInt(countEl.textContent || '0') - (action === 'add' ? 1 : -1);
-                            countEl.textContent = n;
-                        }
-                    }
-                }).catch(function (e) {
-                    chip.removeAttribute('data-busy');
-                    alert('请求失败：' + e);
-                });
+                // 只读模式：chip 还没 btn-able 类，点了无效
+                if (!chip.classList.contains('btn-able')) return;
+                toggleChip(card, chip);
             });
         });
+    });
+
+    // 离开页面拦截：任意卡片有未保存变更 → 弹原生确认框
+    // 用 _saving 标志位，保存成功后会置 true，避开 reload 时误弹
+    var _saving = false;
+    window.addEventListener('beforeunload', function (e) {
+        if (_saving) return;
+        var hasPending = false;
+        document.querySelectorAll('.perm-card-body').forEach(function (c) {
+            if (c._pending && c._pending.size > 0) hasPending = true;
+        });
+        if (hasPending) { e.preventDefault(); e.returnValue = ''; }
     });
 })();
 </script>
