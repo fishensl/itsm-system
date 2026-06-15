@@ -15,10 +15,7 @@
 
 <div class="alert alert-info py-2 small mb-3">
     <i class="bi-info-circle me-1"></i>
-    共 {{ roles|length }} 个角色，<code>admin</code> 拥有系统全部权限（无需配置）。
-    {% if has_perm('permission:edit') %}
-    点击「权限」进入矩阵式勾选页。
-    {% endif %}
+    调整单个角色的权限码？直接去 <a href="{{ url_for('permission_list') }}">权限管理</a> 页面点 chip 更便捷。
 </div>
 
 <div class="card">

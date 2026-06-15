@@ -1,30 +1,40 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
-{% block title %}权限总览 · 系统管理{% endblock %}
+{% block title %}权限管理 · 系统管理{% endblock %}
 {% block head_extra %}
 <style>
-.perm-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
-.perm-matrix th, .perm-matrix td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft, #eef0f3); text-align: center; vertical-align: middle; }
-.perm-matrix thead th { position: sticky; top: 0; background: var(--surface-muted, #f8f9fa); font-weight: 600; z-index: 5; }
-.perm-matrix tbody th { text-align: left; font-weight: 500; background: var(--surface-muted, #f8f9fa); position: sticky; left: 0; z-index: 4; }
-.perm-matrix .perm-name { display: block; font-weight: 500; }
-.perm-matrix .perm-code { display: block; font-family: monospace; font-size: 10px; color: var(--gray-500, #adb5bd); }
-.perm-matrix .cat-row td { background: var(--primary-50, #eef4ff); font-weight: 600; text-align: left; padding: 4px 10px; }
-.perm-matrix .cell-on  { color: #059669; font-size: 18px; line-height: 1; }
-.perm-matrix .cell-off { color: var(--gray-300, #dee2e6); font-size: 14px; }
-.perm-matrix .col-role { min-width: 96px; }
-.perm-matrix .col-perm { min-width: 220px; }
-.perm-matrix .editable { cursor: pointer; transition: background 0.1s; }
-.perm-matrix .editable:hover { background: rgba(13,110,253,0.08); }
+.perm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    margin: 3px 4px 3px 0;
+    font-size: 12px;
+    border-radius: 14px;
+    border: 1px solid var(--border-soft);
+    line-height: 1.3;
+    white-space: nowrap;
+    user-select: none;
+    transition: all 0.12s;
+}
+.perm-chip .mark { font-size: 13px; line-height: 1; }
+.perm-chip.on  { background: rgba(16,185,129,0.10); color: #059669; border-color: rgba(16,185,129,0.40); }
+.perm-chip.off { background: var(--surface-muted); color: var(--gray-500); }
+.perm-chip.btn-able { cursor: pointer; }
+.perm-chip.btn-able:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+.perm-chip.btn-able.off:hover { background: rgba(13,110,253,0.10); border-color: rgba(13,110,253,0.35); color: #0d6efd; }
+.perm-chip.btn-able.on:hover  { background: rgba(220,53,69,0.10); border-color: rgba(220,53,69,0.40); color: #dc3545; }
+.perm-chip.flash-on  { animation: flashOn 0.6s; }
+.perm-chip.flash-off { animation: flashOff 0.6s; }
+@keyframes flashOn  { 0% { background: #10b981; color: #fff; } 100% { background: rgba(16,185,129,0.10); color: #059669; } }
+@keyframes flashOff { 0% { background: #dc3545; color: #fff; } 100% { background: var(--surface-muted); color: var(--gray-500); } }
 </style>
 {% endblock %}
 {% block content %}
-{% call ui.page_header('权限总览', 'shield-lock') %}
-    {% if has_perm('permission:edit') %}
-    <a href="{{ url_for('rbac.role_list') }}" class="btn btn-primary btn-sm">
+{% call ui.page_header('权限管理', 'shield-lock') %}
+    <a href="{{ url_for('rbac.role_list') }}" class="btn btn-outline-primary btn-sm">
         <i class="bi-person-badge"></i> 角色管理
     </a>
-    {% endif %}
     <a href="{{ url_for('user_list') }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi-people-fill"></i> 用户角色分配
     </a>
@@ -32,61 +42,148 @@
 
 <div class="alert alert-info py-2 small mb-3">
     <i class="bi-info-circle me-1"></i>
-    行为：行=权限码，列=角色。
+    行为：
     {% if has_perm('permission:edit') %}
-    <strong>点击某角色列的单元格</strong>可跳到该角色的权限配置页。
+    <strong>直接点权限码</strong>即可开启/关闭该角色-权限的勾选（绿色=已开启，灰色=未开启）。右上角"全部/未开启"切换显示。
     {% else %}
     各角色拥有的权限码一览（只读）。
     {% endif %}
 </div>
 
-<div class="card">
-    <div class="card-body p-0">
-        <div class="table-responsive" style="max-height: 72vh;">
-            <table class="perm-matrix">
-                <thead>
-                    <tr>
-                        <th class="col-perm">权限码</th>
-                        {% for role_code, role_name in role_list %}
-                        <th class="col-role">
-                            <span class="badge bg-{{ 'danger' if role_code=='admin' else 'info' if role_code=='operator' else 'warning' if role_code=='sales' else 'secondary' }}">{{ role_name }}</span>
-                            <div class="small text-muted mt-1">{{ role_perms.get(role_code, [])|length }} 项</div>
-                        </th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% set ns = namespace(cat='') %}
-                    {% for pcode, plabel in perm_map.items() %}
-                        {% set cat = pcode.split(':')[0] if ':' in pcode else 'system' %}
-                        {% if cat != ns.cat %}
-                            {% set ns.cat = cat %}
-                            <tr class="cat-row"><td colspan="{{ 1 + role_list|length }}">{{ cat }}</td></tr>
-                        {% endif %}
-                        <tr>
-                            <th scope="row">
-                                <span class="perm-name">{{ plabel }}</span>
-                                <span class="perm-code">{{ pcode }}</span>
-                            </th>
-                            {% for role_code, role_name in role_list %}
-                                {% set has = pcode in role_perms.get(role_code, []) %}
-                                {% if has_perm('permission:edit') %}
-                                <td class="editable"
-                                    onclick="window.location='{{ url_for('rbac.role_permissions_edit', rid=role_meta[role_code]) }}'"
-                                    title="跳到「{{ role_name }}」配置权限">
-                                    {% if has %}<span class="cell-on">✓</span>{% else %}<span class="cell-off">—</span>{% endif %}
-                                </td>
-                                {% else %}
-                                <td title="{{ role_name }}：{{ '有' if has else '无' }}">
-                                    {% if has %}<span class="cell-on">✓</span>{% else %}<span class="cell-off">—</span>{% endif %}
-                                </td>
-                                {% endif %}
-                            {% endfor %}
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<div class="row">
+    {% for role_code, role_name in role_list %}
+    {% set perms = role_perms.get(role_code, []) %}
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="badge bg-{{ 'danger' if role_code=='admin' else 'info' if role_code=='operator' else 'warning' if role_code=='sales' else 'secondary' }} me-2">{{ role_name }}</span>
+                    <small class="text-muted">{{ role_code }}</small>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted small me-1"><span class="perm-count">{{ perms|length }}</span> / {{ perm_map|length }} 项</span>
+                    {% if has_perm('permission:edit') and role_code != 'admin' %}
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn btn-outline-secondary btn-filter" data-filter="all">全部</button>
+                        <button type="button" class="btn btn-outline-secondary btn-filter" data-filter="off">未开启</button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body py-2 perm-card-body" data-role="{{ role_code }}" data-rid="{{ role_meta[role_code] }}">
+                {% for pcode, plabel in perm_map.items() %}
+                    {% set has = pcode in perms %}
+                    {% if has_perm('permission:edit') and role_code != 'admin' %}
+                    <span class="perm-chip {{ 'on' if has else 'off' }} btn-able"
+                          data-code="{{ pcode }}" data-state="{{ 'on' if has else 'off' }}"
+                          title="{{ pcode }}：{{ '点击关闭' if has else '点击开启' }}">
+                        <span class="mark">{{ '✓' if has else '+' }}</span> {{ plabel }}
+                    </span>
+                    {% else %}
+                    <span class="perm-chip {{ 'on' if has else 'off' }}" title="{{ pcode }}">
+                        <span class="mark">{{ '✓' if has else '—' }}</span> {{ plabel }}
+                    </span>
+                    {% endif %}
+                {% endfor %}
+            </div>
         </div>
     </div>
+    {% endfor %}
 </div>
+
+{% if has_perm('permission:edit') %}
+<script>
+(function () {
+    function getCookie(name) {
+        var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+    var csrf = getCookie('csrf_token');
+
+    function applyFilter(card) {
+        var filter = card.getAttribute('data-filter') || 'all';
+        card.querySelectorAll('.perm-chip').forEach(function (chip) {
+            var state = chip.getAttribute('data-state');
+            if (filter === 'off' && state === 'on') {
+                chip.style.display = 'none';
+            } else {
+                chip.style.display = '';
+            }
+        });
+    }
+
+    document.querySelectorAll('.perm-card-body').forEach(function (card) {
+        card.setAttribute('data-filter', 'all');
+        card.querySelectorAll('.btn-filter').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                card.querySelectorAll('.btn-filter').forEach(function (b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                card.setAttribute('data-filter', btn.getAttribute('data-filter'));
+                applyFilter(card);
+            });
+        });
+
+        card.querySelectorAll('.perm-chip.btn-able').forEach(function (chip) {
+            chip.addEventListener('click', function () {
+                if (chip.getAttribute('data-busy') === '1') return;
+                chip.setAttribute('data-busy', '1');
+                var code = chip.getAttribute('data-code');
+                var state = chip.getAttribute('data-state');
+                var action = state === 'on' ? 'remove' : 'add';
+                var rid = card.getAttribute('data-rid');
+
+                // 乐观更新
+                var newState = action === 'add' ? 'on' : 'off';
+                chip.setAttribute('data-state', newState);
+                chip.classList.remove('on', 'off', 'flash-on', 'flash-off');
+                chip.classList.add(newState, newState === 'on' ? 'flash-on' : 'flash-off');
+                var mark = chip.querySelector('.mark');
+                if (mark) mark.textContent = newState === 'on' ? '✓' : '+';
+                chip.setAttribute('title', code + '：' + (newState === 'on' ? '点击关闭' : '点击开启'));
+
+                // 更新顶部计数
+                var countEl = card.querySelector('.perm-count');
+                if (countEl) {
+                    var n = parseInt(countEl.textContent || '0') + (action === 'add' ? 1 : -1);
+                    countEl.textContent = n;
+                }
+
+                // 真实请求
+                var form = new URLSearchParams();
+                if (action === 'add') form.append('permission_codes', code);
+                // remove 走不同 endpoint：传 _remove 列表
+                else form.append('_remove', code);
+
+                fetch('/rbac/roles/' + rid + '/permissions/toggle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: form.toString(),
+                }).then(function (r) { return r.json(); }).then(function (d) {
+                    chip.removeAttribute('data-busy');
+                    if (!d.success) {
+                        alert('保存失败：' + (d.message || '未知错误'));
+                        // 回滚
+                        chip.setAttribute('data-state', state);
+                        chip.classList.remove('on', 'off', 'flash-on', 'flash-off');
+                        chip.classList.add(state);
+                        if (mark) mark.textContent = state === 'on' ? '✓' : '+';
+                        if (countEl) {
+                            var n = parseInt(countEl.textContent || '0') - (action === 'add' ? 1 : -1);
+                            countEl.textContent = n;
+                        }
+                    }
+                }).catch(function (e) {
+                    chip.removeAttribute('data-busy');
+                    alert('请求失败：' + e);
+                });
+            });
+        });
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

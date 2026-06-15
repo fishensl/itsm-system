@@ -176,6 +176,45 @@ def role_permissions_edit(rid):
 
 
 # ============================
+# 单权限快速 toggle（权限总览页点 chip 触发）
+# ============================
+
+@rbac_bp.route('/roles/<int:rid>/permissions/toggle', methods=['POST'])
+@login_required
+@require_permission('permission:edit')
+def role_permission_toggle(rid):
+    """单权限加/删，用于权限总览页 in-place 切换。"""
+    role = Role.query.get_or_404(rid)
+    if role.code == 'admin':
+        return jsonify({'success': False, 'message': 'admin 角色拥有全部权限，无需修改'}), 400
+
+    code = (request.form.get('permission_codes') or '').strip()
+    remove_code = (request.form.get('_remove') or '').strip()
+    if not code and not remove_code:
+        return jsonify({'success': False, 'message': '缺参数'}), 400
+
+    target_code = remove_code or code
+    action = 'remove' if remove_code else 'add'
+
+    # 校验 code 存在
+    perm = Permission.query.filter_by(code=target_code, is_active=True).first()
+    if not perm:
+        return jsonify({'success': False, 'message': f'权限码 {target_code} 不存在或已停用'}), 400
+
+    if action == 'add':
+        existing = RolePermission.query.filter_by(role_id=role.id, permission_code=target_code).first()
+        if not existing:
+            db.session.add(RolePermission(role_id=role.id, permission_code=target_code))
+    else:
+        existing = RolePermission.query.filter_by(role_id=role.id, permission_code=target_code).first()
+        if existing:
+            db.session.delete(existing)
+    db.session.commit()
+    invalidate_role(role.code)
+    return jsonify({'success': True, 'action': action, 'code': target_code})
+
+
+# ============================
 # 用户级权限覆盖
 # ============================
 
