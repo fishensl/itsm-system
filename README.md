@@ -1,6 +1,6 @@
-# ITSM 简易运维管理系统
+# ITSM 运维管理系统
 
-基于 Python Flask 的轻量级 IT 运维管理系统，集成了客户管理、设备密码管理、巡检管理、故障管理等功能，支持自动生成 Word 报告。
+基于 Python Flask 的 IT 运维管理系统，覆盖客户管理、设备资产管理、巡检任务、故障工单、备件库存、销售管线、知识库、机柜可视化等全流程，支持自动生成 Word 报告。
 
 ---
 
@@ -8,24 +8,15 @@
 
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
+- [部署到 Ubuntu 24](#部署到-ubuntu-24)
+- [在线更新](#在线更新)
 - [项目结构](#项目结构)
 - [模块说明](#模块说明)
-  - [1. 首页概览](#1-首页概览)
-  - [2. 登录/认证](#2-登录认证)
-  - [3. 客户管理](#3-客户管理)
-  - [4. 设备管理](#4-设备管理)
-  - [5. 巡检管理](#5-巡检管理)
-  - [6. 故障管理](#6-故障管理)
-  - [7. 巡检人员管理](#7-巡检人员管理)
-  - [8. 设备类型管理](#8-设备类型管理)
-  - [9. 故障类型管理](#9-故障类型管理)
-  - [10. 用户管理](#10-用户管理)
 - [数据库模型](#数据库模型)
-- [API 接口](#api-接口)
+- [角色与权限](#角色与权限)
 - [报告生成](#报告生成)
 - [安全](#安全)
-- [安装为 Windows 服务](#安装为-windows-服务)
-- [数据迁移](#数据迁移)
+- [备份与回滚](#备份与回滚)
 - [常见问题](#常见问题)
 
 ---
@@ -38,9 +29,13 @@
 | Flask | 3.1.1 |
 | Flask-Login | 0.6.3 |
 | Flask-SQLAlchemy | 3.1.1 |
+| Flask-WTF | 1.3.0 |
+| Flask-Limiter | 4.1.1 |
 | python-docx | 1.1.2 |
 | cryptography | 44.0.3 |
-| openpyxl | 3.1+ |
+| openpyxl | ≥ 3.1.0 |
+| psutil | ≥ 5.9.0 |
+| gunicorn | ≥ 23.0.0（生产环境） |
 
 完整依赖见 `requirements.txt`。
 
@@ -51,7 +46,7 @@
 ### 1. 克隆项目
 
 ```bash
-git clone <repo-url> itsm-system
+git clone https://github.com/fishensl/itsm-system.git
 cd itsm-system
 ```
 
@@ -59,7 +54,6 @@ cd itsm-system
 
 ```bash
 pip install -r requirements.txt
-pip install openpyxl   # 批量导入/导出需要
 ```
 
 ### 3. 启动
@@ -71,11 +65,116 @@ python app.py
 首次启动会自动：
 - 创建 SQLite 数据库 `instance/itsm.db`
 - 创建默认管理员账号 `admin / admin123`
-- 预置设备类型和故障类型种子数据
+- 预置设备类型、故障类型等种子数据
 
 ### 4. 访问
 
-浏览器打开 http://127.0.0.1:5000
+浏览器打开 `http://127.0.0.1:5000`
+
+---
+
+## 部署到 Ubuntu 24
+
+### 一键部署
+
+```bash
+# 在 Ubuntu 24 上执行
+export ITSM_REPO_URL=https://github.com/fishensl/itsm-system.git
+sudo bash scripts/deploy.sh
+```
+
+脚本自动完成：
+1. 安装系统依赖（Python、git 等）
+2. 克隆代码到 `/opt/itsm`
+3. 创建 Python 虚拟环境并安装依赖
+4. 生成密钥文件（`.env`、`.secret.key`）
+5. 初始化数据库
+6. 创建 `itsm` 系统用户
+7. 安装 systemd 服务并启动
+
+部署后访问 `http://<服务器IP>:5000`
+
+### 目录结构
+
+```
+/opt/itsm/                    # 应用根目录（Git 工作树）
+├── app.py                    # Flask 主应用
+├── wsgi.py                   # Gunicorn 生产入口
+├── models.py                 # 数据库模型
+├── config.py                 # 应用配置
+├── requirements.txt
+├── blueprints/               # Flask 蓝图模块（13 个）
+├── services/                 # 服务层（8 个）
+├── utils/                    # 工具模块（11 个）
+├── templates/                # Jinja2 模板（40+ 目录）
+├── static/                   # CSS/JS/图片/第三方库
+├── scripts/                  # 部署运维脚本
+│   ├── deploy.sh             # 首次部署
+│   ├── update.sh             # 在线更新
+│   ├── backup.sh             # 定时备份
+│   ├── rollback.sh           # 紧急回滚
+│   ├── migrate.sh            # 数据库迁移
+│   ├── itsm.service          # systemd 单元文件
+│   └── .env.example          # 环境变量模板
+├── instance/                 # SQLite 数据库（运行时）
+├── logs/                     # 应用日志（运行时）
+├── reports/                  # 生成的 Word 报告（运行时）
+├── uploads/                  # 用户上传文件（运行时）
+├── backups/                  # 备份文件（运行时）
+├── .secret.key               # AES 加密密钥（运行时生成）
+├── .env                      # 环境变量（运行时生成）
+└── venv/                     # Python 虚拟环境（运行时生成）
+```
+
+### 生产环境建议：Nginx 反代
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name itsm.example.com;
+    ssl_certificate     /etc/ssl/certs/itsm.pem;
+    ssl_certificate_key /etc/ssl/private/itsm.key;
+
+    location /static/ {
+        alias /opt/itsm/static/;
+        expires 30d;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+---
+
+## 在线更新
+
+```bash
+# 开发者推送代码后，服务器执行
+sudo bash /opt/itsm/scripts/update.sh
+```
+
+更新流程：
+1. 自动备份当前数据库
+2. 暂存本地修改
+3. `git pull` 拉取最新代码
+4. 更新 Python 依赖
+5. 执行数据库迁移（如有）
+6. Gunicorn 优雅重启（零停机）
+
+### 常用运维命令
+
+```bash
+sudo systemctl status itsm          # 查看服务状态
+sudo journalctl -u itsm -f          # 查看实时日志
+sudo systemctl restart itsm         # 重启服务
+sudo bash /opt/itsm/scripts/backup.sh   # 手动备份
+```
 
 ---
 
@@ -83,274 +182,269 @@ python app.py
 
 ```
 itsm-system/
-├── app.py                    # 主应用（路由、视图）
-├── models.py                 # 数据库模型
-├── requirements.txt          # Python 依赖
-├── .secret.key               # AES 加密密钥（⚠️ 勿泄露！）
-├── install_service.ps1       # Windows 计划任务安装脚本
-├── instance/
-│   └── itsm.db               # SQLite 数据库文件
-├── utils/
-│   ├── __init__.py
-│   ├── crypto.py              # AES-256 密码加密/解密
-│   └── report_generator.py    # Word 报告生成器
-├── templates/
-│   ├── base.html              # 后台布局（侧边栏）
-│   ├── login.html             # 登录页
-│   ├── index.html             # 首页概览
-│   ├── customers/             # 客户管理模板
-│   │   ├── list.html
-│   │   ├── form.html
-│   │   └── detail.html
-│   ├── devices/               # 设备管理模板
-│   │   └── list.html          （含新增/编辑弹窗、导入导出弹窗）
-│   ├── device_types/          # 设备类型
-│   │   └── list.html
-│   ├── inspections/           # 巡检管理
-│   │   ├── list.html
-│   │   ├── form.html
-│   │   └── detail.html
-│   ├── faults/                # 故障管理
-│   │   ├── list.html
-│   │   ├── form.html
-│   │   └── detail.html
-│   ├── fault_types/           # 故障类型
-│   │   └── list.html
-│   ├── inspectors/            # 巡检人员
-│   │   └── list.html
-│   └── users/                 # 用户管理
-│       └── list.html
-├── reports/                   # 生成的 Word 报告
-└── static/
-    └── css/
+├── app.py                        # 主应用入口（登录、首页、拓扑、用户管理、系统设置）
+├── wsgi.py                       # Gunicorn 生产入口
+├── models.py                     # 数据库模型（46 个模型类，45 张表）
+├── config.py                     # 应用配置（密钥、数据库、日志）
+├── requirements.txt              # Python 依赖
+├── .gitignore                    # Git 忽略规则
+│
+├── blueprints/                   # Flask 蓝图（业务路由）
+│   ├── __init__.py               # 蓝图注册
+│   ├── asset.py                  # 设备资产管理
+│   ├── categories.py             # 客户单位分类
+│   ├── contract_tasks.py         # 合同自动巡检任务
+│   ├── customer.py               # 客户管理
+│   ├── departments.py            # 部门管理
+│   ├── drafts.py                 # 表单草稿 API
+│   ├── ops.py                    # 巡检/故障/工单/知识库/模板
+│   ├── rack.py                   # 机柜管理
+│   ├── sales.py                  # 销售管线
+│   ├── spare.py                  # 备件管理
+│   ├── task_dispatch.py          # 工单调度
+│   └── tools.py                  # 网络常用工具
+│
+├── services/                     # 服务层（业务逻辑）
+│   ├── base.py                   # 基类（事务装饰器）
+│   ├── customer_service.py       # 客户（自动分级）
+│   ├── device_service.py         # 设备（密码历史）
+│   ├── fault_service.py          # 故障记录
+│   ├── inspection_service.py     # 巡检（审核→生成报告）
+│   ├── sales_service.py          # 销售管线
+│   ├── spare_service.py          # 备件（FIFO 出库）
+│   └── ticket_service.py         # 工单（状态机）
+│
+├── utils/                        # 工具模块
+│   ├── ai_client.py              # 多厂商 AI 客户端
+│   ├── auto_task_generator.py    # 合同自动任务生成
+│   ├── cert_options.py           # 认证证书选项
+│   ├── crypto.py                 # AES 密码加密/解密
+│   ├── excel_export.py           # Excel 导出
+│   ├── pagination.py             # 分页工具
+│   ├── permission.py             # 权限系统（50+ 权限码）
+│   ├── report_generator.py       # Word 报告生成
+│   ├── sidebar_config.py         # 侧边栏配置
+│   └── upload.py                 # 文件上传校验
+│
+├── templates/                    # Jinja2 模板（40+ 业务目录）
+├── static/                       # 静态资源
+│   ├── css/                      # 样式
+│   ├── js/                       # 脚本
+│   ├── img/                      # 图片
+│   ├── vendor/                   # 第三方库（Bootstrap 5, Chart.js）
+│   └── uploads/                  # 用户上传（运行时）
+│
+├── scripts/                      # 部署运维脚本
+├── instance/                     # SQLite 数据库（运行时）
+├── logs/                         # 日志（运行时）
+├── reports/                      # Word 报告（运行时）
+├── uploads/                      # 上传文件（运行时）
+└── backups/                      # 备份（运行时）
 ```
 
 ---
 
 ## 模块说明
 
-### 1. 首页概览
+### 1. 首页仪表盘
 
-- 统计卡片：客户总数、设备总数、巡检记录、故障记录
-- 快捷入口：新增客户、管理设备、新建巡检、新建故障单
-- 系统信息
+- 统计卡片：根据角色展示不同指标
+- 快捷入口：常用操作直达
+- 用户可自定义仪表盘偏好
 
-### 2. 登录/认证
+### 2. 客户管理
 
-- Flask-Login 会话管理
-- 管理员角色（admin）和操作员角色（operator）
-- 用户管理需要管理员权限
+- 按地市 → 单位分类 → 客户三级树形展示
+- 客户自动分级（核心客户 / 重点客户 / 普通客户）
+- 客户详情页展示关联设备、巡检记录、故障工单
+- 支持 Excel 批量导入导出
+- 字段：名称、联系人、电话、邮箱、所属地市、地址、备注
 
-### 3. 客户管理
+### 3. 设备资产管理
 
-**功能：**
-- 增删改查客户
-- 字段：客户名称、联系人、电话、邮箱、**所属地市**（下拉选择江西省 11 个市）、地址、备注
-- 客户详情页查看关联的设备、巡检记录、故障记录
-- 支持按名称/联系人/电话搜索
+- 按地市 → 客户 → 设备三级下钻，横向滚动浏览
+- 设备字段：名称、类型、品牌、型号、IP、序列号、系统版本、规则库版本、授权截止日期、登录方式、接口（JSON 数组）、端口、用户名、密码（AES 加密）
+- 固件版本库管理
+- 设备配置备份管理
+- 拓扑图管理
+- Excel 批量导入导出
 
-**路由：**
+### 4. 巡检管理
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/customers` | 客户列表 |
-| GET/POST | `/customers/add` | 新增客户 |
-| GET/POST | `/customers/edit/<id>` | 编辑客户 |
-| GET | `/customers/delete/<id>` | 删除客户 |
-| GET | `/customers/<id>` | 客户详情 |
+- **巡检模板**：按设备类型配置检查项
+- **任务模板**：按客户配置巡检频率和人员
+- **巡检任务**：合同自动生成或手动创建
+- **巡检记录**：填写检查结果，支持表单草稿自动保存
+- **审核流程**：提交审核 → 审核通过自动生成 Word 报告
+- 报告包含封面、设备明细、检查结果、巡检结论
 
-### 4. 设备管理
+### 5. 故障工单
 
-**功能：**
-- 按地市 → 客户 → 设备三级下钻展示（默认收起设备详情）
-- 设备拖拽滚动 + 横向滚轮
-- 新增/编辑设备弹窗（AJAX 加载，不刷新页面）
-- 批量导入（Excel）
-- 批量导出（Excel，自由选择导出列）
+- **工单状态机**：待派单 → 待受理 → 处理中 → 待审核 → 待验收 → 已关闭
+- **派单调度**：按部门分配操作员
+- **工单日志**：全程操作记录
+- **故障类型**：可自定义分类和排序
+- 支持关联知识库文章
 
-**设备字段：**
+### 6. 知识库
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| 所属客户 | 下拉选择 | 必填 |
-| 设备名称 | 文本 | 必填 |
-| 设备类型 | 下拉选择 | 从设备类型管理 |
-| 品牌 | 文本 | |
-| 型号 | 文本 | |
-| IP地址 | 文本 | |
-| 序列号 | 文本 | |
-| 系统版本 | 文本 | 如 V200R021C10 |
-| 规则库版本 | 文本 | 如 IPS-20260521 |
-| 授权截止日期 | 日期 | |
-| 登录方式 | 下拉 | SSH/Telnet/Web/Console/API/其他 |
-| 接口 | 多输入框 | 默认2个，可增删，存储为 JSON 数组 |
-| 端口 | 数字 | 默认 22 |
-| 登录用户名 | 文本 | |
-| 登录密码 | 文本 | AES-256 加密存储 |
-| 是否有过维修 | 复选框 | |
-| 是否在用 | 复选框 | 默认勾选 |
-| 备注 | 多行文本 | |
+- 文章增删改查，支持附件上传
+- 从工单一键生成知识库文章
+- 按分类浏览和搜索
 
-**密码安全：**
-- 密码 AES-256 加密存储（`cryptography` Fernet）
-- 修改密码自动保存旧密码到历史表
-- 查看历史密码弹窗，支持复制
+### 7. 备件管理
 
-**路由：**
+- 备件档案管理（名称、型号、规格、单位）
+- 库存管理（入库/出库，FIFO 出库）
+- 采购订单（自动入库）
+- 销售订单（自动出库）
+- 库存预警
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/devices` | 设备列表（地市→客户→设备） |
-| POST | `/devices/add` | 新增设备 |
-| POST | `/devices/edit/<id>` | 编辑设备 |
-| GET | `/devices/delete/<id>` | 删除设备 |
-| POST | `/devices/export` | 批量导出 Excel |
-| POST | `/devices/import` | 批量导入 Excel |
-| GET | `/api/devices/<id>` | 获取设备 JSON（AJAX 编辑用） |
-| GET | `/api/devices/<id>/password-history` | 密码修改历史 |
+### 8. 销售管线
 
-### 5. 巡检管理
+- **商机** → **报价** → **合同** → **项目** 全流程跟踪
+- 合同支持自动巡检频率配置（月度/季度/半年/年度）
+- 合同到期自动生成巡检任务
 
-**功能：**
-- 新建巡检：选择客户 → 自动加载该客户所有设备 → 填写检查项 → 填写结论 → 保存
-- 自动生成 Word 巡检报告
-- 每个设备默认检查项：运行状态、CPU使用率、内存使用率、端口状态、告警检查
-- 巡检结论必填（前端 + 后端双重校验）
+### 9. 机柜管理
 
-**报告封面格式：**
-```
-                    （空5行）
-       客户名称巡检标题报告        ← 宋体一号 26pt 居中
-            （空11行 四号14pt）
-      江西丰功信息技术有限公司     ← 宋体三号 16pt 居中
-      二〇二六年五月二十一日       ← 宋体三号 16pt 居中
-            （分页）
-一、巡检明细
-  设备1
-  设备2
-二、巡检结论
-```
+- 机房位置管理
+- 机柜增删改查，自定义 U 位数量
+- 设备上架可视化（占用 U 位显示）
+- 支持拖拽调整设备位置
 
-**路由：**
+### 10. 部门管理
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/inspections` | 巡检列表 |
-| GET/POST | `/inspections/add` | 新建巡检 |
-| GET/POST | `/inspections/edit/<id>` | 编辑巡检 |
-| GET | `/inspections/delete/<id>` | 删除巡检 |
-| GET | `/inspections/<id>` | 巡检详情 |
-| GET | `/api/customers/<id>/devices` | 获取客户设备列表（巡检表单用） |
+- 部门树形结构
+- 部门负责人指派
+- 关联用户归属
 
-### 6. 故障管理
+### 11. 用户与权限
 
-**功能：**
-- 增删改查故障记录
-- 自动生成 Word 故障处理报告
-- 报告封面格式与巡检报告一致
+- 4 种角色：管理员 / 操作员 / 销售 / 只读
+- 50+ 细粒度权限码
+- 用户关联巡检人员、部门
+- 支持手机号、邮箱、认证证书等扩展字段（V13）
+- 自助修改密码
 
-**路由：**
+### 12. 网络常用工具
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/faults` | 故障列表 |
-| GET/POST | `/faults/add` | 新建故障 |
-| GET/POST | `/faults/edit/<id>` | 编辑故障 |
-| GET | `/faults/delete/<id>` | 删除故障 |
-| GET | `/faults/<id>` | 故障详情 |
+- IP 地址计算（子网掩码、网络地址、广播地址）
+- MAC 地址格式化
+- 进制转换
+- 时间戳转换
+- Base64 编解码
+- MTU 计算
+- 带宽换算
 
-### 7. 巡检人员管理
+### 13. AI 集成
 
-- 增删改查巡检人员
-- 关联系统用户
+- 支持 OpenAI / Anthropic / Ollama 多种后端
+- 巡检结果智能分析
+- 故障原因辅助诊断
 
-### 8. 设备类型管理
+### 14. 系统设置
 
-- 新增/删除设备类型
-- 可排序
-
-### 9. 故障类型管理
-
-- 新增/删除故障类型
-- 可排序
-
-### 10. 用户管理
-
-**功能：**
-- 管理员权限保护
-- 新增/编辑/删除用户
-- 关联巡检人员
-- 编辑密码支持显示/隐藏切换和复制
-- 新增用户自动创建同名巡检人员
-
-**路由：**
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/users` | 用户列表 |
-| POST | `/users/add` | 新增用户 |
-| POST | `/users/edit/<id>` | 编辑用户 |
-| GET | `/users/delete/<id>` | 删除用户 |
+- 设备类型管理
+- 故障类型管理
+- 品牌管理
+- 网络类型管理
+- 客户单位分类
+- 区域管理
+- 自定义字段
+- AI 配置
+- 侧边栏自定义
 
 ---
 
 ## 数据库模型
 
-![ER 图]
+系统当前包含 46 个模型类，45 张数据表：
 
-| 表名 | 说明 | 主要字段 |
-|------|------|---------|
-| `users` | 系统用户 | username, password, role(admin/operator), inspector_id |
-| `customers` | 客户 | name, city, contact_person, phone, email, address |
-| `devices` | 网络设备 | customer_id, device_name, ip_address, password_encrypted, interface(JSON), login_method, os_version, rule_version, is_maintenance, is_in_use |
-| `inspections` | 巡检记录 | customer_id, title, content_json(JSON), conclusion, report_file |
-| `faults` | 故障记录 | customer_id, title, fault_time, fault_description, solution, result |
-| `inspectors` | 巡检人员 | name, phone, email, is_active |
-| `device_types` | 设备类型 | name, sort_order |
-| `fault_types` | 故障类型 | name, sort_order |
-| `password_history` | 密码历史 | device_id, password_encrypted, changed_by |
-
-### 关系
-
-- Customer 1:N Device
-- Customer 1:N Inspection
-- Customer 1:N Fault
-- Device 1:N PasswordHistory
-- User N:1 Inspector
+| 分类 | 表名 | 说明 |
+|------|------|------|
+| **系统** | `users` | 系统用户 |
+| | `departments` | 部门 |
+| | `permissions` / `user_permissions` | 权限 / 用户权限关联 |
+| | `form_drafts` | 表单草稿 |
+| | `user_dashboard_preferences` | 仪表盘偏好 |
+| **客户** | `regions` | 区域（地市） |
+| | `customers` | 客户 |
+| | `customer_categories` | 客户单位分类 |
+| **设备** | `devices` | 网络设备 |
+| | `device_types` / `device_sub_types` | 设备类型 / 子类型 |
+| | `device_firmwares` | 固件版本 |
+| | `device_credentials` | 设备凭证 |
+| | `device_interfaces` | 设备接口 |
+| | `device_config_backups` | 配置备份 |
+| | `device_collect_tasks` | 采集任务 |
+| | `custom_fields` | 自定义字段 |
+| | `password_history` | 密码历史 |
+| | `brands` | 品牌 |
+| | `network_types` | 网络类型 |
+| | `topologies` | 拓扑图 |
+| **巡检** | `inspection_device_templates` | 设备检查模板 |
+| | `inspection_task_templates` | 任务模板 |
+| | `inspection_templates` | 巡检模板（旧） |
+| | `inspection_tasks` | 巡检任务 |
+| | `inspections` | 巡检记录 |
+| | `inspectors` | 巡检人员 |
+| **工单** | `tickets` | 工单 |
+| | `ticket_logs` | 工单日志 |
+| | `faults` | 故障记录（旧） |
+| | `fault_types` | 故障类型 |
+| **知识库** | `knowledge_base` | 知识库文章 |
+| | `knowledge_attachments` | 知识库附件 |
+| **备件** | `spare_parts` | 备件档案 |
+| | `spare_stocks` | 库存 |
+| | `purchase_orders` | 采购订单 |
+| | `sales_orders` | 销售订单 |
+| **销售** | `opportunities` | 商机 |
+| | `quotations` | 报价 |
+| | `contracts` | 合同 |
+| | `projects` | 项目 |
+| **机柜** | `rack_locations` | 机房位置 |
+| | `racks` | 机柜 |
+| | `rack_installs` | 设备安装 |
+| **AI** | `ai_config` | AI 配置 |
 
 ---
 
-## API 接口
+## 角色与权限
 
-| 方法 | 路径 | 说明 | 返回 |
-|------|------|------|------|
-| GET | `/api/devices/<id>` | 获取设备 JSON | `{id, device_name, password, ...}` |
-| GET | `/api/devices/<id>/password-history` | 密码修改历史 | `[{password, changed_by, created_at}, ...]` |
-| GET | `/api/customers/<id>/devices` | 客户设备列表 | `[{id, device_name, ip_address, ...}]` |
+| 角色 | 说明 | 典型权限 |
+|------|------|----------|
+| `admin` | 系统管理员 | 全部权限 |
+| `operator` | 运维工程师 | 设备/巡检/工单/知识库管理 |
+| `sales` | 销售人员 | 客户/销售管线/备件查看 |
+| `viewer` | 只读用户 | 所有模块只读 |
+
+系统支持 50+ 细粒度权限码，可按模块和操作（查看/新增/编辑/删除）精确控制。
 
 ---
 
 ## 报告生成
 
-使用 `python-docx` 库生成 Word 文档。
+使用 `python-docx` 生成 Word 文档。
 
 ### 巡检报告
 
 - 文件名：`巡检报告_{标题}_{时间戳}.docx`
-- 内容：封面 → 基本信息表 → 设备检查明细（按设备分组，含检查项表） → 巡检结论
+- 内容：封面 → 基本信息表 → 设备检查明细（按设备分组） → 巡检结论
+- 审核通过后自动生成
 
 ### 故障报告
 
 - 文件名：`故障报告_{标题}_{时间戳}.docx`
-- 内容：封面 → 基本信息表 → 故障描述 → 故障原因分析 → 解决方案
+- 内容：封面 → 基本信息 → 故障描述 → 原因分析 → 解决方案
 
 ### 封面格式
 
 ```
-客户名称+报告分类+报告    ← 宋体 26pt 居中
+客户名称 + 报告分类 + 报告       ← 宋体 26pt 居中
 （空行）
-江西丰功信息技术有限公司  ← 宋体 16pt 居中
-中文大写日期             ← 宋体 16pt 居中
+江西丰功信息技术有限公司         ← 宋体 16pt 居中
+中文大写日期                    ← 宋体 16pt 居中
 --- 分页 ---
 正文...
 ```
@@ -361,77 +455,77 @@ itsm-system/
 
 ### 密码加密
 
-- 使用 `cryptography` 库的 `Fernet` 对称加密（AES-128-CBC + HMAC-SHA256）
+- 设备密码使用 `cryptography` Fernet 对称加密（AES-128-CBC + HMAC-SHA256）
 - 密钥存储在 `.secret.key` 文件
-- 密钥文件与数据库必须同时备份，否则密码无法解密
+- **密钥文件与数据库必须同时备份，否则所有设备密码永久不可恢复**
 
-### 会话
+### 会话与 CSRF
 
-- Flask 签名 Cookie 会话
-- `SECRET_KEY` 固定值确保重启后会话持续
+- Flask-Login 会话管理
+- Flask-WTF CSRF 保护
+- 生产环境 `secure` Cookie 自动启用
+- `ITSM_SECRET_KEY` 必须配置强随机密钥
 
-### 权限
+### 访问控制
 
 - `@login_required` 保护所有页面
-- `@admin_required` 保护用户管理页面
-- 操作员角色无法访问用户管理
+- `@require_permission` 细粒度权限控制
+- Flask-Limiter 速率限制
+
+### 安全头
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `Strict-Transport-Security`（HSTS）
 
 ---
 
-## 安装为 Windows 服务
+## 备份与回滚
 
-使用任务计划程序实现开机自启：
+### 定时备份
 
-```powershell
-# 管理员 PowerShell
-Set-ExecutionPolicy Bypass -Scope Process
-.\install_service.ps1
+建议加入 crontab，每天凌晨自动备份：
+
+```bash
+0 3 * * * /opt/itsm/scripts/backup.sh
 ```
 
-建议：复制项目后手动编辑 `install_service.ps1` 中的路径。
+备份内容：`instance/itsm.db` + `.secret.key` + `.env`，保留最近 30 份。
 
-**管理命令：**
+### 紧急回滚
 
-```powershell
-schtasks /end /tn ITSM_App            # 停止
-schtasks /run /tn ITSM_App            # 启动
-schtasks /delete /tn ITSM_App /f      # 删除任务
+```bash
+# 查看可用备份
+sudo bash /opt/itsm/scripts/rollback.sh
+
+# 回滚到指定备份
+sudo bash /opt/itsm/scripts/rollback.sh backups/itsm.db.pre_update_20260615_120000
 ```
-
----
-
-## 数据迁移
-
-### 移植到其他电脑
-
-1. 安装 Python 3.10+
-2. 复制整个 `itsm-system` 文件夹
-3. 安装依赖：`pip install -r requirements.txt`
-4. 启动：`python app.py`
-5. 访问 http://127.0.0.1:5000
-
-**⚠️ 必须复制以下文件：**
-- `instance/itsm.db` — 所有业务数据
-- `.secret.key` — 密码加密密钥（丢了密码全废）
 
 ---
 
 ## 常见问题
 
 **Q：端口被占用？**
-> 修改 `app.py` 最后一行的端口号，或结束占用进程。
+> 修改 `app.py` 最后的端口号，或修改 `scripts/itsm.service` 中 Gunicorn 的 `--bind` 参数。
 
 **Q：数据库在哪里？**
-> `instance/itsm.db`，SQLite 单文件，无需数据库服务。
+> `instance/itsm.db`，SQLite 单文件，无需安装数据库服务。
 
 **Q：想清空数据从头开始？**
 > 删除 `instance/itsm.db` 和 `.secret.key`，重启自动重建。
 
-**Q：批量导入的 Excel 格式？**
-> 第一行表头，支持列：所属客户、设备名称（必填）、设备类型、品牌、型号、序列号、IP地址、端口、登录用户名、登录密码、登录方式、接口、系统版本、规则库版本、授权截止日期、备注。
+**Q：批量导入 Excel 格式？**
+> 在设备列表页点击「下载模板」获取标准格式。
 
-**Q：接口字段怎么用？**
-> 新增/编辑设备时，接口默认显示 2 个输入框，可点「添加接口」增加，右侧 × 删除。存储为 JSON 数组。
+**Q：密钥丢了怎么办？**
+> `.secret.key` 丢失后所有已加密的设备密码将永久无法解密。务必定期备份 `.secret.key` 和数据库。
+
+**Q：如何从旧版本迁移数据？**
+> 将旧环境的 `instance/itsm.db` 和 `.secret.key` 复制到新环境的对应位置即可。
+
+**Q：Ubuntu 24 部署后外网无法访问？**
+> Gunicorn 绑定 `0.0.0.0:5000`，检查防火墙是否放行 5000 端口。生产环境建议配置 Nginx 反代。
 
 ---
 
@@ -439,17 +533,22 @@ schtasks /delete /tn ITSM_App /f      # 删除任务
 
 | 技术 | 用途 |
 |------|------|
-| Python 3.14+ | 运行环境 |
-| Flask | Web 框架 |
-| Flask-SQLAlchemy | ORM / 数据库 |
-| Flask-Login | 用户会话 |
+| Python 3.10+ | 运行环境 |
+| Flask 3.1 | Web 框架 |
+| Flask-SQLAlchemy | ORM |
+| Flask-Login | 用户认证 |
+| Flask-WTF | CSRF 保护 |
+| Flask-Limiter | 速率限制 |
 | SQLite | 数据库 |
 | Jinja2 | 模板引擎 |
 | Bootstrap 5 | 前端 UI |
+| Gunicorn | 生产 WSGI 服务器 |
+| systemd | 进程管理 |
 | python-docx | Word 报告生成 |
 | cryptography | AES 密码加密 |
-| openpyxl | Excel 导入/导出 |
+| openpyxl | Excel 导入导出 |
+| psutil | 系统监控 |
 
 ---
 
-*文档生成时间: 2026-05-22*
+*最后更新: 2026-06-15*
