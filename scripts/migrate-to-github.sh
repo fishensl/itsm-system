@@ -152,6 +152,10 @@ chown -R itsm:itsm "${APP_DIR}"
 
 # systemd 服务
 cp "${APP_DIR}/scripts/itsm.service" /etc/systemd/system/itsm.service
+# 如果目录不是 /opt/itsm，自动替换路径
+if [ "${APP_DIR}" != "/opt/itsm" ]; then
+    sed -i "s|/opt/itsm|${APP_DIR}|g" /etc/systemd/system/itsm.service
+fi
 systemctl daemon-reload
 systemctl enable itsm
 
