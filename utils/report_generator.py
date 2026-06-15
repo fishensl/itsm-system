@@ -690,7 +690,9 @@ def generate_inspection_report_v4(inspection, customer_name, device_results=None
             chk_t.alignment = WD_TABLE_ALIGNMENT.CENTER
             _add_table_row(chk_t, ['序号', '巡检内容', '检查项目说明', '巡检情况说明', '备注'], bold=True, header=True)
             for item_idx, item in enumerate(items, 1):
-                name = item.get('name', '')
+                # V14: 子项目以「主项目.子项目标签」形式存储 → 美化为「主项目 · 子项目」
+                raw_name = item.get('name', '')
+                name = raw_name.replace('.', ' · ') if '.' in raw_name else raw_name
                 help_txt = item.get('help_text', '')
                 val = item.get('value', '-')
                 ft = item.get('field_type', 'text')
@@ -699,6 +701,8 @@ def generate_inspection_report_v4(inspection, customer_name, device_results=None
                         disp = '☑ 正常 □ 其他'
                     else:
                         disp = f'□ 正常 ☑ {val}'
+                elif ft == 'config_backup':
+                    disp = f'已上传：{val}' if val and val != '-' else '未上传'
                 else:
                     disp = str(val)
                 _add_table_row(chk_t, [str(item_idx), name, help_txt, disp, ''])

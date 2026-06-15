@@ -383,6 +383,58 @@ class InspectionDeviceTemplate(db.Model):
     task_templates = db.relationship('InspectionTaskTemplate', secondary=task_device_template_link,
                                      back_populates='device_templates', lazy='dynamic')
 
+    # ---- V14: 检查项子项目（自定义组合）支持 ----
+    # 新格式（向后兼容）：
+    #   {"name": "电源检查", "description": "...", "enabled": true, "required": true, "allow_skip": false,
+    #    "sub_items": [
+    #        {"label":"状态", "field_type":"status_note", "required":true, "options":"正常,异常", ...},
+    #        {"label":"照片", "field_type":"image", "required":false, ...}
+    #    ]}
+    # 旧格式：{"name":"...", "field_type":"status_note", ...} —— get_normalized_items() 会自动将其
+    # 包装成 sub_items: [{label: 主项目 name, field_type: 旧 field_type, ...继承父字段}]，
+    # 让下游消费方（巡检表单 / 报告生成器）只需处理一种结构。
+
+    def get_normalized_items(self):
+        """返回标准化后的检查项列表：每个项目都保证含一个非空 sub_items 数组。
+        旧格式（顶层 field_type）的项目会被自动包装为单元素 sub_items。"""
+        import json as _json
+        try:
+            items = _json.loads(self.items_json or '[]') or []
+        except Exception:
+            return []
+        out = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            subs = it.get('sub_items')
+            if isinstance(subs, list) and len(subs) > 0:
+                out.append(it)
+                continue
+            # 旧格式包装
+            wrapped = dict(it)
+            wrapped['sub_items'] = [{
+                'label': '',  # 空标签 → 渲染时使用主项目名
+                'field_type': it.get('field_type', 'text'),
+                'required': it.get('required', False),
+                'allow_skip': it.get('allow_skip', False),
+                'skip_reasons': it.get('skip_reasons', ''),
+                'options': it.get('options', ''),
+                'help_text': it.get('help_text', ''),
+                'default_result': it.get('default_result', ''),
+                'ping_target_default': it.get('ping_target_default', ''),
+                'min_version': it.get('min_version', ''),
+                'min_rule_version': it.get('min_rule_version', ''),
+                'placeholder': it.get('placeholder', ''),
+                'sort_order': 0,
+            }]
+            out.append(wrapped)
+        return out
+
+    @property
+    def total_sub_items(self):
+        """统计所有子项目总数（用于卡片显示真实检查点数量）。"""
+        return sum(len(it.get('sub_items') or [{}]) for it in self.get_normalized_items())
+
 
 class InspectionTaskTemplate(db.Model):
     """巡检任务模板 — 定义巡检任务的结构（整份报告骨架）"""

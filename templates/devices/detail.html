@@ -3,6 +3,7 @@
 <div class="page-toolbar">
     <div class="actions">
         <button class="btn btn-sm btn-outline-primary" onclick="editDevice({{ device.id }})"><i class="bi-pencil"></i> 编辑</button>
+        <a href="{{ url_for('asset.device_config_backups', id=device.id) }}" class="btn btn-sm btn-outline-info"><i class="bi-cloud-upload"></i> 配置备份</a>
         <a href="{{ url_for('asset.device_delete', id=device.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('确定删除该设备？')"><i class="bi-trash"></i> 删除</a>
         <a href="{{ url_for('asset.device_list') }}" class="btn btn-sm btn-secondary">返回列表</a>
     </div>

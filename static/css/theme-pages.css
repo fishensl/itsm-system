@@ -87,6 +87,16 @@
 :root[data-theme="dark"] .table,
 :root[data-theme="dark"] .table td,
 :root[data-theme="dark"] .table th {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--gray-700);
+    --bs-table-border-color: var(--border);
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.04);
+    --bs-table-striped-color: var(--gray-700);
+    --bs-table-hover-bg: var(--primary-soft);
+    --bs-table-hover-color: var(--gray-900);
+    --bs-link-color: #6ea8fe;
+    --bs-link-hover-color: #8bb9fe;
+    --bs-link-color-rgb: 110, 168, 254;
     color: var(--gray-700);
     border-color: var(--border);
 }

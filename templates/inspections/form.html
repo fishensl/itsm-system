@@ -795,56 +795,114 @@ function renderDeviceCard(d, container) {
 }
 
 function renderCheckItem(item, deviceId, idx) {
+    // V14: 支持 sub_items 自定义组合 — 一个主项目可有多个子输入（如「状态 + 照片」）
+    var subs = (item.sub_items && item.sub_items.length) ? item.sub_items : null;
+    if (subs) {
+        // 多子项目：返回包裹了所有子项目行的容器
+        var wrapper = document.createElement('div');
+        wrapper.className = 'mb-2 check-item-group border-start border-3 ps-2';
+        wrapper.dataset.deviceId = deviceId;
+        var header = document.createElement('div');
+        header.className = 'small text-muted mb-1';
+        header.innerHTML = '<i class="bi-list-nested me-1"></i><strong>' + escHtml(item.name) +
+            (item.help_text ? ' <i class="bi-info-circle text-info" title="'+escAttr(item.help_text)+'"></i>' : '') + '</strong>';
+        wrapper.appendChild(header);
+        subs.forEach(function(sub){
+            var fieldKey = item.name + (sub.label ? '.' + sub.label : '');
+            wrapper.appendChild(renderSubItemRow(sub, item, deviceId, fieldKey));
+        });
+        return wrapper;
+    }
+    // 旧格式（单 field_type）：保留单行显示
+    return renderSubItemRow(item, item, deviceId, item.name, /*isFlat*/true);
+}
+
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+
+// 单个子项目（或旧格式单字段）的输入行
+function renderSubItemRow(sub, parentItem, deviceId, fieldKey, isFlat) {
     var div = document.createElement('div');
     div.className = 'row mb-1 align-items-center check-item';
-    div.dataset.field = item.name;
+    div.dataset.field = fieldKey;
     div.dataset.deviceId = deviceId;
-    div.dataset.fieldType = item.field_type || 'text';
+    div.dataset.fieldType = sub.field_type || 'text';
 
-    var labelHtml = '<label class="col-form-label col-form-label-sm col-md-3 text-end" title="' + (item.help_text || '') + '">' +
-        item.name + (item.required ? '<span class="text-danger">*</span>' : '') +
-        (item.help_text ? '<i class="bi-info-circle text-info ms-1" title="' + item.help_text + '"></i>' : '') +
+    var labelText = isFlat ? parentItem.name : (sub.label || '子项');
+    var helpText = sub.help_text || parentItem.help_text || '';
+    var labelHtml = '<label class="col-form-label col-form-label-sm col-md-3 text-end" title="' + escAttr(helpText) + '">' +
+        escHtml(labelText) + (sub.required ? '<span class="text-danger">*</span>' : '') +
+        (helpText ? ' <i class="bi-info-circle text-info ms-1" title="' + escAttr(helpText) + '"></i>' : '') +
         '</label>';
 
     var inputHtml = '';
-    switch (item.field_type || 'text') {
+    var ft = sub.field_type || 'text';
+    var fkAttr = ' data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '"';
+    switch (ft) {
         case 'dropdown':
-            var opts = (item.options || '正常,异常').split(',');
-            inputHtml = '<select class="form-select form-select-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '">';
-            opts.forEach(function(o) { inputHtml += '<option>' + o.trim() + '</option>'; });
+        case 'status_note':
+        case 'status_abnormal':
+            var defaultOpts = (ft === 'status_abnormal') ? '正常,异常' : '正常,不正常';
+            var opts = (sub.options || defaultOpts).split(',');
+            inputHtml = '<select class="form-select form-select-sm check-value"' + fkAttr + '>';
+            opts.forEach(function(o) { inputHtml += '<option>' + escHtml(o.trim()) + '</option>'; });
             inputHtml += '</select>';
-            // Skip reason area for required+allow_skip dropdowns
-            if (item.required && item.allow_skip) {
+            if (sub.required && sub.allow_skip) {
                 inputHtml += '<div class="skip-area mt-1 d-none">' +
                     '<select class="form-select form-select-sm skip-reason" style="width:auto"><option value="">--跳过原因--</option>' +
-                    (item.skip_reasons || '').split(',').map(function(r){return '<option>'+r.trim()+'</option>';}).join('') +
+                    (sub.skip_reasons || '').split(',').filter(Boolean).map(function(r){return '<option>'+escHtml(r.trim())+'</option>';}).join('') +
                     '<option value="其他">其他</option></select>' +
                     '<textarea class="form-control form-control-sm mt-1 skip-detail" rows="1" placeholder="详细说明"></textarea></div>';
             }
             break;
+        case 'percentage':
+            inputHtml = '<div class="input-group input-group-sm">' +
+                '<select class="form-select check-value"' + fkAttr + ' style="max-width:100px;"><option>正常</option><option>不正常</option></select>' +
+                '<input type="number" class="form-control check-value" data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '.百分比" min="0" max="100" placeholder="百分比">' +
+                '<span class="input-group-text">%</span></div>';
+            break;
+        case 'ping_test':
+            inputHtml = '<div class="input-group input-group-sm">' +
+                '<input type="text" class="form-control check-value" data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '.目标" value="' + escAttr(sub.ping_target_default || '') + '" placeholder="Ping 目标">' +
+                '<select class="form-select check-value"' + fkAttr + ' style="max-width:120px;"><option>通</option><option>不通</option><option>丢包</option></select></div>';
+            break;
         case 'text':
-            inputHtml = '<input type="text" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '" placeholder="' + (item.placeholder || '') + '">';
+            inputHtml = '<input type="text" class="form-control form-control-sm check-value"' + fkAttr + ' placeholder="' + escAttr(sub.placeholder || '') + '">';
             break;
         case 'multiline_text':
-            inputHtml = '<textarea class="form-control form-control-sm check-value" rows="2" data-device="' + deviceId + '" data-field="' + item.name + '" placeholder="' + (item.placeholder || '') + '"></textarea>';
+            inputHtml = '<textarea class="form-control form-control-sm check-value" rows="2"' + fkAttr + ' placeholder="' + escAttr(sub.placeholder || '') + '"></textarea>';
             break;
         case 'number':
-            inputHtml = '<input type="number" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '" step="0.1">';
+            inputHtml = '<input type="number" class="form-control form-control-sm check-value"' + fkAttr + ' step="0.1">';
             break;
         case 'date':
-            inputHtml = '<input type="date" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '">';
+            inputHtml = '<input type="date" class="form-control form-control-sm check-value"' + fkAttr + '>';
             break;
         case 'image':
-            inputHtml = '<input type="file" class="form-control form-control-sm check-photo" accept="image/*" data-device="' + deviceId + '" data-field="' + item.name + '" onchange="uploadCheckPhoto(this)">';
+            inputHtml = '<input type="file" class="form-control form-control-sm check-photo" accept="image/*"' + fkAttr + ' onchange="uploadCheckPhoto(this)">';
+            break;
+        case 'version_check':
+            inputHtml = '<div class="input-group input-group-sm">' +
+                '<span class="input-group-text">系统</span>' +
+                '<input type="text" class="form-control check-value" data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '.系统版本" placeholder="如 V7.0.2">' +
+                '<span class="input-group-text">规则库</span>' +
+                '<input type="text" class="form-control check-value" data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '.规则库版本" placeholder="如 IPS-20260101"></div>';
+            break;
+        case 'config_backup':
+            inputHtml = '<div class="row g-1">' +
+                '<div class="col-md-7"><input type="file" class="form-control form-control-sm check-config-file" accept=".txt,.cfg,.conf,.log,.cli,.bak"' +
+                    ' data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '" onchange="uploadCheckConfig(this)"></div>' +
+                '<div class="col-md-5"><input type="text" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + escAttr(fieldKey) + '.版本号" placeholder="版本号 / 备注"></div>' +
+                '</div>';
             break;
         default:
-            inputHtml = '<input type="text" class="form-control form-control-sm check-value" data-device="' + deviceId + '" data-field="' + item.name + '">';
+            inputHtml = '<input type="text" class="form-control form-control-sm check-value"' + fkAttr + '>';
     }
 
     div.innerHTML = labelHtml + '<div class="col-md-8">' + inputHtml + '</div>';
 
-    // Dropdown change: show skip reason if "非正常" value selected
-    if (item.field_type === 'dropdown' && item.required && item.allow_skip) {
+    // Dropdown/status change: show skip reason if "非正常" value selected
+    if ((ft === 'dropdown' || ft === 'status_note' || ft === 'status_abnormal') && sub.required && sub.allow_skip) {
         setTimeout(function() {
             var sel = div.querySelector('.check-value');
             if (sel) {
@@ -860,6 +918,39 @@ function renderCheckItem(item, deviceId, idx) {
     }
 
     return div;
+}
+
+// 巡检表单中 config_backup 字段：选择文件后立即上传到设备的配置备份历史
+function uploadCheckConfig(input) {
+    var file = input.files[0];
+    if (!file) return;
+    var deviceId = input.dataset.device;
+    var formData = new FormData();
+    formData.append('file', file);
+    // 尝试拿同行的版本号
+    var versionInput = input.closest('.row').querySelector('input[data-field$=".版本号"]');
+    if (versionInput && versionInput.value) {
+        formData.append('version', versionInput.value);
+    }
+    fetch('/api/devices/' + deviceId + '/config-backups/upload-from-inspection', {method:'POST', body:formData})
+        .then(function(r){return r.json();})
+        .then(function(data){
+            if (data.success) {
+                // 把备份 id / 文件名写入 input 的 data 属性，并显示提示
+                input.dataset.backupId = data.backup_id;
+                input.dataset.filePath = data.file_path;
+                var hint = document.createElement('small');
+                hint.className = 'text-success ms-2 d-block';
+                hint.innerHTML = '<i class="bi-check-circle"></i> 已上传：' + data.filename + ' (#' + data.backup_id + ')';
+                // 移除前一次提示
+                var prev = input.parentElement.querySelector('small.text-success');
+                if (prev) prev.remove();
+                input.parentElement.appendChild(hint);
+            } else {
+                alert('上传失败：' + (data.error || '未知错误'));
+            }
+        })
+        .catch(function(e){ alert('上传失败：' + e); });
 }
 
 function uploadCheckPhoto(input) {

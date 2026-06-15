@@ -20,6 +20,19 @@
     <i class="bi-info-circle me-1"></i> 设备检查模板定义某类设备的检查项。每个模板包含一组检查项（检查内容、检查方法、合格标准）。<a href="/task-templates" class="alert-link">任务模板</a> 可组合多个设备模板。
 </div>
 
+{% macro count_check_points(items_json) -%}
+{%- set arr = items_json|from_json if items_json else [] -%}
+{%- set ns = namespace(total=0) -%}
+{%- for it in arr -%}
+    {%- if it.sub_items and (it.sub_items|length) > 0 -%}
+        {%- set ns.total = ns.total + (it.sub_items|length) -%}
+    {%- else -%}
+        {%- set ns.total = ns.total + 1 -%}
+    {%- endif -%}
+{%- endfor -%}
+{{ ns.total }} 个检查点（{{ arr|length }} 项）
+{%- endmacro %}
+
 {% if grouped %}
 <div class="cat-tabs" id="catTabs">
     <span class="cat-tab active" data-cat="all">全部 <span class="count">{{ templates|length }}</span></span>
@@ -50,7 +63,7 @@
         </div>
         <div class="card-body py-2">
             {% if t.device_sub_type %}<span class="badge bg-secondary me-1">{{ t.device_sub_type }}</span>{% endif %}
-            <span class="text-muted small">{{ (t.items_json|from_json|list)|length if t.items_json else 0 }} 个检查项</span>
+            <span class="text-muted small">{{ count_check_points(t.items_json) }}</span>
             {% if t.remark %}<p class="text-muted small mt-1 mb-0">{{ t.remark[:60] }}</p>{% endif %}
         </div>
     </div>
@@ -81,7 +94,7 @@
         <div class="card-body py-2">
             <span class="badge bg-info me-1">{{ t.device_category }}</span>
             {% if t.device_sub_type %}<span class="badge bg-secondary me-1">{{ t.device_sub_type }}</span>{% endif %}
-            <span class="text-muted small">{{ (t.items_json|from_json|list)|length if t.items_json else 0 }} 个检查项</span>
+            <span class="text-muted small">{{ count_check_points(t.items_json) }}</span>
             {% if t.remark %}<p class="text-muted small mt-1 mb-0">{{ t.remark[:60] }}</p>{% endif %}
         </div>
     </div>
@@ -118,7 +131,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// V6.1.4 富字段动态行 UI — 对齐 inspection_templates，支持启用/必填/可跳过+原因/字段类型/标准说明等
+// V14 富字段 + 子项目自定义组合 UI
 const DT_FIELD_TYPES = [
     {value:'status_note',     label:'正常/不正常 + 备注'},
     {value:'percentage',      label:'正常/不正常 + 百分比'},
@@ -131,11 +144,99 @@ const DT_FIELD_TYPES = [
     {value:'image',           label:'图片上传'},
     {value:'date',            label:'日期'},
     {value:'version_check',   label:'版本检查（与版本库对比）'},
+    {value:'config_backup',   label:'配置备份（文件上传 + 版本号）'},
 ];
 
 let dtItemCount = 0;
+let dtSubItemCount = 0;  // 全局自增 id，避免主项目内多个子项目 id 冲突
 
 function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function _ftOptionsHtml(selected){
+    return DT_FIELD_TYPES.map(function(t){
+        return '<option value="'+t.value+'"'+(selected===t.value?' selected':'')+'>'+t.label+'</option>';
+    }).join('');
+}
+
+// 添加子项目行（嵌入到指定主项目下）
+function addDtSubItemRow(parentIdx, data) {
+    data = data || {};
+    var subIdx = dtSubItemCount++;
+    var container = document.getElementById('dtSubItems_' + parentIdx);
+    if (!container) return;
+    var ft = data.field_type || 'status_note';
+    var requiredChecked = data.required ? ' checked' : '';
+    var allowSkipChecked = data.allow_skip ? ' checked' : '';
+    var div = document.createElement('div');
+    div.className = 'border rounded p-2 mb-1 dt-sub-row bg-light';
+    div.id = 'dtSub_' + subIdx;
+    div.dataset.parentIdx = parentIdx;
+    div.dataset.subIdx = subIdx;
+    div.innerHTML = `
+        <div class="row g-1 align-items-center">
+            <div class="col-md-3">
+                <input type="text" class="form-control form-control-sm dt-sub-label" placeholder="子项目标签（如：状态/照片/版本号）" value="${escAttr(data.label)}">
+            </div>
+            <div class="col-md-3">
+                <select class="form-select form-select-sm dt-sub-field-type" onchange="onDtSubFieldTypeChange(${subIdx})">${_ftOptionsHtml(ft)}</select>
+            </div>
+            <div class="col-md-2">
+                <input type="text" class="form-control form-control-sm dt-sub-default" placeholder="默认值" value="${escAttr(data.default_result)}">
+            </div>
+            <div class="col-md-3 d-flex gap-2 align-items-center">
+                <div class="form-check form-check-inline mb-0">
+                    <input type="checkbox" class="form-check-input dt-sub-required"${requiredChecked} onchange="onDtSubRequiredChange(${subIdx})">
+                    <label class="form-check-label small">必填</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                    <input type="checkbox" class="form-check-input dt-sub-allow-skip"${allowSkipChecked} onchange="onDtSubRequiredChange(${subIdx})">
+                    <label class="form-check-label small">可跳过</label>
+                </div>
+            </div>
+            <div class="col-md-1 text-end">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDtSubItemRow(${subIdx})" title="删除子项目"><i class="bi-x-lg"></i></button>
+            </div>
+        </div>
+        <div class="row g-1 mt-1 dt-sub-extra-dropdown" id="dtSubExtraDropdown_${subIdx}" style="display:none;">
+            <div class="col-12"><input type="text" class="form-control form-control-sm dt-sub-options" placeholder="下拉选项（逗号分隔，如：正常,异常,警告）" value="${escAttr(data.options)}"></div>
+        </div>
+        <div class="row g-1 mt-1 dt-sub-extra-skip" id="dtSubExtraSkip_${subIdx}" style="display:none;">
+            <div class="col-12"><input type="text" class="form-control form-control-sm dt-sub-skip-reasons" placeholder="跳过原因（逗号分隔）" value="${escAttr(data.skip_reasons)}"></div>
+        </div>
+        <div class="row g-1 mt-1 dt-sub-extra-ping" id="dtSubExtraPing_${subIdx}" style="display:none;">
+            <div class="col-md-6"><input type="text" class="form-control form-control-sm dt-sub-ping-target" placeholder="默认 Ping 地址" value="${escAttr(data.ping_target_default)}"></div>
+        </div>
+        <div class="row g-1 mt-1 dt-sub-extra-version" id="dtSubExtraVersion_${subIdx}" style="display:none;">
+            <div class="col-md-6"><input type="text" class="form-control form-control-sm dt-sub-min-version" placeholder="最低系统版本（如：V7.0.2）" value="${escAttr(data.min_version)}"></div>
+            <div class="col-md-6"><input type="text" class="form-control form-control-sm dt-sub-min-rule-version" placeholder="最低规则库版本（如：IPS-20260101）" value="${escAttr(data.min_rule_version)}"></div>
+        </div>
+    `;
+    container.appendChild(div);
+    onDtSubFieldTypeChange(subIdx);
+    onDtSubRequiredChange(subIdx);
+}
+
+function onDtSubFieldTypeChange(subIdx) {
+    var row = document.getElementById('dtSub_' + subIdx);
+    if (!row) return;
+    var ft = row.querySelector('.dt-sub-field-type').value;
+    document.getElementById('dtSubExtraDropdown_'+subIdx).style.display = (ft === 'dropdown') ? '' : 'none';
+    document.getElementById('dtSubExtraPing_'+subIdx).style.display    = (ft === 'ping_test') ? '' : 'none';
+    document.getElementById('dtSubExtraVersion_'+subIdx).style.display = (ft === 'version_check') ? '' : 'none';
+}
+
+function onDtSubRequiredChange(subIdx) {
+    var row = document.getElementById('dtSub_' + subIdx);
+    if (!row) return;
+    var required = row.querySelector('.dt-sub-required').checked;
+    var allowSkip = row.querySelector('.dt-sub-allow-skip').checked;
+    document.getElementById('dtSubExtraSkip_'+subIdx).style.display = (required && allowSkip) ? '' : 'none';
+}
+
+function removeDtSubItemRow(subIdx) {
+    var el = document.getElementById('dtSub_' + subIdx);
+    if (el) el.remove();
+}
 
 function addDtItemRow(data) {
     data = data || {};
@@ -146,47 +247,32 @@ function addDtItemRow(data) {
     div.id = 'dtItem_' + idx;
     div.dataset.idx = idx;
 
-    var ft = data.field_type || 'status_note';
-    var ftOpts = DT_FIELD_TYPES.map(function(t){
-        return '<option value="'+t.value+'"'+(ft===t.value?' selected':'')+'>'+t.label+'</option>';
-    }).join('');
-
     // enabled 默认 true（旧数据无此字段视为启用）
     var enabledChecked = (data.enabled === false) ? '' : ' checked';
-    var requiredChecked = data.required ? ' checked' : '';
-    var allowSkipChecked = data.allow_skip ? ' checked' : '';
 
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-1">
             <span class="badge bg-primary">检查项 #${idx+1}</span>
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDtItemRow(${idx})"><i class="bi-x-lg"></i> 删除</button>
+            <div>
+                <button type="button" class="btn btn-sm btn-outline-success" onclick="addDtSubItemRow(${idx})"><i class="bi-plus-lg"></i> 添加子项目</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDtItemRow(${idx})"><i class="bi-x-lg"></i> 删除</button>
+            </div>
         </div>
         <div class="row g-1">
-            <div class="col-md-4">
+            <div class="col-md-7">
                 <input type="text" class="form-control form-control-sm dt-item-name" placeholder="巡检内容 *（如：检查电源情况）" value="${escAttr(data.name)}">
-            </div>
-            <div class="col-md-3">
-                <select class="form-select form-select-sm dt-item-field-type" onchange="onDtFieldTypeChange(${idx})">${ftOpts}</select>
             </div>
             <div class="col-md-5 d-flex align-items-center gap-2 flex-wrap">
                 <div class="form-check form-check-inline mb-0">
                     <input type="checkbox" class="form-check-input dt-item-enabled" ${enabledChecked}>
                     <label class="form-check-label small">启用</label>
                 </div>
-                <div class="form-check form-check-inline mb-0">
-                    <input type="checkbox" class="form-check-input dt-item-required" ${requiredChecked} onchange="onDtRequiredChange(${idx})">
-                    <label class="form-check-label small">必填</label>
-                </div>
-                <div class="form-check form-check-inline mb-0">
-                    <input type="checkbox" class="form-check-input dt-item-allow-skip" ${allowSkipChecked} onchange="onDtRequiredChange(${idx})">
-                    <label class="form-check-label small">可跳过</label>
-                </div>
-                <input type="text" class="form-control form-control-sm dt-item-default" placeholder="默认值" value="${escAttr(data.default_result)}" style="max-width:120px;">
+                <small class="text-muted">字段类型在「子项目」中设置 →</small>
             </div>
         </div>
         <div class="row g-1 mt-1">
             <div class="col-12">
-                <textarea class="form-control form-control-sm dt-item-description" rows="2" placeholder="检查项目说明（如：检查周边和设备内外是否有变形、变色、异味等现象；环境温度、湿度情况）">${escAttr(data.description||data.method)}</textarea>
+                <textarea class="form-control form-control-sm dt-item-description" rows="2" placeholder="检查项目说明（如：检查周边和设备内外是否有变形、变色、异味等现象）">${escAttr(data.description||data.method)}</textarea>
             </div>
         </div>
         <div class="row g-1 mt-1">
@@ -197,51 +283,28 @@ function addDtItemRow(data) {
                 <input type="text" class="form-control form-control-sm dt-item-help-text" placeholder="帮助提示（如：登录设备执行 display version 查看）" value="${escAttr(data.help_text)}">
             </div>
         </div>
-        <div class="row g-1 mt-1 dt-item-extra-dropdown" id="dtItemExtraDropdown_${idx}" style="display:none;">
-            <div class="col-md-12">
-                <input type="text" class="form-control form-control-sm dt-item-options" placeholder="下拉选项（逗号分隔，如：正常,异常,警告）" value="${escAttr(data.options)}">
-            </div>
-        </div>
-        <div class="row g-1 mt-1 dt-item-extra-skip" id="dtItemExtraSkip_${idx}" style="display:none;">
-            <div class="col-md-12">
-                <input type="text" class="form-control form-control-sm dt-item-skip-reasons" placeholder="跳过原因（逗号分隔，如：授权过期无法升级,设备EOL不再支持,客户拒绝升级,其他）" value="${escAttr(data.skip_reasons)}">
-            </div>
-        </div>
-        <div class="row g-1 mt-1 dt-item-extra-ping" id="dtItemExtraPing_${idx}" style="display:none;">
-            <div class="col-md-6">
-                <input type="text" class="form-control form-control-sm dt-item-ping-target" placeholder="默认 Ping 地址（如：10.36.5.60）" value="${escAttr(data.ping_target_default)}">
-            </div>
-        </div>
-        <div class="row g-1 mt-1 dt-item-extra-version" id="dtItemExtraVersion_${idx}" style="display:none;">
-            <div class="col-md-6">
-                <input type="text" class="form-control form-control-sm dt-item-min-version" placeholder="最低系统版本（如：V7.0.2）" value="${escAttr(data.min_version)}">
-            </div>
-            <div class="col-md-6">
-                <input type="text" class="form-control form-control-sm dt-item-min-rule-version" placeholder="最低规则库版本（如：IPS-20260101）" value="${escAttr(data.min_rule_version)}">
-            </div>
+        <div class="mt-2">
+            <div class="small text-muted mb-1"><i class="bi-list-nested"></i> 子项目（自定义组合，如「状态 + 照片」可在同一巡检项中要求多种输入）</div>
+            <div id="dtSubItems_${idx}" class="ps-2"></div>
         </div>
     `;
     container.appendChild(div);
-    onDtFieldTypeChange(idx);
-    onDtRequiredChange(idx);
-}
 
-function onDtFieldTypeChange(idx) {
-    var row = document.getElementById('dtItem_' + idx);
-    if (!row) return;
-    var ft = row.querySelector('.dt-item-field-type').value;
-    document.getElementById('dtItemExtraDropdown_'+idx).style.display = (ft === 'dropdown') ? '' : 'none';
-    document.getElementById('dtItemExtraPing_'+idx).style.display    = (ft === 'ping_test') ? '' : 'none';
-    document.getElementById('dtItemExtraVersion_'+idx).style.display = (ft === 'version_check') ? '' : 'none';
-}
-
-function onDtRequiredChange(idx) {
-    var row = document.getElementById('dtItem_' + idx);
-    if (!row) return;
-    var required = row.querySelector('.dt-item-required').checked;
-    var allowSkip = row.querySelector('.dt-item-allow-skip').checked;
-    // 仅当 必填 + 可跳过 时才显示跳过原因输入
-    document.getElementById('dtItemExtraSkip_'+idx).style.display = (required && allowSkip) ? '' : 'none';
+    // 渲染子项目：新格式优先用 sub_items；旧格式按单 field_type 包装一个
+    var subs = (data.sub_items && data.sub_items.length) ? data.sub_items :
+               [{
+                   label: '',
+                   field_type: data.field_type || 'status_note',
+                   required: !!data.required,
+                   allow_skip: !!data.allow_skip,
+                   skip_reasons: data.skip_reasons || '',
+                   options: data.options || '',
+                   default_result: data.default_result || '',
+                   ping_target_default: data.ping_target_default || '',
+                   min_version: data.min_version || '',
+                   min_rule_version: data.min_rule_version || '',
+               }];
+    subs.forEach(function(s){ addDtSubItemRow(idx, s); });
 }
 
 function removeDtItemRow(idx) {
@@ -252,8 +315,24 @@ function removeDtItemRow(idx) {
 function resetDtItems(items) {
     document.getElementById('dtItemsContainer').innerHTML = '';
     dtItemCount = 0;
+    dtSubItemCount = 0;
     var arr = (items && items.length) ? items : [{}];
     arr.forEach(function(it){ addDtItemRow(it); });
+}
+
+function _collectSubItem(row) {
+    return {
+        label: (row.querySelector('.dt-sub-label')||{}).value || '',
+        field_type: row.querySelector('.dt-sub-field-type').value,
+        required: row.querySelector('.dt-sub-required').checked,
+        allow_skip: row.querySelector('.dt-sub-allow-skip').checked,
+        skip_reasons: (row.querySelector('.dt-sub-skip-reasons')||{}).value || '',
+        options: (row.querySelector('.dt-sub-options')||{}).value || '',
+        default_result: (row.querySelector('.dt-sub-default')||{}).value || '',
+        ping_target_default: (row.querySelector('.dt-sub-ping-target')||{}).value || '',
+        min_version: (row.querySelector('.dt-sub-min-version')||{}).value || '',
+        min_rule_version: (row.querySelector('.dt-sub-min-rule-version')||{}).value || '',
+    };
 }
 
 function collectDtItems() {
@@ -264,23 +343,37 @@ function collectDtItems() {
         var name = (row.querySelector('.dt-item-name')||{}).value || '';
         name = name.trim();
         if (!name) return;
-        items.push({
+        var subRows = row.querySelectorAll('.dt-sub-row');
+        var subs = [];
+        subRows.forEach(function(sr){ subs.push(_collectSubItem(sr)); });
+        // 主项目级别字段
+        var item = {
             name: name,
-            field_type: row.querySelector('.dt-item-field-type').value,
             description: (row.querySelector('.dt-item-description')||{}).value || '',
             standard_desc: (row.querySelector('.dt-item-standard-desc')||{}).value || '',
             help_text: (row.querySelector('.dt-item-help-text')||{}).value || '',
-            default_result: (row.querySelector('.dt-item-default')||{}).value || '',
             enabled: row.querySelector('.dt-item-enabled').checked,
-            required: row.querySelector('.dt-item-required').checked,
-            allow_skip: row.querySelector('.dt-item-allow-skip').checked,
-            options: (row.querySelector('.dt-item-options')||{}).value || '',
-            skip_reasons: (row.querySelector('.dt-item-skip-reasons')||{}).value || '',
-            ping_target_default: (row.querySelector('.dt-item-ping-target')||{}).value || '',
-            min_version: (row.querySelector('.dt-item-min-version')||{}).value || '',
-            min_rule_version: (row.querySelector('.dt-item-min-rule-version')||{}).value || '',
             sort_order: order++,
-        });
+        };
+        if (subs.length === 1 && !subs[0].label) {
+            // 单子项目且无标签 → 写回旧格式（向后兼容）
+            var s = subs[0];
+            item.field_type = s.field_type;
+            item.required = s.required;
+            item.allow_skip = s.allow_skip;
+            item.skip_reasons = s.skip_reasons;
+            item.options = s.options;
+            item.default_result = s.default_result;
+            item.ping_target_default = s.ping_target_default;
+            item.min_version = s.min_version;
+            item.min_rule_version = s.min_rule_version;
+        } else if (subs.length >= 1) {
+            // 多子项目 → 新格式
+            item.sub_items = subs.map(function(s, i){ return Object.assign({}, s, {sort_order: i}); });
+            // 主项目级别 required = 任一子项目 required
+            item.required = subs.some(function(s){ return s.required; });
+        }
+        items.push(item);
     });
     if (items.length === 0) {
         alert('请至少添加一个检查项');
@@ -290,17 +383,14 @@ function collectDtItems() {
     return true;
 }
 
-// 兼容旧数据：{name, method, pass} → 新富字段
+// 兼容旧数据：{name, method, pass} → 富字段
 function migrateLegacyItem(it) {
     if (!it || typeof it !== 'object') return null;
-    // 已是新格式（带 field_type 或 enabled）
-    if (it.field_type || ('enabled' in it) || ('required' in it)) return it;
-    // 旧格式 {name, method, pass} → 转换
-    var desc = it.method || '';
+    if (it.field_type || ('enabled' in it) || ('required' in it) || it.sub_items) return it;
     return {
         name: it.name || '',
         field_type: 'status_note',
-        description: desc,
+        description: it.method || '',
         standard_desc: it.pass || '',
         help_text: '',
         default_result: '',
