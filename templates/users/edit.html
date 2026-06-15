@@ -6,6 +6,11 @@
         <a href="{{ url_for('user_list') }}" class="btn btn-outline-secondary btn-sm">
             <i class="bi-arrow-left"></i> 返回用户管理
         </a>
+        {% if has_perm('permission:edit') and u.id != 1 %}
+        <a href="{{ url_for('rbac.user_permissions', uid=u.id) }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi-person-check"></i> 权限覆盖
+        </a>
+        {% endif %}
     </div>
 </div>
 
@@ -27,10 +32,9 @@
                 <div class="col-md-6 mb-3">
                     <label class="form-label">角色 <span class="text-danger">*</span></label>
                     <select name="role" class="form-select">
-                        <option value="operator" {% if u.role=='operator' %}selected{% endif %}>运维工程师</option>
-                        <option value="sales" {% if u.role=='sales' %}selected{% endif %}>销售人员</option>
-                        <option value="viewer" {% if u.role=='viewer' %}selected{% endif %}>查看者</option>
-                        <option value="admin" {% if u.role=='admin' %}selected{% endif %}>系统管理员</option>
+                        {% for r in roles %}
+                        <option value="{{ r.code }}" {% if u.role==r.code %}selected{% endif %}>{{ r.name }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-6 mb-3">

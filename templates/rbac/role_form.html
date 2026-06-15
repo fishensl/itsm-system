@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ '编辑' if role else '新建' }}角色 · 权限管理{% endblock %}
+{% block content %}
+{% call ui.page_header(role.name ~ ' — 编辑角色' if role else '新建角色', 'person-plus') %}
+    <a href="{{ url_for('rbac.role_list') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi-arrow-left"></i> 返回角色列表
+    </a>
+{% endcall %}
+
+<div class="card">
+    <div class="card-body">
+        <form method="post">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">角色代码 <span class="text-danger">*</span></label>
+                    {% if role %}
+                    <input type="text" class="form-control" value="{{ role.code }}" disabled>
+                    <small class="text-muted">系统内置角色的代码不可修改</small>
+                    {% else %}
+                    <input type="text" name="code" class="form-control" required
+                           pattern="[a-z0-9_]+" placeholder="例如：auditor">
+                    <small class="text-muted">仅允许小写字母/数字/下划线，创建后不可改</small>
+                    {% endif %}
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">角色名称 <span class="text-danger">*</span></label>
+                    <input type="text" name="name" class="form-control" required
+                           value="{{ role.name if role else '' }}" placeholder="例如：审计员">
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label">描述</label>
+                    <textarea name="description" class="form-control" rows="2"
+                              placeholder="角色的职责说明">{{ role.description if role else '' }}</textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">排序</label>
+                    <input type="number" name="sort_order" class="form-control"
+                           value="{{ role.sort_order if role else 99 }}">
+                    <small class="text-muted">数字越小排序越靠前</small>
+                </div>
+                <div class="col-md-6 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="is_active" id="is_active"
+                               {% if not role or role.is_active %}checked{% endif %}>
+                        <label class="form-check-label" for="is_active">启用该角色</label>
+                    </div>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi-check-lg"></i> 保存
+                </button>
+                <a href="{{ url_for('rbac.role_list') }}" class="btn btn-secondary">取消</a>
+                {% if role %}
+                <a href="{{ url_for('rbac.role_permissions_edit', rid=role.id) }}" class="btn btn-outline-primary ms-auto">
+                    <i class="bi-grid-3x3-gap"></i> 配置权限
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

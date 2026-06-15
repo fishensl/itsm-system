@@ -129,18 +129,65 @@ class UserPermission(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     permission_code = db.Column(db.String(64), nullable=False)
     grant_type = db.Column(db.String(8), default='grant')  # 'grant' / 'deny'
+    # V14: 用户级权限覆盖扩展
+    granted_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    granted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expire_at = db.Column(db.DateTime, nullable=True)
+    remark = db.Column(db.String(256), default='')
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'permission_code', name='uq_user_perm'),
+        db.Index('ix_up_expire', 'expire_at'),
+    )
 
-    user_rel = db.relationship('User', backref='extra_permissions')
+    user_rel = db.relationship('User', backref='extra_permissions', foreign_keys=[user_id])
+    granter_rel = db.relationship('User', backref='granted_user_permissions', foreign_keys=[granted_by_user_id])
 
 
 class Permission(db.Model):
-    """权限码定义表"""
+    """权限码定义表（V14：可停用、可注释）"""
     __tablename__ = 'permissions'
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(64), unique=True, nullable=False)
     name = db.Column(db.String(128), nullable=False)
     category = db.Column(db.String(32), default='')  # customer/asset/ops/sales/spare/system
     sort_order = db.Column(db.Integer, default=0)
+    # V14: 扩展
+    description = db.Column(db.String(512), default='')
+    is_active = db.Column(db.Boolean, default=True)
+    is_system = db.Column(db.Boolean, default=False)  # True=utils/permission.py 常量种入
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Role(db.Model):
+    """角色（V14：可自定义，不再硬编码 4 个）"""
+    __tablename__ = 'roles'
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), unique=True, nullable=False)  # 'admin' / 'operator' / 自定义
+    name = db.Column(db.String(64), nullable=False)
+    description = db.Column(db.String(256), default='')
+    is_system = db.Column(db.Boolean, default=False)   # True=内置不可删
+    is_active = db.Column(db.Boolean, default=True)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    role_perms = db.relationship('RolePermission', backref='role',
+                                cascade='all, delete-orphan', lazy='select')
+    __table_args__ = (
+        db.Index('ix_roles_is_active', 'is_active'),
+    )
+
+
+class RolePermission(db.Model):
+    """角色-权限关联（V14）"""
+    __tablename__ = 'role_permissions'
+    id = db.Column(db.Integer, primary_key=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id', ondelete='CASCADE'),
+                       nullable=False, index=True)
+    permission_code = db.Column(db.String(64), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint('role_id', 'permission_code', name='uq_role_perm'),
+    )
 
 
 # ============================

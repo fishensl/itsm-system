@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}权限覆盖 · {{ user.username }}{% endblock %}
+{% block head_extra %}
+<style>
+.override-row { display: flex; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border-soft, #eef0f3); gap: 8px; }
+.override-row:hover { background: var(--surface-muted, #f8f9fa); }
+.override-row .name { flex: 1; }
+.override-row .code { font-family: monospace; font-size: 12px; color: var(--gray-600, #6c757d); width: 220px; }
+.override-row .ctrl { display: flex; gap: 12px; align-items: center; }
+.override-row .ctrl input[type=date] { width: 150px; }
+.override-row .ctrl input[type=text] { width: 200px; }
+.perm-cat-group { background: var(--surface-muted, #f8f9fa); padding: 8px 12px; font-weight: 600; }
+.search-box { max-width: 320px; }
+</style>
+{% endblock %}
+{% block content %}
+{% call ui.page_header('权限覆盖 · ' ~ user.username, 'person-check') %}
+    <a href="{{ url_for('user_edit', id=user.id) }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi-arrow-left"></i> 返回用户编辑
+    </a>
+{% endcall %}
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <div>
+                用户 <strong>{{ user.username }}</strong>
+                <span class="text-muted">({{ user.realname or '—' }})</span>
+                当前角色：<code>{{ user.role }}</code>
+            </div>
+            <div class="ms-auto">
+                <input type="text" id="permSearch" class="form-control form-control-sm search-box"
+                       placeholder="搜索权限码或名称">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-info py-2 small">
+    <i class="bi-info-circle me-1"></i>
+    三态说明：
+    <span class="badge bg-success">授予</span> = 角色外的额外权限；
+    <span class="badge bg-danger">拒绝</span> = 收回角色默认权限；
+    <span class="badge bg-secondary">继承</span> = 走角色默认（删除该条覆盖）。
+    设置 <code>expire_at</code> 后到期自动失效。
+</div>
+
+<form method="post">
+    <div class="card">
+        <div class="card-body p-0">
+            {% set ns = namespace(cat='') %}
+            {% for p in all_perms %}
+                {% if p.category != ns.cat %}
+                    {% set ns.cat = p.category %}
+                    <div class="perm-cat-group">{{ p.category or '其他' }}</div>
+                {% endif %}
+                {% set ov = overrides.get(p.code) %}
+                {% set cur_state = ov.grant_type if ov else '' %}
+                <div class="override-row perm-item" data-keyword="{{ p.code }} {{ p.name }} {{ p.category }}">
+                    <div class="name">
+                        {{ p.name }}
+                        <span class="code">{{ p.code }}</span>
+                    </div>
+                    <input type="hidden" name="perms_keys" value="{{ p.code }}">
+                    <div class="ctrl">
+                        <label class="form-check-inline">
+                            <input class="form-check-input" type="radio"
+                                   name="perms[{{ p.code }}]" value="" {% if not cur_state %}checked{% endif %}>
+                            <span class="badge bg-secondary">继承</span>
+                        </label>
+                        <label class="form-check-inline">
+                            <input class="form-check-input" type="radio"
+                                   name="perms[{{ p.code }}]" value="grant" {% if cur_state=='grant' %}checked{% endif %}>
+                            <span class="badge bg-success">授予</span>
+                        </label>
+                        <label class="form-check-inline">
+                            <input class="form-check-input" type="radio"
+                                   name="perms[{{ p.code }}]" value="deny" {% if cur_state=='deny' %}checked{% endif %}>
+                            <span class="badge bg-danger">拒绝</span>
+                        </label>
+                        <input type="date" name="expire_at[{{ p.code }}]"
+                               value="{{ ov.expire_at.strftime('%Y-%m-%d') if ov and ov.expire_at else '' }}"
+                               min="{{ today }}" class="form-control form-control-sm" title="过期时间（可选）">
+                        <input type="text" name="remarks[{{ p.code }}]"
+                               value="{{ ov.remark if ov else '' }}"
+                               placeholder="备注（可选）" class="form-control form-control-sm">
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="mt-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi-check-lg"></i> 保存覆盖
+        </button>
+        <a href="{{ url_for('user_edit', id=user.id) }}" class="btn btn-secondary">取消</a>
+    </div>
+</form>
+
+<script>
+(function () {
+    var search = document.getElementById('permSearch');
+    if (!search) return;
+    var items = document.querySelectorAll('.perm-item');
+    search.addEventListener('input', function () {
+        var q = (this.value || '').toLowerCase().trim();
+        items.forEach(function (el) {
+            var kw = el.getAttribute('data-keyword') || '';
+            el.style.display = (!q || kw.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+        });
+    });
+})();
+</script>
+{% endblock %}

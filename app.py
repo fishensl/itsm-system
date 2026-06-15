@@ -25,6 +25,7 @@ from models import SparePart, SpareStock, PurchaseOrder, SalesOrder
 from models import Opportunity, Quotation, Contract, Project
 from models import AIConfig, Topology, DeviceConfigBackup, DeviceCollectTask
 from models import Department, CustomerCategory, FormDraft, DeviceSubType, UserDashboardPreference, UserPermission, Permission
+from models import Role, RolePermission
 from models import InspectionDeviceTemplate, InspectionTaskTemplate
 from utils.crypto import encrypt_password, decrypt_password
 from utils.report_generator import generate_inspection_report, generate_fault_report
@@ -706,7 +707,8 @@ def user_list():
         return redirect(url_for('user_list'))
     users = UserM.query.options(joinedload(UserM.department_rel)).order_by(UserM.id).all()
     departments = Department.query.order_by(Department.sort_order).all()
-    return render_template('users/list.html', users=users, departments=departments,
+    roles = Role.query.filter_by(is_active=True).order_by(Role.sort_order, Role.id).all()
+    return render_template('users/list.html', users=users, departments=departments, roles=roles,
                            page=1, total_pages=1, has_prev=False, has_next=False,
                            prev_page=None, next_page=None,
                            total=len(users), start=1 if users else 0, end=len(users))
@@ -768,7 +770,8 @@ def user_edit(id):
 
     # GET：渲染编辑页（用 modal 模式：直接回 user_list 弹窗）
     departments = Department.query.order_by(Department.sort_order).all()
-    return render_template('users/edit.html', u=u, departments=departments)
+    roles = Role.query.filter_by(is_active=True).order_by(Role.sort_order, Role.id).all()
+    return render_template('users/edit.html', u=u, departments=departments, roles=roles)
 
 
 # ==================== V13: 管理员重置密码 ====================
@@ -994,16 +997,21 @@ def api_sidebar_reset():
 @login_required
 @require_permission('permission:view')
 def permission_list():
-    """权限管理：展示各角色权限对照"""
-    from utils.permission import ROLE_PERMISSIONS_MAP, PERMISSION_MAP
-    role_list = [
-        ('admin', '系统管理员'),
-        ('operator', '运维工程师'),
-        ('sales', '销售人员'),
-        ('viewer', '查看者'),
-    ]
+    """权限管理：展示各角色权限对照（数据来自 DB，自定义角色自动出现）"""
+    from utils.permission import PERMISSION_MAP
+    # 从 DB 拉所有活跃角色（包含自定义）
+    roles = Role.query.filter_by(is_active=True).order_by(Role.sort_order, Role.id).all()
+    role_perms = {}
+    role_list = []
+    for r in roles:
+        perms = frozenset(rp.permission_code for rp in r.role_perms)
+        # admin 短路：显示全量
+        if r.code == 'admin':
+            perms = set(PERMISSION_MAP.keys())
+        role_perms[r.code] = list(perms)
+        role_list.append((r.code, r.name))
     return render_template('permissions/list.html',
-                           role_perms=ROLE_PERMISSIONS_MAP,
+                           role_perms=role_perms,
                            perm_map=PERMISSION_MAP,
                            role_list=role_list)
 
@@ -1253,6 +1261,17 @@ def api_dashboard_preferences_reset():
 def init_db():
     with app.app_context():
         db.create_all()
+
+        # V14: 权限/角色 seed（幂等，重复执行无副作用）
+        try:
+            from utils.seed_permissions import ensure_schema, seed_all
+            ensure_schema(app)
+            db.create_all()  # 第二次：让 Role / RolePermission 新表被建出
+            seed_all(app)
+        except Exception as e:
+            print(f'[WARN] 权限 seed 失败（非致命）: {e}')
+            db.session.rollback()
+
         # 创建默认管理员
         if not User.query.filter_by(username='admin').first():
             admin = User.create_with_password(username='admin', password='admin123', realname='管理员', role='admin')

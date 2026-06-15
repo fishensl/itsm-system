@@ -1,7 +1,30 @@
-"""权限管理工具"""
+"""权限管理工具
+
+V14: get_user_permissions 改为读 DB + 进程级缓存。
+    - admin 角色短路：直接返回 PERMISSION_MAP 全部 key
+    - 其他角色：Role 表 → role_perms 关系（joinedload 避免 N+1）→ user.extra_permissions 覆盖
+    - 缓存键 = role.code，写操作调 invalidate_role(code) 失效
+"""
 from functools import wraps
+from datetime import datetime
 from flask import flash, redirect, url_for
 from flask_login import current_user
+from sqlalchemy.orm import joinedload
+
+
+# 进程级角色权限缓存：role_code -> frozenset(permission_code)
+_role_cache: dict = {}
+
+
+def invalidate_role(role_code: str) -> None:
+    """清除指定角色的缓存。RBAC 写路径必须调用。"""
+    if role_code in _role_cache:
+        del _role_cache[role_code]
+
+
+def invalidate_all_roles() -> None:
+    """清除所有角色缓存（安全网）。"""
+    _role_cache.clear()
 
 # 所有可用的权限 code
 PERMISSION_MAP = {
@@ -143,18 +166,63 @@ FIELD_TYPE_CHOICES = [
 ]
 
 def get_user_permissions(user):
-    """获取用户权限列表（角色模板 + 用户级 grant/deny）"""
+    """获取用户权限列表（角色模板 + 用户级 grant/deny）
+
+    V14: 从 DB 读，用进程级缓存。
+    """
     if not user or not getattr(user, 'is_authenticated', False):
         return []
-    base = set(ROLE_PERMISSIONS_MAP.get(user.role, VIEWER_PERMISSIONS))
-    # 用户级权限覆盖
+
+    role_code = getattr(user, 'role', 'viewer') or 'viewer'
+
+    # 1) admin 短路：直接返回 PERMISSION_MAP 全部 key
+    if role_code == 'admin':
+        return list(PERMISSION_MAP.keys())
+
+    # 2) 角色权限（带缓存）
+    base = set(_get_cached_role_perms(role_code))
+
+    # 3) 用户级 grant/deny 覆盖（每次查，不缓存 —— 用户级操作少）
     if hasattr(user, 'extra_permissions') and user.extra_permissions:
+        now = datetime.utcnow()
         for up in user.extra_permissions:
+            # 过期过滤
+            if up.expire_at and up.expire_at < now:
+                continue
             if up.grant_type == 'grant':
                 base.add(up.permission_code)
             elif up.grant_type == 'deny':
                 base.discard(up.permission_code)
     return list(base)
+
+
+def _get_cached_role_perms(role_code: str) -> frozenset:
+    """从缓存或 DB 拿角色的权限码集合。"""
+    if role_code in _role_cache:
+        return _role_cache[role_code]
+
+    # 缓存未命中，查 DB
+    from models import Role
+    role = (Role.query
+            .options(joinedload(Role.role_perms))
+            .filter_by(code=role_code, is_active=True)
+            .first())
+    if not role:
+        # 角色不存在/未激活：fallback 到 viewer
+        if role_code != 'viewer':
+            return _get_cached_role_perms('viewer')
+        # viewer 也没有（极端情况）→ 返回空集
+        result = frozenset()
+    else:
+        # 排除被停用的权限码
+        from models import Permission
+        active_codes = {p.code for p in Permission.query.filter_by(is_active=True).all()}
+        result = frozenset(
+            rp.permission_code for rp in role.role_perms
+            if rp.permission_code in active_codes
+        )
+    _role_cache[role_code] = result
+    return result
 
 
 def get_effective_permissions(user):
