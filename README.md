@@ -94,6 +94,26 @@ sudo bash scripts/deploy.sh
 
 部署后访问 `http://<服务器IP>:5000`
 
+### 已有手动部署的迁移
+
+如果之前在 Ubuntu 24 上已经手动部署了旧版本（直接复制文件），执行以下命令平滑切换到 GitHub 更新模式：
+
+```bash
+export ITSM_REPO_URL=https://github.com/fishensl/itsm-system.git
+sudo bash scripts/migrate-to-github.sh
+```
+
+脚本会自动：
+1. 备份现有数据（数据库、密钥、上传文件）
+2. 初始化 git 并关联 GitHub 仓库
+3. 拉取最新代码
+4. 恢复本地运行时数据
+5. 安装/更新 Python 依赖
+6. 安装 systemd 服务
+7. 停止旧的手动进程，启动 systemd 服务
+
+迁移完成后，后续更新只需 `sudo bash /opt/itsm/scripts/update.sh`。
+
 ### 目录结构
 
 ```
