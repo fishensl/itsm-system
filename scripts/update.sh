@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================
 # ITSM 在线更新脚本
-# 用法: sudo bash update.sh
+# 用法: sudo bash update.sh [/path/to/app]
+# 默认: /opt/itsm
 # ============================================================
 set -euo pipefail
 
-APP_DIR="/opt/itsm"
+APP_DIR="${1:-/opt/itsm}"
 VENV="${APP_DIR}/venv"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
@@ -38,7 +39,7 @@ git stash push --include-untracked -m "auto-stash-${TIMESTAMP}" 2>/dev/null || t
 
 # ---- 3. 拉取最新代码 ----
 echo "[3/6] 拉取最新代码..."
-git pull origin main
+git pull origin main 2>/dev/null || git pull origin master
 
 # ---- 4. 恢复本地修改 ----
 echo "[4/6] 恢复本地修改..."

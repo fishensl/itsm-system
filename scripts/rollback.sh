@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # ============================================================
 # ITSM 紧急回滚脚本
-# 用法: sudo bash rollback.sh backups/itsm.db.pre_update_20260615_120000
+# 用法: sudo bash rollback.sh [/path/to/app] [备份文件]
 # ============================================================
 set -euo pipefail
 
-APP_DIR="/opt/itsm"
+APP_DIR="${1:-/opt/itsm}"
+BACKUP="${2:-}"
 
-if [ $# -eq 0 ]; then
+if [ -z "${BACKUP}" ]; then
     echo "可用备份:"
     ls -1t "${APP_DIR}/backups/itsm.db."* 2>/dev/null || echo "  (无)"
     echo ""
-    echo "用法: $0 <备份文件>"
-    echo "示例: $0 backups/itsm.db.pre_update_20260615_120000"
+    echo "用法: $0 [应用目录] [备份文件]"
+    echo "示例: $0 /opt/itsm backups/itsm.db.pre_update_20260615_120000"
     exit 1
 fi
-
-BACKUP="$1"
 
 if [ ! -f "${BACKUP}" ]; then
     echo "[FATAL] 备份文件不存在: ${BACKUP}"
@@ -35,7 +34,7 @@ systemctl stop itsm
 
 echo "恢复数据库..."
 cp "${BACKUP}" "${APP_DIR}/instance/itsm.db"
-chown itsm:itsm "${APP_DIR}/instance/itsm.db"
+chown itsm:itsm "${APP_DIR}/instance/itsm.db" 2>/dev/null || true
 
 echo "启动服务..."
 systemctl start itsm
