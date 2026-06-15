@@ -212,7 +212,7 @@ sudo bash /opt/itsm/scripts/backup.sh   # 手动备份
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
 
-当前版本：**v1.0.0**
+当前版本：**v1.0**
 
 ---
 
