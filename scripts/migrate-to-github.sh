@@ -151,12 +151,9 @@ id -u itsm &>/dev/null || useradd -r -s /bin/false itsm
 chown -R itsm:itsm "${APP_DIR}"
 
 # systemd 服务
-cp "${APP_DIR}/scripts/itsm.service" /etc/systemd/system/itsm.service
-# 如果目录不是 /opt/itsm，自动替换路径
-if [ "${APP_DIR}" != "/opt/itsm" ]; then
-    sed -i "s|/opt/itsm|${APP_DIR}|g" /etc/systemd/system/itsm.service
-fi
-systemctl daemon-reload
+# shellcheck disable=SC1091
+source "${APP_DIR}/scripts/lib-install.sh"
+install_service "${APP_DIR}"
 systemctl enable itsm
 
 # ---- 8. 切换服务 ----

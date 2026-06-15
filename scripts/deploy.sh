@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # ---- 配置 ----
-APP_DIR="/opt/itsm"
+APP_DIR="${1:-/opt/itsm}"
 REPO_URL="${ITSM_REPO_URL:-}"
 VENV="${APP_DIR}/venv"
 
@@ -102,8 +102,9 @@ chown -R itsm:itsm "${APP_DIR}"
 
 # ---- 8. 安装 systemd 服务 ----
 echo "[8/8] 安装 systemd 服务..."
-cp "${APP_DIR}/scripts/itsm.service" /etc/systemd/system/itsm.service
-systemctl daemon-reload
+# shellcheck disable=SC1091
+source "${APP_DIR}/scripts/lib-install.sh"
+install_service "${APP_DIR}"
 systemctl enable itsm
 systemctl start itsm
 

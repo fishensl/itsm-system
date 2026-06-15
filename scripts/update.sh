@@ -54,6 +54,17 @@ if [ -f "${APP_DIR}/scripts/migrate.sh" ]; then
     bash "${APP_DIR}/scripts/migrate.sh"
 fi
 
+# ---- 6.5 重新安装 systemd service（路径自适配）----
+echo "[6.5/7] 重新安装 systemd service..."
+if [ -f "${APP_DIR}/scripts/lib-install.sh" ]; then
+    # shellcheck disable=SC1091
+    source "${APP_DIR}/scripts/lib-install.sh"
+    install_service "${APP_DIR}" || {
+        echo "[FATAL] service 文件安装失败" >&2
+        exit 1
+    }
+fi
+
 # ---- 7. 显示版本变更 ----
 NEW_VERSION="(未知)"
 if [ -f "${APP_DIR}/VERSION" ]; then
@@ -65,9 +76,10 @@ echo "============================================"
 echo "  版本变更: ${OLD_VERSION} → ${NEW_VERSION}"
 echo "============================================"
 
-# ---- 8. 重启服务 ----
+# ---- 7. 重启服务 ----
 echo ""
 echo "[最后] 重启服务..."
-systemctl reload itsm
+systemctl restart itsm
+systemctl --no-pager -l status itsm || true
 
 echo "更新完成！"

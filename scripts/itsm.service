@@ -16,7 +16,7 @@ RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=no
 ReadWritePaths=/opt/itsm/instance /opt/itsm/logs /opt/itsm/reports /opt/itsm/uploads /opt/itsm/backups /opt/itsm/static/uploads
 
 [Install]
