@@ -61,7 +61,7 @@
                                 {% if request_path.startswith(c.url.split('?')[0]) %}{% set is_active_grp = true %}{% endif %}
                             {% endfor %}
                         {% endif %}
-                        <li class="nav-group {% if is_active_grp %}active open{% endif %}" data-group="{{ grp.key }}">
+                        <li class="nav-group {% if is_active_grp %}active{% endif %}" data-group="{{ grp.key }}">
                             <a class="nav-group-toggle" onclick="toggleGroup(this)">
                                 <i class="{{ grp.icon }}"></i><span class="sidebar-text">{{ grp.title }}</span>
                                 <i class="bi-chevron-down arrow"></i>
@@ -211,36 +211,23 @@
         sidebar.classList.remove('mobile-open');
         overlay.classList.remove('show');
     }
-    // 折叠/展开组
+    // 折叠/展开组（仅当前会话内有效，不持久化——保证默认折叠）
     function toggleGroup(el) {
         if (window.innerWidth <= 992 && document.getElementById('sidebar').classList.contains('collapsed')) return;
         var group = el.parentElement;
         group.classList.toggle('open');
-        // 记住展开状态
-        var groupName = group.getAttribute('data-group');
-        if (groupName) {
-            var open = group.classList.contains('open');
-            try { localStorage.setItem('sidebarGroup_' + groupName, open ? '1' : '0'); } catch(e){}
-        }
     }
     function openGroup(name) {
         var g = document.querySelector('.nav-group[data-group="' + name + '"]');
         if (g) g.classList.add('open');
     }
-    // 默认全部折叠 + 恢复记忆
+    // 分组默认全部折叠：仅服务端渲染的 active 分组（当前页面所属）保持展开。
+    // 不再从 localStorage 恢复历史展开状态——否则刷新主页/重新登录后，
+    // 之前手动展开过的分组会被重新打开，看起来"没有默认折叠"。
     document.addEventListener('DOMContentLoaded', function() {
         if (window.innerWidth > 992 && localStorage.getItem('sidebarCollapsed') === 'true') {
             document.getElementById('sidebar').classList.add('collapsed');
         }
-        // 默认全部折叠
-        document.querySelectorAll('.nav-group').forEach(function(g){
-            var name = g.getAttribute('data-group');
-            if (name) {
-                var saved = localStorage.getItem('sidebarGroup_' + name);
-                if (saved === '1') g.classList.add('open');
-                // 不主动加 open（默认折叠）
-            }
-        });
         applyTheme(localStorage.getItem('appTheme') || 'light');
     });
     function showToast(message, type) {
