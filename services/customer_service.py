@@ -87,7 +87,11 @@ def create_customer(data, device_count=0):
         region_id=int(region_id) if region_id else None,
         category_id=int(data['category_id']) if data.get('category_id') else None,
         city='',  # 由 region 推导
+        office=data.get('office') or '',
         has_onsite=data.get('has_onsite') == 'on',
+        onsite_contact=data.get('onsite_contact') or '',
+        onsite_phone=data.get('onsite_phone') or '',
+        onsite_office=data.get('onsite_office') or '',
         has_drill=data.get('has_drill') == 'on',
         inspection_frequency=data.get('inspection_frequency') or '',
         source=data.get('source') or '',
@@ -122,7 +126,11 @@ def update_customer(customer_id, data):
     c.region_id = int(region_id) if region_id else None
     c.category_id = int(data['category_id']) if data.get('category_id') else None
     c.city = ''
+    c.office = data.get('office') or ''
     c.has_onsite = data.get('has_onsite') == 'on'
+    c.onsite_contact = data.get('onsite_contact') or ''
+    c.onsite_phone = data.get('onsite_phone') or ''
+    c.onsite_office = data.get('onsite_office') or ''
     c.has_drill = data.get('has_drill') == 'on'
     c.inspection_frequency = data.get('inspection_frequency') or ''
     c.source = data.get('source') or ''

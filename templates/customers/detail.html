@@ -29,8 +29,14 @@
                       {% endif %}
                     </td></tr>
                     <tr><td>地址</td><td>{{ customer.address or '-' }}</td></tr>
+                    <tr><td>办公室</td><td>{{ customer.office or '-' }}</td></tr>
                     <tr><td>巡检频率</td><td>{{ customer.inspection_frequency or '-' }}</td></tr>
                     <tr><td>驻场服务</td><td>{% if customer.has_onsite %}<span class="text-success">✓ 有</span>{% else %}—{% endif %}</td></tr>
+                    {% if customer.has_onsite %}
+                    <tr><td>驻场联系人</td><td>{{ customer.onsite_contact or '-' }}</td></tr>
+                    <tr><td>驻场联系方式</td><td>{{ customer.onsite_phone or '-' }}</td></tr>
+                    <tr><td>驻场办公室</td><td>{{ customer.onsite_office or '-' }}</td></tr>
+                    {% endif %}
                     <tr><td>攻防演练</td><td>{% if customer.has_drill %}<span class="text-primary">✓ 有</span>{% else %}—{% endif %}</td></tr>
                     <tr><td>关联设备</td><td><strong>{{ customer.device_count or devices|length }}</strong> 台</td></tr>
                     <tr><td>备注</td><td>{{ customer.remark or '-' }}</td></tr>

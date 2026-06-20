@@ -20,6 +20,10 @@
                     <input type="email" name="email" class="form-control" value="{{ customer.email if customer else '' }}">
                 </div>
                 <div class="col-md-6 mb-3">
+                    <label class="form-label">办公室</label>
+                    <input type="text" name="office" class="form-control" value="{{ customer.office if customer else '' }}" placeholder="如：行政楼 3 楼 305">
+                </div>
+                <div class="col-md-6 mb-3">
                     <label class="form-label">所属地市 <span class="text-danger">*</span></label>
                     <select name="city_id" id="citySelect" class="form-select" required>
                         <option value="">-- 请选择地市 --</option>
@@ -100,6 +104,23 @@
                     <textarea name="remark" class="form-control" rows="3">{{ customer.remark if customer else '' }}</textarea>
                 </div>
             </div>
+            <div class="row" id="onsiteBlock" style="{% if not (customer and customer.has_onsite) %}display:none;{% endif %}">
+                <div class="col-12">
+                    <h6 class="text-muted border-top pt-3"><i class="bi-person-badge"></i> 驻场信息</h6>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">驻场联系人</label>
+                    <input type="text" name="onsite_contact" class="form-control" value="{{ customer.onsite_contact if customer else '' }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">驻场联系方式</label>
+                    <input type="text" name="onsite_phone" class="form-control" value="{{ customer.onsite_phone if customer else '' }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">驻场办公室</label>
+                    <input type="text" name="onsite_office" class="form-control" value="{{ customer.onsite_office if customer else '' }}">
+                </div>
+            </div>
             <div class="mt-3">
                 <button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存</button>
                 <a href="{{ url_for('customer.customer_list') }}" class="btn btn-secondary">取消</a>
@@ -141,6 +162,15 @@
     citySelect.addEventListener('change', function(){
         loadDistricts(this.value, null);
     });
+
+    // 勾选「有驻场服务」后展开驻场信息（联系人/联系方式/办公室）
+    var onsiteCheck = document.getElementById('has_onsite');
+    var onsiteBlock = document.getElementById('onsiteBlock');
+    if (onsiteCheck && onsiteBlock) {
+        onsiteCheck.addEventListener('change', function(){
+            onsiteBlock.style.display = this.checked ? '' : 'none';
+        });
+    }
 
     // 页面加载时，如果已有 customer.region_id，则根据其父地区重新拉取区/县列表
     // （后端已预先填充 district_regions，但若通过切换 city 重选则需要重新拉取）

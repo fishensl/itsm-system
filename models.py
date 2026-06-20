@@ -222,8 +222,12 @@ class Customer(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('customer_categories.id'), nullable=True)  # 单位类别
     city = db.Column(db.String(64), default='')
     address = db.Column(db.String(256), default='')
+    office = db.Column(db.String(128), default='')          # 办公室
     level = db.Column(db.String(32), default='常规', index=True)  # 核心/重点/常规（自动计算，可手动覆盖）
     has_onsite = db.Column(db.Boolean, default=False)      # 有无驻场
+    onsite_contact = db.Column(db.String(64), default='')   # 驻场联系人
+    onsite_phone = db.Column(db.String(32), default='')     # 驻场联系方式
+    onsite_office = db.Column(db.String(128), default='')   # 驻场办公室
     has_drill = db.Column(db.Boolean, default=False)       # 有无攻防演练
     inspection_frequency = db.Column(db.String(16), default='')  # 巡检频率
     device_count = db.Column(db.Integer, default=0)        # 关联设备数（冗余快照）
