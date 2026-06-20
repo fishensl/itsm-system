@@ -16,6 +16,7 @@ from flask_limiter.util import get_remote_address
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import json
 
@@ -35,6 +36,8 @@ from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_
 from config import Config, setup_logging, setup_security_headers
 
 app = Flask(__name__)
+# 经 nginx/反代时识别 X-Forwarded-Proto，使 request.is_secure 正确反映外部协议
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config['SECRET_KEY'] = Config.SECRET_KEY
 app.config['SQLALCHEMY_DATABASE_URI'] = Config.SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = Config.SQLALCHEMY_TRACK_MODIFICATIONS
@@ -84,7 +87,7 @@ def _set_csrf_cookie(response):
             max_age=60 * 60 * 4,
             httponly=False,  # 允许 JS 读取以放进 X-CSRFToken 头
             samesite='Lax',
-            secure=os.environ.get('ITSM_ENV') == 'production',
+            secure=request.is_secure,  # 跟随真实请求协议：HTTPS 才带 Secure，LAN 走 HTTP 也能落地
         )
     except Exception:
         pass

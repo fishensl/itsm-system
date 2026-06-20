@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}IT运维综合管理系统{% endblock %}</title>
     <script>
         (function() {
@@ -257,8 +258,10 @@
     }
     // ====== CSRF 自动注入：所有表单 + 所有 fetch ======
     document.addEventListener('DOMContentLoaded', function() {
-        // 从 cookie 读取 CSRF token（Flask-WTF 默认存在 'csrf_token' cookie 中）
+        // 优先读服务端渲染的 meta token（不依赖 cookie，HTTP/HTTPS 通用），cookie 作回退
         function getCsrfToken() {
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta && meta.content) return meta.content;
             var m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
             return m ? decodeURIComponent(m[1]) : '';
         }
