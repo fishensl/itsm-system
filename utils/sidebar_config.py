@@ -111,7 +111,6 @@ SIDEBAR_GROUPS = [
             # 字典/分类放后
             {'name': '地区管理', 'url': '/regions', 'icon': 'bi-geo-alt', 'perm': 'region:view'},
             {'name': '单位类别', 'url': '/customer-categories', 'icon': 'bi-bookmark-star', 'perm': 'category:view'},
-            {'name': '自定义字段', 'url': '/customer-custom-fields', 'icon': 'bi-columns', 'perm': 'customer:view'},
         ],
     },
     {

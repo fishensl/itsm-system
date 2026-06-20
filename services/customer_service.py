@@ -6,36 +6,37 @@
 """
 from datetime import date
 import json
-from models import db, Customer, Region, CustomerCustomField
+from models import db, Customer, Region
 from .base import ServiceError, transaction
 
 
-def get_custom_fields():
-    """获取所有客户自定义字段定义（按排序）"""
-    return CustomerCustomField.query.order_by(
-        CustomerCustomField.sort_order, CustomerCustomField.id).all()
-
-
 def parse_extra_fields(customer):
-    """把 Customer.extra_fields JSON 反序列化为 dict，失败返回空 dict"""
+    """把 Customer.extra_fields 反序列化为 [{'name':, 'value':}, ...] 列表。
+
+    兼容旧的 dict 格式（{字段名: 值}）。失败返回空列表。
+    """
     if not customer or not customer.extra_fields:
-        return {}
+        return []
     try:
         data = json.loads(customer.extra_fields)
-        return data if isinstance(data, dict) else {}
     except (ValueError, TypeError):
-        return {}
+        return []
+    if isinstance(data, list):
+        return [{'name': d.get('name', ''), 'value': d.get('value', '')}
+                for d in data if isinstance(d, dict) and d.get('name')]
+    if isinstance(data, dict):  # 兼容旧格式
+        return [{'name': k, 'value': v} for k, v in data.items()]
+    return []
 
 
-def _collect_extra_fields(data):
-    """从表单 data 按已定义字段收集自定义字段值，返回 JSON 字符串"""
-    fields = get_custom_fields()
-    if not fields:
-        return ''
-    values = {}
-    for f in fields:
-        values[f.name] = (data.get(f'custom_{f.id}') or '').strip()
-    return json.dumps(values, ensure_ascii=False)
+def serialize_extra_fields(names, values):
+    """把表单提交的字段名/值两个并列数组打包成 JSON 列表（跳过空名）"""
+    pairs = []
+    for name, value in zip(names or [], values or []):
+        name = (name or '').strip()
+        if name:
+            pairs.append({'name': name, 'value': (value or '').strip()})
+    return json.dumps(pairs, ensure_ascii=False) if pairs else ''
 
 
 def _calculate_tier(device_count, has_onsite, has_drill):
@@ -131,8 +132,8 @@ def create_customer(data, device_count=0):
     c.city, _ = _resolve_region(c.region_id)
     # 定级
     c.level = _derive_level(c, c.has_onsite, c.has_drill, data.get('level'))
-    # 自定义字段值
-    c.extra_fields = _collect_extra_fields(data)
+    # 自定义字段值（路由已序列化好放入 data['extra_fields']）
+    c.extra_fields = data.get('extra_fields') or ''
 
     db.session.add(c)
     return c
@@ -169,7 +170,7 @@ def update_customer(customer_id, data):
     c.remark = data.get('remark') or ''
     c.city, _ = _resolve_region(c.region_id)
     c.level = _derive_level(c, c.has_onsite, c.has_drill, data.get('level'))
-    c.extra_fields = _collect_extra_fields(data)
+    c.extra_fields = data.get('extra_fields') or ''
     return c
 
 

@@ -10,13 +10,13 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_from_directory, jsonify, current_app)
 from flask_login import login_required, current_user
 from models import (Customer, CustomerCategory, Region,
-                    Device, CustomerCustomField, db)
+                    Device, db)
 from models import UserPermission, Permission
 from sqlalchemy.orm import joinedload
 from utils.pagination import paginate, paginate_render_args
 from services.customer_service import (create_customer, update_customer, delete_customer,
                                         get_customer_with_regions,
-                                        get_custom_fields, parse_extra_fields)
+                                        parse_extra_fields, serialize_extra_fields)
 from utils.permission import require_permission, get_user_permissions
 
 
@@ -54,7 +54,10 @@ def customer_list():
 def customer_add():
     if request.method == 'POST':
         try:
-            c = create_customer(request.form.to_dict(), device_count=0)
+            data = request.form.to_dict()
+            data['extra_fields'] = serialize_extra_fields(
+                request.form.getlist('cf_name'), request.form.getlist('cf_value'))
+            c = create_customer(data, device_count=0)
         except Exception as e:
             db.session.rollback()
             current_app.logger.exception('客户添加失败')
@@ -65,8 +68,7 @@ def customer_add():
     ctx = get_customer_with_regions()
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
     return render_template('customers/form.html', customer=None,
-                           categories=categories,
-                           custom_fields=get_custom_fields(), custom_values={}, **ctx)
+                           categories=categories, custom_fields=[], **ctx)
 
 
 @customer_bp.route('/customers/edit/<int:id>', methods=['GET', 'POST'])
@@ -76,7 +78,10 @@ def customer_edit(id):
     c = Customer.query.get_or_404(id)
     if request.method == 'POST':
         try:
-            update_customer(id, request.form.to_dict())
+            data = request.form.to_dict()
+            data['extra_fields'] = serialize_extra_fields(
+                request.form.getlist('cf_name'), request.form.getlist('cf_value'))
+            update_customer(id, data)
         except Exception as e:
             db.session.rollback()
             current_app.logger.exception('客户更新失败: id=%s', id)
@@ -89,8 +94,7 @@ def customer_edit(id):
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
     return render_template('customers/form.html', customer=c,
                            categories=categories,
-                           custom_fields=get_custom_fields(),
-                           custom_values=parse_extra_fields(c), **ctx)
+                           custom_fields=parse_extra_fields(c), **ctx)
 
 
 @customer_bp.route('/customers/delete/<int:id>', methods=['POST'])
@@ -134,9 +138,8 @@ def customer_detail(id):
             'files': sorted(m['files'], key=lambda x: (order.get(x.file_type, 9), x.id)),
         })
     topologies.sort(key=lambda x: x['first'].id, reverse=True)
-    # 自定义字段（仅展示有定义的字段，按定义顺序）
-    cf_values = parse_extra_fields(c)
-    custom_field_items = [(f.name, cf_values.get(f.name, '')) for f in get_custom_fields()]
+    # 自定义字段（该客户自己的字段列表）
+    custom_field_items = [(f['name'], f['value']) for f in parse_extra_fields(c)]
     return render_template('customers/detail.html', customer=c,
                            devices=devices, inspections=inspections, faults=faults,
                            topologies=topologies, custom_field_items=custom_field_items)
@@ -305,47 +308,3 @@ def api_region_children(parent_id):
     children = Region.query.filter_by(parent_id=parent_id)\
         .order_by(Region.sort_order, Region.id).all()
     return jsonify({'success': True, 'items': [{'id': r.id, 'name': r.name} for r in children]})
-
-
-# ============================ 客户自定义字段 ============================
-@customer_bp.route('/customer-custom-fields', methods=['GET', 'POST'])
-@login_required
-@require_permission('customer:view')
-def customer_custom_field_list():
-    if request.method == 'POST':
-        name = (request.form.get('name') or '').strip()
-        if name:
-            f = CustomerCustomField(
-                name=name,
-                field_type=request.form.get('field_type', 'text'),
-                sort_order=int(request.form.get('sort_order') or 0),
-            )
-            db.session.add(f); db.session.commit()
-            flash('已添加', 'success')
-        return redirect(url_for('customer.customer_custom_field_list'))
-    fields = CustomerCustomField.query.order_by(
-        CustomerCustomField.sort_order, CustomerCustomField.id).all()
-    return render_template('customer_custom_fields/list.html', fields=fields)
-
-
-@customer_bp.route('/customer-custom-fields/edit/<int:id>', methods=['POST'])
-@login_required
-@require_permission('customer:edit')
-def customer_custom_field_edit(id):
-    f = CustomerCustomField.query.get_or_404(id)
-    f.name = (request.form.get('name') or f.name).strip()
-    f.field_type = request.form.get('field_type', f.field_type)
-    f.sort_order = int(request.form.get('sort_order') or 0)
-    db.session.commit()
-    flash('已更新', 'success')
-    return redirect(url_for('customer.customer_custom_field_list'))
-
-
-@customer_bp.route('/customer-custom-fields/delete/<int:id>', methods=['POST'])
-@login_required
-@require_permission('customer:delete')
-def customer_custom_field_delete(id):
-    CustomerCustomField.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash('已删除', 'success')
-    return redirect(url_for('customer.customer_custom_field_list'))

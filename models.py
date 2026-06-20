@@ -243,16 +243,6 @@ class Customer(db.Model):
                               cascade='all, delete-orphan')
 
 
-class CustomerCustomField(db.Model):
-    """客户自定义字段定义（值存于 Customer.extra_fields JSON）"""
-    __tablename__ = 'customer_custom_fields'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(64), nullable=False)
-    field_type = db.Column(db.String(16), default='text')  # text/date
-    sort_order = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-
 # ============================
 # 设备管理（扩展自 Password 项目）
 # ============================

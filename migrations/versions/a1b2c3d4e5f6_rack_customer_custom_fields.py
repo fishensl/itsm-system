@@ -1,9 +1,8 @@
-"""rack customer_id + customer custom fields
+"""rack customer_id + customer extra_fields
 
 新增：
   - racks.customer_id: 机柜直接归属客户（按客户分组管理）
-  - customers.extra_fields: 客户自定义字段值（JSON 字符串）
-  - customer_custom_fields 表: 客户自定义字段定义
+  - customers.extra_fields: 客户自定义字段（JSON 列表 [{name, value}, ...]，每客户独立）
 
 Revision ID: a1b2c3d4e5f6
 Revises: 6e2d88637a8d
@@ -47,24 +46,13 @@ def upgrade():
             batch_op.add_column(sa.Column('extra_fields', sa.Text(), nullable=True,
                                           server_default=''))
 
-    # 3. customer_custom_fields 表
-    if not _has_table(bind, 'customer_custom_fields'):
-        op.create_table(
-            'customer_custom_fields',
-            sa.Column('id', sa.Integer(), nullable=False),
-            sa.Column('name', sa.String(length=64), nullable=False),
-            sa.Column('field_type', sa.String(length=16), nullable=True, server_default='text'),
-            sa.Column('sort_order', sa.Integer(), nullable=True, server_default='0'),
-            sa.Column('created_at', sa.DateTime(), nullable=True),
-            sa.PrimaryKeyConstraint('id'),
-        )
+    # 3. 清理早期实现遗留的全局字段定义表（改为每客户独立后不再需要）
+    if _has_table(bind, 'customer_custom_fields'):
+        op.drop_table('customer_custom_fields')
 
 
 def downgrade():
     bind = op.get_bind()
-
-    if _has_table(bind, 'customer_custom_fields'):
-        op.drop_table('customer_custom_fields')
 
     cust_cols = _existing_columns(bind, 'customers')
     with op.batch_alter_table('customers', schema=None) as batch_op:
