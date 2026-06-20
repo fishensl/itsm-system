@@ -168,7 +168,7 @@ def device_edit(id):
     return redirect(url_for('asset.device_list'))
 
 
-@asset_bp.route('/devices/delete/<int:id>')
+@asset_bp.route('/devices/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('device:delete')
 def device_delete(id):
@@ -207,6 +207,7 @@ def device_detail(id):
 # ============================ API: 设备 JSON ============================
 @asset_bp.route('/api/devices/<int:id>')
 @login_required
+@require_permission('device:view')
 @api_view
 def api_device_get(id):
     import json as _json
@@ -460,7 +461,7 @@ def device_type_edit(id):
     return redirect(url_for("asset.device_type_list"))
 
 
-@asset_bp.route("/device-types/delete/<int:id>")
+@asset_bp.route("/device-types/delete/<int:id>", methods=['POST'])
 @login_required
 @require_permission("device:delete")
 def device_type_delete(id):
@@ -499,7 +500,7 @@ def brand_edit(id):
     return redirect(url_for("asset.brand_list"))
 
 
-@asset_bp.route("/device-brands/delete/<int:id>")
+@asset_bp.route("/device-brands/delete/<int:id>", methods=['POST'])
 @login_required
 @require_permission("device:delete")
 def brand_delete(id):
@@ -535,7 +536,7 @@ def network_type_edit(id):
     return redirect(url_for("asset.network_type_list"))
 
 
-@asset_bp.route("/device-network-types/delete/<int:id>")
+@asset_bp.route("/device-network-types/delete/<int:id>", methods=['POST'])
 @login_required
 @require_permission("device:delete")
 def network_type_delete(id):
@@ -572,7 +573,7 @@ def custom_field_edit(id):
     return redirect(url_for("asset.custom_field_list"))
 
 
-@asset_bp.route("/device-custom-fields/delete/<int:id>")
+@asset_bp.route("/device-custom-fields/delete/<int:id>", methods=['POST'])
 @login_required
 @require_permission("device:delete")
 def custom_field_delete(id):
@@ -758,7 +759,7 @@ def firmware_edit(id):
     return redirect(url_for('asset.firmware_list'))
 
 
-@asset_bp.route('/device-firmwares/delete/<int:id>')
+@asset_bp.route('/device-firmwares/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('device:delete')
 def firmware_delete(id):
@@ -898,7 +899,7 @@ def device_config_backup_add(id):
     return redirect(url_for('asset.device_config_backups', id=id))
 
 
-@asset_bp.route('/devices/<int:id>/config-backups/<int:bid>/delete')
+@asset_bp.route('/devices/<int:id>/config-backups/<int:bid>/delete', methods=['POST'])
 @login_required
 @require_permission('device:delete')
 def device_config_backup_delete(id, bid):

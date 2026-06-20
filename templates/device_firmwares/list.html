@@ -163,7 +163,7 @@
         {% if fw.remark %}<p class="text-muted small mt-2">备注：{{ fw.remark }}</p>{% endif %}
     </div>
     <div class="modal-footer">
-        <a href="/device-firmwares/delete/{{ fw.id }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('确定删除此版本记录？')"><i class="bi-trash"></i> 删除</a>
+        <form method="post" action="/device-firmwares/delete/{{ fw.id }}" class="d-inline" onsubmit="return confirm('确定删除此版本记录？')"><button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi-trash"></i> 删除</button></form>
         <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
     </div>
 </div></div></div>

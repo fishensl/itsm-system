@@ -135,8 +135,8 @@ def _seed_all_impl() -> None:
                 p.category = new_cat; updated = True
             if not p.is_system:
                 p.is_system = True; updated = True
-            if not p.is_active:
-                p.is_active = True; updated = True
+            # 不再强制 is_active=True：尊重管理员对系统权限的停用操作，
+            # 否则每次重启都会把被停用的权限重新激活
             # 不动 description（用户可能改过）
         else:
             p = Permission(

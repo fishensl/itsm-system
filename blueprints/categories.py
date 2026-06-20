@@ -46,7 +46,7 @@ def category_edit(id):
     return redirect(url_for('categories.category_list'))
 
 
-@category_bp.route('/delete/<int:id>')
+@category_bp.route('/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('category:edit')
 def category_delete(id):

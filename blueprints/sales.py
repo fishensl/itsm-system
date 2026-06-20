@@ -58,7 +58,7 @@ def opportunity_edit(id):
     return redirect(url_for('sales.opportunity_list'))
 
 
-@sales_bp.route('/opportunities/delete/<int:id>')
+@sales_bp.route('/opportunities/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
 def opportunity_delete(id):
@@ -114,7 +114,7 @@ def quotation_edit(id):
     return redirect(url_for('sales.quotation_list'))
 
 
-@sales_bp.route('/quotations/delete/<int:id>')
+@sales_bp.route('/quotations/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
 def quotation_delete(id):
@@ -170,7 +170,7 @@ def contract_edit(id):
     return redirect(url_for('sales.contract_list'))
 
 
-@sales_bp.route('/contracts/delete/<int:id>')
+@sales_bp.route('/contracts/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
 def contract_delete(id):
@@ -226,7 +226,7 @@ def project_edit(id):
     return redirect(url_for('sales.project_list'))
 
 
-@sales_bp.route('/projects/delete/<int:id>')
+@sales_bp.route('/projects/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
 def project_delete(id):

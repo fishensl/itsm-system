@@ -89,7 +89,7 @@ def customer_edit(id):
                            categories=categories, **ctx)
 
 
-@customer_bp.route('/customers/delete/<int:id>')
+@customer_bp.route('/customers/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('customer:delete')
 def customer_delete(id):
@@ -276,7 +276,7 @@ def region_edit(id):
     return redirect(url_for('customer.region_list'))
 
 
-@customer_bp.route('/regions/delete/<int:id>')
+@customer_bp.route('/regions/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('region:delete')
 def region_delete(id):

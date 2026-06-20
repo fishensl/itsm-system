@@ -149,7 +149,7 @@ def inspection_review(id):
     return redirect(url_for('ops.inspection_detail', id=id))
 
 
-@ops_bp.route('/inspections/delete/<int:id>')
+@ops_bp.route('/inspections/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('inspection:delete')
 def inspection_delete(id):
@@ -361,7 +361,7 @@ def fault_detail(id):
     return render_template('faults/detail.html', fault=f, related_ticket=related_ticket)
 
 
-@ops_bp.route('/faults/delete/<int:id>')
+@ops_bp.route('/faults/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('fault:delete')
 def fault_delete(id):
@@ -474,7 +474,7 @@ def ticket_detail(id):
                            suggested_assignees=suggested)
 
 
-@ops_bp.route('/tickets/delete/<int:id>')
+@ops_bp.route('/tickets/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('ticket:delete')
 def ticket_delete(id):
@@ -674,7 +674,7 @@ def knowledge_base_detail(id):
     return render_template('knowledge_base/detail.html', kb=kb, ticket=ticket, fault=fault)
 
 
-@ops_bp.route('/knowledge-base/delete/<int:id>')
+@ops_bp.route('/knowledge-base/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('kb:delete')
 def knowledge_base_delete(id):
@@ -866,7 +866,7 @@ def inspector_edit(id):
     return redirect(url_for('ops.inspector_list'))
 
 
-@ops_bp.route('/inspectors/delete/<int:id>')
+@ops_bp.route('/inspectors/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('inspection:delete')
 def inspector_delete(id):
@@ -935,7 +935,7 @@ def inspection_template_edit(id):
     return redirect(url_for('ops.inspection_template_list'))
 
 
-@ops_bp.route('/inspection-templates/delete/<int:id>')
+@ops_bp.route('/inspection-templates/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('inspection:delete')
 def inspection_template_delete(id):
@@ -1005,7 +1005,7 @@ def inspection_task_edit(id):
     return redirect(url_for('ops.inspection_task_list'))
 
 
-@ops_bp.route('/inspection-tasks/delete/<int:id>')
+@ops_bp.route('/inspection-tasks/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('inspection:delete')
 def inspection_task_delete(id):
@@ -1075,7 +1075,7 @@ def device_check_template_edit(id):
     return redirect(url_for('ops.device_check_template_list'))
 
 
-@ops_bp.route('/device-check-templates/delete/<int:id>')
+@ops_bp.route('/device-check-templates/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('inspection:delete')
 def device_check_template_delete(id):
@@ -1220,7 +1220,7 @@ def api_match_device_templates(cid):
     return {'groups': out, 'total_devices': len(devices)}
 
 
-@ops_bp.route('/task-templates/delete/<int:id>')
+@ops_bp.route('/task-templates/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('inspection:delete')
 def task_template_delete(id):
@@ -1248,7 +1248,7 @@ def fault_type_add():
     return redirect(url_for('ops.fault_type_list'))
 
 
-@ops_bp.route('/fault-types/delete/<int:id>')
+@ops_bp.route('/fault-types/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('fault:delete')
 def fault_type_delete(id):
@@ -1467,7 +1467,7 @@ def report_list():
     )
 
 
-@ops_bp.route('/reports/delete/<path:filename>')
+@ops_bp.route('/reports/delete/<path:filename>', methods=['POST'])
 @login_required
 @require_permission('report:view')
 def report_delete(filename):

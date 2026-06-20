@@ -195,7 +195,8 @@ def from_json_filter(value):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    # 仅加载启用账号：停用用户的现有 session 立即失效
+    return User.query.filter_by(id=int(user_id), is_active=True).first()
 
 
 # ---------- 首页 ----------
@@ -501,6 +502,10 @@ def login():
         username = request.form.get('username', '')
         password = request.form.get('password', '')
         user = User.query.filter_by(username=username).first()
+        if user and not user.is_active:
+            flash('该账号已停用，请联系管理员', 'danger')
+            app.logger.warning(f'停用账号 [{username}] 尝试登录')
+            return render_template('login.html')
         if user and user.check_password(password):
             login_user(user)
             app.logger.info(f'用户 [{username}] 登录成功')
@@ -596,7 +601,7 @@ def topology_list():
                            all_customers=all_customers, regions=regions)
 
 
-@app.route('/topologies/delete/<int:id>')
+@app.route('/topologies/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('topology:delete')
 def topology_delete(id):
@@ -715,7 +720,7 @@ def user_list():
                            total=len(users), start=1 if users else 0, end=len(users))
 
 
-@app.route('/users/delete/<int:id>')
+@app.route('/users/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('user:delete')
 @admin_required
@@ -1028,8 +1033,9 @@ def ai_config_page():
     return render_template('ai_config/list.html', configs=configs)
 
 
-@app.route('/ai-config/delete/<int:id>')
+@app.route('/ai-config/delete/<int:id>', methods=['POST'])
 @login_required
+@admin_required
 def ai_config_delete(id):
     AIConfig.query.filter_by(id=id).delete()
     db.session.commit()
@@ -1277,8 +1283,9 @@ def init_db():
             print(f'[WARN] 权限 seed 失败（非致命）: {e}')
             db.session.rollback()
 
-        # 创建默认管理员
-        if not User.query.filter_by(username='admin').first():
+        # 创建默认管理员：仅在系统中不存在任何 admin 角色用户时（首次空库引导），
+        # 避免管理员把 admin 改名/删除后，重启又重建 admin/admin123 弱口令后门
+        if User.query.filter_by(role='admin').count() == 0:
             admin = User.create_with_password(username='admin', password='admin123', realname='管理员', role='admin')
             db.session.add(admin)
             db.session.commit()

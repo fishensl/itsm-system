@@ -21,7 +21,9 @@
             <div class="btn-group btn-group-sm">
                 <button class="btn btn-outline-primary" onclick="editCfg({{ cfg.id }},'{{ cfg.provider }}','{{ cfg.api_endpoint }}','{{ cfg.model_name }}',{{ cfg.max_tokens }},{{ cfg.temperature }},{{ 'true' if cfg.is_enabled else 'false' }})"><i class="bi-pencil"></i> 编辑</button>
                 <button class="btn btn-outline-info test-btn" data-id="{{ cfg.id }}"><i class="bi bi-plug"></i> 测试连接</button>
-                <a href="{{ url_for('ai_config_delete', id=cfg.id) }}" class="btn btn-outline-danger" onclick="return confirm('确定删除？')"><i class="bi-trash"></i></a>
+                <form method="post" action="{{ url_for('ai_config_delete', id=cfg.id) }}" class="d-inline" onsubmit="return confirm('确定删除？')">
+                    <button type="submit" class="btn btn-outline-danger"><i class="bi-trash"></i></button>
+                </form>
             </div>
             <span class="test-result ms-2 small" id="test_{{ cfg.id }}"></span>
         </div>

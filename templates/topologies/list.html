@@ -163,7 +163,7 @@ async function deleteTopoGroup(ids, name) {
     if (!confirm(msg)) return;
     for (var i = 0; i < ids.length; i++) {
         try {
-            await fetch('/topologies/delete/' + ids[i], {credentials: 'same-origin'});
+            await fetch('/topologies/delete/' + ids[i], {method: 'POST', credentials: 'same-origin'});
         } catch(e) { /* ignore */ }
     }
     window.location.reload();

@@ -68,7 +68,7 @@ def dept_edit(id):
     return redirect(url_for('departments.dept_list'))
 
 
-@dept_bp.route('/delete/<int:id>')
+@dept_bp.route('/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('department:edit')
 def dept_delete(id):

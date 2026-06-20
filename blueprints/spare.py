@@ -106,7 +106,7 @@ def spare_part_edit(id):
     return redirect(url_for('spare.spare_part_list'))
 
 
-@spare_bp.route('/spare-parts/delete/<int:id>')
+@spare_bp.route('/spare-parts/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('spare:delete')
 def spare_part_delete(id):
@@ -217,7 +217,7 @@ def spare_stock_edit(id):
     return redirect(url_for('spare.spare_stock_list'))
 
 
-@spare_bp.route('/spare-stocks/delete/<int:id>')
+@spare_bp.route('/spare-stocks/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('spare:delete')
 def spare_stock_delete(id):
@@ -257,7 +257,7 @@ def purchase_order_add():
     return redirect(url_for('spare.purchase_order_list'))
 
 
-@spare_bp.route('/purchase-orders/delete/<int:id>')
+@spare_bp.route('/purchase-orders/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('spare:delete')
 def purchase_order_delete(id):
@@ -298,7 +298,7 @@ def sales_order_add():
     return redirect(url_for('spare.sales_order_list'))
 
 
-@spare_bp.route('/sales-orders/delete/<int:id>')
+@spare_bp.route('/sales-orders/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('spare:delete')
 def sales_order_delete(id):

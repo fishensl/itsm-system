@@ -21,8 +21,8 @@ def register_blueprints(app):
         csrf_ext.exempt(draft_bp)
         # rack 蓝图的 /api/rack/* 端点也豁免 CSRF（前端用 fetch）
         csrf_ext.exempt(rack_bp)
-        # V14: rbac 蓝图豁免 CSRF（管理员操作，所有写入走 fetch 或 form 显式带 token）
-        csrf_ext.exempt(rbac_bp)
+        # 注：rbac 蓝图不再整体豁免 CSRF——其 fetch 已显式带 X-CSRFToken，
+        #     普通 POST 表单经 base.html 自动注入 csrf_token，保持 CSRF 保护防越权提权
     # 注意：app.py 中的 /api/* 路由已通过 @api_view (= @csrf.exempt) 单独豁免
     # 不要再把 customer_bp/asset_bp 等加入 exempt，否则普通 POST 表单也被绕过
 
