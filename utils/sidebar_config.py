@@ -160,6 +160,8 @@ SIDEBAR_GROUPS = [
             {'name': '权限管理', 'url': '/permissions', 'icon': 'bi-shield-lock', 'perm': 'permission:view'},
             # 集成/配置
             {'name': 'AI 对接', 'url': '/ai-config', 'icon': 'bi-robot', 'perm': 'ai:view'},
+            # 数据备份/恢复（页面内 admin_required 限制）
+            {'name': '数据备份', 'url': '/system/backup', 'icon': 'bi-shield-lock', 'perm': None},
             # 个人化配置放最后
             {'name': '侧栏自定义', 'url': '/system/sidebar', 'icon': 'bi-list-columns-reverse', 'perm': None},
         ],
