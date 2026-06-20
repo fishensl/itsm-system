@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """SparePart 备件业务服务 + 库存/采购/销售订单"""
 from datetime import datetime
-from sqlalchemy import func
 from models import db, SparePart, SpareStock, PurchaseOrder, SalesOrder
 from .base import ServiceError, transaction
 
@@ -76,10 +75,12 @@ def create_purchase_order(data, current_user_name):
     qty = int(data.get('quantity') or 0)
     if qty <= 0:
         raise ServiceError('数量必须大于 0')
+    unit_price = float(data.get('unit_price') or 0)
     po = PurchaseOrder(
         spare_part_id=int(spare_id),
         quantity=qty,
-        unit_price=float(data.get('unit_price') or 0),
+        unit_price=unit_price,
+        total=qty * unit_price,
         supplier_name=data.get('supplier', data.get('supplier_name', '')),
         operator=current_user_name,
         purchase_date=datetime.strptime(data['purchase_date'], '%Y-%m-%d').date() if data.get('purchase_date') else datetime.utcnow().date(),
@@ -104,15 +105,20 @@ def create_sales_order(data, current_user_name):
     qty = int(data.get('quantity') or 0)
     if qty <= 0:
         raise ServiceError('数量必须大于 0')
-    # 校验库存
-    total_stock = db.session.query(func.coalesce(func.sum(SpareStock.quantity), 0))\
-        .filter(SpareStock.spare_part_id == int(spare_id)).scalar() or 0
+    # 先锁定该备件的库存行（with_for_update 行锁防 TOCTOU 超扣；SQLite 下为 no-op），
+    # 再基于已锁定的行校验库存，避免「校验-扣减」之间被并发抢走
+    stocks = SpareStock.query.filter(
+        SpareStock.spare_part_id == int(spare_id), SpareStock.quantity > 0
+    ).order_by(SpareStock.id).with_for_update().all()
+    total_stock = sum(st.quantity or 0 for st in stocks)
     if total_stock < qty:
         raise ServiceError(f'库存不足（当前 {total_stock}，需要 {qty}）')
+    unit_price = float(data.get('unit_price') or 0)
     so = SalesOrder(
         spare_part_id=int(spare_id),
         quantity=qty,
-        unit_price=float(data.get('unit_price') or 0),
+        unit_price=unit_price,
+        total=qty * unit_price,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         operator=current_user_name,
         sales_date=datetime.strptime(data['sales_date'], '%Y-%m-%d').date() if data.get('sales_date') else datetime.utcnow().date(),
@@ -121,9 +127,6 @@ def create_sales_order(data, current_user_name):
     db.session.add(so)
     # 出库：FIFO 扣减
     remaining = qty
-    stocks = SpareStock.query.filter_by(spare_part_id=int(spare_id), quantity__gt=0).order_by(SpareStock.id).all() \
-        if False else \
-        SpareStock.query.filter(SpareStock.spare_part_id == int(spare_id), SpareStock.quantity > 0).order_by(SpareStock.id).all()
     for st in stocks:
         if remaining <= 0:
             break
@@ -131,3 +134,31 @@ def create_sales_order(data, current_user_name):
         st.quantity -= take
         remaining -= take
     return so
+
+
+@transaction
+def delete_purchase_order(po_id):
+    """删除采购单：冲销其入库数量（从库存扣回，按行锁防并发）"""
+    po = PurchaseOrder.query.get_or_404(po_id)
+    qty = po.quantity or 0
+    if qty > 0:
+        stock = SpareStock.query.filter_by(spare_part_id=po.spare_part_id)\
+            .order_by(SpareStock.id).with_for_update().first()
+        if stock:
+            stock.quantity = max(0, (stock.quantity or 0) - qty)
+    db.session.delete(po)
+
+
+@transaction
+def delete_sales_order(so_id):
+    """删除销售单：把出库数量补回库存（按行锁防并发）"""
+    so = SalesOrder.query.get_or_404(so_id)
+    qty = so.quantity or 0
+    if qty > 0:
+        stock = SpareStock.query.filter_by(spare_part_id=so.spare_part_id)\
+            .order_by(SpareStock.id).with_for_update().first()
+        if stock:
+            stock.quantity = (stock.quantity or 0) + qty
+        else:
+            db.session.add(SpareStock(spare_part_id=so.spare_part_id, quantity=qty, location='默认库位'))
+    db.session.delete(so)

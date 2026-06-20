@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""机柜管理蓝图：位置 / 机柜 / 设备上架（V6.1）"""
+"""机柜管理蓝图：位置 / 机柜 / 设备上架（V6.1） — 按客户分组管理"""
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, abort)
 from flask_login import login_required, current_user
-from models import (Rack, RackLocation, RackInstall, Device, Customer, db)
+from sqlalchemy.orm import joinedload
+from models import (Rack, RackLocation, RackInstall, Device, Customer, Region, db)
 from utils.permission import require_permission
 
 rack_bp = Blueprint('rack', __name__)
@@ -14,10 +15,36 @@ rack_bp = Blueprint('rack', __name__)
 @login_required
 @require_permission('device:view')
 def rack_index():
-    """机柜管理主页：左侧位置树 + 右侧机柜可视化"""
+    """机柜管理主页：按「地市 → 客户」分组列出机柜 + 右侧可视化"""
+    racks = Rack.query.order_by(Rack.id.desc()).all()
+    # 按客户分组（参照设备列表 city_data 三段式）
+    by_customer = {}
+    for r in racks:
+        by_customer.setdefault(r.customer_id, []).append(r)
+    cust_ids = [cid for cid in by_customer.keys() if cid is not None]
+    cust_map = {}
+    if cust_ids:
+        for c in Customer.query.options(
+            joinedload(Customer.region_rel).joinedload(Region.parent)
+        ).filter(Customer.id.in_(cust_ids)).all():
+            cust_map[c.id] = c
+    city_data = {}
+    for cid, rack_list in by_customer.items():
+        c = cust_map.get(cid)
+        if c:
+            if c.region_rel and c.region_rel.parent:
+                city = c.region_rel.parent.name
+            elif c.region_rel:
+                city = c.region_rel.name
+            else:
+                city = c.city or '未分配地市'
+        else:
+            city = '未分配客户'
+        city_data.setdefault(city, []).append({'customer': c, 'racks': rack_list})
     locations = RackLocation.query.order_by(RackLocation.id.desc()).all()
     customers = Customer.query.order_by(Customer.name).all()
-    return render_template('rack/index.html', locations=locations, customers=customers)
+    return render_template('rack/index.html', city_data=city_data,
+                           locations=locations, customers=customers)
 
 
 # ============================ 位置 API ============================
@@ -70,11 +97,14 @@ def api_location_delete(loc_id):
 @rack_bp.route('/api/rack/cabinets', methods=['GET'])
 @login_required
 def api_cabinets():
-    """获取机柜列表（可按 location_id 过滤）"""
+    """获取机柜列表（可按 location_id 或 customer_id 过滤）"""
     location_id = request.args.get('location_id', type=int)
+    customer_id = request.args.get('customer_id', type=int)
     q = Rack.query
     if location_id:
         q = q.filter_by(location_id=location_id)
+    if customer_id:
+        q = q.filter_by(customer_id=customer_id)
     items = []
     for r in q.order_by(Rack.id.desc()).all():
         # 计算 U 占用
@@ -86,6 +116,8 @@ def api_cabinets():
             'id': r.id,
             'location_id': r.location_id,
             'location_name': f'{r.location_rel.building} {r.location_rel.floor}'.strip() if r.location_rel else '',
+            'customer_id': r.customer_id,
+            'customer_name': r.customer_rel.name if r.customer_rel else '',
             'name': r.name,
             'total_u': r.total_u,
             'used_u': used,
@@ -138,6 +170,8 @@ def api_cabinet_detail(rack_id):
         'color': r.color,
         'pdu_total_w': r.pdu_total_w,
         'remark': r.remark,
+        'customer_id': r.customer_id,
+        'customer_name': r.customer_rel.name if r.customer_rel else '',
         'location_name': f'{r.location_rel.building} {r.location_rel.floor}'.strip() if r.location_rel else '',
         'installs': installs,
     })
@@ -151,6 +185,7 @@ def api_cabinet_create():
     if not data.get('name'):
         return jsonify({'error': '机柜名称不能为空'}), 400
     r = Rack(
+        customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         location_id=int(data['location_id']) if data.get('location_id') else None,
         name=data.get('name', ''),
         total_u=int(data.get('total_u') or 42),
@@ -168,6 +203,10 @@ def api_cabinet_create():
 def api_cabinet_update(rack_id):
     r = Rack.query.get_or_404(rack_id)
     data = request.get_json(silent=True) or request.form.to_dict()
+    if 'customer_id' in data:
+        r.customer_id = int(data['customer_id']) if data.get('customer_id') else None
+    if 'location_id' in data:
+        r.location_id = int(data['location_id']) if data.get('location_id') else None
     r.name = data.get('name', r.name)
     r.total_u = int(data.get('total_u') or r.total_u)
     r.color = data.get('color', r.color)
@@ -193,11 +232,22 @@ def api_cabinet_delete(rack_id):
 @rack_bp.route('/api/rack/devices/all', methods=['GET'])
 @login_required
 def api_all_devices():
-    """获取所有设备（用于上架时下拉选择）"""
-    items = []
+    """获取可上架设备（仅本机柜所属客户的设备）。
+
+    传 rack_id（推导其 customer_id）或直接传 customer_id。
+    无客户归属（机柜未设客户）时返回空列表，引导走手动录入。
+    """
+    rack_id = request.args.get('rack_id', type=int)
+    customer_id = request.args.get('customer_id', type=int)
+    if rack_id and not customer_id:
+        r = Rack.query.get(rack_id)
+        customer_id = r.customer_id if r else None
+    if not customer_id:
+        return jsonify({'items': []})
     # 已上架设备 ID 集
     installed = {i.device_id for i in RackInstall.query.filter(RackInstall.device_id.isnot(None)).all()}
-    for d in Device.query.order_by(Device.device_name).all():
+    items = []
+    for d in Device.query.filter_by(customer_id=customer_id).order_by(Device.device_name).all():
         items.append({
             'id': d.id,
             'name': d.device_name,

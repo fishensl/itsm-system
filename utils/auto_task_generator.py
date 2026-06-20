@@ -1,5 +1,6 @@
 """合同自动巡检任务生成器"""
 from datetime import date, timedelta
+from flask import current_app
 from models import db, Contract, InspectionTask, InspectionTemplate, Customer
 
 
@@ -65,6 +66,10 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
         frequency = contract.inspection_frequency
         months = _get_frequency_delta(frequency)
         if not months:
+            current_app.logger.warning(
+                '合同 %s 巡检频率「%s」无法识别，跳过自动任务生成',
+                contract.number or contract.id, frequency,
+            )
             continue
 
         # 从上次生成日期或合同开始日期开始
@@ -78,6 +83,7 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
         if contract.start_date and cursor < contract.start_date:
             cursor = contract.start_date
 
+        last_period_start = None  # 最后一个已生成期次的起点，作为下次的游标
         while cursor <= to_date:
             # 不超过合同结束日期
             if contract.end_date and cursor > contract.end_date:
@@ -131,10 +137,13 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
 
                 generated.append(task_info)
 
+            last_period_start = cursor
             cursor = _add_months(cursor, months)
 
         if not dry_run:
-            contract.last_generated_date = to_date
+            # 记录为最后一个已生成期次的起点（而非 to_date），避免下次跳过尚未覆盖的周期
+            if last_period_start is not None:
+                contract.last_generated_date = last_period_start
             db.session.commit()
 
     return generated

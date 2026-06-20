@@ -121,6 +121,20 @@
                     <input type="text" name="onsite_office" class="form-control" value="{{ customer.onsite_office if customer else '' }}">
                 </div>
             </div>
+            {% if custom_fields %}
+            <div class="row">
+                <div class="col-12">
+                    <h6 class="text-muted border-top pt-3"><i class="bi-columns"></i> 自定义字段</h6>
+                </div>
+                {% for f in custom_fields %}
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">{{ f.name }}</label>
+                    <input type="{{ 'date' if f.field_type == 'date' else 'text' }}" name="custom_{{ f.id }}"
+                           class="form-control" value="{{ custom_values.get(f.name, '') }}">
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="mt-3">
                 <button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存</button>
                 <a href="{{ url_for('customer.customer_list') }}" class="btn btn-secondary">取消</a>

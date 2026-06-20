@@ -233,6 +233,7 @@ class Customer(db.Model):
     device_count = db.Column(db.Integer, default=0)        # 关联设备数（冗余快照）
     source = db.Column(db.String(64), default='')           # 转介绍/展会/线上/其他
     remark = db.Column(db.Text, default='')
+    extra_fields = db.Column(db.Text, default='')           # 自定义字段值（JSON 字符串 {字段名: 值}）
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -240,6 +241,16 @@ class Customer(db.Model):
     category_rel = db.relationship('CustomerCategory', backref='customers', lazy=True)
     devices = db.relationship('Device', backref='customer', lazy='dynamic',
                               cascade='all, delete-orphan')
+
+
+class CustomerCustomField(db.Model):
+    """客户自定义字段定义（值存于 Customer.extra_fields JSON）"""
+    __tablename__ = 'customer_custom_fields'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False)
+    field_type = db.Column(db.String(16), default='text')  # text/date
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 # ============================
@@ -1069,6 +1080,7 @@ class Rack(db.Model):
     """机柜"""
     __tablename__ = 'racks'
     id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
     location_id = db.Column(db.Integer, db.ForeignKey('rack_locations.id'), nullable=True, index=True)
     name = db.Column(db.String(64), nullable=False)         # 机柜编号/名称
     total_u = db.Column(db.Integer, default=42)             # 总 U 数
@@ -1078,6 +1090,7 @@ class Rack(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     location_rel = db.relationship('RackLocation', backref='racks')
+    customer_rel = db.relationship('Customer', backref='racks')
 
 
 class RackInstall(db.Model):

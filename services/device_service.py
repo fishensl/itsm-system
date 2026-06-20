@@ -127,15 +127,18 @@ def update_device_from_form(device_id, form):
 
 @transaction
 def delete_device(device_id):
-    """删除设备（清理关联的密码历史、凭据、接口、配置备份、采集任务）"""
+    """删除设备（清理关联的密码历史、凭据、接口、配置备份、采集任务；置空工单/上架的设备引用）"""
     d = Device.query.get_or_404(device_id)
     from models import (PasswordHistory, DeviceCredential, DeviceInterface,
-                        DeviceConfigBackup, DeviceCollectTask)
+                        DeviceConfigBackup, DeviceCollectTask, Ticket, RackInstall)
     PasswordHistory.query.filter_by(device_id=device_id).delete()
     DeviceCredential.query.filter_by(device_id=device_id).delete()
     DeviceInterface.query.filter_by(device_id=device_id).delete()
     DeviceConfigBackup.query.filter_by(device_id=device_id).delete()
     DeviceCollectTask.query.filter_by(device_id=device_id).delete()
+    # 置空可空外键引用，避免悬挂外键（SQLite 默认不强制 FK）
+    Ticket.query.filter_by(related_device_id=device_id).update({'related_device_id': None})
+    RackInstall.query.filter_by(device_id=device_id).update({'device_id': None})
     cid = d.customer_id
     db.session.delete(d)
     return cid

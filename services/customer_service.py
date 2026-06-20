@@ -5,8 +5,37 @@
 路由层只负责参数接收、权限检查、模板渲染。
 """
 from datetime import date
-from models import db, Customer, Region
+import json
+from models import db, Customer, Region, CustomerCustomField
 from .base import ServiceError, transaction
+
+
+def get_custom_fields():
+    """获取所有客户自定义字段定义（按排序）"""
+    return CustomerCustomField.query.order_by(
+        CustomerCustomField.sort_order, CustomerCustomField.id).all()
+
+
+def parse_extra_fields(customer):
+    """把 Customer.extra_fields JSON 反序列化为 dict，失败返回空 dict"""
+    if not customer or not customer.extra_fields:
+        return {}
+    try:
+        data = json.loads(customer.extra_fields)
+        return data if isinstance(data, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _collect_extra_fields(data):
+    """从表单 data 按已定义字段收集自定义字段值，返回 JSON 字符串"""
+    fields = get_custom_fields()
+    if not fields:
+        return ''
+    values = {}
+    for f in fields:
+        values[f.name] = (data.get(f'custom_{f.id}') or '').strip()
+    return json.dumps(values, ensure_ascii=False)
 
 
 def _calculate_tier(device_count, has_onsite, has_drill):
@@ -102,6 +131,8 @@ def create_customer(data, device_count=0):
     c.city, _ = _resolve_region(c.region_id)
     # 定级
     c.level = _derive_level(c, c.has_onsite, c.has_drill, data.get('level'))
+    # 自定义字段值
+    c.extra_fields = _collect_extra_fields(data)
 
     db.session.add(c)
     return c
@@ -138,6 +169,7 @@ def update_customer(customer_id, data):
     c.remark = data.get('remark') or ''
     c.city, _ = _resolve_region(c.region_id)
     c.level = _derive_level(c, c.has_onsite, c.has_drill, data.get('level'))
+    c.extra_fields = _collect_extra_fields(data)
     return c
 
 
@@ -185,4 +217,9 @@ def delete_customer(customer_id):
     c = Customer.query.get_or_404(customer_id)
     if c.devices.count() > 0:
         raise ServiceError(f'客户 "{c.name}" 仍有关联设备，无法删除')
+    # 置空引用该客户的工单/巡检/故障，避免悬挂外键（SQLite 默认不强制 FK）
+    from models import Ticket, Inspection, Fault
+    Ticket.query.filter_by(customer_id=customer_id).update({'customer_id': None})
+    Inspection.query.filter_by(customer_id=customer_id).update({'customer_id': None})
+    Fault.query.filter_by(customer_id=customer_id).update({'customer_id': None})
     db.session.delete(c)

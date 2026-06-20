@@ -12,6 +12,7 @@ from models import (SparePart, SpareStock, PurchaseOrder, SalesOrder, Customer, 
 from services.spare_service import (
     create_spare_part, update_spare_part, delete_spare_part,
     create_purchase_order, create_sales_order,
+    delete_purchase_order, delete_sales_order,
 )
 from utils.permission import require_permission
 
@@ -187,10 +188,13 @@ def spare_stock_list():
 @require_permission('spare:add')
 def spare_stock_add():
     try:
+        qty = int(request.form.get('quantity', 0))
+        if qty < 0:
+            raise ValueError('库存数量不能为负数')
         ss = SpareStock(
             spare_part_id=int(request.form['spare_part_id']),
             location=request.form.get('location', ''),
-            quantity=int(request.form.get('quantity', 0)),
+            quantity=qty,
             unit_price=float(request.form.get('unit_price', 0)),
         )
         db.session.add(ss)
@@ -209,7 +213,11 @@ def spare_stock_add():
 @require_permission('spare:edit')
 def spare_stock_edit(id):
     ss = SpareStock.query.get_or_404(id)
-    ss.quantity = int(request.form.get('quantity', 0))
+    qty = int(request.form.get('quantity', 0))
+    if qty < 0:
+        flash('库存数量不能为负数', 'danger')
+        return redirect(url_for('spare.spare_stock_list'))
+    ss.quantity = qty
     ss.location = request.form.get('location', '')
     ss.unit_price = float(request.form.get('unit_price', 0))
     db.session.commit()
@@ -261,9 +269,13 @@ def purchase_order_add():
 @login_required
 @require_permission('spare:delete')
 def purchase_order_delete(id):
-    po = PurchaseOrder.query.get_or_404(id)
-    db.session.delete(po)
-    db.session.commit()
+    try:
+        delete_purchase_order(id)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("采购单删除失败：%s", repr(e))
+        flash(str(e) or '采购单删除失败', 'danger')
+        return redirect(url_for('spare.purchase_order_list'))
     flash('已删除', 'success')
     return redirect(url_for('spare.purchase_order_list'))
 
@@ -302,8 +314,12 @@ def sales_order_add():
 @login_required
 @require_permission('spare:delete')
 def sales_order_delete(id):
-    so = SalesOrder.query.get_or_404(id)
-    db.session.delete(so)
-    db.session.commit()
+    try:
+        delete_sales_order(id)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("销售单删除失败：%s", repr(e))
+        flash(str(e) or '销售单删除失败', 'danger')
+        return redirect(url_for('spare.sales_order_list'))
     flash('已删除', 'success')
     return redirect(url_for('spare.sales_order_list'))
