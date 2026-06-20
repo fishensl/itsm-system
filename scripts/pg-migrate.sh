@@ -107,10 +107,19 @@ DO \$\$ BEGIN
 END \$\$;
 SQL
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DB}'" | grep -q 1; then
-    sudo -u postgres createdb -O "${PG_USER}" "${PG_DB}"
-    echo "  数据库 ${PG_DB} 已创建"
+    # 强制 UTF8 编码（关键：系统 locale=C 时 createdb 默认建成 SQL_ASCII，无法存中文）
+    # 用 template0 + 显式 UTF8 + C locale，绕开模板库 locale 限制
+    sudo -u postgres createdb -O "${PG_USER}" -E UTF8 -T template0 --lc-collate=C --lc-ctype=C "${PG_DB}"
+    echo "  数据库 ${PG_DB} 已创建（UTF8 编码）"
 else
-    echo "  数据库 ${PG_DB} 已存在（沿用；若非空请先 DROP 再跑）"
+    # 已存在：校验编码，SQL_ASCII 会导致中文 seed 失败，必须提示重建
+    DB_ENC=$(sudo -u postgres psql -tAc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname='${PG_DB}'" | tr -d '[:space:]')
+    if [ "${DB_ENC}" != "UTF8" ]; then
+        echo "[FATAL] 数据库 ${PG_DB} 现有编码是 ${DB_ENC}，非 UTF8，无法存中文。"
+        echo "  请先删除空库再重跑：sudo -u postgres dropdb ${PG_DB}"
+        exit 1
+    fi
+    echo "  数据库 ${PG_DB} 已存在（UTF8，沿用；若非空请先 DROP 再跑）"
 fi
 sudo -u postgres psql -d "${PG_DB}" -c "GRANT ALL ON SCHEMA public TO ${PG_USER};" >/dev/null
 

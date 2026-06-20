@@ -103,7 +103,7 @@ DO \$\$ BEGIN
   END IF;
 END \$\$;
 SQL
-sudo -u postgres createdb -O "${PG_USER}" "${PG_DB}" 2>/dev/null || echo "  PG 库 ${PG_DB} 已存在，沿用"
+sudo -u postgres createdb -O "${PG_USER}" -E UTF8 -T template0 --lc-collate=C --lc-ctype=C "${PG_DB}" 2>/dev/null || echo "  PG 库 ${PG_DB} 已存在，沿用"
 sudo -u postgres psql -d "${PG_DB}" -c "GRANT ALL ON SCHEMA public TO ${PG_USER};" >/dev/null
 echo "ITSM_DATABASE_URI=postgresql://${PG_USER}:${PG_PASSWORD}@localhost:5432/${PG_DB}" >> "${APP_DIR}/.env"
 echo "  PostgreSQL 已就绪: ${PG_DB} / ${PG_USER}，URI 已写入 .env"
