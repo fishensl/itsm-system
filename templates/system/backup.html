@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}数据备份/恢复 · 系统管理{% endblock %}
+{% block content %}
+{% call ui.page_header('数据备份 / 恢复', 'shield-lock') %}
+    <a href="{{ url_for('system_settings') }}" class="btn btn-secondary btn-sm">返回系统概览</a>
+{% endcall %}
+
+<div class="alert alert-info">
+    <i class="bi-info-circle"></i>
+    <strong>备份包内容</strong>：全量业务数据（所有表）+ 上传文件（报告/附件/拓扑/备件图，约 {{ file_size_mb }} MB）+ 设备密码加密密钥。
+    可用于服务器迁移、整机备份、跨环境克隆。属高敏感操作，仅管理员可用。
+</div>
+
+<div class="row g-3">
+    <!-- 导出 -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header py-2"><i class="bi-download me-1"></i>导出备份</div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">一键下载完整备份包（zip）。当前库概要：</p>
+                <div class="mb-3">
+                    <span class="badge bg-secondary me-1">用户 {{ stats.user }}</span>
+                    <span class="badge bg-warning text-dark me-1">客户 {{ stats.customer }}</span>
+                    <span class="badge bg-success me-1">设备 {{ stats.device }}</span>
+                    <span class="badge bg-danger me-1">工单 {{ stats.ticket }}</span>
+                    <span class="badge bg-primary me-1">巡检 {{ stats.inspection }}</span>
+                    <span class="badge bg-info me-1">知识库 {{ stats.kb }}</span>
+                </div>
+                <form method="post" action="{{ url_for('backup.backup_export') }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi-box-arrow-down"></i> 下载备份包
+                    </button>
+                </form>
+                <hr class="my-3">
+                <p class="text-muted small mb-0">
+                    <i class="bi-shield-exclamation text-danger"></i>
+                    备份包含加密密钥，可解密所有设备密码——请妥善保管，勿外传。
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入 -->
+    <div class="col-md-6">
+        <div class="card h-100 border-danger">
+            <div class="card-header py-2 bg-danger text-white"><i class="bi-upload me-1"></i>恢复（导入）</div>
+            <div class="card-body">
+                <div class="alert alert-danger py-2 small mb-3">
+                    <i class="bi-exclamation-triangle"></i>
+                    <strong>危险操作</strong>：导入会<strong>清空并覆盖</strong>当前全部数据与上传文件，不可撤销！
+                    建议先导出一份当前备份再导入。
+                </div>
+                <form method="post" action="{{ url_for('backup.backup_import') }}" enctype="multipart/form-data">
+                    <div class="mb-2">
+                        <label class="form-label small">选择 .zip 备份包</label>
+                        <input type="file" name="backup_file" class="form-control form-control-sm" accept=".zip" required>
+                    </div>
+                    <div class="mb-2 form-check">
+                        <input type="checkbox" name="restore_secret_key" value="1" class="form-check-input" id="restoreKey">
+                        <label class="form-check-label small" for="restoreKey">
+                            同时还原加密密钥（<strong>迁移到新服务器时勾选</strong>，否则设备密码无法解密）
+                        </label>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">输入 <code>我确认覆盖</code> 以二次确认</label>
+                        <input type="text" name="confirm" class="form-control form-control-sm" placeholder="我确认覆盖" required>
+                    </div>
+                    <button type="submit" class="btn btn-danger"
+                            onclick="return confirm('确定执行导入？当前全部数据将被覆盖且不可恢复！')">
+                        <i class="bi-upload"></i> 执行导入
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

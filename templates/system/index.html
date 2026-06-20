@@ -2,7 +2,11 @@
 {% import "_ui.html" as ui %}
 {% block title %}系统概览 · 系统管理{% endblock %}
 {% block content %}
-{% call ui.page_header('系统概览', 'gear') %}{% endcall %}
+{% call ui.page_header('系统概览', 'gear') %}
+    <a href="{{ url_for('backup.backup_page') }}" class="btn btn-outline-danger btn-sm">
+        <i class="bi-shield-lock"></i> 数据备份/恢复
+    </a>
+{% endcall %}
 
 <!-- 1. 资源监控（顶行，3张大卡片） -->
 <h6 class="text-muted mb-2"><i class="bi-speedometer2 me-1"></i>资源监控</h6>

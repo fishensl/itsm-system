@@ -12,6 +12,7 @@ from blueprints.ops import ops_bp
 from blueprints.rack import rack_bp
 from blueprints.tools import tools_bp
 from blueprints.rbac import rbac_bp
+from blueprints.backup import backup_bp
 
 
 def register_blueprints(app):
@@ -46,3 +47,5 @@ def register_blueprints(app):
     app.register_blueprint(tools_bp)
     # V14: 角色/权限管理
     app.register_blueprint(rbac_bp, url_prefix='/rbac')
+    # V15: 数据备份/恢复（admin）
+    app.register_blueprint(backup_bp)
