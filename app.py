@@ -95,6 +95,11 @@ def _set_csrf_cookie(response):
 
 db.init_app(app)
 
+# flask-migrate（Alembic）接管 schema 演进：替代旧 utils/seed_permissions.py 的 PRAGMA 自动 ADD COLUMN
+# init_db() 内部会调 flask db upgrade 应用 migrations/ 下的迁移脚本
+from flask_migrate import Migrate
+migrate = Migrate(app, db)
+
 # 注册新增蓝图模块
 from blueprints import register_blueprints
 register_blueprints(app)
@@ -1269,15 +1274,100 @@ def api_dashboard_preferences_reset():
 
 
 # ---------- 初始化 ----------
+def _bootstrap_legacy_db():
+    """引导遗留库（由旧 db.create_all + ensure_schema 建好但无 alembic_version）接入 Alembic。
+
+    三种库状态：
+      1) 空库：无任何业务表 → 不处理，交给 flask db upgrade 从零建表。
+      2) 遗留库：有业务表但无 alembic_version 表 → 其 schema 与 initial_schema 一致
+         （interface=VARCHAR(128)、customers.name/tickets.number 无唯一约束），
+         故 stamp 到 initial_schema，后续 upgrade 只跑 pg_type_fixes。
+      3) 已接入 Alembic：有 alembic_version → 不处理，交给 upgrade。
+    返回 True 表示已处理（调用了 stamp），False 表示无需处理。
+    """
+    from sqlalchemy import inspect as sqla_inspect, text
+    insp = sqla_inspect(db.engine)
+    all_tables = set(insp.get_table_names())
+    if 'alembic_version' in all_tables:
+        return False  # 已接入
+    business_tables = all_tables - {'alembic_version', 'sqlite_sequence'}
+    if not business_tables:
+        return False  # 空库，让 upgrade 从零建
+
+    # 遗留库：有业务表但无 alembic_version。先清理可能阻塞 pg_type_fixes 唯一约束的重复数据。
+    _dedup_before_unique_constraints()
+
+    # stamp 到 initial_schema（遗留库结构与 initial_schema 一致），之后 upgrade 只需跑 pg_type_fixes
+    from flask_migrate import stamp as _migrate_stamp
+    import os as _os
+    _migrate_stamp(directory=_os.path.join(_os.path.dirname(__file__), 'migrations'),
+                   revision='3f82f965fb25')
+    print('[INIT] 检测到遗留库（无 alembic_version），已 stamp 到 initial_schema，后续 upgrade 将应用 pg_type_fixes')
+    return True
+
+
+def _dedup_before_unique_constraints():
+    """给即将加唯一约束的列清理重复行（保留 id 最小者，其余改名加后缀使其唯一）。
+
+    - customers.name：重名客户给较新者追加 " (重复N)" 后缀
+    - tickets.number：重号工单给较新者追加 "-DUP-N" 后缀
+    幂等：已是唯一则无操作。失败仅告警不中断（不阻塞启动）。
+    """
+    from sqlalchemy import text
+    try:
+        # customers.name
+        dup_names = db.session.execute(text(
+            "SELECT name, COUNT(*) c FROM customers GROUP BY name HAVING COUNT(*) > 1"
+        )).all()
+        for name, _cnt in dup_names:
+            rows = db.session.execute(text(
+                "SELECT id FROM customers WHERE name = :n ORDER BY id"
+            ), {'n': name}).all()
+            for i, (cid,) in enumerate(rows[1:], start=1):
+                new_name = f'{name} (重复{i})'
+                # 截断到 128 字符以符合 String(128)
+                if len(new_name) > 128:
+                    new_name = new_name[:128]
+                db.session.execute(text(
+                    "UPDATE customers SET name = :nn WHERE id = :id"
+                ), {'nn': new_name, 'id': cid})
+        # tickets.number
+        dup_nums = db.session.execute(text(
+            "SELECT number, COUNT(*) c FROM tickets GROUP BY number HAVING COUNT(*) > 1"
+        )).all()
+        for num, _cnt in dup_nums:
+            rows = db.session.execute(text(
+                "SELECT id FROM tickets WHERE number = :n ORDER BY id"
+            ), {'n': num}).all()
+            for i, (tid,) in enumerate(rows[1:], start=1):
+                new_num = f'{num}-DUP{i}'
+                if len(new_num) > 32:
+                    new_num = (num[:32 - len(f'-DUP{i}')] + f'-DUP{i}')
+                db.session.execute(text(
+                    "UPDATE tickets SET number = :nn WHERE id = :id"
+                ), {'nn': new_num, 'id': tid})
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f'[WARN] 去重清理失败（非致命，可能在 pg_type_fixes 加唯一约束时报错）: {e}')
+
+
 def init_db():
     with app.app_context():
-        db.create_all()
+        # Schema 演进交给 Alembic（flask-migrate），替代旧 db.create_all + ensure_schema(PRGAMA)
+        from flask_migrate import upgrade as _migrate_upgrade
+        import os as _os
+        migrations_dir = _os.path.join(_os.path.dirname(__file__), 'migrations')
 
-        # V14: 权限/角色 seed（幂等，重复执行无副作用）
+        # 先引导遗留库（有表但无 alembic_version 的旧 SQLite 库）接入 Alembic
+        _bootstrap_legacy_db()
+
+        # 应用所有待执行的迁移（空库会从 initial_schema 一路建到 head；遗留库只跑 pg_type_fixes）
+        _migrate_upgrade(directory=migrations_dir)
+
+        # V14: 权限/角色 seed（幂等，仅写数据不改 schema）
         try:
-            from utils.seed_permissions import ensure_schema, seed_all
-            ensure_schema(app)
-            db.create_all()  # 第二次：让 Role / RolePermission 新表被建出
+            from utils.seed_permissions import seed_all
             seed_all(app)
         except Exception as e:
             print(f'[WARN] 权限 seed 失败（非致命）: {e}')

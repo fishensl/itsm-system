@@ -50,10 +50,12 @@ echo "[5/6] 更新 Python 依赖..."
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
 # ---- 6. 数据库迁移 + schema 同步 ----
-# init_db() 内部幂等：db.create_all() 建新表 + ensure_schema() 补列 + seed_all() 写权限/角色
+# init_db() 内部幂等：跑 flask db upgrade（Alembic）同步 schema + seed_all() 写权限/角色。
+# SQLite/PG 通用；ITSM_DATABASE_URI 从 .env 读取以连对库。
 echo "[6/6] 数据库 schema 同步..."
 cd "${APP_DIR}"
 ITSM_SECRET_KEY="$(grep -E '^ITSM_SECRET_KEY=' .env 2>/dev/null | cut -d= -f2-)" \
+ITSM_DATABASE_URI="$(grep -E '^ITSM_DATABASE_URI=' .env 2>/dev/null | cut -d= -f2-)" \
 ITSM_ENV=production \
 FLASK_ENV=production \
 "${VENV}/bin/python" -c "from app import init_db; init_db(); print('[OK] schema + seed 已同步')"

@@ -11,10 +11,10 @@
   - roles 表：4 个系统角色固定种入（is_system=True）
   - role_permissions：admin 角色不写（依赖 get_user_permissions 中的 admin 短路）
   - 用户级 UserPermission：不动
+
+注：schema 演进（加列/加约束）已由 Alembic（flask-migrate）接管，见 migrations/。
+    本模块只负责 seed 数据，不再做任何 PRAGMA/ALTER 操作。
 """
-from datetime import datetime
-from sqlalchemy import inspect, text
-from sqlalchemy.exc import OperationalError, ProgrammingError
 from models import db, Role, RolePermission, Permission
 
 
@@ -32,69 +32,6 @@ def _category_from_code(code: str) -> str:
     if ':' in code:
         return code.split(':', 1)[0]
     return 'system'
-
-
-def ensure_schema(app=None) -> None:
-    """幂等 schema 补齐：用 SQL 探测列是否存在，缺则 ALTER。
-
-    SQLite 不支持 IF NOT EXISTS ADD COLUMN，要先 PRAGMA table_info。
-    """
-    if app is not None:
-        with app.app_context():
-            _ensure_schema_impl()
-    else:
-        _ensure_schema_impl()
-
-
-def _ensure_schema_impl() -> None:
-    insp = inspect(db.engine)
-
-    # 1. permissions / user_permissions 加列（仅在表已存在时）
-    if insp.has_table('permissions'):
-        cols = {c['name'] for c in insp.get_columns('permissions')}
-        _add_column_if_missing('permissions', 'description', "VARCHAR(512) DEFAULT ''")
-        _add_column_if_missing('permissions', 'is_active',   'BOOLEAN DEFAULT 1')
-        _add_column_if_missing('permissions', 'is_system',   'BOOLEAN DEFAULT 0')
-        _add_column_if_missing('permissions', 'updated_at',  'DATETIME')
-
-    if insp.has_table('user_permissions'):
-        _add_column_if_missing('user_permissions', 'granted_by_user_id', 'INTEGER REFERENCES users(id)')
-        _add_column_if_missing('user_permissions', 'granted_at',         'DATETIME')
-        _add_column_if_missing('user_permissions', 'expire_at',          'DATETIME')
-        _add_column_if_missing('user_permissions', 'remark',             "VARCHAR(256) DEFAULT ''")
-        # uq_user_perm 唯一约束（SQLite 加 UNIQUE 索引）
-        _add_unique_index_if_missing('user_permissions', 'uq_user_perm',
-                                     ['user_id', 'permission_code'])
-
-    # 2. 新表（role_permissions / roles）由 db.create_all() 接管；调用者负责
-
-
-def _add_column_if_missing(table: str, column: str, ddl_type: str) -> None:
-    """SQLite 不支持 ADD COLUMN IF NOT EXISTS，先 PRAGMA 查表结构。"""
-    try:
-        with db.engine.connect() as conn:
-            res = conn.execute(text(f"PRAGMA table_info({table})"))
-            existing = {row[1] for row in res}
-            if column not in existing:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
-                conn.commit()
-    except (OperationalError, ProgrammingError):
-        db.session.rollback()
-
-
-def _add_unique_index_if_missing(table: str, index_name: str, columns: list) -> None:
-    try:
-        with db.engine.connect() as conn:
-            res = conn.execute(text(f"PRAGMA index_list({table})"))
-            existing = {row[1] for row in res}
-            if index_name not in existing:
-                cols_sql = ', '.join(columns)
-                conn.execute(text(
-                    f"CREATE UNIQUE INDEX {index_name} ON {table}({cols_sql})"
-                ))
-                conn.commit()
-    except (OperationalError, ProgrammingError):
-        db.session.rollback()
 
 
 def seed_all(app=None) -> None:

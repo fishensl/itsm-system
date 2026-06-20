@@ -85,6 +85,33 @@ else
     echo "  .secret.key 已存在，跳过"
 fi
 
+# ---- 5.5 PostgreSQL（可选，设 ITSM_USE_PG=1 启用）----
+echo ""
+echo "[5.5/8] PostgreSQL（可选）..."
+if [ "${ITSM_USE_PG:-0}" = "1" ]; then
+    apt-get install -y -qq postgresql postgresql-client
+    systemctl enable --now postgresql >/dev/null 2>&1 || true
+    PG_DB="${ITSM_PG_DB:-itsm}"
+    PG_USER="${ITSM_PG_USER:-itsm}"
+    PG_PASSWORD=$(python3 -c "import secrets; print(secrets.token_hex(16))")
+    sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL || { echo "[FATAL] PG 库/用户创建失败"; exit 1; }
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${PG_USER}') THEN
+    CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASSWORD}';
+  ELSE
+    ALTER USER ${PG_USER} WITH PASSWORD '${PG_PASSWORD}';
+  END IF;
+END \$\$;
+SQL
+sudo -u postgres createdb -O "${PG_USER}" "${PG_DB}" 2>/dev/null || echo "  PG 库 ${PG_DB} 已存在，沿用"
+sudo -u postgres psql -d "${PG_DB}" -c "GRANT ALL ON SCHEMA public TO ${PG_USER};" >/dev/null
+echo "ITSM_DATABASE_URI=postgresql://${PG_USER}:${PG_PASSWORD}@localhost:5432/${PG_DB}" >> "${APP_DIR}/.env"
+echo "  PostgreSQL 已就绪: ${PG_DB} / ${PG_USER}，URI 已写入 .env"
+else
+    echo "  未启用（默认 SQLite）。全新部署想用 PG：sudo ITSM_USE_PG=1 bash deploy.sh"
+    echo "  已有 SQLite 部署想迁 PG：sudo bash ${APP_DIR}/scripts/pg-migrate.sh"
+fi
+
 # ---- 6. 初始化数据库 ----
 echo "[6/8] 初始化数据库..."
 cd "${APP_DIR}"
@@ -120,6 +147,7 @@ echo "访问地址: http://<服务器IP>:5000"
 echo "默认登录: admin / admin123"
 echo ""
 echo "常用命令:"
+echo "  管理控制台: sudo bash ${APP_DIR}/scripts/itsm-admin.sh  (菜单：部署/更新/备份/迁移/改密码/改端口)"
 echo "  状态:  sudo systemctl status itsm"
 echo "  日志:  sudo journalctl -u itsm -f"
 echo "  更新:  sudo bash ${APP_DIR}/scripts/update.sh"

@@ -1,6 +1,7 @@
 [Unit]
 Description=ITSM Operations Management System
-After=network.target
+# postgresql.service 仅在 PG 部署时存在；After= 对不存在的单元是宽松的（SQLite 部署不受影响）
+After=network.target postgresql.service
 
 [Service]
 Type=simple

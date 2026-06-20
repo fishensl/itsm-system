@@ -24,6 +24,7 @@ from datetime import datetime, date
 
 from flask import current_app
 from sqlalchemy import inspect as sqla_inspect, text
+from sqlalchemy.types import Integer, BigInteger
 from models import db
 
 
@@ -207,6 +208,49 @@ def _model_for_table(tname):
     return None
 
 
+def _reset_pg_sequences(ordered_tables):
+    """PG 导入后重置自增序列：显式 id 回灌不推进序列，须 setval 到 MAX(id) 否则后续插入主键冲突。
+
+    通过 information_schema 读各表主键列的 DEFAULT（形如 nextval('seq_name'::regclass)），
+    解析出序列名后 setval。跳过：无主键、复合主键、非整型主键、无序列默认的列。
+    返回 warnings 列表（单个表失败仅告警不中断整体导入）。
+    """
+    warnings = []
+    for tname in ordered_tables:
+        tbl = db.Model.metadata.tables.get(tname)
+        if tbl is None:
+            continue
+        pk_cols = list(tbl.primary_key.columns)
+        if len(pk_cols) != 1:
+            continue
+        pk = pk_cols[0]
+        # 仅处理整型自增主键
+        if not isinstance(pk.type, (Integer, BigInteger)):
+            continue
+        try:
+            # 查该列的默认值表达式（nextval('seq'::regclass)）
+            row = db.session.execute(text(
+                "SELECT column_default FROM information_schema.columns "
+                "WHERE table_name = :t AND column_name = :c AND column_default LIKE 'nextval%'"
+            ), {'t': tname, 'c': pk.name}).first()
+            if not row or not row[0]:
+                continue  # 该列无序列默认（如关联表复合主键的整型列），跳过
+            default_expr = row[0]
+            # 解析 nextval('seq_name'::regclass) 中的序列名
+            import re as _re
+            m = _re.search(r"nextval\('([^']+)'", default_expr)
+            if not m:
+                continue
+            seq_name = m.group(1)
+            db.session.execute(text(
+                f"SELECT setval('{seq_name}', COALESCE("
+                f"(SELECT MAX({pk.name}) FROM {tname}), 1), true)"
+            ))
+        except Exception as e:
+            warnings.append(f'重置 {tname}.{pk.name} 序列失败（非致命）: {e}')
+    return warnings
+
+
 def perform_import(zip_path, restore_secret_key=False):
     """导入 zip：清空并回灌全部表数据 + 还原文件 + 可选还原密钥。
 
@@ -272,10 +316,16 @@ def perform_import(zip_path, restore_secret_key=False):
             warnings.append(f'表 {tname}：当前库有、备份包无的列将用默认值：{sorted(cur_cols - bk_cols)}')
 
     is_sqlite = db.engine.dialect.name == 'sqlite'
+    is_pg = db.engine.dialect.name == 'postgresql'
 
     # SQLite 回灌期间关外键，避免按拓扑序仍撞自引用/循环约束；结束后恢复
     if is_sqlite:
         db.session.execute(text('PRAGMA foreign_keys=OFF'))
+
+    # PG：循环/自引用外键（如 departments.head_id↔users.department_id）即使按拓扑序也可能
+    # 在插入中途违反约束；把所有约束推迟到事务末尾再校验，给回灌留出完整窗口。
+    if is_pg:
+        db.session.execute(text('SET CONSTRAINTS ALL DEFERRED'))
 
     try:
         # === 1. 数据回灌（单事务，由调用方决定 commit） ===
@@ -299,6 +349,12 @@ def perform_import(zip_path, restore_secret_key=False):
                 if clean:
                     db.session.execute(tbl.insert().values(**clean))
                     restored_rows += 1
+
+        # === PG: 带入显式 id 后重置序列 ===
+        # 显式 id 的 INSERT 不会推进 PG 自增序列；不重置则后续新插入会与回灌的主键冲突。
+        if is_pg:
+            seq_warnings = _reset_pg_sequences(ordered)
+            warnings.extend(seq_warnings)
 
         # === 2. 文件还原 ===
         for zip_sub, disk_rel in FILE_DIRS:
@@ -332,6 +388,9 @@ def perform_import(zip_path, restore_secret_key=False):
     finally:
         if is_sqlite:
             db.session.execute(text('PRAGMA foreign_keys=ON'))
+        if is_pg:
+            # 恢复约束为立即校验（默认行为），避免影响后续正常写操作
+            db.session.execute(text('SET CONSTRAINTS ALL IMMEDIATE'))
 
     # 刷新 ORM 身份映射，避免导入后用到旧对象
     try:

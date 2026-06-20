@@ -214,7 +214,7 @@ class Customer(db.Model):
     """客户"""
     __tablename__ = 'customers'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(128), nullable=False, index=True)
+    name = db.Column(db.String(128), nullable=False, unique=True, index=True)
     contact_person = db.Column(db.String(64), default='')
     phone = db.Column(db.String(32), default='', index=True)
     email = db.Column(db.String(128), default='')
@@ -260,7 +260,7 @@ class Device(db.Model):
     username = db.Column(db.String(128), default='')
     password_encrypted = db.Column(db.Text, default='')
     location = db.Column(db.String(128), default='')
-    interface = db.Column(db.String(128), default='')
+    interface = db.Column(db.Text, default='')  # JSON 数组字符串；曾 String(128) 在 SQLite 宽松、PG 严格校验长度会截断/报错，故改 Text
     os_version = db.Column(db.String(128), default='')
     rule_version = db.Column(db.String(128), default='')
     license_expiry = db.Column(db.Date, nullable=True, index=True)
@@ -670,7 +670,7 @@ class Ticket(db.Model):
     """工单"""
     __tablename__ = 'tickets'
     id = db.Column(db.Integer, primary_key=True)
-    number = db.Column(db.String(32), nullable=False, index=True)  # WO-20260610-001
+    number = db.Column(db.String(32), nullable=False, unique=True, index=True)  # WO-20260610-001
     source_type = db.Column(db.String(32), default='手动创建')     # 客户报修/巡检发现/手动创建/定期维护
     priority = db.Column(db.String(16), default='中', index=True)
     status = db.Column(db.String(32), default='待派单', index=True)            # 待派单/待接单/处理中/待审核/待验收/已完成/已关闭
