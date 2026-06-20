@@ -11,7 +11,7 @@
     <div class="col-md-2">
         <select name="status" class="form-select form-select-sm">
             <option value="">全部状态</option>
-            {% for s in ['待派单','待接单','处理中','待审核','待验收','已完成','已关闭'] %}
+            {% for s in ['待派单','已派单','处理中','待审核','已验收','已关闭'] %}
             <option value="{{ s }}" {% if status==s %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
         </select>

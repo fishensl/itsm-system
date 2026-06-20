@@ -76,8 +76,8 @@
 {# 工单状态徽章 #}
 {% macro ticket_status_badge(status) %}
 {% set colors = {
-    '待派单':'secondary','待接单':'info','处理中':'primary','待审核':'warning',
-    '待验收':'warning','已完成':'success','已关闭':'dark'
+    '待派单':'secondary','已派单':'info','已接单':'info','处理中':'primary','待审核':'warning',
+    '已验收':'success','已关闭':'dark'
 } %}
 <span class="badge bg-{{ colors[status]|default('secondary') }}">{{ status }}</span>
 {% endmacro %}

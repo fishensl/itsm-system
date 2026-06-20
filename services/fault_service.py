@@ -5,31 +5,36 @@ from models import db, Fault
 from .base import ServiceError, transaction
 
 
+def _parse_dt(value):
+    """解析 datetime-local 表单值（%Y-%m-%dT%H:%M），失败返回 None"""
+    if not value:
+        return None
+    for fmt in ('%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'):
+        try:
+            return datetime.strptime(value, fmt)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
 @transaction
 def create_fault(data, current_user_name):
     """新建故障"""
     title = (data.get('title') or '').strip()
     if not title:
         raise ServiceError('故障标题不能为空')
-    fault_time = data.get('fault_time')
-    if fault_time:
-        try:
-            fault_time = datetime.strptime(fault_time, '%Y-%m-%d %H:%M')
-        except (ValueError, TypeError):
-            fault_time = datetime.utcnow()
     f = Fault(
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        device_id=int(data['device_id']) if data.get('device_id') else None,
         fault_type=data.get('fault_type', ''),
-        fault_level=data.get('fault_level', '一般'),
-        fault_time=fault_time or datetime.utcnow(),
-        result=data.get('result', '处理中'),
-        description=data.get('description', ''),
+        fault_time=_parse_dt(data.get('fault_time')) or datetime.utcnow(),
+        recovery_time=_parse_dt(data.get('recovery_time')),
+        result=data.get('result', '已解决'),
+        fault_description=data.get('fault_description', ''),
+        fault_cause=data.get('fault_cause', ''),
+        impact_range=data.get('impact_range', ''),
         solution=data.get('solution', ''),
-        reporter=current_user_name,
-        handler=data.get('handler', ''),
-        remark=data.get('remark', ''),
+        handler=data.get('handler', '') or current_user_name,
     )
     db.session.add(f)
     return f
@@ -40,23 +45,24 @@ def update_fault(fault_id, data):
     f = Fault.query.get_or_404(fault_id)
     f.title = (data.get('title') or f.title).strip()
     f.customer_id = int(data['customer_id']) if data.get('customer_id') else f.customer_id
-    f.device_id = int(data['device_id']) if data.get('device_id') else f.device_id
     f.fault_type = data.get('fault_type', f.fault_type)
-    f.fault_level = data.get('fault_level', f.fault_level)
     if data.get('fault_time'):
-        try:
-            f.fault_time = datetime.strptime(data['fault_time'], '%Y-%m-%d %H:%M')
-        except (ValueError, TypeError):
-            pass
+        f.fault_time = _parse_dt(data['fault_time']) or f.fault_time
+    if 'recovery_time' in data:
+        f.recovery_time = _parse_dt(data.get('recovery_time'))
     f.result = data.get('result', f.result)
-    f.description = data.get('description', f.description)
+    f.fault_description = data.get('fault_description', f.fault_description)
+    f.fault_cause = data.get('fault_cause', f.fault_cause)
+    f.impact_range = data.get('impact_range', f.impact_range)
     f.solution = data.get('solution', f.solution)
     f.handler = data.get('handler', f.handler)
-    f.remark = data.get('remark', f.remark)
     return f
 
 
 @transaction
 def delete_fault(fault_id):
     f = Fault.query.get_or_404(fault_id)
+    # 清理知识库对该故障的引用，避免悬挂外键
+    from models import KnowledgeBase
+    KnowledgeBase.query.filter_by(related_fault_id=fault_id).update({'related_fault_id': None})
     db.session.delete(f)

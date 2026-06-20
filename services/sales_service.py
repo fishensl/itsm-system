@@ -49,19 +49,13 @@ def delete_opportunity(opp_id):
 
 @transaction
 def create_quotation(data, current_user_name):
-    title = (data.get('title') or '').strip()
-    if not title:
-        raise ServiceError('报价标题不能为空')
     q = Quotation(
-        title=title,
+        number=data.get('number', ''),
         opportunity_id=int(data['opportunity_id']) if data.get('opportunity_id') else None,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        amount=float(data.get('amount') or 0),
+        total_amount=float(data.get('total_amount') or 0),
         status=data.get('status', '草稿'),
-        valid_until=_parse_date(data.get('valid_until')),
-        creator=current_user_name,
-        content=data.get('content', ''),
-        remark=data.get('remark', ''),
+        valid_until=_parse_date(data.get('valid_until')) if data.get('valid_until') else None,
     )
     db.session.add(q)
     return q
@@ -70,15 +64,15 @@ def create_quotation(data, current_user_name):
 @transaction
 def update_quotation(quot_id, data):
     q = Quotation.query.get_or_404(quot_id)
-    q.title = (data.get('title') or q.title).strip()
-    q.opportunity_id = int(data['opportunity_id']) if data.get('opportunity_id') else q.opportunity_id
-    q.customer_id = int(data['customer_id']) if data.get('customer_id') else q.customer_id
-    q.amount = float(data.get('amount') or 0)
+    q.number = data.get('number', q.number)
+    if data.get('opportunity_id'):
+        q.opportunity_id = int(data['opportunity_id'])
+    if data.get('customer_id'):
+        q.customer_id = int(data['customer_id'])
+    q.total_amount = float(data.get('total_amount') or 0)
     q.status = data.get('status', q.status)
     if 'valid_until' in data:
         q.valid_until = _parse_date(data.get('valid_until'))
-    q.content = data.get('content', q.content)
-    q.remark = data.get('remark', q.remark)
     return q
 
 
@@ -94,16 +88,14 @@ def create_contract(data, current_user_name):
     if not title:
         raise ServiceError('合同标题不能为空')
     c = Contract(
+        number=data.get('number', ''),
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        quotation_id=int(data['quotation_id']) if data.get('quotation_id') else None,
+        opportunity_id=int(data['opportunity_id']) if data.get('opportunity_id') else None,
         amount=float(data.get('amount') or 0),
         status=data.get('status', '执行中'),
-        start_date=_parse_date(data.get('start_date')),
-        end_date=_parse_date(data.get('end_date')),
-        owner=current_user_name,
-        content=data.get('content', ''),
-        remark=data.get('remark', ''),
+        start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
+        end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
     )
     db.session.add(c)
     return c
@@ -112,17 +104,18 @@ def create_contract(data, current_user_name):
 @transaction
 def update_contract(contract_id, data):
     c = Contract.query.get_or_404(contract_id)
+    c.number = data.get('number', c.number)
     c.title = (data.get('title') or c.title).strip()
-    c.customer_id = int(data['customer_id']) if data.get('customer_id') else c.customer_id
-    c.quotation_id = int(data['quotation_id']) if data.get('quotation_id') else c.quotation_id
+    if data.get('customer_id'):
+        c.customer_id = int(data['customer_id'])
+    if data.get('opportunity_id'):
+        c.opportunity_id = int(data['opportunity_id'])
     c.amount = float(data.get('amount') or 0)
     c.status = data.get('status', c.status)
     if 'start_date' in data:
         c.start_date = _parse_date(data.get('start_date'))
     if 'end_date' in data:
         c.end_date = _parse_date(data.get('end_date'))
-    c.content = data.get('content', c.content)
-    c.remark = data.get('remark', c.remark)
     return c
 
 
@@ -141,13 +134,12 @@ def create_project(data, current_user_name):
         name=name,
         contract_id=int(data['contract_id']) if data.get('contract_id') else None,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        manager=current_user_name,
+        manager=data.get('manager') or current_user_name,
         status=data.get('status', '进行中'),
-        start_date=_parse_date(data.get('start_date')),
-        end_date=_parse_date(data.get('end_date')),
+        start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
+        end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
         progress=int(data.get('progress') or 0),
-        description=data.get('description', ''),
-        remark=data.get('remark', ''),
+        budget=float(data.get('budget') or 0),
     )
     db.session.add(p)
     return p
@@ -157,8 +149,11 @@ def create_project(data, current_user_name):
 def update_project(project_id, data):
     p = Project.query.get_or_404(project_id)
     p.name = (data.get('name') or p.name).strip()
-    p.contract_id = int(data['contract_id']) if data.get('contract_id') else p.contract_id
-    p.customer_id = int(data['customer_id']) if data.get('customer_id') else p.customer_id
+    if data.get('contract_id'):
+        p.contract_id = int(data['contract_id'])
+    if data.get('customer_id'):
+        p.customer_id = int(data['customer_id'])
+    p.manager = data.get('manager', p.manager)
     p.status = data.get('status', p.status)
     if 'start_date' in data:
         p.start_date = _parse_date(data.get('start_date'))
@@ -166,8 +161,8 @@ def update_project(project_id, data):
         p.end_date = _parse_date(data.get('end_date'))
     if 'progress' in data:
         p.progress = int(data.get('progress') or 0)
-    p.description = data.get('description', p.description)
-    p.remark = data.get('remark', p.remark)
+    if 'budget' in data:
+        p.budget = float(data.get('budget') or 0)
     return p
 
 

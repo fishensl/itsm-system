@@ -44,19 +44,23 @@ def create_inspection(data, current_user_name):
         try:
             inspection_date = datetime.strptime(inspection_date, '%Y-%m-%d').date()
         except (ValueError, TypeError):
-            inspection_date = date.today() if False else None
+            inspection_date = None
     uid, name, phone = _resolve_inspector(data, current_user_name)
     i = Inspection(
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
+        task_id=int(data['task_id']) if data.get('task_id') else None,
         inspection_date=inspection_date or datetime.utcnow().date(),
         inspector=name,                  # 旧字段（向后兼容）
         inspector_user_id=uid,           # V13: 关联 User 用于追溯归属
         inspector_name=name,             # V13: 冻结快照
         inspector_phone=phone,           # V13: 冻结快照
         overall_status=data.get('overall_status', '正常'),
-        content=data.get('content', ''),
-        remark=data.get('remark', ''),
+        location=data.get('location', ''),
+        content_json=data.get('content_json', '[]'),
+        field_values_json=data.get('field_values_json', '{}'),
+        sections_json=data.get('sections_json', '{}'),
+        skip_reasons_json=data.get('skip_reasons_json', '{}'),
     )
     db.session.add(i)
     return i
@@ -69,6 +73,8 @@ def update_inspection(inspection_id, data):
     i = Inspection.query.get_or_404(inspection_id)
     i.title = (data.get('title') or i.title).strip()
     i.customer_id = int(data['customer_id']) if data.get('customer_id') else i.customer_id
+    if data.get('task_id'):
+        i.task_id = int(data['task_id'])
     if data.get('inspection_date'):
         try:
             i.inspection_date = datetime.strptime(data['inspection_date'], '%Y-%m-%d').date()
@@ -94,8 +100,16 @@ def update_inspection(inspection_id, data):
         i.inspector = data['inspector'].strip()
         i.inspector_name = i.inspector
     i.overall_status = data.get('overall_status', i.overall_status)
-    i.content = data.get('content', i.content)
-    i.remark = data.get('remark', i.remark)
+    if 'location' in data:
+        i.location = data.get('location', i.location)
+    if 'content_json' in data:
+        i.content_json = data.get('content_json', i.content_json)
+    if 'field_values_json' in data:
+        i.field_values_json = data.get('field_values_json', i.field_values_json)
+    if 'sections_json' in data:
+        i.sections_json = data.get('sections_json', i.sections_json)
+    if 'skip_reasons_json' in data:
+        i.skip_reasons_json = data.get('skip_reasons_json', i.skip_reasons_json)
     return i
 
 

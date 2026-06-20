@@ -2,9 +2,9 @@
 {% block content %}
 <div class="page-toolbar">
     <div class="actions">
-        {% set colors = {'待派单':'secondary','待接单':'info','处理中':'primary','待审核':'warning','待验收':'warning','已完成':'success','已关闭':'dark'} %}
+        {% set colors = {'待派单':'secondary','已派单':'info','已接单':'info','处理中':'primary','待审核':'warning','已验收':'success','已关闭':'dark'} %}
         <span class="badge bg-{{ colors[ticket.status]|default('secondary') }} fs-6 me-2">{{ ticket.status }}</span>
-        {% if ticket.status in ('已完成', '已关闭', '已验收') and ticket.solution %}
+        {% if ticket.status in ('已验收', '已关闭') and ticket.solution %}
         <a href="{{ url_for('ops.knowledge_base_add', ticket_id=ticket.id) }}" class="btn btn-outline-info btn-sm me-2" title="将此工单的解决方案保存为知识库条目">
             <i class="bi-book"></i> 保存为知识库
         </a>
@@ -56,15 +56,15 @@
                     </div>
                     <div class="col-auto"><button type="submit" class="btn btn-primary btn-sm">派单</button></div>
                 </form>
-                {% elif ticket.status == '待接单' %}
+                {% elif ticket.status in ('已派单', '已接单') %}
                 <form method="post" action="{{ url_for('ops.ticket_accept', id=ticket.id) }}">
                     <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-hand-thumbs-up"></i> 接单</button>
                 </form>
                 {% elif ticket.status == '处理中' %}
                 <form method="post" action="{{ url_for('ops.ticket_submit', id=ticket.id) }}">
                     <div class="row">
-                        <div class="col-md-6 mb-2"><label class="form-label">诊断分析</label><textarea name="diagnosis" class="form-control" rows="2" required></textarea></div>
-                        <div class="col-md-6 mb-2"><label class="form-label">解决方案</label><textarea name="solution" class="form-control" rows="2" required></textarea></div>
+                        <div class="col-md-6 mb-2"><label class="form-label">诊断分析</label><textarea name="diagnosis" class="form-control" rows="2" required>{{ ticket.diagnosis or '' }}</textarea></div>
+                        <div class="col-md-6 mb-2"><label class="form-label">解决方案</label><textarea name="solution" class="form-control" rows="2" required>{{ ticket.solution or '' }}</textarea></div>
                     </div>
                     <button type="submit" class="btn btn-primary btn-sm"><i class="bi-check-lg"></i> 提交审核</button>
                 </form>
@@ -74,10 +74,10 @@
                     <div class="col-auto"><button type="submit" name="action" value="通过" class="btn btn-success btn-sm">通过</button></div>
                     <div class="col-auto"><button type="submit" name="action" value="拒绝" class="btn btn-danger btn-sm">拒绝</button></div>
                 </form>
-                {% elif ticket.status == '待验收' %}
+                {% elif ticket.status == '已验收' %}
                 <form method="post" action="{{ url_for('ops.ticket_accept_check', id=ticket.id) }}" class="row g-2 align-items-end">
                     <div class="col-md-6"><label class="form-label">验收意见</label><input type="text" name="comment" class="form-control"></div>
-                    <div class="col-auto"><button type="submit" name="action" value="通过" class="btn btn-success btn-sm">通过</button></div>
+                    <div class="col-auto"><button type="submit" name="action" value="通过" class="btn btn-success btn-sm">验收并关闭</button></div>
                     <div class="col-auto"><button type="submit" name="action" value="退回" class="btn btn-danger btn-sm">退回</button></div>
                 </form>
                 {% else %}

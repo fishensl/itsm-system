@@ -90,7 +90,9 @@ def inspection_add():
         flash('巡检记录已添加', 'success')
         return redirect(url_for('ops.inspection_list'))
     inspectors = Inspector.query.filter_by(is_active=True).order_by(Inspector.id).all()
-    return render_template('inspections/form.html', inspection=None, inspectors=inspectors)
+    return render_template('inspections/form.html', inspection=None, inspectors=inspectors,
+                           preselected_task_id=request.args.get('task_id', type=int),
+                           preselected_customer_id=request.args.get('customer_id', type=int))
 
 
 @ops_bp.route('/inspections/edit/<int:id>', methods=['GET', 'POST'])
@@ -175,7 +177,7 @@ def inspection_export():
     ws.title = '巡检记录'
     ws.append(['标题', '客户', '巡检员', '巡检日期', '结果', '结论'])
     for i in Inspection.query.order_by(Inspection.id.desc()).all():
-        cust = i.customer.name if i.customer else '-'
+        cust = i.customer_rel.name if i.customer_rel else '-'
         ws.append([i.title, cust, i.inspector,
                    i.inspection_date.isoformat() if i.inspection_date else '',
                    i.overall_status or '', i.conclusion or ''])
@@ -518,7 +520,9 @@ def ticket_accept(id):
 def ticket_submit(id):
     try:
         submit_ticket(id, current_user.realname or current_user.username,
-                      request.form.get('remark', ''))
+                      request.form.get('remark', ''),
+                      diagnosis=request.form.get('diagnosis', ''),
+                      solution=request.form.get('solution', ''))
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("更新失败：%s", repr(e))
@@ -530,10 +534,10 @@ def ticket_submit(id):
 @login_required
 @require_permission('ticket:edit')
 def ticket_audit(id):
-    approved = request.form.get('approved') == '1'
+    approved = request.form.get('action') == '通过'
     try:
         audit_ticket(id, approved, current_user.realname or current_user.username,
-                     request.form.get('remark', ''))
+                     request.form.get('comment', ''))
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("更新失败：%s", repr(e))
@@ -545,9 +549,10 @@ def ticket_audit(id):
 @login_required
 @require_permission('ticket:edit')
 def ticket_accept_check(id):
+    approved = request.form.get('action') == '通过'
     try:
         accept_check_ticket(id, current_user.realname or current_user.username,
-                            request.form.get('remark', ''))
+                            request.form.get('comment', ''), approved=approved)
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("更新失败：%s", repr(e))

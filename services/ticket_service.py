@@ -18,11 +18,11 @@ TICKET_STATES = {
 # 状态机：定义允许的状态转换
 TICKET_TRANSITIONS = {
     '待派单': {'已派单', '已关闭'},
-    '已派单': {'已接单', '待派单', '已关闭'},
-    '已接单': {'处理中', '已派单', '已关闭'},
+    '已派单': {'处理中', '已接单', '待派单', '已关闭'},  # 接单即进入处理中
+    '已接单': {'处理中', '已派单', '已关闭'},            # 兼容历史数据
     '处理中': {'待审核', '已关闭'},
-    '待审核': {'已验收', '处理中'},  # 审核不通过回退
-    '已验收': {'已关闭'},
+    '待审核': {'已验收', '处理中'},  # 审核不通过回退处理中
+    '已验收': {'已关闭', '处理中'},  # 客户验收通过关闭，退回则回处理中
     '已关闭': set(),
 }
 
@@ -106,23 +106,34 @@ def _transition(ticket, target_state, current_user_name, remark=''):
 def assign_ticket(ticket_id, assignee, current_user_name, remark=''):
     """派单"""
     t = Ticket.query.get_or_404(ticket_id)
+    if not assignee:
+        raise ServiceError('请填写指派处理人')
     t.assigned_to = assignee
+    t.assigned_by = current_user_name
+    t.assigned_at = datetime.utcnow()
     _transition(t, '已派单', current_user_name, f'派给 {assignee}')
     return t
 
 
 @transaction
 def accept_ticket(ticket_id, current_user_name, remark=''):
-    """接单"""
+    """接单：直接进入处理中"""
     t = Ticket.query.get_or_404(ticket_id)
-    _transition(t, '已接单', current_user_name, remark)
+    t.accepted_at = datetime.utcnow()
+    t.started_at = datetime.utcnow()
+    _transition(t, '处理中', current_user_name, remark or '已接单，开始处理')
     return t
 
 
 @transaction
-def submit_ticket(ticket_id, current_user_name, remark=''):
-    """提交处理结果（待审核）"""
+def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solution=None):
+    """提交处理结果（待审核），同时保存诊断分析与解决方案"""
     t = Ticket.query.get_or_404(ticket_id)
+    if diagnosis is not None:
+        t.diagnosis = diagnosis
+    if solution is not None:
+        t.solution = solution
+    t.completed_at = datetime.utcnow()
     _transition(t, '待审核', current_user_name, remark)
     return t
 
@@ -132,15 +143,26 @@ def audit_ticket(ticket_id, approved, current_user_name, remark=''):
     """审核工单：approved=True 转 已验收，False 回退 处理中"""
     t = Ticket.query.get_or_404(ticket_id)
     target = '已验收' if approved else '处理中'
+    t.audit_status = '通过' if approved else '拒绝'
+    t.audit_by = current_user_name
+    t.audit_at = datetime.utcnow()
+    if remark:
+        t.audit_comment = remark
     _transition(t, target, current_user_name, remark or ('审核通过' if approved else '审核不通过'))
     return t
 
 
 @transaction
-def accept_check_ticket(ticket_id, current_user_name, remark=''):
-    """客户验收（已验收 状态）"""
+def accept_check_ticket(ticket_id, current_user_name, remark='', approved=True):
+    """客户验收：通过则关闭工单，退回则回处理中"""
     t = Ticket.query.get_or_404(ticket_id)
-    _transition(t, '已验收', current_user_name, remark or '客户验收通过')
+    target = '已关闭' if approved else '处理中'
+    t.accept_status = '通过' if approved else '退回'
+    t.accept_by = current_user_name
+    t.accept_at = datetime.utcnow()
+    if remark:
+        t.accept_comment = remark
+    _transition(t, target, current_user_name, remark or ('客户验收通过' if approved else '客户验收退回'))
     return t
 
 

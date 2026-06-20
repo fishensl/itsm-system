@@ -222,7 +222,7 @@ def index():
         'fault': Fault.query.count(),
         'fault_pending': Fault.query.filter(Fault.result != '已解决').count(),
         'ticket': Ticket.query.count(),
-        'ticket_pending': Ticket.query.filter(~Ticket.status.in_(['已完成', '已关闭'])).count(),
+        'ticket_pending': Ticket.query.filter(~Ticket.status.in_(['已验收', '已关闭'])).count(),
         'kb': KnowledgeBase.query.count(),
         'spare': SparePart.query.count(),
         'region': Region.query.count(),
@@ -274,7 +274,7 @@ def index():
     if role in ('admin', 'operator'):
         my_tickets = Ticket.query.filter(
             Ticket.assigned_to.in_([me_realname, me.username]),
-            ~Ticket.status.in_(['已完成', '已关闭'])
+            ~Ticket.status.in_(['已验收', '已关闭'])
         ).order_by(Ticket.created_at.desc()).limit(8).all()
         for t in my_tickets:
             my_tasks.append({
@@ -285,10 +285,8 @@ def index():
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
             })
 
-        # 巡检任务：V6.1.4 简化 - 通过用户名/姓名查 Inspector
-        insp = Inspector.query.filter_by(name=me_realname).first()
-        if not insp and me.username:
-            insp = Inspector.query.filter_by(name=me.username).first()
+        # 巡检任务：通过关联 user_id 查 Inspector（V13 后 name 是 property 不是列，不能 filter_by(name=)）
+        insp = Inspector.query.filter_by(user_id=me.id).first()
         my_iid = str(insp.id) if insp else None
         if my_iid:
             for t in InspectionTask.query.order_by(InspectionTask.id.desc()).limit(50).all():
