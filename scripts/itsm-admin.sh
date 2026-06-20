@@ -399,21 +399,30 @@ menu_main() {
         hr
         echo -e "${C_BOLD}  ITSM 管理控制台${C_OFF}  (${APP_DIR})"
         hr
-        echo "  部署与运维:"
-        echo "   1) 首次部署（deploy.sh）           2) 在线更新（update.sh）"
-        echo "   3) 数据库备份（backup.sh）         4) schema 同步（migrate.sh）"
-        echo "   5) 紧急回滚 SQLite（rollback.sh）"
+        echo "  部署与更新:"
+        echo "   1) 首次部署"
+        echo "   2) 在线更新"
+        echo "  数据库:"
+        echo "   3) 数据库备份"
+        echo "   4) schema 同步"
+        echo "   5) 紧急回滚（SQLite）"
         echo "  PostgreSQL 迁移:"
-        echo "   6) 迁移前体检（pg-check.sh）       7) SQLite→PG 迁移（pg-migrate.sh）"
-        echo "   8) PG→SQLite 回滚（pg-rollback.sh）"
-        echo "  重置 / 修改:"
-        echo "   9) 重置 PG 密码（随机）            10) 修改为指定 PG 密码"
-        echo "  11) 修改 Web 访问端口               12) 修改 PostgreSQL 端口"
+        echo "   6) 迁移前体检"
+        echo "   7) SQLite → PostgreSQL 迁移"
+        echo "   8) PostgreSQL → SQLite 回滚"
+        echo "  密码与端口:"
+        echo "   9) 重置 PG 密码（随机）"
+        echo "  10) 修改 PG 密码（指定）"
+        echo "  11) 修改 Web 访问端口"
+        echo "  12) 修改 PostgreSQL 端口"
         echo "  服务管理:"
-        echo "  13) 重启 itsm 服务                  14) 启动 itsm 服务"
-        echo "  15) 停止 itsm 服务                  16) 查看状态 + 日志"
-        echo "  其它:"
-        echo "  17) 查看当前状态                    0) 退出"
+        echo "  13) 启动服务"
+        echo "  14) 停止服务"
+        echo "  15) 重启服务"
+        echo "  16) 服务状态 + 日志"
+        echo "  系统信息:"
+        echo "  17) 查看当前状态"
+        echo "   0) 退出"
         hr
         local choice
         read -rp "请选择 [0-17]: " choice
@@ -430,9 +439,9 @@ menu_main() {
             10) require_root; op_set_pg_password ;;
             11) require_root; op_set_web_port ;;
             12) require_root; op_set_pg_port ;;
-            13) require_root; op_restart_service ;;
-            14) require_root; op_start_service ;;
-            15) require_root; op_stop_service ;;
+            13) require_root; op_start_service ;;
+            14) require_root; op_stop_service ;;
+            15) require_root; op_restart_service ;;
             16) require_root; op_service_status ;;
             17) show_status ;;
             0) echo "再见"; exit 0 ;;
