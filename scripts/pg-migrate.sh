@@ -138,7 +138,14 @@ echo ""
 echo "[7/9] 在 PG 上执行 Alembic 迁移建表..."
 ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
   ITSM_DATABASE_URI="${PG_URI}" \
-  "${VENV}/bin/python" -c "from app import app, init_db; init_db(); print('  [OK] PG schema 已建 + seed 完成')"
+  "${VENV}/bin/python" - "${APP_DIR}" <<'PYEOF'
+import sys, os
+app_dir = sys.argv[1]
+os.chdir(app_dir)  # 确保能 import app（sudo 默认 cwd 是 /root，不 cd 会 ModuleNotFoundError）
+from app import app, init_db
+init_db()
+print('  [OK] PG schema 已建 + seed 完成')
+PYEOF
 
 # ---- 8. 导入全量数据包到 PG（data_io.perform_import，含 setval 序列重置）----
 echo ""
