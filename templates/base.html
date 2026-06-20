@@ -212,22 +212,75 @@
         sidebar.classList.remove('mobile-open');
         overlay.classList.remove('show');
     }
-    // 折叠/展开组（仅当前会话内有效，不持久化——保证默认折叠）
+    // 侧栏分组展开状态记忆。
+    // 规则：
+    //   - 点击侧栏子链接跳转（navigation.type=navigate）：恢复上次展开的分组（跳转不折回）
+    //   - F5 刷新 / 重新加载（type=reload）：全部默认折叠
+    //   - 前进/后退（type=back_forward）：恢复展开
+    //   - 退出登录：logout() 主动清空，重登后默认折叠
+    // 用 sessionStorage 存展开的 group keys；刷新/重登时清空。
+    var SB_OPEN_KEY = 'sidebarOpenGroups';
+    function _getOpenGroups() {
+        try { return JSON.parse(sessionStorage.getItem(SB_OPEN_KEY)) || []; }
+        catch(e) { return []; }
+    }
+    function _setOpenGroups(keys) {
+        try { sessionStorage.setItem(SB_OPEN_KEY, JSON.stringify(keys)); } catch(e) {}
+    }
+    function _clearOpenGroups() {
+        try { sessionStorage.removeItem(SB_OPEN_KEY); } catch(e) {}
+    }
+    // 当前页面是刷新加载还是站内跳转？reload → 折叠，其它 → 恢复
+    function _isReloadNav() {
+        try {
+            var entries = performance.getEntriesByType('navigation');
+            if (entries && entries.length && entries[0].type) {
+                return entries[0].type === 'reload';
+            }
+        } catch(e) {}
+        // 兼容旧 API
+        try { return (performance.navigation && performance.navigation.type === 1); } catch(e) {}
+        return false;
+    }
+    function _saveGroupOpenState(group) {
+        var key = group.getAttribute('data-group');
+        if (!key) return;
+        var keys = _getOpenGroups();
+        var idx = keys.indexOf(key);
+        var isOpen = group.classList.contains('open');
+        if (isOpen && idx === -1) keys.push(key);
+        else if (!isOpen && idx !== -1) keys.splice(idx, 1);
+        _setOpenGroups(keys);
+    }
+    // 折叠/展开组：切换 open class 并同步 sessionStorage
     function toggleGroup(el) {
         if (window.innerWidth <= 992 && document.getElementById('sidebar').classList.contains('collapsed')) return;
         var group = el.parentElement;
         group.classList.toggle('open');
+        _saveGroupOpenState(group);
     }
     function openGroup(name) {
         var g = document.querySelector('.nav-group[data-group="' + name + '"]');
-        if (g) g.classList.add('open');
+        if (g) {
+            g.classList.add('open');
+            _saveGroupOpenState(g);
+        }
     }
-    // 分组默认全部折叠：仅服务端渲染的 active 分组（当前页面所属）保持展开。
-    // 不再从 localStorage 恢复历史展开状态——否则刷新主页/重新登录后，
-    // 之前手动展开过的分组会被重新打开，看起来"没有默认折叠"。
+    // 分组默认全部折叠；仅服务端渲染的 active 分组高亮（不自动展开）。
+    // 页面加载时：若是刷新（reload）→ 清空记录全部折叠；若是站内跳转 → 恢复上次展开的分组。
     document.addEventListener('DOMContentLoaded', function() {
         if (window.innerWidth > 992 && localStorage.getItem('sidebarCollapsed') === 'true') {
             document.getElementById('sidebar').classList.add('collapsed');
+        }
+        if (!_isReloadNav()) {
+            var openKeys = _getOpenGroups();
+            openKeys.forEach(function(key) {
+                var g = document.querySelector('.nav-group[data-group="' + key + '"]');
+                if (g) g.classList.add('open');
+            });
+        } else {
+            // 刷新：清掉旧记录，本页全部折叠
+            _clearOpenGroups();
         }
         applyTheme(localStorage.getItem('appTheme') || 'light');
     });
@@ -242,7 +295,10 @@
         setTimeout(function(){ toast.classList.remove('show'); setTimeout(function(){ toast.remove(); }, 300); }, 3000);
     }
     function logout() {
-        if (confirm('确定要退出登录吗？')) { window.location.href = '/logout'; }
+        if (confirm('确定要退出登录吗？')) {
+            try { sessionStorage.removeItem('sidebarOpenGroups'); } catch(e) {}
+            window.location.href = '/logout';
+        }
     }
     // ====== CSRF 自动注入：所有表单 + 所有 fetch ======
     document.addEventListener('DOMContentLoaded', function() {

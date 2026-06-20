@@ -331,6 +331,67 @@ _restart_service() {
     fi
 }
 
+# 服务是否已安装
+_service_installed() {
+    systemctl list-unit-files 2>/dev/null | grep -q '^itsm\.service'
+}
+
+# 重启 itsm 服务
+op_restart_service() {
+    require_app_dir
+    if ! _service_installed; then
+        fail "itsm 服务未安装"; return 1
+    fi
+    echo "重启 itsm 服务…"
+    if systemctl restart itsm; then
+        sleep 2
+        if systemctl is-active --quiet itsm; then
+            ok "itsm 服务已重启并运行"
+        else
+            warn "已执行 restart，但服务未进入 active，查: journalctl -u itsm -n 30"
+        fi
+    else
+        fail "重启失败，查: journalctl -u itsm -n 30"; return 1
+    fi
+}
+
+# 启动 itsm 服务
+op_start_service() {
+    require_app_dir
+    if ! _service_installed; then fail "itsm 服务未安装"; return 1; fi
+    if systemctl is-active --quiet itsm; then
+        warn "itsm 服务已在运行"; return 0
+    fi
+    if systemctl start itsm; then
+        sleep 2
+        systemctl is-active --quiet itsm && ok "itsm 服务已启动" || warn "启动后未 active，查日志"
+    else
+        fail "启动失败"; return 1
+    fi
+}
+
+# 停止 itsm 服务
+op_stop_service() {
+    require_app_dir
+    if ! _service_installed; then fail "itsm 服务未安装"; return 1; fi
+    if ! systemctl is-active --quiet itsm; then
+        warn "itsm 服务未在运行"; return 0
+    fi
+    confirm "确认停止 itsm 服务?（停止后网站不可访问）" || { echo "已取消"; return 0; }
+    systemctl stop itsm && ok "itsm 服务已停止" || { fail "停止失败"; return 1; }
+}
+
+# 查看服务状态 + 最近日志
+op_service_status() {
+    require_app_dir
+    if ! _service_installed; then fail "itsm 服务未安装"; return 1; fi
+    hr; echo -e "${C_BOLD}服务状态${C_OFF}"; hr
+    systemctl status itsm --no-pager -l || true
+    echo ""
+    hr; echo -e "${C_BOLD}最近 30 行日志${C_OFF}"; hr
+    journalctl -u itsm -n 30 --no-pager || true
+}
+
 # ---------- 菜单 ----------
 menu_main() {
     while true; do
@@ -348,11 +409,14 @@ menu_main() {
         echo "  重置 / 修改:"
         echo "   9) 重置 PG 密码（随机）            10) 修改为指定 PG 密码"
         echo "  11) 修改 Web 访问端口               12) 修改 PostgreSQL 端口"
+        echo "  服务管理:"
+        echo "  13) 重启 itsm 服务                  14) 启动 itsm 服务"
+        echo "  15) 停止 itsm 服务                  16) 查看状态 + 日志"
         echo "  其它:"
-        echo "  13) 查看当前状态                    0) 退出"
+        echo "  17) 查看当前状态                    0) 退出"
         hr
         local choice
-        read -rp "请选择 [0-13]: " choice
+        read -rp "请选择 [0-17]: " choice
         case "${choice}" in
             1) require_root; run_script deploy.sh ;;
             2) require_root; require_app_dir; run_script update.sh "${APP_DIR}" ;;
@@ -366,7 +430,11 @@ menu_main() {
             10) require_root; op_set_pg_password ;;
             11) require_root; op_set_web_port ;;
             12) require_root; op_set_pg_port ;;
-            13) show_status ;;
+            13) require_root; op_restart_service ;;
+            14) require_root; op_start_service ;;
+            15) require_root; op_stop_service ;;
+            16) require_root; op_service_status ;;
+            17) show_status ;;
             0) echo "再见"; exit 0 ;;
             "") continue ;;
             *) warn "无效选择: ${choice}" ;;
