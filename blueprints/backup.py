@@ -6,9 +6,11 @@
 """
 import os
 import io
+import tempfile
+import subprocess
 from datetime import datetime
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, send_file, current_app, jsonify, abort)
+                   flash, send_file, current_app, jsonify, abort, after_this_request)
 from flask_login import login_required, current_user
 from models import db
 from utils.permission import admin_required
@@ -57,15 +59,26 @@ def backup_page():
 @login_required
 @admin_required
 def backup_export():
-    """导出全量备份包（zip，流式下载）"""
-    buf, size, manifest = build_export_zip()
+    """导出备份包（zip，流式临时文件下载）"""
+    config_only = request.form.get('config_only') == '1'
+    tmp_path, size, manifest = build_export_zip(config_only=config_only)
     ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    download_name = f'itsm_backup_{ts}.zip'
-    current_app.logger.info('用户 [%s] 导出数据备份包 %s（%s 字节，%d 表）',
+    suffix = '_config' if config_only else ''
+    download_name = f'itsm_backup_{ts}{suffix}.zip'
+    current_app.logger.info('用户 [%s] 导出备份包 %s（%s 字节，%d 表%s）',
                             current_user.username, download_name, size,
-                            sum(manifest.get('table_counts', {}).values()))
+                            sum(manifest.get('table_counts', {}).values()),
+                            '，仅配置' if config_only else '')
+    # 响应发送结束后再删临时文件，避免流式传输途中被删
+    @after_this_request
+    def _cleanup(resp):
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return resp
     return send_file(
-        buf,
+        tmp_path,
         mimetype='application/zip',
         as_attachment=True,
         download_name=download_name,
@@ -88,39 +101,72 @@ def backup_import():
         return redirect(url_for('backup.backup_page'))
 
     restore_key = request.form.get('restore_secret_key') == '1'
-    zip_bytes = f.read()
 
+    # 把上传包存到临时文件，避免大包全量读入内存
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip', prefix='itsm_import_')
+    os.close(tmp_fd)
+    shuttle_ok = True
+    shuttle_msg = ''
     try:
-        result = perform_import(zip_bytes, restore_secret_key=restore_key)
-        db.session.commit()
-    except ValueError as e:
-        db.session.rollback()
-        current_app.logger.exception('导入备份失败')
-        flash(f'导入失败：{e}', 'danger')
-        return redirect(url_for('backup.backup_page'))
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception('导入备份失败')
-        flash(f'导入失败：{e}', 'danger')
-        return redirect(url_for('backup.backup_page'))
+        f.save(tmp_path)
 
-    # 清空权限缓存（数据已全量替换）
-    try:
-        from utils.permission import invalidate_role
-        from models import Role
-        for r in Role.query.all():
-            invalidate_role(r.code)
-    except Exception:
-        pass
+        # 导入前自动兜底备份：尝试调用 scripts/backup.sh 做文件级备份
+        # （失败不阻断导入，仅提示；本地开发机无该脚本时跳过）
+        try:
+            root = os.path.abspath(current_app.root_path)
+            shuttle = os.path.join(root, 'scripts', 'backup.sh')
+            if os.path.exists(shuttle):
+                r = subprocess.run(['bash', shuttle, root],
+                                   capture_output=True, timeout=120, text=True)
+                if r.returncode != 0:
+                    shuttle_ok = False
+                    shuttle_msg = (r.stderr or r.stdout or '').strip()[:200]
+        except FileNotFoundError:
+            pass  # 无 bash（Windows），跳过
+        except Exception as e:
+            shuttle_ok = False
+            shuttle_msg = str(e)[:200]
 
-    msg = (f'导入成功：恢复 {result["restored_rows"]} 行数据、'
-           f'{result["restored_files"]} 个文件')
-    if result['secret_key_restored']:
-        msg += '，已还原加密密钥'
-    else:
-        msg += '（未还原加密密钥，如设备密码无法解密请重新导入并勾选）'
-    if result['warnings']:
-        msg += '。警告：' + '；'.join(result['warnings'][:3])
-    flash(msg, 'success')
-    current_app.logger.info('用户 [%s] 导入备份：%s', current_user.username, msg)
-    return redirect(url_for('backup.backup_page'))
+        try:
+            result = perform_import(tmp_path, restore_secret_key=restore_key)
+            db.session.commit()
+        except ValueError as e:
+            db.session.rollback()
+            current_app.logger.exception('导入备份失败')
+            flash(f'导入失败：{e}', 'danger')
+            return redirect(url_for('backup.backup_page'))
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.exception('导入备份失败')
+            flash(f'导入失败：{e}', 'danger')
+            return redirect(url_for('backup.backup_page'))
+
+        # 清空权限缓存（数据已全量替换）
+        try:
+            from utils.permission import invalidate_role
+            from models import Role
+            for r in Role.query.all():
+                invalidate_role(r.code)
+        except Exception:
+            pass
+
+        msg = (f'导入成功：恢复 {result["restored_rows"]} 行数据、'
+               f'{result["restored_files"]} 个文件')
+        if result['secret_key_restored']:
+            msg += '，已还原加密密钥'
+        else:
+            msg += '（未还原加密密钥，如设备密码无法解密请重新导入并勾选）'
+        if not shuttle_ok:
+            msg += f'。⚠️导入前自动兜底备份失败（{shuttle_msg or "原因未知"}），请手动确认备份'
+        if result['warnings']:
+            msg += '。警告：' + '；'.join(result['warnings'][:3])
+            if len(result['warnings']) > 3:
+                msg += f' 等{len(result["warnings"])}条'
+        flash(msg, 'success')
+        current_app.logger.info('用户 [%s] 导入备份：%s', current_user.username, msg)
+        return redirect(url_for('backup.backup_page'))
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass

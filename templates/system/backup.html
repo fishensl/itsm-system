@@ -28,6 +28,13 @@
                     <span class="badge bg-info me-1">知识库 {{ stats.kb }}</span>
                 </div>
                 <form method="post" action="{{ url_for('backup.backup_export') }}">
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" name="config_only" value="1" class="form-check-input" id="configOnly">
+                        <label class="form-check-label small" for="configOnly">
+                            仅导出配置（角色/权限/模板/字典/AI配置，不含业务数据和上传文件）<br>
+                            <span class="text-muted">用于把一台调好的系统配置克隆到新环境</span>
+                        </label>
+                    </div>
                     <button type="submit" class="btn btn-primary">
                         <i class="bi-box-arrow-down"></i> 下载备份包
                     </button>
