@@ -1053,25 +1053,11 @@ class DeviceCollectTask(db.Model):
 # 机柜管理（V6.1）
 # ============================
 
-class RackLocation(db.Model):
-    """机柜位置（楼栋/楼层）"""
-    __tablename__ = 'rack_locations'
-    id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
-    building = db.Column(db.String(64), default='')        # 楼栋
-    floor = db.Column(db.String(32), default='')           # 楼层
-    remark = db.Column(db.Text, default='')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    customer_rel = db.relationship('Customer', backref='rack_locations')
-
-
 class Rack(db.Model):
-    """机柜"""
+    """机柜（直接归属客户）"""
     __tablename__ = 'racks'
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
-    location_id = db.Column(db.Integer, db.ForeignKey('rack_locations.id'), nullable=True, index=True)
     name = db.Column(db.String(64), nullable=False)         # 机柜编号/名称
     total_u = db.Column(db.Integer, default=42)             # 总 U 数
     color = db.Column(db.String(16), default='#0d6efd')     # 显示颜色
@@ -1079,7 +1065,6 @@ class Rack(db.Model):
     remark = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    location_rel = db.relationship('RackLocation', backref='racks')
     customer_rel = db.relationship('Customer', backref='racks')
 
 

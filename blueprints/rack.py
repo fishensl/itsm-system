@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""机柜管理蓝图：位置 / 机柜 / 设备上架（V6.1） — 按客户分组管理"""
+"""机柜管理蓝图：机柜 / 设备上架 — 按客户分组管理"""
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, abort)
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
-from models import (Rack, RackLocation, RackInstall, Device, Customer, Region, db)
+from models import (Rack, RackInstall, Device, Customer, Region, db)
 from utils.permission import require_permission
 
 rack_bp = Blueprint('rack', __name__)
@@ -41,68 +41,17 @@ def rack_index():
         else:
             city = '未分配客户'
         city_data.setdefault(city, []).append({'customer': c, 'racks': rack_list})
-    locations = RackLocation.query.order_by(RackLocation.id.desc()).all()
     customers = Customer.query.order_by(Customer.name).all()
-    return render_template('rack/index.html', city_data=city_data,
-                           locations=locations, customers=customers)
-
-
-# ============================ 位置 API ============================
-@rack_bp.route('/api/rack/locations', methods=['GET'])
-@login_required
-def api_locations():
-    items = []
-    for loc in RackLocation.query.order_by(RackLocation.id.desc()).all():
-        items.append({
-            'id': loc.id,
-            'customer_id': loc.customer_id,
-            'customer_name': loc.customer_rel.name if loc.customer_rel else '',
-            'building': loc.building,
-            'floor': loc.floor,
-            'remark': loc.remark,
-            'rack_count': len(loc.racks),
-        })
-    return jsonify({'items': items})
-
-
-@rack_bp.route('/api/rack/locations', methods=['POST'])
-@login_required
-@require_permission('device:edit')
-def api_location_create():
-    data = request.get_json(silent=True) or request.form.to_dict()
-    if not data.get('building'):
-        return jsonify({'error': '楼栋不能为空'}), 400
-    loc = RackLocation(
-        customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        building=data.get('building', ''),
-        floor=data.get('floor', ''),
-        remark=data.get('remark', ''),
-    )
-    db.session.add(loc); db.session.commit()
-    return jsonify({'id': loc.id, 'ok': True})
-
-
-@rack_bp.route('/api/rack/locations/<int:loc_id>', methods=['DELETE'])
-@login_required
-@require_permission('device:delete')
-def api_location_delete(loc_id):
-    loc = RackLocation.query.get_or_404(loc_id)
-    if loc.racks:
-        return jsonify({'error': '该位置下还有机柜，无法删除'}), 400
-    db.session.delete(loc); db.session.commit()
-    return jsonify({'ok': True})
+    return render_template('rack/index.html', city_data=city_data, customers=customers)
 
 
 # ============================ 机柜 API ============================
 @rack_bp.route('/api/rack/cabinets', methods=['GET'])
 @login_required
 def api_cabinets():
-    """获取机柜列表（可按 location_id 或 customer_id 过滤）"""
-    location_id = request.args.get('location_id', type=int)
+    """获取机柜列表（可按 customer_id 过滤）"""
     customer_id = request.args.get('customer_id', type=int)
     q = Rack.query
-    if location_id:
-        q = q.filter_by(location_id=location_id)
     if customer_id:
         q = q.filter_by(customer_id=customer_id)
     items = []
@@ -114,8 +63,6 @@ def api_cabinets():
         used_w = sum(i.rated_w or 0 for i in r.installs)
         items.append({
             'id': r.id,
-            'location_id': r.location_id,
-            'location_name': f'{r.location_rel.building} {r.location_rel.floor}'.strip() if r.location_rel else '',
             'customer_id': r.customer_id,
             'customer_name': r.customer_rel.name if r.customer_rel else '',
             'name': r.name,
@@ -172,7 +119,6 @@ def api_cabinet_detail(rack_id):
         'remark': r.remark,
         'customer_id': r.customer_id,
         'customer_name': r.customer_rel.name if r.customer_rel else '',
-        'location_name': f'{r.location_rel.building} {r.location_rel.floor}'.strip() if r.location_rel else '',
         'installs': installs,
     })
 
@@ -184,9 +130,10 @@ def api_cabinet_create():
     data = request.get_json(silent=True) or request.form.to_dict()
     if not data.get('name'):
         return jsonify({'error': '机柜名称不能为空'}), 400
+    if not data.get('customer_id'):
+        return jsonify({'error': '请选择所属客户'}), 400
     r = Rack(
-        customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        location_id=int(data['location_id']) if data.get('location_id') else None,
+        customer_id=int(data['customer_id']),
         name=data.get('name', ''),
         total_u=int(data.get('total_u') or 42),
         color=data.get('color', '#0d6efd'),
@@ -205,8 +152,6 @@ def api_cabinet_update(rack_id):
     data = request.get_json(silent=True) or request.form.to_dict()
     if 'customer_id' in data:
         r.customer_id = int(data['customer_id']) if data.get('customer_id') else None
-    if 'location_id' in data:
-        r.location_id = int(data['location_id']) if data.get('location_id') else None
     r.name = data.get('name', r.name)
     r.total_u = int(data.get('total_u') or r.total_u)
     r.color = data.get('color', r.color)
