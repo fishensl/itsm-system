@@ -140,9 +140,10 @@
                value="{{ f_start_from }}" title="开始日期 ≥" onchange="this.form.submit()">
         <input type="date" name="start_to" class="form-control form-control-sm" style="width:140px"
                value="{{ f_start_to }}" title="开始日期 ≤" onchange="this.form.submit()">
-        <button type="submit" class="btn btn-outline-primary btn-sm">筛选</button>
         {% if f_engineer or f_status or f_customer or f_q or f_overdue or f_start_from or f_start_to or f_period %}
-        <a href="{{ url_for('task_schedule.index', view=view) }}" class="btn btn-link btn-sm">清除</a>
+        <a href="{{ url_for('task_schedule.index', view=view) }}" class="btn btn-outline-secondary btn-sm" title="清除筛选">
+            <i class="bi-x-lg"></i>
+        </a>
         {% endif %}
     </div>
 </form>
