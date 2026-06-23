@@ -19,14 +19,14 @@
                         <i class="bi-building"></i>
                         <strong>{{ c.name }}</strong>
                         {% if c.inspection_frequency %}
-                        <span class="badge bg-light text-muted border ms-1" title="巡检频率">
+                        <span class="badge surface-muted text-muted ms-1" title="巡检频率">
                             {{ c.inspection_frequency }}
                         </span>
                         {% endif %}
                     </div>
                     <span class="badge bg-primary rounded-pill fs-6">{{ cust_total }}</span>
                 </div>
-                <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+                <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                     {% for s in active_statuses %}
                         {% set bucket = cust_buckets.get(s, []) %}
                         {% set is_done = (s == '已完成') %}

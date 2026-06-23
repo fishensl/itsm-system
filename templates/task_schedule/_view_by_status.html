@@ -17,7 +17,7 @@
                     </div>
                     <span class="badge bg-{{ status_color[s] }} rounded-pill fs-6">{{ bucket|length }}</span>
                 </div>
-                <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+                <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                     {% for t in bucket %}
                         {% include 'task_schedule/_card.html' %}
                     {% else %}
@@ -38,7 +38,7 @@
                 </div>
                 <span class="badge bg-danger rounded-pill fs-6">{{ overdue_bucket|length }}</span>
             </div>
-            <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+            <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                 {% for t in overdue_bucket %}
                     {% include 'task_schedule/_card.html' %}
                 {% else %}

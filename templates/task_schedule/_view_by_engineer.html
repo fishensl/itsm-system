@@ -21,7 +21,7 @@
                     </div>
                     <span class="badge bg-primary rounded-pill fs-6">{{ eng_total }}</span>
                 </div>
-                <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+                <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                     {% for s in active_statuses %}
                         {% set bucket = eng_buckets.get(s, []) %}
                         {% set is_done = (s == '已完成') %}
@@ -80,7 +80,7 @@
                 </div>
                 <span class="badge bg-warning rounded-pill fs-6">{{ unassigned_total }}</span>
             </div>
-            <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+            <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                 {% for s in active_statuses %}
                     {% set bucket = unassigned.get(s, []) %}
                     {% if bucket %}
