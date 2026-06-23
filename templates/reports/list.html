@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+{% block content %}{% call ui.page_header('报告管理', 'folder2-open') %}{% endcall %}
+
+{# ========== 顶部全局筛选（始终可见） ========== #}
+{% call ui.filter_bar() %}<form method="get" class="row g-2 align-items_list-center">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div class="col-auto">
+        <select name="scope" class="form-select form-select-sm">
+            <option value="all" {% if scope=='all' %}selected{% endif %}>显示全部</option>
+            <option value="mine" {% if scope=='mine' %}selected{% endif %}>只看我的</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <input type="date" name="date_from" value="{{ date_from or '' }}" class="form-control form-control-sm" placeholder="开始日期">
+    </div>
+    <div class="col-auto"><span class="text-muted">至</span></div>
+    <div class="col-auto">
+        <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control form-control-sm" placeholder="结束日期">
+    </div>
+    <div class="col-auto">
+        <select name="customer_id" class="form-select form-select-sm">
+            <option value="">所有客户</option>
+            {% for c in customers.values() %}<option value="{{ c.id }}" {% if customer_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi-funnel"></i> 应用筛选</button></div>
+    <div class="col-auto"><a href="{{ url_for('ops.report_list') }}" class="btn btn-sm btn-outline-secondary">重置</a></div>
+</form>
+{% endcall %}
+
+{# ========== 5 个互斥 tab（单变量控制高亮，绝不双高亮） ========== #}
+{% set base_qs = 'scope=' ~ scope ~ '&date_from=' ~ (date_from or '') ~ '&date_to=' ~ (date_to or '') ~ '&customer_id=' ~ (customer_id or '') %}
+<ul class="nav nav-pills mb-3">
+    {% set tabs_def = [
+        ('all',        '全部',    'bi-collection',          'primary'),
+        ('inspection', '巡检',    'bi-clipboard-check',     'warning'),
+        ('fault',      '故障',    'bi-exclamation-triangle','danger'),
+        ('ticket',     '工单',    'bi-ticket-detailed',     'info'),
+        ('file',       '文件',    'bi-files',               'secondary'),
+    ] %}
+    {% for key, label, icon, color in tabs_def %}
+    <li class="nav-item">
+        <a class="nav-link {% if tab==key %}active{% endif %}"
+           href="?tab={{ key }}&{{ base_qs }}">
+            <i class="{{ icon }}"></i> {{ label }}
+            {% if tab_stats.get(key) %}
+            <span class="badge surface-muted ms-1">
+                {{ tab_stats[key].customers }} 户 / {{ tab_stats[key].total }} 份
+            </span>
+            {% endif %}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
+{# ========== 客户优先 accordion ========== #}
+{% set badge_def = [
+    ('inspection', '巡检', 'bi-clipboard-check',     'warning'),
+    ('fault',      '故障', 'bi-exclamation-triangle','danger'),
+    ('ticket',     '工单', 'bi-ticket-detailed',     'info'),
+    ('file',       '文件', 'bi-files',               'secondary'),
+] %}
+
+{% if data_order %}
+<div class="accordion" id="acc-customers">
+    {% for cust in data_order %}
+        {% set cid = cust.id if cust.id is not none else 'unassigned' %}
+        {% set cust_acc_id = 'cust-' ~ cid %}
+        {% set total_for_cust = cust.counts.inspection + cust.counts.fault + cust.counts.ticket + cust.counts.file %}
+        <div class="accordion-item {% if cust.is_unassigned %}border-secondary{% endif %}">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed {% if cust.is_unassigned %}surface-muted text-muted{% endif %}"
+                        type="button" data-bs-toggle="collapse" data-bs-target="#{{ cust_acc_id }}">
+                    <i class="bi-{% if cust.is_unassigned %}question-circle{% else %}people{% endif %} me-2"></i>
+                    <strong>{{ cust.name }}</strong>
+                    {% if cust.is_unassigned %}<span class="badge bg-secondary ms-2">未关联</span>{% endif %}
+                    <span class="badge bg-primary ms-2">{{ total_for_cust }} 份</span>
+                    {# 4 个类型徽章 #}
+                    <span class="ms-3 d-flex gap-2 flex-wrap">
+                        {% for tk, tlabel, ticon, tcolor in badge_def %}
+                            {% set c = cust.counts[tk] %}
+                            <span class="badge {% if c>0 %}bg-{{ tcolor }}{% else %}surface-muted text-muted{% endif %} {% if tab==tk %}border border-2 border-dark{% endif %}"
+                                  title="{{ tlabel }} {{ c }} 份">
+                                <i class="{{ ticon }}"></i> {{ tlabel }} {{ c }}
+                            </span>
+                        {% endfor %}
+                    </span>
+                </button>
+            </h2>
+
+            <div id="{{ cust_acc_id }}" class="accordion-collapse collapse" data-bs-parent="#acc-customers">
+                <div class="accordion-body p-0">
+
+                    {# —— 巡检段 —— #}
+                    {% if tab in ('all','inspection') and cust.types.inspection.subs %}
+                        {% for sub_key, sub in cust.types.inspection.subs.items() %}
+                        <div class="px-3 py-2 surface-muted border-bottom d-flex align-items_list-center">
+                            <i class="bi-folder2 me-1 text-warning"></i>
+                            <strong>巡检 · {{ sub.label }}</strong>
+                            <span class="badge bg-secondary ms-2">{{ sub.items_list|length }}</span>
+                        </div>
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light"><tr>
+                                <th>巡检标题</th>
+                                <th>日期</th>
+                                <th>巡检人</th>
+                                <th>状态</th>
+                                <th style="width:140px">操作</th>
+                            </tr></thead>
+                            <tbody>
+                            {% for i in sub.items_list %}
+                            <tr>
+                                <td><strong>{{ i.title }}</strong></td>
+                                <td><small>{{ i.inspection_date.isoformat() if i.inspection_date else '-' }}</small></td>
+                                <td><small>{{ i.inspector or '-' }}</small></td>
+                                <td><span class="badge bg-{{ 'success' if i.overall_status=='正常' else 'warning' }}">{{ i.overall_status or '-' }}</span></td>
+                                <td>
+                                    {{ ui.table_actions(view_url=url_for('ops.inspection_detail', id=i.id)) }}
+                                    {% if i.report_file %}
+                                    {% set rf = i.report_file.replace('\\','/').split('/')[-1] %}
+                                    <a href="{{ url_for('ops.report_download', filename=rf) }}" class="btn btn-sm btn-outline-success" title="下载报告"><i class="bi-download"></i></a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endfor %}
+                    {% endif %}
+
+                    {# —— 故障段 —— #}
+                    {% if tab in ('all','fault') and cust.types.fault.subs %}
+                        {% for sub_key, sub in cust.types.fault.subs.items() %}
+                        <div class="px-3 py-2 surface-muted border-bottom d-flex align-items_list-center">
+                            <i class="bi-folder2 me-1 text-danger"></i>
+                            <strong>故障 · {{ sub.label }}</strong>
+                            <span class="badge bg-secondary ms-2">{{ sub.items_list|length }}</span>
+                        </div>
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light"><tr>
+                                <th>故障标题</th>
+                                <th>故障时间</th>
+                                <th>类型</th>
+                                <th>结果</th>
+                                <th style="width:140px">操作</th>
+                            </tr></thead>
+                            <tbody>
+                            {% for f in sub.items_list %}
+                            <tr>
+                                <td><strong>{{ f.title }}</strong></td>
+                                <td><small>{{ f.fault_time.strftime('%Y-%m-%d') if f.fault_time else '-' }}</small></td>
+                                <td><small>{{ f.fault_type or '-' }}</small></td>
+                                <td><span class="badge bg-{{ 'success' if f.result=='已解决' else 'warning' }}">{{ f.result or '-' }}</span></td>
+                                <td>
+                                    {{ ui.table_actions(view_url=url_for('ops.fault_detail', id=f.id)) }}
+                                    {% if f.report_file %}
+                                    {% set rf = f.report_file.replace('\\','/').split('/')[-1] %}
+                                    <a href="{{ url_for('ops.report_download', filename=rf) }}" class="btn btn-sm btn-outline-success" title="下载报告"><i class="bi-download"></i></a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endfor %}
+                    {% endif %}
+
+                    {# —— 工单段 —— #}
+                    {% if tab in ('all','ticket') and cust.types.ticket.subs %}
+                        {% for sub_key, sub in cust.types.ticket.subs.items() %}
+                        <div class="px-3 py-2 surface-muted border-bottom d-flex align-items_list-center">
+                            <i class="bi-folder2 me-1 text-info"></i>
+                            <strong>工单 · 优先级 {{ sub.label }}</strong>
+                            <span class="badge bg-secondary ms-2">{{ sub.items_list|length }}</span>
+                        </div>
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light"><tr>
+                                <th>工单标题</th>
+                                <th>编号</th>
+                                <th>创建时间</th>
+                                <th>状态</th>
+                                <th style="width:140px">操作</th>
+                            </tr></thead>
+                            <tbody>
+                            {% for t in sub.items_list %}
+                            <tr>
+                                <td><strong>{{ t.title or ('工单 #' ~ t.number) }}</strong></td>
+                                <td><code>{{ t.number }}</code></td>
+                                <td><small>{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '-' }}</small></td>
+                                <td><span class="badge bg-secondary">{{ t.status }}</span></td>
+                                <td>
+                                    {{ ui.table_actions(view_url=url_for('ops.ticket_detail', id=t.id)) }}
+                                    {% if t.report_file %}
+                                    {% set rf = t.report_file.replace('\\','/').split('/')[-1] %}
+                                    <a href="{{ url_for('ops.report_download', filename=rf) }}" class="btn btn-sm btn-outline-success" title="下载报告"><i class="bi-download"></i></a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endfor %}
+                    {% endif %}
+
+                    {# —— 文件段 —— #}
+                    {% if tab in ('all','file') and cust.types.file.files %}
+                        <div class="px-3 py-2 surface-muted border-bottom d-flex align-items_list-center">
+                            <i class="bi-files me-1 text-secondary"></i>
+                            <strong>文件式报告</strong>
+                            <span class="badge bg-secondary ms-2">{{ cust.types.file.files|length }}</span>
+                        </div>
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light"><tr>
+                                <th>文件名</th>
+                                <th>类型</th>
+                                <th>生成时间</th>
+                                <th>大小</th>
+                                <th style="width:140px">操作</th>
+                            </tr></thead>
+                            <tbody>
+                            {% for f in cust.types.file.files %}
+                            <tr>
+                                <td><i class="bi-file-earmark-word text-primary"></i> <strong>{{ f.filename }}</strong></td>
+                                <td>{% if '巡检' in f.type %}<span class="badge bg-warning text-dark">巡检报告</span>
+                                    {% elif '故障' in f.type %}<span class="badge bg-danger">故障报告</span>
+                                    {% else %}<span class="badge bg-secondary">{{ f.type }}</span>{% endif %}</td>
+                                <td><small>{{ f.create_time }}</small></td>
+                                <td><small>{{ f.size_display }}</small></td>
+                                <td>
+                                    <a href="{{ url_for('ops.report_download', filename=f.filename) }}" class="btn btn-sm btn-outline-success" title="下载"><i class="bi-download"></i></a>
+                                    {{ ui.table_actions(
+                                        delete_url=url_for('ops.report_delete', filename=f.filename),
+                                        delete_confirm='确定删除报告「' ~ f.filename ~ '」？'
+                                    ) }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% else %}
+    {{ eui.empty_state('bi-folder2-open', '暂无报告记录', '巡检/故障/工单保存后会自动生成 Word 报告；此处按客户与类型归类展示。') }}
+{% endif %}
+{% endblock %}
