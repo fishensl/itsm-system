@@ -38,7 +38,7 @@
                 <div class="d-flex align-items-center gap-2">
                     <div class="text-end">
                         <div class="fw-bold fs-5 font-monospace" id="wbTime">--:--:--</div>
-                        <div class="text-muted" style="font-size:11px;" id="wbRefreshTime">数据加载中</div>
+                        <div class="text-muted fs-xs" id="wbRefreshTime">数据加载中</div>
                     </div>
                     <span class="badge bg-success bg-opacity-10 text-success border border-success">
                         <span class="d-inline-block rounded-circle bg-success me-1" style="width:6px;height:6px;"></span>
@@ -64,7 +64,7 @@
                     <i class="bi {{ m.icon }} fs-4" style="color:{{ m.accent }}"></i>
                     <div class="fw-bold fs-5">{{ m.value }}</div>
                     <small class="text-muted">{{ m.label }}</small>
-                    {% if m.sub %}<small class="text-muted d-block" style="font-size:11px;">{{ m.sub }}</small>{% endif %}
+                    {% if m.sub %}<small class="text-muted d-block fs-xs">{{ m.sub }}</small>{% endif %}
                 </div>
             </div>
         </div>

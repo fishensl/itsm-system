@@ -92,7 +92,7 @@
         {% for p in photos %}
         <div class="photo-item position-relative d-inline-block">
             <img src="/{{ p }}" class="rounded" style="width:120px;height:90px;object-fit:cover;border:1px solid var(--border);">
-            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1" style="font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>
+            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1" style="font-size:var(--fs-sm);line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>
             <input type="hidden" class="photo-path" value="{{ p }}">
         </div>
         {% endfor %}

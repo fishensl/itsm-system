@@ -43,11 +43,11 @@
 <div class="row">
     <div class="col-md-12 mb-3">
         <label class="form-label">巡检分析提示词模板</label>
-        <textarea name="inspection_prompt_template" class="form-control" rows="4" style="font-size:13px;" placeholder="变量: {device_info} {metrics} {history}">{{ ai.inspection_prompt_template if ai else '' }}</textarea>
+        <textarea name="inspection_prompt_template" class="form-control" rows="4"  placeholder="变量: {device_info} {metrics} {history}">{{ ai.inspection_prompt_template if ai else '' }}</textarea>
     </div>
     <div class="col-md-12 mb-3">
         <label class="form-label">故障分析提示词模板</label>
-        <textarea name="fault_prompt_template" class="form-control" rows="4" style="font-size:13px;" placeholder="变量: {ticket_info} {device_info} {logs}">{{ ai.fault_prompt_template if ai else '' }}</textarea>
+        <textarea name="fault_prompt_template" class="form-control" rows="4"  placeholder="变量: {ticket_info} {device_info} {logs}">{{ ai.fault_prompt_template if ai else '' }}</textarea>
     </div>
 </div>
 <button type="submit" class="btn btn-primary"><i class="bi-save"></i> 保存配置</button>
