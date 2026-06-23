@@ -9,7 +9,7 @@
     gap: 4px;
     padding: 4px 10px;
     margin: 3px 4px 3px 0;
-    font-size: 12px;
+    font-size: var(--fs-sm);
     border-radius: 14px;
     border: 1px solid var(--border-soft);
     line-height: 1.3;
@@ -18,19 +18,19 @@
     transition: all 0.12s;
     cursor: default;             /* 默认只读 */
 }
-.perm-chip .mark { font-size: 13px; line-height: 1; }
-.perm-chip.on  { background: rgba(16,185,129,0.10); color: #059669; border-color: rgba(16,185,129,0.40); }
-.perm-chip.off { background: var(--surface-muted); color: var(--gray-500); }
+.perm-chip .mark { font-size: var(--fs-code); line-height: 1; }
+.perm-chip.on  { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+.perm-chip.off { background: var(--surface-muted); color: var(--text-muted); }
 .perm-chip.btn-able { cursor: pointer; }
 .perm-chip.btn-able:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
-.perm-chip.btn-able.off:hover { background: rgba(13,110,253,0.10); border-color: rgba(13,110,253,0.35); color: #0d6efd; }
-.perm-chip.btn-able.on:hover  { background: rgba(220,53,69,0.10); border-color: rgba(220,53,69,0.40); color: #dc3545; }
+.perm-chip.btn-able.off:hover { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.perm-chip.btn-able.on:hover  { background: var(--danger-soft);  border-color: var(--danger);  color: var(--danger);  }
 .perm-chip.flash-on  { animation: flashOn 0.6s; }
 .perm-chip.flash-off { animation: flashOff 0.6s; }
-.perm-chip.pending-add { box-shadow: 0 0 0 2px #10b981 inset; }
-.perm-chip.pending-rm  { box-shadow: 0 0 0 2px #dc3545 inset; opacity: 0.65; }
-@keyframes flashOn  { 0% { background: #10b981; color: #fff; } 100% { background: rgba(16,185,129,0.10); color: #059669; } }
-@keyframes flashOff { 0% { background: #dc3545; color: #fff; } 100% { background: var(--surface-muted); color: var(--gray-500); } }
+.perm-chip.pending-add { box-shadow: 0 0 0 2px var(--success) inset; }
+.perm-chip.pending-rm  { box-shadow: 0 0 0 2px var(--danger)  inset; opacity: 0.65; }
+@keyframes flashOn  { 0% { background: var(--success); color: var(--text-on-primary); } 100% { background: var(--success-soft); color: var(--success); } }
+@keyframes flashOff { 0% { background: var(--danger);  color: var(--text-on-primary); } 100% { background: var(--surface-muted); color: var(--text-muted); } }
 </style>
 {% endblock %}
 {% block content %}
@@ -80,7 +80,7 @@
                     </div>
                     <div class="btn-group btn-group-sm mode-edit d-none">
                         <button type="button" class="btn btn-primary btn-save" disabled>
-                            <i class="bi-check-lg"></i> 保存 <span class="badge bg-light text-dark pending-n">0</span>
+                            <i class="bi-check-lg"></i> 保存 <span class="badge surface-muted pending-n">0</span>
                         </button>
                         <button type="button" class="btn btn-outline-secondary btn-cancel">取消</button>
                     </div>
