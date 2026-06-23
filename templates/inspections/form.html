@@ -54,7 +54,7 @@
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label class="form-label">巡检地点</label>
-                    <input type="text" name="location" id="locationInput" class="form-control bg-light"
+                    <input type="text" name="location" id="locationInput" class="form-control surface-muted"
                            value="{{ inspection.location if inspection else '' }}" readonly
                            title="自动从客户信息中获取">
                 </div>
@@ -108,7 +108,7 @@
                                         {% for p in sections.get('q2_3_photos', []) %}
                                         <div class="photo-item position-relative d-inline-block">
                                             <img src="/{{ p }}" class="rounded border" style="width:120px;height:90px;object-fit:cover;">
-                                            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:var(--fs-sm);line-height:18px;" onclick="this.parentElement.remove()">×</button>
                                             <input type="hidden" class="section-photo" data-section="q2_3" value="{{ p }}">
                                         </div>
                                         {% endfor %}
@@ -124,7 +124,7 @@
                                         {% for p in sections.get('q2_4_photos', []) %}
                                         <div class="photo-item position-relative d-inline-block">
                                             <img src="/{{ p }}" class="rounded border" style="width:120px;height:90px;object-fit:cover;">
-                                            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:var(--fs-sm);line-height:18px;" onclick="this.parentElement.remove()">×</button>
                                             <input type="hidden" class="section-photo" data-section="q2_4" value="{{ p }}">
                                         </div>
                                         {% endfor %}
@@ -144,7 +144,7 @@
                                 {% for p in topo_photos %}
                                 <div class="photo-item position-relative d-inline-block">
                                     <img src="/{{ p }}" class="rounded border" style="width:150px;height:100px;object-fit:cover;">
-                                    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:var(--fs-sm);line-height:18px;" onclick="this.parentElement.remove()">×</button>
                                     <input type="hidden" class="topology-photo-path" value="{{ p }}">
                                 </div>
                                 {% endfor %}
@@ -185,7 +185,7 @@
                                 {% if seal %}
                                 <div class="photo-item position-relative d-inline-block">
                                     <img src="/{{ seal }}" class="rounded border" style="height:60px;">
-                                    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:12px;line-height:18px;" onclick="this.parentElement.remove()">×</button>
+                                    <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 translate-middle p-0 px-1 rounded-circle" style="font-size:var(--fs-sm);line-height:18px;" onclick="this.parentElement.remove()">×</button>
                                     <input type="hidden" class="seal-image-path" value="{{ seal }}">
                                 </div>
                                 {% endif %}
@@ -213,7 +213,7 @@
 <!-- 设备卡片模板（一个字段一行） -->
 <template id="deviceTemplate">
     <div class="device-item card mb-2 border-primary">
-        <div class="card-header py-1 d-flex justify-content-between align-items-center bg-light">
+        <div class="card-header py-1 d-flex justify-content-between align-items-center surface-muted">
             <strong class="device-name-display"></strong>
             <span class="badge bg-secondary device-type-badge"></span>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDevice(this)"><i class="bi-x-lg"></i></button>
@@ -461,7 +461,7 @@ function addTopologyPhoto(btn) {
                 if (data.error) { placeholder.innerHTML = '<span class="text-danger">失败</span>'; return; }
                 placeholder.outerHTML = '<div class="photo-item" style="position:relative;display:inline-block;">' +
                     '<img src="/' + data.path + '" style="width:150px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
-                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:var(--fs-sm);line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
                     '<input type="hidden" class="topology-photo-path" value="' + data.path + '">' +
                     '</div>';
             })
@@ -490,7 +490,7 @@ function addSectionPhoto(btn, section) {
                 if (data.error) { ph.innerHTML = '失败'; return; }
                 ph.outerHTML = '<div class="photo-item" style="position:relative;display:inline-block;">' +
                     '<img src="/' + data.path + '" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
-                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:var(--fs-sm);line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
                     '<input type="hidden" class="section-photo" data-section="' + section + '" value="' + data.path + '">' +
                     '</div>';
             });
@@ -517,7 +517,7 @@ function addSealImage(btn) {
                 if (data.error) { container.innerHTML = '<span class="text-danger">失败</span>'; return; }
                 container.innerHTML = '<div class="photo-item" style="position:relative;display:inline-block;">' +
                     '<img src="/' + data.path + '" style="height:60px;border-radius:4px;border:1px solid #ddd;">' +
-                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-8px;right:-8px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                    '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-8px;right:-8px;padding:0 6px;font-size:var(--fs-sm);line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
                     '<input type="hidden" class="seal-image-path" value="' + data.path + '">' +
                     '</div>';
             })
@@ -551,7 +551,7 @@ function addPhoto(btn) {
                     if (data.error) { placeholder.innerHTML = '<span class="text-danger">上传失败</span>'; return; }
                     placeholder.innerHTML = '<div style="position:relative;display:inline-block;">' +
                         '<img src="' + data.url + '" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
-                        '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.parentElement.remove()">×</button>' +
+                        '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:var(--fs-sm);line-height:18px;border-radius:50%;" onclick="this.parentElement.parentElement.remove()">×</button>' +
                         '<input type="hidden" class="photo-path" value="' + data.path + '">' +
                         '</div>';
                 })
@@ -679,7 +679,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             div.className = 'photo-item';
                             div.style.cssText = 'position:relative;display:inline-block;';
                             div.innerHTML = '<img src="/' + path + '" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">' +
-                                '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:12px;line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
+                                '<button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 6px;font-size:var(--fs-sm);line-height:18px;border-radius:50%;" onclick="this.parentElement.remove()">×</button>' +
                                 '<input type="hidden" class="photo-path" value="' + path + '">';
                             photoList.appendChild(div);
                         });
@@ -756,7 +756,7 @@ function renderDeviceCard(d, container) {
     var matchColor = d.match_type === 'none' ? 'text-danger' : 'text-success';
 
     card.innerHTML =
-        '<div class="card-header py-1 d-flex justify-content-between align-items-center bg-light">' +
+        '<div class="card-header py-1 d-flex justify-content-between align-items-center surface-muted">' +
             '<strong>' + d.device_name + '</strong>' +
             '<div><span class="badge bg-' + (d.match_type !== 'none' ? 'info' : 'warning') + ' me-1">' + d.matched_template_name + '</span>' +
             '<small class="' + matchColor + '">' + matchBadge + '</small></div>' +

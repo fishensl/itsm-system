@@ -50,7 +50,7 @@
         <div class="mt-2 small">
             <span class="text-muted">关联设备模板（按顺序）：</span>
             {% for dt in ordered_dts %}
-            <span class="badge bg-light text-dark border me-1 mb-1">3.{{ loop.index }} {{ dt.name }}</span>
+            <span class="badge surface-muted me-1 mb-1">3.{{ loop.index }} {{ dt.name }}</span>
             {% endfor %}
         </div>
         {% else %}
@@ -193,7 +193,7 @@ function renderDtList(ids) {
             <span class="drag-handle"><i class="bi-grip-vertical"></i></span>
             <span class="badge bg-primary">3.${idx+1}</span>
             <strong class="flex-grow-1">${escAttr(info.name)}</strong>
-            <span class="badge bg-light text-dark border">${escAttr(info.cat)}</span>
+            <span class="badge surface-muted">${escAttr(info.cat)}</span>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.dt-row').remove(); refreshDtNumbers();"><i class="bi-x-lg"></i></button>
         `;
         // Drag events

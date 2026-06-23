@@ -26,7 +26,7 @@
                 <small class="text-muted">检查项（{{ items|length }}项）：</small>
                 <div class="mt-1">
                     {% for item in items %}
-                    <span class="badge {% if item.enabled == false %}bg-secondary text-white{% else %}bg-light text-dark{% endif %} me-1 mb-1" {% if item.enabled == false %}title="已禁用"{% endif %}>
+                    <span class="badge {% if item.enabled == false %}bg-secondary text-white{% else %}surface-muted{% endif %} me-1 mb-1" {% if item.enabled == false %}title="已禁用"{% endif %}>
                         {{ item.name }}
                         <small class="text-muted ms-1">{{ item.field_type if item.field_type else 'text' }}</small>
                         {% if item.required and item.enabled != false %}<i class="bi-asterisk text-danger" style="font-size:8px"></i>{% endif %}
