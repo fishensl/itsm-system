@@ -6,8 +6,8 @@
 .cat-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 2px solid var(--border-soft); padding-bottom: 8px; }
 .cat-tab { padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 600; border: 1px solid var(--border-soft); background: var(--surface); color: var(--gray-600); transition: all .2s; white-space: nowrap; }
 .cat-tab:hover { border-color: var(--primary); color: var(--primary); }
-.cat-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-.cat-tab .count { margin-left: 4px; opacity: .7; font-size: 11px; }
+.cat-tab.active { background: var(--primary); color: var(--text-on-primary); border-color: var(--primary); }
+.cat-tab .count { margin-left: 4px; opacity: .7; font-size: var(--fs-xs); }
 .cat-panel { display: none; }
 .cat-panel.active { display: block; }
 .dt-card { transition: transform .15s; }
@@ -168,7 +168,7 @@ function addDtSubItemRow(parentIdx, data) {
     var requiredChecked = data.required ? ' checked' : '';
     var allowSkipChecked = data.allow_skip ? ' checked' : '';
     var div = document.createElement('div');
-    div.className = 'border rounded p-2 mb-1 dt-sub-row bg-light';
+    div.className = 'bordered rounded p-2 mb-1 dt-sub-row surface-muted';
     div.id = 'dtSub_' + subIdx;
     div.dataset.parentIdx = parentIdx;
     div.dataset.subIdx = subIdx;

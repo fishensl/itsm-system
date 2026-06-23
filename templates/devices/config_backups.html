@@ -73,7 +73,7 @@
                 </div>
             </div>
             <div class="mb-3">
-                <textarea name="config_content" class="form-control" rows="10" style="font-family:Consolas,monospace;font-size:13px;" placeholder="粘贴设备配置，如 display current-config / show running-config 的输出..."></textarea>
+                <textarea name="config_content" class="form-control font-monospace" rows="10" placeholder="粘贴设备配置，如 display current-config / show running-config 的输出..."></textarea>
             </div>
             <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> 保存备份</button>
         </form>
@@ -108,7 +108,7 @@
                     <td>{{ b.backup_type }}</td>
                     <td><span class="badge bg-{{ 'info' if 'SSH' in b.backup_method or 'Telnet' in b.backup_method else 'secondary' }}">{{ b.backup_method }}</span></td>
                     <td><small>{{ b.backup_date }}</small></td>
-                    <td><code style="font-size:11px;">{{ (b.config_content or '')[:60] }}{% if b.config_content and b.config_content|length > 60 %}...{% endif %}</code></td>
+                    <td><code class="fs-xs">{{ (b.config_content or '')[:60] }}{% if b.config_content and b.config_content|length > 60 %}...{% endif %}</code></td>
                     <td class="text-end">
                         <button type="button" class="btn btn-sm btn-outline-info" onclick="viewConfig({{ b.id }})" title="查看"><i class="bi bi-eye"></i></button>
                         <form method="post" action="{{ url_for('asset.device_config_backup_delete', id=device.id, bid=b.id) }}" class="d-inline" onsubmit="return confirm('确定删除？')"><button type="submit" class="btn btn-sm btn-outline-danger" title="删除"><i class="bi bi-trash"></i></button></form>
@@ -182,8 +182,9 @@ function checkCompare(cb) {
 </script>
 <style>
 .diff-line { border-bottom: 1px solid var(--border-soft); min-height: 22px; white-space: pre-wrap; }
-.diff-panel { font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; overflow-x: auto; max-height: 500px; overflow-y: auto; }
-.config-view { height: 60vh; font-family: Consolas, monospace; font-size: 13px; background: var(--code-bg); color: var(--code-text); }
-.compact-table td { padding: 4px 8px !important; font-size: 13px; }
+.diff-panel { font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.5; overflow-x: auto; max-height: 500px; overflow-y: auto; }
+/* 本页 .config-view 用 60vh 高度（覆盖 style.css 默认 max-height:500px），其余继承全局 */
+.config-view { height: 60vh; }
+.compact-table td { padding: 4px 8px !important; font-size: var(--fs-code); }
 </style>
 {% endblock %}

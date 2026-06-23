@@ -49,7 +49,7 @@
 {% for city, customer_list in city_data.items() %}
 <!-- 地市区块 -->
 <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center bg-light" style="cursor:pointer;" onclick="toggleCity(this)">
+    <div class="card-header d-flex justify-content-between align-items-center surface-muted" style="cursor:pointer;" onclick="toggleCity(this)">
         <h5 class="mb-0"><i class="bi-geo-alt text-primary"></i> {{ city }}
             <span class="badge bg-primary ms-2">{{ customer_list|length }} 个客户</span>
         </h5>
@@ -59,7 +59,7 @@
         {% for group in customer_list %}
         <!-- 客户区块 -->
         <div class="card mb-2 border-info">
-            <div class="card-header d-flex justify-content-between align-items-center py-2 bg-light" style="cursor:pointer;" onclick="toggleCustomer(this)">
+            <div class="card-header d-flex justify-content-between align-items-center py-2 surface-muted" style="cursor:pointer;" onclick="toggleCustomer(this)">
                 <div>
                     <i class="bi-building text-info me-1"></i>
                     <strong>{{ group.customer.name }}</strong>
@@ -701,7 +701,7 @@ function showPwdHistory(el) {
 .drag-scroll::-webkit-scrollbar { height: 8px; }
 .drag-scroll::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: var(--radius-sm); }
 .pwd-cell { display: flex; align-items: center; gap: 4px; min-width: 148px; }
-.password-mask { cursor: pointer; font-family: Consolas, monospace; font-size: 12px; line-height: 22px; min-width: 58px; }
+.password-mask { cursor: pointer; font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 22px; min-width: 58px; }
 .pwd-btn { width: 22px; height: 22px; padding: 0; border: none; background: transparent; color: var(--gray-500); display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; }
 .pwd-btn:hover { background: var(--primary-soft); color: var(--primary); }
 </style>

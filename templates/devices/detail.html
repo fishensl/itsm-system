@@ -48,7 +48,7 @@
                     <tr><td class="text-muted">登录用户</td><td>{{ device.username or '-' }}</td></tr>
                     <tr><td class="text-muted">登录密码</td>
                         <td>
-                            <span class="password-mask" style="cursor:pointer;font-family:monospace;" onclick="togglePwd(this)" data-pwd="{{ password }}">••••••••</span>
+                            <span class="password-mask font-monospace" style="cursor:pointer;" onclick="togglePwd(this)" data-pwd="{{ password }}">••••••••</span>
                             <i class="bi-eye text-muted" style="cursor:pointer;margin-left:4px" onclick="togglePwdIcon(this)" data-pwd="{{ password }}"></i>
                             <i class="bi-copy text-muted" style="cursor:pointer;margin-left:4px" onclick="copyPwd(this)" data-pwd="{{ password }}"></i>
                         </td>

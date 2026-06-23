@@ -19,7 +19,7 @@
                     <tr><td class="text-muted">设备名称</td><td><strong>{{ device.device_name }}</strong></td></tr>
                     <tr><td class="text-muted">IP</td><td><code>{{ device.ip_address }}:{{ device.port }}</code></td></tr>
                     <tr><td class="text-muted">用户名</td><td>{{ device.username or '-' }}</td></tr>
-                    <tr><td class="text-muted">密码</td><td><span class="password-mask" onclick="togglePwd(this)" data-pwd="{{ password }}" style="cursor:pointer;font-family:monospace;">••••••••</span></td></tr>
+                    <tr><td class="text-muted">密码</td><td><span class="password-mask font-monospace" onclick="togglePwd(this)" data-pwd="{{ password }}" style="cursor:pointer;">••••••••</span></td></tr>
                 </table>
             </div>
         </div>
@@ -37,7 +37,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">执行命令（每行一条）</label>
-                        <textarea name="commands" class="form-control" rows="6" style="font-family:monospace;">display current-config
+                        <textarea name="commands" class="form-control font-monospace" rows="6">display current-config
 display version
 display interface brief</textarea>
                         <small class="text-muted">华为/华三用 display，思科用 show</small>
