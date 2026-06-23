@@ -121,12 +121,19 @@
             <option value="{{ c.id }}" {% if f_customer == c.id %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
         </select>
-        <div class="btn-group btn-group-sm" role="group" aria-label="期间快捷">
+        <div class="d-flex gap-1" role="group" aria-label="期间快捷">
             {% for key, lbl in [('this_month','本月'),('this_quarter','本季'),('this_year','本年')] %}
+            {% if f_period == key %}
+            <a href="{{ url_for('task_schedule.index', view=view,
+                                engineer_id=f_engineer or None, status=f_status or None,
+                                customer_id=f_customer or None, q=f_q or None) }}"
+               class="btn btn-primary btn-sm" style="color:#fff;">{{ lbl }}</a>
+            {% else %}
             <a href="{{ url_for('task_schedule.index', view=view, period=key,
                                 engineer_id=f_engineer or None, status=f_status or None,
                                 customer_id=f_customer or None, q=f_q or None) }}"
-               class="btn btn-outline-secondary {% if f_period == key %}active{% endif %}">{{ lbl }}</a>
+               class="btn btn-outline-secondary btn-sm">{{ lbl }}</a>
+            {% endif %}
             {% endfor %}
         </div>
         <input type="date" name="start_from" class="form-control form-control-sm" style="width:140px"

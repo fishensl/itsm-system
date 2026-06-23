@@ -24,7 +24,7 @@
                         </span>
                         {% endif %}
                     </div>
-                    <span class="badge bg-primary rounded-pill">{{ cust_total }}</span>
+                    <span class="badge bg-primary rounded-pill fs-6">{{ cust_total }}</span>
                 </div>
                 <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
                     {% for s in active_statuses %}
@@ -32,20 +32,28 @@
                         {% set is_done = (s == '已完成') %}
                         {% set collapse_id = 'completed-cust-' ~ c.id if is_done else '' %}
                         <div class="bucket-section mb-2">
-                            <div class="bucket-header fw-bold text-dark mb-1 d-flex align-items-center" style="font-size:0.95rem;">
+                            <div class="bucket-header text-dark mb-1 d-flex align-items-center">
                                 {% if is_done %}
                                 <a class="text-decoration-none text-reset d-flex align-items-center flex-grow-1" data-bs-toggle="collapse" href="#{{ collapse_id }}" aria-expanded="false" aria-controls="{{ collapse_id }}">
                                 {% endif %}
                                     <span class="bucket-dot bg-{{ status_color[s] }}"
                                           style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
                                     {{ s }}
-                                    <span class="ms-auto badge bg-{{ status_color[s] }}">
-                                        {{ bucket|length }}
-                                    </span>
                                 {% if is_done %}
-                                    <i class="bi-chevron-down small ms-2"></i>
                                 </a>
                                 {% endif %}
+                                    {% if is_done %}
+                                    <a class="ms-auto badge bg-{{ status_color[s] }} fs-6 text-decoration-none"
+                                       data-bs-toggle="collapse" href="#{{ collapse_id }}"
+                                       role="button" aria-expanded="false" aria-controls="{{ collapse_id }}"
+                                       style="cursor:pointer;">
+                                        {{ bucket|length }}
+                                    </a>
+                                    {% else %}
+                                    <span class="ms-auto badge bg-{{ status_color[s] }} fs-6">
+                                        {{ bucket|length }}
+                                    </span>
+                                    {% endif %}
                             </div>
                             <div {% if is_done %}class="collapse" id="{{ collapse_id }}"{% endif %}>
                                 {% for t in bucket %}

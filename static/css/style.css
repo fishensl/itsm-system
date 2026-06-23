@@ -827,21 +827,37 @@ body {
     box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
-.btn-primary {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: #fff;
+.btn-primary,
+.btn-primary:visited {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--primary);
+    --bs-btn-border-color: var(--primary);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--primary-hover);
+    --bs-btn-hover-border-color: var(--primary-hover);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--primary-active);
+    --bs-btn-active-border-color: var(--primary-active);
+    --bs-btn-disabled-color: #fff;
+    --bs-btn-disabled-bg: var(--primary);
+    --bs-btn-disabled-border-color: var(--primary);
+    color: #fff !important;
 }
 
-.btn-primary:hover {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
-    color: #fff;
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:focus-visible {
+    background: var(--primary-hover) !important;
+    border-color: var(--primary-hover) !important;
+    color: #fff !important;
 }
 
-.btn-primary:active {
-    background: var(--primary-active);
-    border-color: var(--primary-active);
+.btn-primary:active,
+.btn-primary.active,
+.btn-primary.show {
+    background: var(--primary-active) !important;
+    border-color: var(--primary-active) !important;
+    color: #fff !important;
 }
 
 .btn-secondary {
