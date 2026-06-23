@@ -1273,29 +1273,26 @@ code, .font-monospace {
     font-size: var(--fs-code-sm);
 }
 
-.config-view {
-    background: var(--code-bg);
-    color: var(--code-text);
-    padding: 16px;
-    border-radius: var(--radius-md);
-    max-height: 500px;
-    overflow: auto;
-    font-family: var(--font-mono);
-    font-size: var(--fs-code);
-    line-height: var(--lh-loose);
-    border: 1px solid var(--border);
-}
-
+/* 代码与输出块 - 共用基础 */
+.config-view,
 .output-pre {
     background: var(--code-bg);
     color: var(--code-text);
     padding: 16px;
     border-radius: var(--radius-md);
-    max-height: 400px;
     overflow: auto;
     font-family: var(--font-mono);
     font-size: var(--fs-code);
     border: 1px solid var(--border);
+}
+
+.config-view {
+    max-height: 500px;
+    line-height: var(--lh-loose);
+}
+
+.output-pre {
+    max-height: 400px;
 }
 
 /* 模态框 */

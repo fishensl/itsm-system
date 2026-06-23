@@ -90,9 +90,9 @@
 
 {% block scripts %}
 <style>
-.compact-table th { padding: 6px 10px !important; font-size: 12px; }
-.compact-table td { padding: 6px 10px !important; font-size: 13px; line-height: 1.2; }
-.type-pill { display:inline-flex; align-items:center; height:24px; padding:0 10px; border-radius:999px; background:var(--primary-soft); color:var(--primary); font-size:12px; font-weight:700; }
+.compact-table th { padding: 6px 10px !important; font-size: var(--fs-sm); }
+.compact-table td { padding: 6px 10px !important; font-size: var(--fs-code); line-height: 1.2; }
+.type-pill { display:inline-flex; align-items:center; height:24px; padding:0 10px; border-radius: var(--radius-pill); background:var(--primary-soft); color:var(--primary); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
 </style>
 <script>
 function editType(id, name, sort) {
