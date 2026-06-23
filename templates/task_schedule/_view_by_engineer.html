@@ -24,21 +24,32 @@
                 <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
                     {% for s in active_statuses %}
                         {% set bucket = eng_buckets.get(s, []) %}
+                        {% set is_done = (s == '已完成') %}
+                        {% set collapse_id = 'completed-eng-' ~ u.id if is_done else '' %}
                         <div class="bucket-section mb-2">
                             <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1 d-flex align-items-center">
-                                <span class="bucket-dot bg-{{ status_color[s] }}"
-                                      style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
-                                {{ s }}
-                                <span class="ms-auto badge bg-{{ status_color[s] }} bg-opacity-25 text-{{ status_color[s] }}">
-                                    {{ bucket|length }}
-                                </span>
+                                {% if is_done %}
+                                <a class="text-decoration-none text-reset d-flex align-items-center flex-grow-1" data-bs-toggle="collapse" href="#{{ collapse_id }}" aria-expanded="false" aria-controls="{{ collapse_id }}">
+                                {% endif %}
+                                    <span class="bucket-dot bg-{{ status_color[s] }}"
+                                          style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
+                                    {{ s }}
+                                    <span class="ms-auto badge bg-{{ status_color[s] }} bg-opacity-25 text-{{ status_color[s] }}">
+                                        {{ bucket|length }}
+                                    </span>
+                                {% if is_done %}
+                                    <i class="bi-chevron-down small ms-2"></i>
+                                </a>
+                                {% endif %}
                             </div>
-                            {% for t in bucket %}
-                                {% include 'task_schedule/_card.html' %}
-                            {% endfor %}
-                            {% if not bucket %}
-                            <div class="text-muted small text-center py-1 opacity-50">—</div>
-                            {% endif %}
+                            <div {% if is_done %}class="collapse" id="{{ collapse_id }}"{% endif %}>
+                                {% for t in bucket %}
+                                    {% include 'task_schedule/_card.html' %}
+                                {% endfor %}
+                                {% if not bucket %}
+                                <div class="text-muted small text-center py-1 opacity-50">—</div>
+                                {% endif %}
+                            </div>
                         </div>
                     {% endfor %}
                 </div>
@@ -65,15 +76,26 @@
                 {% for s in active_statuses %}
                     {% set bucket = unassigned.get(s, []) %}
                     {% if bucket %}
+                    {% set is_done = (s == '已完成') %}
+                    {% set collapse_id = 'completed-unassigned' if is_done else '' %}
                     <div class="bucket-section mb-2">
-                        <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1">
-                            <span class="bucket-dot bg-{{ status_color[s] }}"
-                                  style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
-                            {{ s }} ({{ bucket|length }})
+                        <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1 d-flex align-items-center">
+                            {% if is_done %}
+                            <a class="text-decoration-none text-reset d-flex align-items-center flex-grow-1" data-bs-toggle="collapse" href="#{{ collapse_id }}" aria-expanded="false" aria-controls="{{ collapse_id }}">
+                            {% endif %}
+                                <span class="bucket-dot bg-{{ status_color[s] }}"
+                                      style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
+                                {{ s }} ({{ bucket|length }})
+                            {% if is_done %}
+                                <i class="bi-chevron-down small ms-2"></i>
+                            </a>
+                            {% endif %}
                         </div>
-                        {% for t in bucket %}
-                            {% include 'task_schedule/_card.html' %}
-                        {% endfor %}
+                        <div {% if is_done %}class="collapse" id="{{ collapse_id }}"{% endif %}>
+                            {% for t in bucket %}
+                                {% include 'task_schedule/_card.html' %}
+                            {% endfor %}
+                        </div>
                     </div>
                     {% endif %}
                 {% endfor %}

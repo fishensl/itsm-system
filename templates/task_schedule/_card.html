@@ -1,9 +1,11 @@
-{# 单张任务卡 partial — 在按工程师/按状态视图中复用
-   需要的变量: t (InspectionTask), today (date), is_overdue (callable)
+{# 单张任务卡 partial — 在按工程师/按状态/按客户视图中复用
+   需要的变量: t (InspectionTask), today (date), is_overdue (callable), status_color (dict)
    可选: show_assignee (默认 false)
 #}
 {% set _overdue = is_overdue(t, today) %}
-<div class="task-card card mb-2 {% if _overdue %}border-danger{% endif %}"
+{# 逾期用红色边框；否则用状态色左边框条，强化视觉区分 #}
+<div class="task-card card mb-2 border-start border-3 {% if _overdue %}border-danger{% endif %}"
+     {% if not _overdue %}style="border-left-color: var(--bs-{{ status_color.get(t.status, 'secondary') }}) !important;"{% endif %}
      data-task-id="{{ t.id }}" data-status="{{ t.status }}">
     <div class="card-body py-2 px-2">
         <div class="d-flex justify-content-between align-items-start mb-1">
@@ -15,6 +17,7 @@
             </a>
             <div class="dropdown">
                 <button class="btn btn-sm btn-link p-0 text-muted" data-bs-toggle="dropdown"
+                        data-bs-container="body" data-bs-boundary="viewport"
                         aria-expanded="false" title="操作">
                     <i class="bi-three-dots-vertical"></i>
                 </button>
