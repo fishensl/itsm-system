@@ -28,7 +28,7 @@
     </div>
     <div class="col-12 mb-3">
         <label class="form-label">内容（支持 Markdown）</label>
-        <textarea name="content" class="form-control" rows="14" style="font-family:Consolas,monospace;font-size:13px;">{{ kb.content if kb else p.get('content','') }}</textarea>
+        <textarea name="content" class="form-control font-monospace" rows="14">{{ kb.content if kb else p.get('content','') }}</textarea>
     </div>
     {% if kb %}
     <div class="col-12 mb-3">

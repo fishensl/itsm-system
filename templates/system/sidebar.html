@@ -30,7 +30,7 @@
                     <i class="bi-grip-vertical text-muted me-2" style="cursor:grab;"></i>
                     <i class="{{ g.icon }} text-primary me-2" style="width:18px;"></i>
                     <span class="flex-grow-1 fw-bold">{{ g.title }}</span>
-                    <span class="badge bg-light text-muted me-3">
+                    <span class="badge surface-muted text-muted me-3">
                         {% if g.single_link %}
                         1 个链接
                         {% else %}
@@ -92,7 +92,7 @@
     var sortable = Sortable.create(list, {
         handle: '.bi-grip-vertical',
         animation: 150,
-        ghostClass: 'bg-light',
+        ghostClass: 'surface-muted',
         onEnd: function() { renderPreview(); }
     });
 
