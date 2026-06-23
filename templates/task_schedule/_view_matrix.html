@@ -35,7 +35,7 @@
                 <td>
                     {% if n > 0 %}
                     <a href="{{ url_for('task_schedule.list_view', engineer_id=u.id, status=s) }}"
-                       class="btn btn-sm btn-outline-{{ status_color[s] }} fw-bold"
+                       class="btn btn-sm btn-{{ status_color[s] }} fw-bold"
                        style="min-width:48px;">
                         {{ n }}
                     </a>
