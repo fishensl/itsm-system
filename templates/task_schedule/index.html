@@ -100,7 +100,7 @@
         </div>
         <select name="engineer_id" class="form-select form-select-sm" style="width:130px"
                 onchange="this.form.submit()">
-            <option value="">全部负责人</option>
+            <option value="">工程师</option>
             {% for u in engineers %}
             <option value="{{ u.id }}" {% if f_engineer == u.id %}selected{% endif %}>
                 {{ u.realname or u.username }}
@@ -109,14 +109,14 @@
         </select>
         <select name="status" class="form-select form-select-sm" style="width:120px"
                 onchange="this.form.submit()">
-            <option value="">全部状态</option>
+            <option value="">状态</option>
             {% for s in all_statuses %}
             <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
         </select>
         <select name="customer_id" class="form-select form-select-sm" style="width:160px"
                 onchange="this.form.submit()">
-            <option value="">全部客户</option>
+            <option value="">客户</option>
             {% for c in customers %}
             <option value="{{ c.id }}" {% if f_customer == c.id %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
