@@ -43,7 +43,7 @@
                 <td><span class="badge bg-{{ 'info' if t.source=='合同自动生成' else 'light text-dark' }}">{{ t.source }}</span></td>
                 <td>{{ cust.name if cust else '-' }}</td>
                 <td>
-                    <span class="badge bg-{{ 'secondary' if t.status=='待执行' else 'primary' if t.status=='执行中' else 'success' if t.status=='已完成' else 'danger' if t.status=='已取消' else 'warning' }}">{{ t.status }}</span>
+                    <span class="badge bg-{{ 'danger' if t.status=='待执行' else 'warning' if t.status=='执行中' else 'success' if t.status=='已完成' else 'secondary' if t.status=='已取消' else 'warning' }}">{{ t.status }}</span>
                     {% if t.review_status == '待审核' %}<span class="badge bg-warning text-dark">待审核</span>{% endif %}
                 </td>
                 <td>{{ assignee.realname if assignee else '<span class="text-muted">未指派</span>' }}</td>

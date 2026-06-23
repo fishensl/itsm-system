@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+
+{% block title %}任务安排 - IT运维综合管理系统{% endblock %}
+
+{% block content %}
+{% call ui.page_header('任务安排', 'calendar3-week') %}
+    <a href="{{ url_for('task_schedule.import_template') }}" class="btn btn-outline-secondary btn-sm me-2">
+        <i class="bi bi-download"></i> 下载模板
+    </a>
+    <button class="btn btn-outline-success btn-sm me-2" onclick="document.getElementById('importFile').click()">
+        <i class="bi bi-upload"></i> 批量导入
+    </button>
+    <form method="post" action="{{ url_for('task_schedule.import_excel') }}"
+          enctype="multipart/form-data" style="display:none;" id="importForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="file" id="importFile" name="importFile" accept=".xlsx,.xls"
+               onchange="document.getElementById('importForm').submit()">
+    </form>
+    <a href="{{ url_for('task_schedule.export_excel', **request.args) }}"
+       class="btn btn-outline-info btn-sm me-2">
+        <i class="bi bi-file-earmark-excel"></i> 导出Excel
+    </a>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#quickAddModal">
+        <i class="bi-plus-lg"></i> 新建任务
+    </button>
+{% endcall %}
+
+{# ============ KPI 卡片 ============ #}
+<div class="row g-2 mb-3">
+    <div class="col-6 col-md-2">
+        <div class="card text-center h-100">
+            <div class="card-body py-2">
+                <div class="text-muted small">总数</div>
+                <div class="h3 mb-0">{{ kpi.total }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <a href="?status=待执行" class="text-decoration-none text-reset">
+        <div class="card text-center h-100 border-danger">
+            <div class="card-body py-2">
+                <div class="text-muted small">待执行</div>
+                <div class="h3 mb-0 text-danger">{{ kpi.todo }}</div>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-6 col-md-2">
+        <a href="?status=执行中" class="text-decoration-none text-reset">
+        <div class="card text-center h-100 border-warning">
+            <div class="card-body py-2">
+                <div class="text-muted small">执行中</div>
+                <div class="h3 mb-0 text-warning">{{ kpi.doing }}</div>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-6 col-md-2">
+        <a href="?status=已完成" class="text-decoration-none text-reset">
+        <div class="card text-center h-100 border-success">
+            <div class="card-body py-2">
+                <div class="text-muted small">已完成</div>
+                <div class="h3 mb-0 text-success">{{ kpi.done }}</div>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-6 col-md-2">
+        <a href="?overdue=1" class="text-decoration-none text-reset">
+        <div class="card text-center h-100 border-danger">
+            <div class="card-body py-2">
+                <div class="text-muted small">逾期未完成</div>
+                <div class="h3 mb-0 text-danger">{{ kpi.overdue }}</div>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center h-100">
+            <div class="card-body py-2">
+                <div class="text-muted small">完成率</div>
+                <div class="h3 mb-0 text-info">
+                    {% if kpi.total %}{{ '%.0f'|format(kpi.done * 100.0 / kpi.total) }}%{% else %}-{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ 筛选条 ============ #}
+{% call ui.filter_bar() %}
+<form class="filter-bar" method="get">
+    <input type="hidden" name="view" value="{{ view }}">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="input-group input-group-sm" style="max-width:260px;">
+            <span class="input-group-text"><i class="bi-search"></i></span>
+            <input type="text" name="q" class="form-control" placeholder="搜索任务标题..." value="{{ f_q }}">
+        </div>
+        <select name="engineer_id" class="form-select form-select-sm" style="width:130px"
+                onchange="this.form.submit()">
+            <option value="">全部负责人</option>
+            {% for u in engineers %}
+            <option value="{{ u.id }}" {% if f_engineer == u.id %}selected{% endif %}>
+                {{ u.realname or u.username }}
+            </option>
+            {% endfor %}
+        </select>
+        <select name="status" class="form-select form-select-sm" style="width:120px"
+                onchange="this.form.submit()">
+            <option value="">全部状态</option>
+            {% for s in all_statuses %}
+            <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        <select name="customer_id" class="form-select form-select-sm" style="width:160px"
+                onchange="this.form.submit()">
+            <option value="">全部客户</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}" {% if f_customer == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+        <div class="btn-group btn-group-sm" role="group" aria-label="期间快捷">
+            {% for key, lbl in [('this_month','本月'),('this_quarter','本季'),('this_year','本年')] %}
+            <a href="{{ url_for('task_schedule.index', view=view, period=key,
+                                engineer_id=f_engineer or None, status=f_status or None,
+                                customer_id=f_customer or None, q=f_q or None) }}"
+               class="btn btn-outline-secondary {% if f_period == key %}active{% endif %}">{{ lbl }}</a>
+            {% endfor %}
+        </div>
+        <input type="date" name="start_from" class="form-control form-control-sm" style="width:140px"
+               value="{{ f_start_from }}" title="开始日期 ≥">
+        <input type="date" name="start_to" class="form-control form-control-sm" style="width:140px"
+               value="{{ f_start_to }}" title="开始日期 ≤">
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="overdue" value="1"
+                   id="overdueCheck" {% if f_overdue %}checked{% endif %}
+                   onchange="this.form.submit()">
+            <label class="form-check-label small" for="overdueCheck">仅看逾期</label>
+        </div>
+        <button type="submit" class="btn btn-outline-primary btn-sm">筛选</button>
+        {% if f_engineer or f_status or f_customer or f_q or f_overdue or f_start_from or f_start_to or f_period %}
+        <a href="{{ url_for('task_schedule.index', view=view) }}" class="btn btn-link btn-sm">清除</a>
+        {% endif %}
+    </div>
+</form>
+{% endcall %}
+
+{# ============ 视图切换 ============ #}
+<ul class="nav nav-tabs mb-3">
+    {% set qs = request.args.to_dict() %}
+    {% set _ = qs.pop('view', None) %}
+    {% set qs_str = qs|urlencode %}
+    <li class="nav-item">
+        <a class="nav-link {% if view == 'by-engineer' %}active{% endif %}"
+           href="{{ url_for('task_schedule.index', view='by-engineer') }}{% if qs_str %}&{{ qs_str }}{% endif %}">
+            <i class="bi-people"></i> 按工程师
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if view == 'by-status' %}active{% endif %}"
+           href="{{ url_for('task_schedule.index', view='by-status') }}{% if qs_str %}&{{ qs_str }}{% endif %}">
+            <i class="bi-kanban"></i> 按状态
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if view == 'matrix' %}active{% endif %}"
+           href="{{ url_for('task_schedule.index', view='matrix') }}{% if qs_str %}&{{ qs_str }}{% endif %}">
+            <i class="bi-grid-3x3"></i> 矩阵
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if view == 'by-customer' %}active{% endif %}"
+           href="{{ url_for('task_schedule.index', view='by-customer') }}{% if qs_str %}&{{ qs_str }}{% endif %}">
+            <i class="bi-building"></i> 按客户
+        </a>
+    </li>
+    <li class="nav-item ms-auto">
+        <a class="nav-link" href="{{ url_for('task_schedule.list_view', **request.args) }}">
+            <i class="bi-list-ul"></i> 列表视图
+        </a>
+    </li>
+</ul>
+
+{# ============ 三视图 ============ #}
+{% if tasks %}
+    {% if view == 'by-engineer' %}
+        {% include 'task_schedule/_view_by_engineer.html' %}
+    {% elif view == 'by-status' %}
+        {% include 'task_schedule/_view_by_status.html' %}
+    {% elif view == 'by-customer' %}
+        {% include 'task_schedule/_view_by_customer.html' %}
+    {% else %}
+        {% include 'task_schedule/_view_matrix.html' %}
+    {% endif %}
+{% else %}
+    {{ eui.empty_state('bi-calendar3-week', '暂无任务',
+        '点击右上角「批量导入」上传 Excel，或「新建任务」手工创建') }}
+{% endif %}
+
+{# ============ 快速新建 Modal ============ #}
+<div class="modal fade" id="quickAddModal" tabindex="-1">
+<div class="modal-dialog"><div class="modal-content">
+<form method="post" action="{{ url_for('task_schedule.quick_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="modal-header">
+        <h5 class="modal-title">新建任务</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+        <div class="mb-2">
+            <label class="form-label small">任务标题 <span class="text-danger">*</span></label>
+            <input type="text" name="title" class="form-control" required
+                   placeholder="如：水科院共青城2026年三季度巡检">
+        </div>
+        <div class="row g-2">
+            <div class="col-md-6 mb-2">
+                <label class="form-label small">客户 <span class="text-danger">*</span></label>
+                <select name="customer_id" class="form-select" required>
+                    <option value="">--选择--</option>
+                    {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6 mb-2">
+                <label class="form-label small">负责人</label>
+                <select name="assignee_id" class="form-select">
+                    <option value="">--未指派--</option>
+                    {% for u in engineers %}
+                    <option value="{{ u.id }}">{{ u.realname or u.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4 mb-2">
+                <label class="form-label small">优先级</label>
+                <select name="priority" class="form-select">
+                    <option value="中" selected>中</option>
+                    <option value="高">高</option>
+                    <option value="低">低</option>
+                </select>
+            </div>
+            <div class="col-md-4 mb-2">
+                <label class="form-label small">计划开始</label>
+                <input type="date" name="planned_start" class="form-control">
+            </div>
+            <div class="col-md-4 mb-2">
+                <label class="form-label small">计划完成</label>
+                <input type="date" name="planned_end" class="form-control">
+            </div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">创建</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    </div>
+</form>
+</div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/**
+ * AJAX 改状态：卡片上的下拉菜单。
+ * 成功后简单 reload 当前视图（保证 KPI/分桶都对得上）。
+ */
+function changeTaskStatus(taskId, newStatus) {
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'status=' + encodeURIComponent(newStatus),
+    }).then(function(r) {
+        if (r.ok) {
+            window.location.reload();
+        } else {
+            alert('改状态失败');
+        }
+    });
+}
+
+function deleteTask(taskId) {
+    if (!confirm('确定删除该任务？')) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.action = '/task-schedule/' + taskId + '/delete';
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    f.innerHTML = '<input type="hidden" name="csrf_token" value="' + csrf + '">';
+    document.body.appendChild(f);
+    f.submit();
+}
+</script>
+{% endblock %}

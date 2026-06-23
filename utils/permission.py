@@ -51,6 +51,7 @@ PERMISSION_MAP = {
     'kb:edit': '知识库-编辑', 'kb:delete': '知识库-删除',
     # 任务派发
     'task:dispatch': '任务派发-派发', 'task:view_dept': '任务派发-查看部门任务',
+    'task:schedule': '任务安排-看板/导入',
     # 部门管理
     'department:view': '部门管理-查看', 'department:edit': '部门管理-编辑',
     # 单位类别
@@ -84,7 +85,7 @@ OPERATOR_PERMISSIONS = [
     'ticket:view', 'ticket:add', 'ticket:edit',
     'fault:view', 'fault:add', 'fault:edit',
     'kb:view', 'kb:add', 'kb:edit',
-    'task:view_dept', 'task:dispatch',
+    'task:view_dept', 'task:dispatch', 'task:schedule',
     'department:view', 'category:view',
     'contract_auto:manage',
     'spare:view', 'spare:add', 'spare:edit',

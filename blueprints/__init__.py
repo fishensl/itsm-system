@@ -1,6 +1,7 @@
 """蓝图包 — 注册所有新增模块"""
 from blueprints.departments import dept_bp
 from blueprints.categories import category_bp
+# V17: task_dispatch 已并入 task_schedule，仅保留 URL 兼容重定向
 from blueprints.task_dispatch import dispatch_bp
 from blueprints.contract_tasks import contract_task_bp
 from blueprints.drafts import draft_bp
@@ -13,6 +14,7 @@ from blueprints.rack import rack_bp
 from blueprints.tools import tools_bp
 from blueprints.rbac import rbac_bp
 from blueprints.backup import backup_bp
+from blueprints.task_schedule import task_schedule_bp
 
 
 def register_blueprints(app):
@@ -49,3 +51,5 @@ def register_blueprints(app):
     app.register_blueprint(rbac_bp, url_prefix='/rbac')
     # V15: 数据备份/恢复（admin）
     app.register_blueprint(backup_bp)
+    # V16: 任务安排看板（Excel 导入 + 三视图）
+    app.register_blueprint(task_schedule_bp)

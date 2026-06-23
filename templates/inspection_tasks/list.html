@@ -19,7 +19,7 @@
                     <td>{{ t.id }}</td>
                     <td><a href="{{ url_for('ops.inspection_task_detail', id=t.id) }}"><strong>{{ t.title }}</strong></a></td>
                     <td><span class="badge bg-{{ 'primary' if t.task_type=='计划' else 'warning' if t.task_type=='突发' else 'info' }}">{{ t.task_type }}</span></td>
-                    <td><span class="badge bg-{{ 'secondary' if t.status=='待执行' else 'primary' if t.status=='执行中' else 'success' if t.status=='已完成' else 'danger' }}">{{ t.status }}</span></td>
+                    <td>{{ eui.status_badge(t.status) }}</td>
                     <td>{{ cust.name if cust else '-' }}</td>
                     <td>{{ t.planned_start }} ~ {{ t.planned_end }}</td>
                     <td><span class="badge bg-{{ 'danger' if t.priority=='高' else 'warning' if t.priority=='中' else 'secondary' }}">{{ t.priority }}</span></td>

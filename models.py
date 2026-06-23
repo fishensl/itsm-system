@@ -230,6 +230,7 @@ class Customer(db.Model):
     onsite_office = db.Column(db.String(128), default='')   # 驻场办公室
     has_drill = db.Column(db.Boolean, default=False)       # 有无攻防演练
     inspection_frequency = db.Column(db.String(16), default='')  # 巡检频率
+    last_generated_date = db.Column(db.Date, nullable=True)  # V17: 客户频率自动任务最近一次生成到的期次起点
     device_count = db.Column(db.Integer, default=0)        # 关联设备数（冗余快照）
     source = db.Column(db.String(64), default='')           # 转介绍/展会/线上/其他
     remark = db.Column(db.Text, default='')

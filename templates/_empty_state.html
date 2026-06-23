@@ -54,8 +54,9 @@
 {% if not color %}
     {% if status in ['已完成', '已解决', '已发布', '已签', '成交', '正常', '在用'] %}{% set color = 'success' %}
     {% elif status in ['待审核', '处理中', '执行中', '进行中', '待验收', '警告'] %}{% set color = 'warning' %}
+    {% elif status in ['待执行'] %}{% set color = 'danger' %}
     {% elif status in ['已退回', '失败', '已拒绝', '已关闭', '异常', '紧急'] %}{% set color = 'danger' %}
-    {% elif status in ['待派单', '待接单', '待执行', '中'] %}{% set color = 'info' %}
+    {% elif status in ['待派单', '待接单', '中'] %}{% set color = 'info' %}
     {% else %}{% set color = 'secondary' %}
     {% endif %}
 {% endif %}

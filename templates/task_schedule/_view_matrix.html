@@ -1,0 +1,94 @@
+{# 视图③：工程师 × 状态矩阵
+   需要的变量: engineers, matrix (dict[uid][status]=count), matrix_unassigned, all_statuses, status_color
+   点击数字 → 跳到列表视图，附带 engineer_id + status 筛选
+#}
+<div class="card">
+<div class="card-body p-0">
+<div class="table-responsive">
+<table class="table table-bordered align-middle mb-0 text-center">
+    <thead class="table-light">
+        <tr>
+            <th class="text-start" style="min-width:140px;">工程师</th>
+            {% for s in all_statuses %}
+            <th class="text-{{ status_color[s] }}">
+                <span class="bucket-dot bg-{{ status_color[s] }}"
+                      style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
+                {{ s }}
+            </th>
+            {% endfor %}
+            <th>小计</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in engineers %}
+            {% set row = matrix.get(u.id, {}) %}
+            {% set row_total = (row.get('待执行', 0)) + (row.get('执行中', 0))
+                             + (row.get('已完成', 0)) + (row.get('已取消', 0)) %}
+            {% if row_total > 0 %}
+            <tr>
+                <td class="text-start">
+                    <i class="bi-person-circle"></i>
+                    <strong>{{ u.realname or u.username }}</strong>
+                </td>
+                {% for s in all_statuses %}
+                {% set n = row.get(s, 0) %}
+                <td>
+                    {% if n > 0 %}
+                    <a href="{{ url_for('task_schedule.list_view', engineer_id=u.id, status=s) }}"
+                       class="btn btn-sm btn-outline-{{ status_color[s] }} fw-bold"
+                       style="min-width:48px;">
+                        {{ n }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                {% endfor %}
+                <td>
+                    <a href="{{ url_for('task_schedule.list_view', engineer_id=u.id) }}"
+                       class="text-decoration-none fw-bold">{{ row_total }}</a>
+                </td>
+            </tr>
+            {% endif %}
+        {% endfor %}
+
+        {# 未指派 行 #}
+        {% set u_total = matrix_unassigned.get('待执行', 0)
+                      + matrix_unassigned.get('执行中', 0)
+                      + matrix_unassigned.get('已完成', 0)
+                      + matrix_unassigned.get('已取消', 0) %}
+        {% if u_total > 0 %}
+        <tr class="table-warning">
+            <td class="text-start">
+                <i class="bi-question-circle"></i> <strong>未指派</strong>
+            </td>
+            {% for s in all_statuses %}
+            {% set n = matrix_unassigned.get(s, 0) %}
+            <td>
+                {% if n > 0 %}
+                <span class="badge bg-warning">{{ n }}</span>
+                {% else %}<span class="text-muted">-</span>{% endif %}
+            </td>
+            {% endfor %}
+            <td><strong>{{ u_total }}</strong></td>
+        </tr>
+        {% endif %}
+    </tbody>
+    <tfoot class="table-light">
+        <tr>
+            <th class="text-start">总计</th>
+            {% for s in all_statuses %}
+            <th class="text-{{ status_color[s] }}">{{ kpi.get(s) if false else
+                (kpi.todo if s=='待执行' else kpi.doing if s=='执行中' else kpi.done if s=='已完成' else 0) }}</th>
+            {% endfor %}
+            <th>{{ kpi.total }}</th>
+        </tr>
+    </tfoot>
+</table>
+</div>
+</div>
+</div>
+
+<div class="mt-2 small text-muted">
+    <i class="bi-info-circle"></i> 点击数字可下钻到列表视图。
+</div>

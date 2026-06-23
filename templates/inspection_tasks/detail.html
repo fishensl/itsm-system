@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_empty_state.html" as eui %}
 {% block content %}
 <div class="page-toolbar">
     <div class="actions">
@@ -37,7 +38,7 @@
                 <table class="table table-sm">
                     <tr><td class="text-muted">标题</td><td><strong>{{ task.title }}</strong></td></tr>
                     <tr><td class="text-muted">类型</td><td><span class="badge bg-{{ 'primary' if task.task_type=='计划' else 'warning' if task.task_type=='突发' else 'info' }}">{{ task.task_type }}</span></td></tr>
-                    <tr><td class="text-muted">状态</td><td><span class="badge bg-{{ 'secondary' if task.status=='待执行' else 'primary' if task.status=='执行中' else 'success' if task.status=='已完成' else 'danger' }}">{{ task.status }}</span></td></tr>
+                    <tr><td class="text-muted">状态</td><td>{{ eui.status_badge(task.status) }}</td></tr>
                     <tr><td class="text-muted">优先级</td><td><span class="badge bg-{{ 'danger' if task.priority=='高' else 'warning' if task.priority=='中' else 'secondary' }}">{{ task.priority }}</span></td></tr>
                     <tr><td class="text-muted">客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
                     <tr><td class="text-muted">计划日期</td><td>{{ task.planned_start }} ~ {{ task.planned_end }}</td></tr>

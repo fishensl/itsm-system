@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import pagination_bar %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+
+{% block title %}任务安排-列表 - IT运维综合管理系统{% endblock %}
+
+{% block content %}
+{% call ui.page_header('任务安排 - 列表视图', 'list-ul') %}
+    <a href="{{ url_for('task_schedule.index', **request.args) }}" class="btn btn-outline-secondary btn-sm me-2">
+        <i class="bi-kanban"></i> 返回看板
+    </a>
+    <a href="{{ url_for('task_schedule.export_excel', **request.args) }}"
+       class="btn btn-outline-info btn-sm">
+        <i class="bi bi-file-earmark-excel"></i> 导出当前筛选
+    </a>
+{% endcall %}
+
+<div class="content-card">
+{% call ui.filter_bar() %}
+<form class="filter-bar" method="get">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="input-group input-group-sm" style="max-width:240px;">
+            <span class="input-group-text"><i class="bi-search"></i></span>
+            <input type="text" name="q" class="form-control" placeholder="搜索标题..." value="{{ f_q }}">
+        </div>
+        <select name="engineer_id" class="form-select form-select-sm" style="width:130px"
+                onchange="this.form.submit()">
+            <option value="">全部负责人</option>
+            {% for u in engineers %}
+            <option value="{{ u.id }}" {% if f_engineer == u.id %}selected{% endif %}>
+                {{ u.realname or u.username }}
+            </option>
+            {% endfor %}
+        </select>
+        <select name="status" class="form-select form-select-sm" style="width:120px"
+                onchange="this.form.submit()">
+            <option value="">全部状态</option>
+            {% for s in all_statuses %}
+            <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        <select name="customer_id" class="form-select form-select-sm" style="width:160px"
+                onchange="this.form.submit()">
+            <option value="">全部客户</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}" {% if f_customer == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+        <div class="btn-group btn-group-sm" role="group" aria-label="期间快捷">
+            {% for key, lbl in [('this_month','本月'),('this_quarter','本季'),('this_year','本年')] %}
+            <a href="{{ url_for('task_schedule.list_view', period=key,
+                                engineer_id=f_engineer or None, status=f_status or None,
+                                customer_id=f_customer or None, q=f_q or None) }}"
+               class="btn btn-outline-secondary {% if f_period == key %}active{% endif %}">{{ lbl }}</a>
+            {% endfor %}
+        </div>
+        <input type="date" name="start_from" class="form-control form-control-sm" style="width:140px"
+               value="{{ f_start_from }}">
+        <input type="date" name="start_to" class="form-control form-control-sm" style="width:140px"
+               value="{{ f_start_to }}">
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="overdue" value="1"
+                   id="overdueCheck" {% if f_overdue %}checked{% endif %}
+                   onchange="this.form.submit()">
+            <label class="form-check-label small" for="overdueCheck">仅看逾期</label>
+        </div>
+        <button type="submit" class="btn btn-outline-primary btn-sm">筛选</button>
+        {% if f_engineer or f_status or f_customer or f_q or f_overdue or f_start_from or f_start_to or f_period %}
+        <a href="{{ url_for('task_schedule.list_view') }}" class="btn btn-link btn-sm">清除</a>
+        {% endif %}
+    </div>
+</form>
+{% endcall %}
+
+{% if items %}
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>任务标题</th>
+            <th>客户</th>
+            <th>负责人</th>
+            <th>状态</th>
+            <th>优先级</th>
+            <th>计划起止</th>
+            <th>完成时间</th>
+            <th class="text-end">操作</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for t in items %}
+        {% set _overdue = is_overdue(t, today) %}
+        <tr class="{% if _overdue %}table-danger{% endif %}">
+            <td>{{ t.id }}</td>
+            <td>
+                <a href="{{ url_for('ops.inspection_task_detail', id=t.id) }}"
+                   class="fw-semibold text-decoration-none">{{ t.title }}</a>
+                {% if _overdue %}<i class="bi-exclamation-circle-fill text-danger ms-1" title="已逾期"></i>{% endif %}
+            </td>
+            <td>{{ t.customer_rel.name if t.customer_rel else '-' }}</td>
+            <td>{{ t.assignee_rel.realname or t.assignee_rel.username if t.assignee_rel else '-' }}</td>
+            <td>
+                <span class="badge bg-{{ status_color[t.status] if t.status in status_color else 'secondary' }}">{{ t.status }}</span>
+            </td>
+            <td><span class="badge bg-{{ 'danger' if t.priority=='高' else 'warning' if t.priority=='中' else 'secondary' }}">{{ t.priority or '-' }}</span></td>
+            <td class="small">
+                {{ t.planned_start.strftime('%Y-%m-%d') if t.planned_start else '-' }}
+                ~
+                {{ t.planned_end.strftime('%Y-%m-%d') if t.planned_end else '-' }}
+            </td>
+            <td class="small">
+                {% if t.actual_end %}{{ t.actual_end.strftime('%Y-%m-%d') }}{% else %}-{% endif %}
+            </td>
+            <td class="text-end">
+                <div class="dropdown d-inline-block">
+                    <button class="btn btn-sm btn-outline-primary dropdown-toggle"
+                            data-bs-toggle="dropdown">改状态</button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {% for s in all_statuses %}
+                        <li><a class="dropdown-item small {% if t.status==s %}active{% endif %}"
+                               href="#" onclick="changeTaskStatus({{ t.id }}, '{{ s }}'); return false;">{{ s }}</a></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <form method="post" action="{{ url_for('task_schedule.delete_task', task_id=t.id) }}"
+                      class="d-inline" onsubmit="return confirm('确定删除该任务？')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi-trash"></i></button>
+                </form>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{{ pagination_bar(page, total_pages, has_prev, has_next, prev_page, next_page, total, start, end, f_q) }}
+{% else %}
+{{ eui.empty_state('bi-list-ul', '无匹配任务', '调整筛选条件或返回看板') }}
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function changeTaskStatus(taskId, newStatus) {
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'status=' + encodeURIComponent(newStatus),
+    }).then(function(r) {
+        if (r.ok) window.location.reload();
+        else alert('改状态失败');
+    });
+}
+</script>
+{% endblock %}

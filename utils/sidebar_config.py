@@ -35,8 +35,10 @@ SIDEBAR_GROUPS = [
             # 主要功能：工单与故障
             {'name': '工单管理', 'url': '/tickets', 'icon': 'bi-ticket-detailed', 'perm': 'ticket:view'},
             {'name': '故障记录', 'url': '/faults', 'icon': 'bi-exclamation-triangle', 'perm': 'fault:view'},
-            # 主要功能：巡检链路（派发 → 任务 → 人员 → 记录）
-            {'name': '任务派发', 'url': '/task-dispatch', 'icon': 'bi-send', 'perm': 'task:view_dept'},
+            # V16: 任务安排看板（导入 + 三视图）
+            {'name': '任务安排', 'url': '/task-schedule/', 'icon': 'bi-calendar3-week', 'perm': 'task:schedule'},
+            # 主要功能：巡检链路（任务 → 人员 → 记录）
+            # V17: 任务派发已并入任务安排，旧 URL 仍 301 兼容
             {'name': '巡检任务', 'url': '/inspection-tasks', 'icon': 'bi-list-check', 'perm': 'inspection:view'},
             {'name': '巡检人员', 'url': '/inspectors', 'icon': 'bi-person-gear', 'perm': 'inspection:view'},
             {'name': '巡检记录', 'url': '/inspections', 'icon': 'bi-clipboard-data', 'perm': 'inspection:view'},

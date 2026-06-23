@@ -13,7 +13,7 @@ from models import (Inspection, InspectionTask, InspectionTemplate, Fault, Ticke
                     TicketLog, KnowledgeBase, KnowledgeAttachment, Inspector, InspectionDeviceTemplate,
                     InspectionTaskTemplate, FaultType, Customer, Device, User, db)
 from utils.pagination import paginate, paginate_render_args
-from utils.permission import require_permission
+from utils.permission import require_permission, has_permission
 from services.ticket_service import (create_ticket, update_ticket, assign_ticket,
                                       accept_ticket, submit_ticket, audit_ticket,
                                       accept_check_ticket, close_ticket)
@@ -214,8 +214,11 @@ def inspection_task_list():
 
 @ops_bp.route('/inspection-tasks/<int:id>')
 @login_required
-@require_permission('inspection:view')
 def inspection_task_detail(id):
+    # V17: 任务安排看板点卡片跳这里，允许 inspection:view 或 task:schedule 任一权限
+    if not (has_permission('inspection:view') or has_permission('task:schedule')):
+        flash('权限不足，需要：巡检管理-查看 或 任务安排-看板/导入', 'danger')
+        return redirect(url_for('index'))
     t = InspectionTask.query.get_or_404(id)
     return render_template('inspection_tasks/detail.html', task=t)
 

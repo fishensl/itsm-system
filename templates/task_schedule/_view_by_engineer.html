@@ -1,0 +1,84 @@
+{# 视图①：按工程师分列，每列内再按状态色块分组
+   需要的全局变量:
+     engineers, buckets_by_engineer, unassigned, active_statuses, status_color,
+     today, is_overdue, all_statuses
+#}
+<div class="kanban-row d-flex gap-2 overflow-auto pb-2" style="min-height:60vh;">
+    {# 每位工程师一列 #}
+    {% for u in engineers %}
+        {% set eng_buckets = buckets_by_engineer.get(u.id, {}) %}
+        {% set eng_total = (eng_buckets.get('待执行', [])|length)
+                         + (eng_buckets.get('执行中', [])|length)
+                         + (eng_buckets.get('已完成', [])|length)
+                         + (eng_buckets.get('已取消', [])|length) %}
+        {% if eng_total > 0 or not f_engineer %}
+        <div class="kanban-col flex-shrink-0" style="width:280px;">
+            <div class="card h-100">
+                <div class="card-header py-2 px-2 d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="bi-person-circle"></i>
+                        <strong>{{ u.realname or u.username }}</strong>
+                    </div>
+                    <span class="badge bg-primary rounded-pill">{{ eng_total }}</span>
+                </div>
+                <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+                    {% for s in active_statuses %}
+                        {% set bucket = eng_buckets.get(s, []) %}
+                        <div class="bucket-section mb-2">
+                            <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1 d-flex align-items-center">
+                                <span class="bucket-dot bg-{{ status_color[s] }}"
+                                      style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
+                                {{ s }}
+                                <span class="ms-auto badge bg-{{ status_color[s] }} bg-opacity-25 text-{{ status_color[s] }}">
+                                    {{ bucket|length }}
+                                </span>
+                            </div>
+                            {% for t in bucket %}
+                                {% include 'task_schedule/_card.html' %}
+                            {% endfor %}
+                            {% if not bucket %}
+                            <div class="text-muted small text-center py-1 opacity-50">—</div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    {% endfor %}
+
+    {# 未指派 列 #}
+    {% set unassigned_total = (unassigned.get('待执行', [])|length)
+                            + (unassigned.get('执行中', [])|length)
+                            + (unassigned.get('已完成', [])|length) %}
+    {% if unassigned_total > 0 %}
+    <div class="kanban-col flex-shrink-0" style="width:280px;">
+        <div class="card h-100 border-warning">
+            <div class="card-header py-2 px-2 d-flex justify-content-between align-items-center bg-warning bg-opacity-10">
+                <div>
+                    <i class="bi-question-circle"></i>
+                    <strong>未指派</strong>
+                </div>
+                <span class="badge bg-warning rounded-pill">{{ unassigned_total }}</span>
+            </div>
+            <div class="card-body p-2" style="background:var(--bs-tertiary-bg);overflow-y:auto;max-height:75vh;">
+                {% for s in active_statuses %}
+                    {% set bucket = unassigned.get(s, []) %}
+                    {% if bucket %}
+                    <div class="bucket-section mb-2">
+                        <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1">
+                            <span class="bucket-dot bg-{{ status_color[s] }}"
+                                  style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
+                            {{ s }} ({{ bucket|length }})
+                        </div>
+                        {% for t in bucket %}
+                            {% include 'task_schedule/_card.html' %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
