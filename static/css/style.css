@@ -1504,9 +1504,18 @@ code, .font-monospace {
 
 /* 筛选栏内表单元素紧凑 */
 .breadcrumb-nav .filter-bar .form-control,
-.breadcrumb-nav .filter-bar .form-select {
+.breadcrumb-nav .filter-bar .form-select,
+.breadcrumb-nav .filter-bar .btn,
+.breadcrumb-nav .filter-bar .input-group-text {
     height: 32px;
     font-size: 13px;
+}
+.breadcrumb-nav .filter-bar .btn {
+    display: inline-flex;
+    align-items: center;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1;
 }
 
 /* 覆盖 Bootstrap 栅格 col-md-* 的固定宽度，让筛选栏内 col-* 自适应内容 */
