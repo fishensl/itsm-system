@@ -205,6 +205,18 @@
 /* badge 用 .surface-muted 时补一条边，维持原 bg-light badge 的视觉 */
 .badge.surface-muted { border: 1px solid var(--border); color: var(--text-body); }
 
+/* select 内当前值居中显示（仅闭合状态；展开后的 option 列表由系统决定）
+   .form-select 自带 padding-right:2.25rem 给箭头让位 —— 居中时也要给左侧
+   留同样空隙，否则视觉重心仍偏左 */
+.select-center {
+    text-align: center;
+    text-align-last: center;          /* Firefox / Chrome / Edge */
+    padding-left: 2.25rem;
+}
+.select-center option {
+    text-align: left;                 /* 展开后的菜单仍然左对齐，便于扫读 */
+}
+
 body {
     font-family: var(--font-sans);
     background: var(--background);
