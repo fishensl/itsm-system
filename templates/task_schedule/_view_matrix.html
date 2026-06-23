@@ -10,7 +10,7 @@
         <tr>
             <th class="text-start" style="min-width:140px;">工程师</th>
             {% for s in all_statuses %}
-            <th class="text-{{ status_color[s] }}">
+            <th class="text-dark">
                 <span class="bucket-dot bg-{{ status_color[s] }}"
                       style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
                 {{ s }}
@@ -78,7 +78,7 @@
         <tr>
             <th class="text-start">总计</th>
             {% for s in all_statuses %}
-            <th class="text-{{ status_color[s] }}">{{ kpi.get(s) if false else
+            <th class="text-dark">{{ kpi.get(s) if false else
                 (kpi.todo if s=='待执行' else kpi.doing if s=='执行中' else kpi.done if s=='已完成' else 0) }}</th>
             {% endfor %}
             <th>{{ kpi.total }}</th>

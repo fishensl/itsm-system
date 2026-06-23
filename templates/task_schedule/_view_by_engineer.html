@@ -27,14 +27,14 @@
                         {% set is_done = (s == '已完成') %}
                         {% set collapse_id = 'completed-eng-' ~ u.id if is_done else '' %}
                         <div class="bucket-section mb-2">
-                            <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1 d-flex align-items-center">
+                            <div class="bucket-header fw-bold text-dark mb-1 d-flex align-items-center" style="font-size:0.95rem;">
                                 {% if is_done %}
                                 <a class="text-decoration-none text-reset d-flex align-items-center flex-grow-1" data-bs-toggle="collapse" href="#{{ collapse_id }}" aria-expanded="false" aria-controls="{{ collapse_id }}">
                                 {% endif %}
                                     <span class="bucket-dot bg-{{ status_color[s] }}"
                                           style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>
                                     {{ s }}
-                                    <span class="ms-auto badge bg-{{ status_color[s] }} bg-opacity-25 text-{{ status_color[s] }}">
+                                    <span class="ms-auto badge bg-{{ status_color[s] }} text-white">
                                         {{ bucket|length }}
                                     </span>
                                 {% if is_done %}
@@ -79,7 +79,7 @@
                     {% set is_done = (s == '已完成') %}
                     {% set collapse_id = 'completed-unassigned' if is_done else '' %}
                     <div class="bucket-section mb-2">
-                        <div class="bucket-header small fw-bold text-{{ status_color[s] }} mb-1 d-flex align-items-center">
+                        <div class="bucket-header fw-bold text-dark mb-1 d-flex align-items-center" style="font-size:0.95rem;">
                             {% if is_done %}
                             <a class="text-decoration-none text-reset d-flex align-items-center flex-grow-1" data-bs-toggle="collapse" href="#{{ collapse_id }}" aria-expanded="false" aria-controls="{{ collapse_id }}">
                             {% endif %}
