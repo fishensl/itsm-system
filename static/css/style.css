@@ -1508,14 +1508,17 @@ code, .font-monospace {
 .breadcrumb-nav .filter-bar .btn,
 .breadcrumb-nav .filter-bar .input-group-text {
     height: 32px;
+    min-height: 32px;
     font-size: 13px;
+    line-height: 1.2;
+    box-sizing: border-box;
 }
+/* 按钮：覆盖 .btn / .btn-sm 自身 padding，避免内容撑高于 32px */
 .breadcrumb-nav .filter-bar .btn {
+    padding: 0 12px;
     display: inline-flex;
     align-items: center;
-    padding-top: 0;
-    padding-bottom: 0;
-    line-height: 1;
+    justify-content: center;
 }
 
 /* 覆盖 Bootstrap 栅格 col-md-* 的固定宽度，让筛选栏内 col-* 自适应内容 */
