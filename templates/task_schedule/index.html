@@ -98,7 +98,7 @@
             <span class="input-group-text"><i class="bi-search"></i></span>
             <input type="text" name="q" class="form-control" placeholder="搜索任务标题..." value="{{ f_q }}">
         </div>
-        <select name="engineer_id" class="form-select form-select-sm select-center" style="width:78px"
+        <select name="engineer_id" class="form-select form-select-sm select-center" style="width:90px"
                 onchange="this.form.submit()">
             <option value="">工程师</option>
             {% for u in engineers %}
@@ -107,14 +107,14 @@
             </option>
             {% endfor %}
         </select>
-        <select name="status" class="form-select form-select-sm select-center" style="width:68px"
+        <select name="status" class="form-select form-select-sm select-center" style="width:90px"
                 onchange="this.form.submit()">
             <option value="">状态</option>
             {% for s in all_statuses %}
             <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
         </select>
-        <select name="customer_id" class="form-select form-select-sm select-center" style="width:130px"
+        <select name="customer_id" class="form-select form-select-sm select-center" style="width:90px"
                 onchange="this.form.submit()">
             <option value="">客户</option>
             {% for c in customers %}
