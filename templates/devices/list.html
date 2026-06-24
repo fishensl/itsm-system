@@ -107,10 +107,10 @@
                                 <td><code>{{ d.interface or '-' }}</code></td>
                                 <td><code>{{ d.ip_address }}:{{ d.port }}</code></td>
                                 <td>{{ d.username }}</td>
-                                <td class="pwd-cell">
-                                    <span class="password-mask" onclick="togglePwd(this)" data-pwd="{{ d.password }}">••••••••</span>
-                                    <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" data-pwd="{{ d.password }}" title="显示/隐藏密码"><i class="bi-eye"></i></button>
-                                    <button type="button" class="pwd-btn" onclick="copyPwd(this)" data-pwd="{{ d.password }}" title="复制密码"><i class="bi-copy"></i></button>
+                                <td class="pwd-cell" data-device-id="{{ d.id }}">
+                                    <span class="password-mask" onclick="togglePwd(this)">••••••••</span>
+                                    <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>
+                                    <button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>
                                     <button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="{{ d.id }}" data-device-name="{{ d.device_name }}" title="查看历史密码"><i class="bi-clock-history"></i></button>
                                 </td>
                                 <td>
@@ -518,12 +518,15 @@ document.getElementById('deviceForm').addEventListener('submit', function(e) {
                         cells[9].innerHTML = '<code>' + escHtml(dev.interface || '-') + '</code>';
                         cells[10].innerHTML = '<code>' + escHtml(dev.ip_address || '') + ':' + dev.port + '</code>';
                         cells[11].textContent = dev.username || '';
-                        // 密码
-                        var pwdHtml = '<span class="password-mask" onclick="togglePwd(this)" data-pwd="' + escHtml(dev.password || '') + '">\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022</span>' +
-                            '<button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" data-pwd="' + escHtml(dev.password || '') + '" title="\u663E\u793A/\u9690\u85CF\u5BC6\u7801"><i class="bi-eye"></i></button>' +
-                            '<button type="button" class="pwd-btn" onclick="copyPwd(this)" data-pwd="' + escHtml(dev.password || '') + '" title="\u590D\u5236\u5BC6\u7801"><i class="bi-copy"></i></button>' +
-                            '<button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="' + dev.id + '" data-device-name="' + escHtml(dev.device_name) + '" title="\u67E5\u770B\u5386\u53F2\u5BC6\u7801"><i class="bi-clock-history"></i></button>';
-                        cells[12].innerHTML = pwdHtml;
+                        // 密码：本次保存后将明文缓存到 td.dataset.pwd，按钮不再嵌密码
+                        var pwdCell = cells[12];
+                        pwdCell.dataset.pwd = dev.password || '';
+                        if (!pwdCell.dataset.deviceId) pwdCell.dataset.deviceId = dev.id;
+                        pwdCell.innerHTML =
+                            '<span class="password-mask" onclick="togglePwd(this)">••••••••</span>' +
+                            '<button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>' +
+                            '<button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>' +
+                            '<button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="' + dev.id + '" data-device-name="' + escHtml(dev.device_name) + '" title="查看历史密码"><i class="bi-clock-history"></i></button>';
                         // 维修
                         cells[13].innerHTML = dev.is_maintenance ?
                             '<span class="badge bg-warning text-dark">有过维修</span>' :
@@ -635,29 +638,55 @@ function toggleExportCols(checked) {
     document.querySelectorAll('.export-col').forEach(cb => cb.checked = checked);
 }
 
+// 按需向后端拉取明文密码，缓存到 td.dataset.pwd 上；第二次点击读缓存不再请求。
+// 模板里不预填密码（避免全表明文随 HTML 渲染泄露）。
+function fetchPwd(cell) {
+    if (cell.dataset.pwd !== undefined) {
+        return Promise.resolve(cell.dataset.pwd);
+    }
+    const devId = cell.dataset.deviceId;
+    return fetch('/api/devices/' + devId, { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(d => { cell.dataset.pwd = d.password || ''; return cell.dataset.pwd; })
+        .catch(() => { cell.dataset.pwd = ''; return ''; });
+}
+
 function togglePwd(el) {
-    const isMasked = el.textContent === '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
-    el.textContent = isMasked ? el.dataset.pwd : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
-    const eye = el.parentElement.querySelector('.bi-eye, .bi-eye-slash');
-    if (eye) {
-        eye.className = isMasked ? 'bi bi-eye-slash' : 'bi bi-eye';
-    }
+    const cell = el.closest('.pwd-cell');
+    const masked = '••••••••';
+    fetchPwd(cell).then(pwd => {
+        if (!pwd) { alert('该设备未设置密码'); return; }
+        const isMasked = el.textContent === masked;
+        el.textContent = isMasked ? pwd : masked;
+        const eye = cell.querySelector('.bi-eye, .bi-eye-slash');
+        if (eye) eye.className = isMasked ? 'bi bi-eye-slash' : 'bi bi-eye';
+    });
 }
-function togglePwdIcon(el) {
-    const cell = el.parentElement;
+
+function togglePwdIcon(btn) {
+    const cell = btn.closest('.pwd-cell');
     const mask = cell.querySelector('.password-mask');
-    const icon = el.querySelector('i');
-    const isEye = icon && icon.className.includes('bi-eye') && !icon.className.includes('bi-eye-slash');
-    if (isEye) {
-        mask.textContent = mask.dataset.pwd;
-        if (icon) icon.className = 'bi bi-eye-slash';
-    } else {
-        mask.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
-        if (icon) icon.className = 'bi bi-eye';
-    }
+    const icon = btn.querySelector('i');
+    const masked = '••••••••';
+    fetchPwd(cell).then(pwd => {
+        if (!pwd) { alert('该设备未设置密码'); return; }
+        const showing = mask.textContent !== masked;
+        if (showing) {
+            mask.textContent = masked;
+            if (icon) icon.className = 'bi bi-eye';
+        } else {
+            mask.textContent = pwd;
+            if (icon) icon.className = 'bi bi-eye-slash';
+        }
+    });
 }
-function copyPwd(el) {
-    navigator.clipboard.writeText(el.dataset.pwd).then(() => { alert('密码已复制'); });
+
+function copyPwd(btn) {
+    const cell = btn.closest('.pwd-cell');
+    fetchPwd(cell).then(pwd => {
+        if (!pwd) { alert('该设备未设置密码'); return; }
+        navigator.clipboard.writeText(pwd).then(() => { alert('密码已复制'); });
+    });
 }
 function toggleFormPwd(btn) {
     const input = btn.parentElement.querySelector('input');
