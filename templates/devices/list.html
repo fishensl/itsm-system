@@ -281,7 +281,12 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">登录密码</label>
-                            <input type="text" name="password" class="form-control">
+                            <div class="input-group">
+                                <input type="password" name="password" class="form-control" autocomplete="new-password">
+                                <button type="button" class="btn btn-outline-secondary" onclick="toggleFormPwd(this)" title="显示/隐藏">
+                                    <i class="bi-eye"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">修改备注</label>
@@ -666,6 +671,17 @@ function togglePwdIcon(el) {
 }
 function copyPwd(el) {
     navigator.clipboard.writeText(el.dataset.pwd).then(() => { alert('密码已复制'); });
+}
+function toggleFormPwd(btn) {
+    const input = btn.parentElement.querySelector('input');
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'bi-eye-slash';
+    } else {
+        input.type = 'password';
+        icon.className = 'bi-eye';
+    }
 }
 function showPwdHistory(el) {
     const deviceId = el.dataset.deviceId;
