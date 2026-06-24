@@ -228,7 +228,7 @@ function renderRackDetail(rack) {
         const inst = uMap[u];
         if (inst) {
             const isFirst = (u === inst.start_u + inst.occupy_u - 1);
-            const content = isFirst ? `<strong>${inst.name}</strong> <small>${inst.brand} ${inst.model}</small> ${inst.ip ? '<small>('+inst.ip+')</small>' : ''}` : '';
+            const content = isFirst ? `<small><strong>${inst.name}</strong> ${inst.brand} ${inst.model} ${inst.ip || ''}</small>` : '';
             uHtml.push(`<div class="u-row installed" onclick="adjustInstall(${inst.id})" title="${inst.name} (${inst.start_u}-${inst.start_u+inst.occupy_u-1}U)">
                 <span class="u-label">${u}U</span><span class="u-content">${content}</span>
             </div>`);
