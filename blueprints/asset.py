@@ -112,6 +112,10 @@ def device_list():
     return render_template(
         'devices/list.html', **paginate_render_args(pag),
         customers=customers,
+        all_customers=customers,
+        regions=Region.query.order_by(Region.parent_id.is_(None).desc(), Region.sort_order, Region.id).all(),
+        device_types=DeviceType.query.order_by(DeviceType.sort_order, DeviceType.id).all(),
+        brands=Brand.query.order_by(Brand.sort_order, Brand.id).all(),
         models_list=[m[0] for m in models_list if m[0]],
         brands_list=[b[0] for b in brands_list if b[0]],
         types_list=[t[0] for t in types_list if t[0]],

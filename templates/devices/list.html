@@ -215,7 +215,12 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">品牌</label>
-                            <input type="text" name="brand" class="form-control" placeholder="华为/Cisco/浪潮...">
+                            <select name="brand" class="form-select">
+                                <option value="">-- 选择 --</option>
+                                {% for b in brands %}
+                                <option value="{{ b.name }}">{{ b.name }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">型号</label>
