@@ -304,7 +304,7 @@ def index():
                 'type_label': '巡检', 'type_color': 'primary',
                 'title': t.title,
                 'sub': f"{customer_map.get(t.customer_id, '-')} · {t.status} · {t.task_type}",
-                'url': f"/inspection-tasks/{t.id}",
+                'url': f"/task-schedule/{t.id}",
                 'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' + (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
             })
 
@@ -420,7 +420,7 @@ def index():
         quick_entries = [
             qe('/devices', '设备管理', '设备档案与密码', 'bi-router'),
             qe('/tickets', '工单处理', '我的工单', 'bi-ticket-detailed'),
-            qe('/inspection-tasks', '巡检任务', '执行计划巡检', 'bi-tasks'),
+            qe('/task-schedule/', '任务安排', '执行计划巡检', 'bi-tasks'),
             qe('/inspections', '巡检记录', '提交巡检报告', 'bi-clipboard-check'),
             qe('/knowledge-base', '知识库', '快速查询', 'bi-book'),
             qe('/topologies', '拓扑图', '网络结构', 'bi-diagram-3'),
@@ -1073,12 +1073,17 @@ def download_template(module):
     templates = {
         'customer': {
             'name': '客户导入模板',
-            'headers': ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址', '客户等级', '来源', '备注'],
+            'headers': ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址',
+                        '单位类别', '客户等级',
+                        '办公室', '有无驻场', '驻场联系人', '驻场联系方式', '驻场办公室',
+                        '有无攻防演练', '巡检频率',
+                        '来源', '备注'],
         },
         'device': {
             'name': '设备导入模板',
             'headers': ['所属客户', '设备名称', '设备类型', '品牌', '型号', '序列号', 'IP地址', '端口',
-                        '登录用户名', '登录密码', '登录方式', '安装位置', '系统版本', '授权截止日期', '备注'],
+                        '登录用户名', '登录密码', '登录方式', '安装位置', '系统版本',
+                        '授权开始日期', '授权截止日期', '规则库版本', '是否维修', '是否在用', '备注'],
         },
         'inspection': {
             'name': '巡检记录导入模板',

@@ -96,6 +96,15 @@ def _table_names_in_order():
     return [t.name for t in db.metadata.sorted_tables]
 
 
+def _current_alembic_version():
+    """读 alembic_version 表当前 head；表不存在或查不到返回 None（兼容裸库/SQLite 本地开发）。"""
+    try:
+        row = db.session.execute(text('SELECT version_num FROM alembic_version')).first()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def build_export_zip(config_only=False):
     """生成导出 zip，流式写入临时文件后返回 (文件路径, 大小, manifest)。
 
@@ -138,6 +147,7 @@ def build_export_zip(config_only=False):
         'format_version': BACKUP_FORMAT_VERSION,
         'app_version': current_app.config.get('APP_VERSION', getattr(current_app, '_itsm_version', 'unknown')),
         'db_dialect': db.engine.dialect.name,
+        'alembic_version': _current_alembic_version(),
         'exported_at': datetime.utcnow().isoformat() + 'Z',
         'config_only': bool(config_only),
         'table_order': selected,
@@ -149,45 +159,52 @@ def build_export_zip(config_only=False):
     # 流式写临时文件，避免大包撑爆内存
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip', prefix='itsm_export_')
     os.close(tmp_fd)
+
+    # === SHA256 设计 ===
+    # 注意：manifest.json 自身**不**参与 SHA 计算（鸡生蛋问题：manifest 里要带 sha256
+    # 字段，但写之前 sha 已经决定）。校验范围 = data.json + secret.key + files/*
+    # （按 archive 内路径字典序，保证导出/导入端可重现）。
     sha = hashlib.sha256()
 
-    def _hash_write(zf_or_bytes):
-        sha.update(zf_or_bytes)
+    data_bytes = json.dumps(data, ensure_ascii=False, default=_json_default).encode('utf-8')
+    sha.update(data_bytes)
 
+    key_path = os.path.join(root, SECRET_KEY_FILE)
+    secret_bytes = None
+    if os.path.exists(key_path):
+        with open(key_path, 'rb') as kf:
+            secret_bytes = kf.read()
+        sha.update(secret_bytes)
+
+    # 收集要打包的文件，排序保证 SHA 可重现
+    file_entries = []  # [(arcname, disk_path)]
+    if not config_only:
+        for zip_sub, disk_rel in FILE_DIRS:
+            disk_abs = os.path.join(root, disk_rel)
+            if not os.path.isdir(disk_abs):
+                continue
+            for dirpath, _dirs, files in os.walk(disk_abs):
+                for fn in files:
+                    full = os.path.join(dirpath, fn)
+                    arc = os.path.join(zip_sub, os.path.relpath(full, disk_abs)).replace('\\', '/')
+                    file_entries.append((arc, full))
+    file_entries.sort(key=lambda x: x[0])
+    for arc, full in file_entries:
+        with open(full, 'rb') as fh:
+            sha.update(fh.read())
+
+    manifest['sha256'] = sha.hexdigest()
+
+    # 写一次到位（manifest 最后写，但 zip 顺序不影响校验，因为校验排除 manifest 本身）
     try:
         with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
-            zf.writestr('manifest.json', manifest_bytes)
-            sha.update(manifest_bytes)
-            data_bytes = json.dumps(data, ensure_ascii=False, default=_json_default).encode('utf-8')
-            zf.writestr('data.json', data_bytes)
-            sha.update(data_bytes)
-            # 密钥
-            key_path = os.path.join(root, SECRET_KEY_FILE)
-            if os.path.exists(key_path):
-                with open(key_path, 'rb') as kf:
-                    kf_bytes = kf.read()
-                zf.writestr('secret.key', kf_bytes)
-                sha.update(kf_bytes)
-            # 文件目录（仅全量导出打包文件；仅配置导出不含业务文件）
-            if not config_only:
-                for zip_sub, disk_rel in FILE_DIRS:
-                    disk_abs = os.path.join(root, disk_rel)
-                    if not os.path.isdir(disk_abs):
-                        continue
-                    for dirpath, _dirs, files in os.walk(disk_abs):
-                        for fn in files:
-                            full = os.path.join(dirpath, fn)
-                            arc = os.path.relpath(full, disk_abs)
-                            zf.write(full, os.path.join(zip_sub, arc))
-                            with open(full, 'rb') as fh:
-                                sha.update(fh.read())
-
-        manifest['sha256'] = sha.hexdigest()
-        # 把含 sha256 的 manifest 回写到 zip 里
-        with zipfile.ZipFile(tmp_path, 'a', zipfile.ZIP_DEFLATED) as zf:
             zf.writestr('manifest.json',
                         json.dumps(manifest, ensure_ascii=False, indent=2))
+            zf.writestr('data.json', data_bytes)
+            if secret_bytes is not None:
+                zf.writestr('secret.key', secret_bytes)
+            for arc, full in file_entries:
+                zf.write(full, arc)
         size = os.path.getsize(tmp_path)
     except Exception:
         try:
@@ -277,20 +294,19 @@ def perform_import(zip_path, restore_secret_key=False):
     data = json.loads(zf.read('data.json').decode('utf-8'))
 
     # === 完整性校验：sha256 ===
+    # 校验范围与导出端一致：data.json + secret.key + files/*（archive 名字典序），
+    # 不含 manifest.json 自身（manifest 里要带 sha256 字段，自引用算不出来）。
     expected_sha = manifest.get('sha256')
     if expected_sha:
         sha = hashlib.sha256()
-        for member in ('manifest.json', 'data.json', 'secret.key'):
+        for member in ('data.json', 'secret.key'):
             if member in names:
                 sha.update(zf.read(member))
-        # 文件部分单独累加
-        for name in names:
-            if name.startswith('files/') and not name.endswith('/'):
-                sha.update(zf.read(name))
+        files_members = sorted(n for n in names
+                               if n.startswith('files/') and not n.endswith('/'))
+        for name in files_members:
+            sha.update(zf.read(name))
         actual = sha.hexdigest()
-        # 注：导出时 manifest 自身不含 sha256 字段参与计算，这里对回写后的
-        # manifest 读出的 sha 字段做比对——采用与导出一致的口径（排除 sha256 字段
-        # 本身带来的差异）：若不匹配仅给警告而非硬失败（避免误判阻断恢复）。
         if actual != expected_sha:
             warnings.append('备份包完整性校验未通过（sha256 不一致），可能被篡改或损坏，请谨慎确认')
 
@@ -315,6 +331,15 @@ def perform_import(zip_path, restore_secret_key=False):
         if cur_cols - bk_cols:
             warnings.append(f'表 {tname}：当前库有、备份包无的列将用默认值：{sorted(cur_cols - bk_cols)}')
 
+    # alembic 版本提示（仅信息）：备份与当前库不同 head 时给警告
+    bk_alembic = manifest.get('alembic_version')
+    cur_alembic = _current_alembic_version()
+    if bk_alembic and cur_alembic and bk_alembic != cur_alembic:
+        warnings.append(
+            f'备份包数据库版本 {bk_alembic} 与当前库 {cur_alembic} 不一致，'
+            '导入后可能存在 schema 漂移，请关注上面的表/列差异提示'
+        )
+
     is_sqlite = db.engine.dialect.name == 'sqlite'
     is_pg = db.engine.dialect.name == 'postgresql'
 
@@ -322,8 +347,11 @@ def perform_import(zip_path, restore_secret_key=False):
     if is_sqlite:
         db.session.execute(text('PRAGMA foreign_keys=OFF'))
 
-    # PG：循环/自引用外键（如 departments.head_id↔users.department_id）即使按拓扑序也可能
-    # 在插入中途违反约束；把所有约束推迟到事务末尾再校验，给回灌留出完整窗口。
+    # PG：循环/自引用外键（如 departments.head_id↔users.department_id、
+    # departments.parent_id、regions.parent_id）即使按拓扑序也会在插入中途违反约束；
+    # 把所有约束推迟到事务末尾再校验，给回灌留出完整窗口。
+    # 依赖迁移 e5f6a7b8c9d0_pg_deferrable_fks：把所有 FK 设为 DEFERRABLE INITIALLY DEFERRED
+    # —— 否则 SET CONSTRAINTS ALL DEFERRED 对 NOT DEFERRABLE 的约束是空操作。
     if is_pg:
         db.session.execute(text('SET CONSTRAINTS ALL DEFERRED'))
 

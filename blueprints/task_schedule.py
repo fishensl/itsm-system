@@ -340,7 +340,10 @@ def list_view():
 # 导入 / 模板下载
 # ============================================================
 
-EXCEL_HEADERS = ['任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间']
+EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间']
+
+# 优先级允许值（与 UI 保持一致；超出范围回退 '中'）
+PRIORITY_VALUES = {'低', '中', '高', '紧急'}
 
 
 @task_schedule_bp.route('/import/template')
@@ -350,7 +353,7 @@ def import_template():
     """下载 Excel 导入模板（含表头 + 1 行示例）"""
     from utils.excel_export import export_xlsx
     rows = [[
-        '示例客户A2026年二季度巡检', 5,
+        '示例客户A', '示例客户A2026年二季度巡检', '中',
         '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15'
     ]]
     tmp_path, download_name = export_xlsx(
@@ -443,11 +446,11 @@ def import_excel():
                 skip_reasons.append(f'第{r}行：找不到负责人 "{owner_name}"')
                 continue
 
-            # 解析客户
-            customer_name = extract_customer_name(title)
+            # 解析客户：优先取 Excel 里的 '客户名称' 列；为空则从标题抽（老格式兼容）
+            customer_name = str(cell('客户名称') or '').strip() or extract_customer_name(title)
             if not customer_name:
                 skipped += 1
-                skip_reasons.append(f'第{r}行：无法从标题提取客户名')
+                skip_reasons.append(f'第{r}行：无法从「客户名称」列或标题中识别客户')
                 continue
             customer = Customer.query.filter_by(name=customer_name).first()
             if not customer:
@@ -460,6 +463,10 @@ def import_excel():
             raw_status = str(cell('完成状态') or '').strip()
             status = STATUS_FROM_EXCEL.get(raw_status, '待执行')
 
+            # 优先级：未填或非法值回退 '中'
+            raw_priority = str(cell('优先级') or '').strip()
+            priority = raw_priority if raw_priority in PRIORITY_VALUES else '中'
+
             planned_start = parse_excel_date(cell('开始日期'))
             planned_end = parse_excel_date(cell('完成日期'))
             actual_end = parse_excel_datetime(cell('完成时间'))
@@ -470,6 +477,7 @@ def import_excel():
                         .first())
             if existing:
                 existing.status = status
+                existing.priority = priority
                 existing.assigned_to_user_id = user.id
                 existing.planned_start = planned_start or existing.planned_start
                 existing.planned_end = planned_end or existing.planned_end
@@ -485,7 +493,7 @@ def import_excel():
                     title=title,
                     task_type='计划',
                     status=status,
-                    priority='中',
+                    priority=priority,
                     customer_id=customer.id,
                     planned_start=planned_start,
                     planned_end=planned_end,
@@ -525,6 +533,27 @@ def import_excel():
 # AJAX：改状态 / 改负责人 / 快速新建
 # ============================================================
 
+def _apply_status(task, new_status, now=None):
+    """改任务状态 + 自动维护 actual_start/actual_end 时间戳。单条/批量复用。"""
+    now = now or datetime.utcnow()
+    task.status = new_status
+    if new_status == '执行中' and not task.actual_start:
+        task.actual_start = now
+    if new_status == '已完成' and not task.actual_end:
+        task.actual_end = now
+
+
+def _apply_assignee(task, user, now=None):
+    """指派负责人；user=None 视为清除。已派发过的不覆盖派发人。"""
+    now = now or datetime.utcnow()
+    if user is None:
+        task.assigned_to_user_id = None
+        return
+    task.assigned_to_user_id = user.id
+    task.dispatched_by = task.dispatched_by or current_user.id
+    task.dispatched_at = task.dispatched_at or now
+
+
 @task_schedule_bp.route('/<int:task_id>/status', methods=['POST'])
 @login_required
 @require_permission('task:schedule')
@@ -536,12 +565,7 @@ def change_status(task_id):
     if new_status not in ALL_STATUSES:
         return jsonify(success=False, error='非法状态'), 400
 
-    task.status = new_status
-    now = datetime.utcnow()
-    if new_status == '执行中' and not task.actual_start:
-        task.actual_start = now
-    if new_status == '已完成' and not task.actual_end:
-        task.actual_end = now
+    _apply_status(task, new_status)
     db.session.commit()
     return jsonify(success=True, status=new_status)
 
@@ -563,12 +587,10 @@ def change_assignee(task_id):
         user = User.query.get(uid)
         if not user:
             return jsonify(success=False, error='用户不存在'), 400
-        task.assigned_to_user_id = user.id
-        task.dispatched_by = task.dispatched_by or current_user.id
-        task.dispatched_at = task.dispatched_at or datetime.utcnow()
+        _apply_assignee(task, user)
         name = user.realname or user.username
     else:
-        task.assigned_to_user_id = None
+        _apply_assignee(task, None)
         name = ''
     db.session.commit()
     return jsonify(success=True, assignee_id=task.assigned_to_user_id, assignee_name=name)
@@ -583,15 +605,10 @@ def change_status_form(task_id):
     if new_status not in ALL_STATUSES:
         flash('非法状态', 'danger')
         return redirect(url_for('task_schedule.list_view'))
-    task.status = new_status
-    now = datetime.utcnow()
-    if new_status == '执行中' and not task.actual_start:
-        task.actual_start = now
-    if new_status == '已完成' and not task.actual_end:
-        task.actual_end = now
+    _apply_status(task, new_status)
     db.session.commit()
     flash('任务状态已更新为「%s」' % new_status, 'success')
-    return redirect(url_for('task_schedule.list_view'))
+    return redirect(request.referrer or url_for('task_schedule.list_view'))
 
 
 @task_schedule_bp.route('/<int:task_id>/assign-form', methods=['POST'])
@@ -668,6 +685,137 @@ def delete_task(task_id):
     return redirect(request.referrer or url_for('task_schedule.index'))
 
 
+# ============================================================
+# AJAX 批量操作（列表视图工具栏调用）
+# ============================================================
+
+def _parse_ids(form):
+    """从 form 里抠 ids 多值字段为 List[int]，去重、剔非法"""
+    raw = form.getlist('ids') or form.getlist('ids[]')
+    out = []
+    seen = set()
+    for v in raw:
+        try:
+            i = int(v)
+        except (TypeError, ValueError):
+            continue
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+@task_schedule_bp.route('/batch/status', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def batch_status():
+    """批量改状态"""
+    ids = _parse_ids(request.form)
+    new_status = (request.form.get('status') or '').strip()
+    if not ids:
+        return jsonify(success=False, error='未选择任务'), 400
+    if new_status not in ALL_STATUSES:
+        return jsonify(success=False, error='非法状态'), 400
+
+    tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
+    now = datetime.utcnow()
+    for t in tasks:
+        _apply_status(t, new_status, now)
+    db.session.commit()
+    return jsonify(success=True, count=len(tasks), status=new_status)
+
+
+@task_schedule_bp.route('/batch/assign', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def batch_assign():
+    """批量指派负责人；assignee_id 为空串视为清除指派"""
+    ids = _parse_ids(request.form)
+    raw_uid = (request.form.get('assignee_id') or '').strip()
+    if not ids:
+        return jsonify(success=False, error='未选择任务'), 400
+
+    user = None
+    if raw_uid:
+        try:
+            user = User.query.get(int(raw_uid))
+        except (TypeError, ValueError):
+            user = None
+        if not user:
+            return jsonify(success=False, error='用户不存在'), 400
+
+    tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
+    now = datetime.utcnow()
+    for t in tasks:
+        _apply_assignee(t, user, now)
+    db.session.commit()
+    name = (user.realname or user.username) if user else ''
+    return jsonify(success=True, count=len(tasks),
+                   assignee_id=(user.id if user else None), assignee_name=name)
+
+
+@task_schedule_bp.route('/batch/delete', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def batch_delete():
+    """批量删除任务"""
+    ids = _parse_ids(request.form)
+    if not ids:
+        return jsonify(success=False, error='未选择任务'), 400
+
+    count = (InspectionTask.query
+             .filter(InspectionTask.id.in_(ids))
+             .delete(synchronize_session=False))
+    db.session.commit()
+    return jsonify(success=True, count=count)
+
+
+# ============================================================
+# 任务详情（V18：收编自老 /inspection-tasks/<id>）
+# ============================================================
+
+@task_schedule_bp.route('/<int:task_id>')
+@login_required
+def task_detail(task_id):
+    """任务详情。task:schedule | inspection:view 任一权限均可看。"""
+    if not (has_permission('task:schedule') or has_permission('inspection:view')):
+        flash('权限不足，需要：任务安排-看板 或 巡检管理-查看', 'danger')
+        return redirect(url_for('index'))
+
+    from models import Inspection, Inspector, InspectionTemplate
+    task = InspectionTask.query.get_or_404(task_id)
+
+    # 关联巡检记录
+    records = (Inspection.query.filter_by(task_id=task.id)
+               .order_by(Inspection.id.desc()).all())
+
+    # 老数据兼容：把 inspector_ids 解析成人名（仅展示）
+    inspector_names = []
+    if task.inspector_ids:
+        try:
+            ids = [int(x) for x in task.inspector_ids.split(',') if x.strip()]
+            if ids:
+                inspectors = Inspector.query.filter(Inspector.id.in_(ids)).all()
+                inspector_names = [i.name for i in inspectors if getattr(i, 'name', None)]
+        except (ValueError, AttributeError):
+            inspector_names = []
+
+    template = None
+    if task.template_id:
+        template = InspectionTemplate.query.get(task.template_id)
+
+    return render_template(
+        'task_schedule/detail.html',
+        task=task,
+        records=records,
+        customer=task.customer_rel,
+        template=template,
+        inspector_names=inspector_names,
+        all_statuses=ALL_STATUSES,
+        status_color=STATUS_COLOR,
+    )
+
+
 @task_schedule_bp.route('/export')
 @login_required
 @require_permission('task:schedule')
@@ -682,6 +830,7 @@ def export_excel():
     for t in tasks:
         user = t.assignee_rel
         rows.append([
+            (t.customer_rel.name if t.customer_rel else ''),
             t.title,
             t.priority or '',
             t.planned_start.isoformat() if t.planned_start else '',

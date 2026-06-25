@@ -161,6 +161,7 @@ def customer_import():
         return redirect(url_for('customer.customer_list'))
     tmp = save_temp_upload(f, suffix='.xlsx')
     success = 0
+    unknown_categories = set()  # 模板里写了但 CustomerCategory 表里没有的名字，行仍导入但 category_id 留空
     try:
         wb, ws, err = open_excel(tmp, app=current_app)
         if err:
@@ -173,34 +174,64 @@ def customer_import():
             if h:
                 col_map[str(h).strip()] = i
 
+        def _cell(r, name):
+            idx = col_map.get(name)
+            if idx is None:
+                return ''
+            v = ws.cell(r, idx + 1).value
+            return str(v).strip() if v is not None else ''
+
+        TRUE_SET = {'是', '1', 'true', 'True', 'Y', 'y', '有'}
+
         for r in range(2, ws.max_row + 1):
-            name = str(ws.cell(r, col_map.get('客户名称', 0) + 1).value or '').strip()
+            name = _cell(r, '客户名称')
             if not name:
                 continue
             c = Customer.query.filter_by(name=name).first()
             if not c:
-                region_name = str(ws.cell(r, col_map.get('所属地区', 0) + 1).value or '').strip()
+                region_name = _cell(r, '所属地区')
                 region_id = None
                 if region_name:
                     region = Region.query.filter_by(name=region_name).first()
                     if region:
                         region_id = region.id
+
+                category_id = None
+                cat_name = _cell(r, '单位类别')
+                if cat_name:
+                    cat = CustomerCategory.query.filter_by(name=cat_name).first()
+                    if cat:
+                        category_id = cat.id
+                    else:
+                        unknown_categories.add(cat_name)
+
                 c = Customer(
                     name=name,
-                    contact_person=str(ws.cell(r, col_map.get('联系人', 0) + 1).value or '').strip() or None,
-                    phone=str(ws.cell(r, col_map.get('电话', 0) + 1).value or '').strip() or None,
-                    email=str(ws.cell(r, col_map.get('邮箱', 0) + 1).value or '').strip() or None,
+                    contact_person=_cell(r, '联系人') or None,
+                    phone=_cell(r, '电话') or None,
+                    email=_cell(r, '邮箱') or None,
                     region_id=region_id,
-                    city=str(ws.cell(r, col_map.get('地市', 0) + 1).value or '').strip() or None,
-                    address=str(ws.cell(r, col_map.get('地址', 0) + 1).value or '').strip() or None,
-                    level=str(ws.cell(r, col_map.get('客户等级', 0) + 1).value or '').strip() or '普通',
-                    source=str(ws.cell(r, col_map.get('来源', 0) + 1).value or '').strip() or None,
-                    remark=str(ws.cell(r, col_map.get('备注', 0) + 1).value or '').strip() or None,
+                    category_id=category_id,
+                    city=_cell(r, '地市') or None,
+                    address=_cell(r, '地址') or None,
+                    office=_cell(r, '办公室') or '',
+                    level=_cell(r, '客户等级') or '常规',
+                    has_onsite=_cell(r, '有无驻场') in TRUE_SET,
+                    onsite_contact=_cell(r, '驻场联系人') or '',
+                    onsite_phone=_cell(r, '驻场联系方式') or '',
+                    onsite_office=_cell(r, '驻场办公室') or '',
+                    has_drill=_cell(r, '有无攻防演练') in TRUE_SET,
+                    inspection_frequency=_cell(r, '巡检频率') or '',
+                    source=_cell(r, '来源') or None,
+                    remark=_cell(r, '备注') or None,
                 )
                 db.session.add(c)
                 success += 1
         db.session.commit()
-        flash(f'导入完成：成功 {success} 条', 'success')
+        msg = f'导入完成：成功 {success} 条'
+        if unknown_categories:
+            msg += '；未识别单位类别（已留空，请在「客户类别」管理中维护后重新导入）：' + '、'.join(sorted(unknown_categories))
+        flash(msg, 'success' if not unknown_categories else 'warning')
     finally:
         cleanup_temp_file(tmp)
     return redirect(url_for('customer.customer_list'))
@@ -210,18 +241,34 @@ def customer_import():
 @login_required
 @require_permission('customer:view')
 def customer_export():
-    """导出客户列表到 Excel"""
+    """导出客户列表到 Excel（列序与导入模板保持一致，便于导出后修改再导入）"""
     from utils.excel_export import export_xlsx
-    headers = ['客户名称', '联系人', '电话', '邮箱', '所属地市', '地址', '备注']
+    headers = ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址',
+               '单位类别', '客户等级',
+               '办公室', '有无驻场', '驻场联系人', '驻场联系方式', '驻场办公室',
+               '有无攻防演练', '巡检频率',
+               '来源', '备注']
     rows = []
     for c in Customer.query.order_by(Customer.name).all():
-        region_label = c.city or ''
+        # 所属地区：父级 + 自身（拼接给人看）；地市单独一列
+        region_label = ''
         if c.region_rel:
             if c.region_rel.parent:
                 region_label = f"{c.region_rel.parent.name} - {c.region_rel.name}"
             else:
                 region_label = c.region_rel.name
-        rows.append([c.name, c.contact_person, c.phone, c.email, region_label, c.address, c.remark])
+        rows.append([
+            c.name, c.contact_person or '', c.phone or '', c.email or '',
+            region_label, c.city or '', c.address or '',
+            (c.category_rel.name if c.category_rel else ''),
+            c.level or '',
+            c.office or '',
+            '是' if c.has_onsite else '否',
+            c.onsite_contact or '', c.onsite_phone or '', c.onsite_office or '',
+            '是' if c.has_drill else '否',
+            c.inspection_frequency or '',
+            c.source or '', c.remark or '',
+        ])
 
     tmp_path, download_name = export_xlsx(
         headers, rows,
