@@ -270,6 +270,7 @@ class Device(db.Model):
     os_version = db.Column(db.String(128), default='')
     rule_version = db.Column(db.String(128), default='')
     license_expiry = db.Column(db.Date, nullable=True, index=True)
+    license_start = db.Column(db.Date, nullable=True)            # 授权开始日（与 license_expiry 配对显示"授权时间"）
     cert_expiry_date = db.Column(db.Date, nullable=True)     # 证书到期日
     is_maintenance = db.Column(db.Boolean, default=False)
     is_in_use = db.Column(db.Boolean, default=True, index=True)

@@ -239,6 +239,7 @@ def api_device_get(id):
         'is_maintenance': d.is_maintenance,
         'is_in_use': d.is_in_use,
         'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+        'license_start': d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
         'remark': d.remark,
     })
 
@@ -267,7 +268,7 @@ def device_export():
         'customer_name': '所属客户', 'device_name': '设备名称', 'device_type': '设备类型',
         'brand': '品牌', 'model': '型号', 'serial_number': '序列号', 'ip_address': 'IP地址',
         'port': '端口', 'username': '登录用户名', 'password': '登录密码',
-        'license_expiry': '授权截止日期', 'login_method': '登录方式', 'location': '安装位置',
+        'license_expiry': '授权截止日期', 'license_start': '授权开始日期', 'login_method': '登录方式', 'location': '安装位置',
         'os_version': '系统版本', 'rule_version': '规则库版本',
         'is_maintenance': '是否维修', 'is_in_use': '是否在用',
         'license_remaining_days': '剩余天数', 'remark': '备注',
@@ -298,6 +299,7 @@ def device_export():
             'username': d.username,
             'password': decrypt_password(d.password_encrypted) if d.password_encrypted else '',
             'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+            'license_start': d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
             'login_method': d.login_method, 'location': d.location or '',
             'os_version': d.os_version or '', 'rule_version': d.rule_version or '',
             'is_maintenance': '是' if d.is_maintenance else '否',
@@ -352,7 +354,7 @@ def device_import():
             '所属客户': 'customer_name', '设备名称': 'device_name', '设备类型': 'device_type',
             '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
             '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
-            '授权截止日期': 'license_expiry', '登录方式': 'login_method', '安装位置': 'location',
+            '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method', '安装位置': 'location',
             '系统版本': 'os_version', '规则库版本': 'rule_version', '备注': 'remark',
         }
 
@@ -381,6 +383,7 @@ def device_import():
                 plain_password = row_data.get('password', '')
                 encrypted = _ep(plain_password) if plain_password else ''
                 license_expiry = _parse_date(row_data.get('license_expiry'))
+                license_start = _parse_date(row_data.get('license_start'))
 
                 d = Device(
                     customer_id=customer.id if customer else None,
@@ -399,6 +402,7 @@ def device_import():
                     is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
                     is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
                     license_expiry=license_expiry,
+                    license_start=license_start,
                     remark=row_data.get('remark', ''),
                 )
                 db.session.add(d)

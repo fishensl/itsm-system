@@ -80,7 +80,7 @@
                                 <th>安装位置</th>
                                 <th>系统版本</th>
                                 <th>规则库版本</th>
-                                <th>授权截止</th>
+                                <th>授权时间</th>
                                 <th>登录方式</th>
                                 <th>接口</th>
                                 <th>IP:端口</th>
@@ -102,7 +102,12 @@
                                 <td><code>{{ d.location or '-' }}</code></td>
                                 <td><code>{{ d.os_version or '-' }}</code></td>
                                 <td><code>{{ d.rule_version or '-' }}</code></td>
-                                <td {% if _license_warn %}class="text-danger fw-semibold" title="{% if d._days_to_expiry < 0 %}已过期 {{ -d._days_to_expiry }} 天{% else %}剩 {{ d._days_to_expiry }} 天{% endif %}"{% endif %}>{{ d.license_expiry or '-' }}</td>
+                                <td {% if _license_warn %}class="text-danger fw-semibold" title="{% if d._days_to_expiry < 0 %}已过期 {{ -d._days_to_expiry }} 天{% else %}剩 {{ d._days_to_expiry }} 天{% endif %}"{% endif %}>
+                                    <div class="license-period">
+                                        <div>{{ d.license_start or '-' }}</div>
+                                        <div>{{ d.license_expiry or '-' }}</div>
+                                    </div>
+                                </td>
                                 <td><span class="badge bg-secondary">{{ d.login_method or '-' }}</span></td>
                                 <td><code>{{ d.interface or '-' }}</code></td>
                                 <td><code>{{ d.ip_address }}:{{ d.port }}</code></td>
@@ -228,6 +233,10 @@
                         <div class="col-md-4 mb-3">
                             <label class="form-label">规则库版本</label>
                             <input type="text" name="rule_version" class="form-control" placeholder="如：IPS-20260521">
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label class="form-label">授权开始</label>
+                            <input type="date" name="license_start" class="form-control">
                         </div>
                         <div class="col-md-2 mb-3">
                             <label class="form-label">授权截止</label>
@@ -513,7 +522,9 @@ document.getElementById('deviceForm').addEventListener('submit', function(e) {
                         cells[5].innerHTML = '<code>' + escHtml(dev.os_version || '-') + '</code>';
                         cells[6].innerHTML = '<code>' + escHtml(dev.rule_version || '-') + '</code>';
                         cells[7].className = _warn ? 'text-danger fw-semibold' : '';
-                        cells[7].textContent = dev.license_expiry || '-';
+                        cells[7].innerHTML = '<div class="license-period"><div>' +
+                            escHtml(dev.license_start || '-') + '</div><div>' +
+                            escHtml(dev.license_expiry || '-') + '</div></div>';
                         cells[8].innerHTML = '<span class="badge bg-secondary">' + escHtml(dev.login_method || '-') + '</span>';
                         cells[9].innerHTML = '<code>' + escHtml(dev.interface || '-') + '</code>';
                         cells[10].innerHTML = '<code>' + escHtml(dev.ip_address || '') + ':' + dev.port + '</code>';
@@ -586,6 +597,7 @@ function editDevice(id) {
             setFormValue('os_version', d.os_version);
             setFormValue('rule_version', d.rule_version);
             setFormValue('license_expiry', d.license_expiry);
+            setFormValue('license_start', d.license_start);
             setFormValue('login_method', d.login_method);
             setFormValue('port', d.port);
             setFormValue('username', d.username);
@@ -733,6 +745,8 @@ function showPwdHistory(el) {
 .drag-scroll::-webkit-scrollbar { height: 8px; }
 .drag-scroll::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: var(--radius-sm); }
 .pwd-cell { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px; white-space: nowrap; min-width: 160px; }
+.license-period { line-height: 1.3; white-space: nowrap; }
+.license-period > div + div { color: inherit; }
 .password-mask { cursor: pointer; font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 22px; min-width: 58px; }
 .pwd-btn { width: 22px; height: 22px; padding: 0; border: none; background: transparent; color: var(--gray-500); display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; }
 .pwd-btn:hover { background: var(--primary-soft); color: var(--primary); }
