@@ -63,7 +63,17 @@ def customer_add():
             current_app.logger.exception('客户添加失败')
             flash(str(e) or '客户添加失败', 'danger')
             return redirect(url_for('customer.customer_add'))
-        flash(f'客户添加成功（级别：{c.level}）', 'success')
+        # 新增客户后按其巡检频率自动生成本年度任务（失败不阻塞流程）
+        gen_msg = ''
+        if c.inspection_frequency:
+            try:
+                from utils.customer_task_generator import generate_for_customer
+                n = generate_for_customer(c.id)
+                if n:
+                    gen_msg = f'，已生成 {n} 个本年度巡检任务'
+            except Exception:
+                current_app.logger.exception('客户 %s 任务自动生成失败', c.id)
+        flash(f'客户添加成功（级别：{c.level}）{gen_msg}', 'success')
         return redirect(url_for('customer.customer_list'))
     ctx = get_customer_with_regions()
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
@@ -88,7 +98,17 @@ def customer_edit(id):
             flash(str(e) or '客户更新失败', 'danger')
             return redirect(url_for('customer.customer_edit', id=id))
         c = Customer.query.get(id)
-        flash(f'客户信息已更新（级别：{c.level}）', 'success')
+        # 客户更新后：若已配置巡检频率，幂等补打本年度任务（频率未变则什么都不会新建）
+        gen_msg = ''
+        if c and c.inspection_frequency:
+            try:
+                from utils.customer_task_generator import generate_for_customer
+                n = generate_for_customer(c.id)
+                if n:
+                    gen_msg = f'，新增 {n} 个本年度巡检任务'
+            except Exception:
+                current_app.logger.exception('客户 %s 任务自动生成失败', c.id)
+        flash(f'客户信息已更新（级别：{c.level}）{gen_msg}', 'success')
         return redirect(url_for('customer.customer_list'))
     ctx = get_customer_with_regions(id)
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()

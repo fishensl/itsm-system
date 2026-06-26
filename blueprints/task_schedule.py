@@ -158,9 +158,9 @@ def _apply_filters(query, args):
     if customer_id:
         query = query.filter(InspectionTask.customer_id == customer_id)
     if start_from:
-        query = query.filter(InspectionTask.planned_start >= start_from)
+        query = query.filter(InspectionTask.planned_end >= start_from)
     if start_to:
-        query = query.filter(InspectionTask.planned_start <= start_to)
+        query = query.filter(InspectionTask.planned_end <= start_to)
     if q:
         query = query.filter(InspectionTask.title.contains(q))
     if overdue:
@@ -213,14 +213,12 @@ def _kpi_counts(tasks):
 @login_required
 @require_permission('task:schedule')
 def index():
-    """看板首页（三视图切换）"""
-    # V17: 进入看板时按客户巡检频率懒补任务（同日短路，失败不阻塞渲染）
-    try:
-        from utils.customer_task_generator import generate_for_all_customers
-        generate_for_all_customers()
-    except Exception:
-        current_app.logger.exception('客户频率懒生成失败（不阻塞页面）')
+    """看板首页（三视图切换）
 
+    任务自动生成不在此处触发 —— 客户/合同新增时已在各自路由里生成。
+    若需为存量数据补打任务，使用 /contract-tasks 页面的「生成」按钮，
+    或调用 /task-schedule/regenerate 一次性回填。
+    """
     view = request.args.get('view', 'by-engineer')
     if view not in ('by-engineer', 'by-status', 'matrix', 'by-customer'):
         view = 'by-engineer'

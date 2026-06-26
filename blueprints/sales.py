@@ -145,13 +145,23 @@ def contract_list():
 def contract_add():
     from flask_login import current_user
     try:
-        create_contract(request.form.to_dict(), current_user.realname or current_user.username)
+        c = create_contract(request.form.to_dict(), current_user.realname or current_user.username)
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("更新失败：%s", repr(e))
         flash(str(e) or '合同创建失败', 'danger')
         return redirect(url_for('sales.contract_list'))
-    flash('合同已创建', 'success')
+    # 新合同：若配置了巡检频率 + 模板，立即按合同自动生成历史和未来任务（失败不阻塞）
+    gen_msg = ''
+    if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
+        try:
+            from utils.auto_task_generator import generate_contract_tasks
+            generated = generate_contract_tasks(contract_id=c.id)
+            if generated:
+                gen_msg = f'，已生成 {len(generated)} 个巡检任务'
+        except Exception:
+            current_app.logger.exception('合同 %s 任务自动生成失败', c.id)
+    flash(f'合同已创建{gen_msg}', 'success')
     return redirect(url_for('sales.contract_list'))
 
 
@@ -166,7 +176,19 @@ def contract_edit(id):
         current_app.logger.exception("更新失败：%s", repr(e))
         flash(str(e) or '合同更新失败', 'danger')
         return redirect(url_for('sales.contract_list'))
-    flash('已更新', 'success')
+    # 合同更新后：若打开了自动巡检 + 设置了频率/模板，补齐尚未生成的任务（幂等）
+    gen_msg = ''
+    try:
+        from models import Contract
+        c = Contract.query.get(id)
+        if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
+            from utils.auto_task_generator import generate_contract_tasks
+            generated = generate_contract_tasks(contract_id=c.id)
+            if generated:
+                gen_msg = f'，已生成 {len(generated)} 个巡检任务'
+    except Exception:
+        current_app.logger.exception('合同 %s 任务自动生成失败', id)
+    flash(f'已更新{gen_msg}', 'success')
     return redirect(url_for('sales.contract_list'))
 
 
