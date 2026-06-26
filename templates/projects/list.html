@@ -6,7 +6,7 @@
 <div class="content-card">
     {% if projects %}
     <div class="table-responsive">
-        <table class="table table-hover">
+        <table class="table table-hover wide-table">
             <thead><tr><th>ID</th><th>名称</th><th>客户</th><th>负责人</th><th>进度</th><th>状态</th><th>预算</th><th>操作</th></tr></thead>
             <tbody>
                 {% for p in projects %}
@@ -19,8 +19,10 @@
                     <td><span class="badge bg-{{ 'success' if p.status=='已完成' else 'primary' if p.status=='进行中' else 'warning' if p.status=='已暂停' else 'secondary' }}">{{ p.status }}</span></td>
                     <td>{{ p.budget }}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="editP({{ p.id }},'{{ p.name }}',{{ p.customer_id or 'null' }},'{{ p.manager or '' }}',{{ p.progress }},'{{ p.status }}',{{ p.budget }})"><i class="bi-pencil"></i></button>
-                        {{ ui.table_actions(delete_url=url_for('sales.project_delete', id=p.id), delete_confirm='确定删除？') }}
+                        {{ ui.row_actions_dropdown(
+                            edit_onclick="editP(" ~ p.id ~ ",'" ~ p.name ~ "'," ~ (p.customer_id or 'null') ~ ",'" ~ (p.manager or '') ~ "'," ~ p.progress ~ ",'" ~ p.status ~ "'," ~ p.budget ~ ")",
+                            delete_url=url_for('sales.project_delete', id=p.id),
+                            delete_confirm='确定删除？') }}
                     </td>
                 </tr>
                 {% endfor %}

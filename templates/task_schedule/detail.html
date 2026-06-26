@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_empty_state.html" as eui %}
+
+{% block title %}任务详情 - 任务安排 - IT运维综合管理系统{% endblock %}
+
+{% block content %}
+{% call ui.page_header(task.title, 'list-task') %}
+    <a href="{{ url_for('task_schedule.index') }}" class="btn btn-outline-secondary btn-sm me-2">
+        <i class="bi-arrow-left"></i> 返回看板
+    </a>
+    <a href="{{ url_for('task_schedule.list_view') }}" class="btn btn-outline-secondary btn-sm me-2">
+        <i class="bi-list-ul"></i> 列表视图
+    </a>
+{% endcall %}
+
+{# ============ 操作工具条 ============ #}
+<div class="content-card mb-3">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <a href="{{ url_for('ops.inspection_add', customer_id=task.customer_id, task_id=task.id) }}"
+           class="btn btn-primary btn-sm"><i class="bi-play-fill"></i> 执行巡检</a>
+
+        {% if task.status == '待执行' %}
+        <button class="btn btn-warning btn-sm" onclick="changeTaskStatus({{ task.id }}, '执行中')">
+            <i class="bi-arrow-right-circle"></i> 标记执行中
+        </button>
+        {% endif %}
+        {% if task.status in ('待执行', '执行中') %}
+        <button class="btn btn-success btn-sm" onclick="changeTaskStatus({{ task.id }}, '已完成')">
+            <i class="bi-check-circle"></i> 标记已完成
+        </button>
+        {% endif %}
+
+        <div class="dropdown">
+            <button class="btn btn-outline-primary btn-sm dropdown-toggle js-dropdown-portal"
+                    data-bs-toggle="dropdown">改状态</button>
+            <ul class="dropdown-menu">
+                {% for s in all_statuses %}
+                <li><a class="dropdown-item small {% if task.status == s %}active{% endif %}"
+                       href="#" onclick="changeTaskStatus({{ task.id }}, '{{ s }}'); return false;">{{ s }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <form method="post" action="{{ url_for('task_schedule.delete_task', task_id=task.id) }}"
+              class="ms-auto" onsubmit="return confirm('确定删除该任务？')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi-trash"></i> 删除
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">任务信息</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr><td class="text-muted" style="width:90px;">标题</td><td><strong>{{ task.title }}</strong></td></tr>
+                    <tr><td class="text-muted">类型</td>
+                        <td><span class="badge bg-{{ 'primary' if task.task_type=='计划' else 'warning' if task.task_type=='突发' else 'info' }}">{{ task.task_type }}</span></td></tr>
+                    <tr><td class="text-muted">状态</td>
+                        <td><span class="badge bg-{{ status_color[task.status] if task.status in status_color else 'secondary' }}">{{ task.status }}</span></td></tr>
+                    <tr><td class="text-muted">优先级</td>
+                        <td><span class="badge bg-{{ 'danger' if task.priority=='高' else 'warning' if task.priority=='中' else 'secondary' }}">{{ task.priority or '-' }}</span></td></tr>
+                    <tr><td class="text-muted">客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
+                    <tr><td class="text-muted">计划日期</td>
+                        <td>{{ task.planned_start.strftime('%Y-%m-%d') if task.planned_start else '-' }}
+                            ~ {{ task.planned_end.strftime('%Y-%m-%d') if task.planned_end else '-' }}</td></tr>
+                    {% if task.actual_start %}
+                    <tr><td class="text-muted">开始时间</td>
+                        <td>{{ task.actual_start.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+                    {% endif %}
+                    {% if task.actual_end %}
+                    <tr><td class="text-muted">完成时间</td>
+                        <td>{{ task.actual_end.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+                    {% endif %}
+                    <tr><td class="text-muted">巡检模板</td><td>{{ template.name if template else '-' }}</td></tr>
+                    <tr><td class="text-muted">来源</td><td>{{ task.source or '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">人员</div>
+            <div class="card-body">
+                <p class="mb-2">
+                    <strong>负责人：</strong>
+                    {% if task.assignee_rel %}
+                    <span class="badge bg-primary">
+                        <i class="bi-person"></i>
+                        {{ task.assignee_rel.realname or task.assignee_rel.username }}
+                    </span>
+                    {% else %}
+                    <span class="text-muted">未指派</span>
+                    {% endif %}
+                </p>
+                {% if task.dispatcher_rel %}
+                <p class="mb-2 small text-muted">
+                    派发人：{{ task.dispatcher_rel.realname or task.dispatcher_rel.username }}
+                    {% if task.dispatched_at %}
+                    · {{ task.dispatched_at.strftime('%Y-%m-%d %H:%M') }}
+                    {% endif %}
+                </p>
+                {% endif %}
+                {% if inspector_names %}
+                <p class="mb-0">
+                    <strong>巡检人员（旧）：</strong>
+                    {% for n in inspector_names %}
+                    <span class="badge bg-info me-1">{{ n }}</span>
+                    {% endfor %}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">备注</div>
+            <div class="card-body"><p class="mb-0">{{ task.remark or '-' }}</p></div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header"><i class="bi-clock-history"></i> 巡检记录 ({{ records|length }})</div>
+    <div class="card-body">
+        {% if records %}
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr><th>ID</th><th>标题</th><th>巡检人</th><th>日期</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+            {% for r in records %}
+            <tr>
+                <td>{{ r.id }}</td>
+                <td>{{ r.title }}</td>
+                <td>{{ r.inspector_name or r.inspector or '-' }}</td>
+                <td>{{ r.inspection_date }}</td>
+                <td><span class="badge bg-{{ 'success' if r.overall_status=='正常' else 'warning' }}">{{ r.overall_status }}</span></td>
+                <td><a href="{{ url_for('ops.inspection_detail', id=r.id) }}" class="btn btn-sm btn-outline-info"><i class="bi-eye"></i></a></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">暂无巡检记录。点击上方"执行巡检"创建首条记录。</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/**
+ * 任务详情页改状态：AJAX 调 /task-schedule/<id>/status，成功后 reload 整页
+ * 让状态徽章 + 工具条按钮（标记执行中/已完成）随状态变化重新渲染。
+ */
+function changeTaskStatus(taskId, newStatus) {
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'status=' + encodeURIComponent(newStatus),
+    }).then(function(r) {
+        if (r.ok) window.location.reload();
+        else alert('改状态失败');
+    });
+}
+</script>
+{% endblock %}

@@ -283,6 +283,27 @@ function changeTaskStatus(taskId, newStatus) {
     });
 }
 
+/**
+ * AJAX 指派负责人：卡片下拉里"指派 → 张三"。空 userId 视为清除指派。
+ */
+function assignTask(taskId, userId) {
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/assign', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'assignee_id=' + encodeURIComponent(userId),
+    }).then(function(r) {
+        if (r.ok) {
+            window.location.reload();
+        } else {
+            alert('指派失败');
+        }
+    });
+}
+
 function deleteTask(taskId) {
     if (!confirm('确定删除该任务？')) return;
     var f = document.createElement('form');

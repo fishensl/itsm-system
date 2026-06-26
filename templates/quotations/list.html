@@ -6,7 +6,7 @@
 <div class="content-card">
     {% if quotes %}
     <div class="table-responsive">
-        <table class="table table-hover">
+        <table class="table table-hover wide-table">
             <thead><tr><th>ID</th><th>单号</th><th>客户</th><th>总金额</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
                 {% for q in quotes %}
@@ -17,8 +17,10 @@
                     <td>{{ q.total_amount }}</td>
                     <td><span class="badge bg-{{ 'success' if q.status=='已接受' else 'danger' if q.status=='已拒绝' else 'warning' if q.status=='已发送' else 'secondary' }}">{{ q.status }}</span></td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="editQ({{ q.id }},'{{ q.number }}',{{ q.customer_id or 'null' }},'{{ q.status }}',{{ q.total_amount }})"><i class="bi-pencil"></i></button>
-                        {{ ui.table_actions(delete_url=url_for('sales.quotation_delete', id=q.id), delete_confirm='确定删除？') }}
+                        {{ ui.row_actions_dropdown(
+                            edit_onclick="editQ(" ~ q.id ~ ",'" ~ q.number ~ "'," ~ (q.customer_id or 'null') ~ ",'" ~ q.status ~ "'," ~ q.total_amount ~ ")",
+                            delete_url=url_for('sales.quotation_delete', id=q.id),
+                            delete_confirm='确定删除？') }}
                     </td>
                 </tr>
                 {% endfor %}

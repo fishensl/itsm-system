@@ -9,7 +9,7 @@
         {% set items = users %}
         {% if items %}
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="table table-hover align-middle wide-table">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -66,16 +66,13 @@
                             {% endif %}
                         </td>
                         <td class="text-nowrap">
-                            {{ ui.table_actions(edit_url=url_for('user_edit', id=u.id)) }}
-                            <button type="button" class="btn btn-sm btn-outline-warning"
-                                    data-bs-toggle="modal" data-bs-target="#resetPwdModal"
-                                    data-uid="{{ u.id }}" data-uname="{{ u.username }}"
-                                    title="重置密码">
-                                <i class="bi-key"></i>
-                            </button>
-                            {{ ui.table_actions(
+                            {{ ui.row_actions_dropdown(
+                                edit_url=url_for('user_edit', id=u.id),
                                 delete_url=url_for('user_delete', id=u.id) if u.id != 1 else '',
-                                delete_confirm='确定删除用户 ' ~ u.username ~ '？'
+                                delete_confirm='确定删除用户 ' ~ u.username ~ '？',
+                                extra_items=[
+                                    {'label':'重置密码','icon':'bi-key','onclick':"openResetPwd(" ~ u.id ~ ",'" ~ u.username ~ "')"}
+                                ]
                             ) }}
                         </td>
                     </tr>
@@ -92,7 +89,7 @@
 
 <!-- 新增弹窗 -->
 <div class="modal fade" id="addModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header"><h5 class="modal-title">新增用户</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <form method="post" action="{{ url_for('user_list') }}">
@@ -193,12 +190,22 @@
 </div>
 
 <script>
+function openResetPwd(uid, uname) {
+    var modal = document.getElementById('resetPwdModal');
+    document.getElementById('resetPwdForm').action = '/users/' + uid + '/reset_password';
+    document.getElementById('resetPwdUserLabel').textContent = uname ? '— ' + uname : '';
+    var pwdInput = modal.querySelector('input[name="new_password"]');
+    if (pwdInput) pwdInput.value = '';
+    var inst = bootstrap.Modal.getOrCreateInstance(modal);
+    inst.show();
+    setTimeout(function(){ if (pwdInput) pwdInput.focus(); }, 200);
+}
 (function () {
     var modal = document.getElementById('resetPwdModal');
     if (!modal) return;
     modal.addEventListener('show.bs.modal', function (event) {
         var trigger = event.relatedTarget;
-        if (!trigger) return;
+        if (!trigger) return;  // 由 openResetPwd 触发时无 relatedTarget，跳过
         var uid = trigger.getAttribute('data-uid');
         var uname = trigger.getAttribute('data-uname') || '';
         document.getElementById('resetPwdForm').action = '/users/' + uid + '/reset_password';

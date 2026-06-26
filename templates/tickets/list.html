@@ -26,7 +26,7 @@
     <div class="card-body">
         {% if items %}
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="table table-hover align-middle wide-table">
                 <thead><tr>
                     <th>编号</th><th>标题</th><th>来源</th><th>客户</th><th>优先级</th><th>状态</th><th>指派</th><th>创建时间</th><th>操作</th>
                 </tr></thead>
@@ -43,7 +43,7 @@
                     <td>{{ t.assigned_to or '-' }}</td>
                     <td><small>{{ t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '-' }}</small></td>
                     <td>
-                        {{ ui.table_actions(
+                        {{ ui.row_actions_dropdown(
                             view_url=url_for('ops.ticket_detail', id=t.id),
                             edit_url=url_for('ops.ticket_edit', id=t.id),
                             delete_url=url_for('ops.ticket_delete', id=t.id),

@@ -31,7 +31,7 @@
     <div class="card-body">
         {% if items %}
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="table table-hover align-middle wide-table">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -63,7 +63,7 @@
                             <span class="text-muted">-</span>
                             {% endif %}
                         </td>
-                        <td>{{ ui.table_actions(
+                        <td>{{ ui.row_actions_dropdown(
                             view_url=url_for('ops.inspection_detail', id=i.id),
                             edit_url=url_for('ops.inspection_edit', id=i.id),
                             delete_url=url_for('ops.inspection_delete', id=i.id),

@@ -1,6 +1,6 @@
 {# 单张任务卡 partial — 在按工程师/按状态/按客户视图中复用
    需要的变量: t (InspectionTask), today (date), is_overdue (callable), status_color (dict)
-   可选: show_assignee (默认 false)
+   可选: show_assignee (默认 false), engineers (用于"指派负责人"子菜单)
 #}
 {% set _overdue = is_overdue(t, today) %}
 {# 逾期用红色边框；否则用状态色左边框条，强化视觉区分 #}
@@ -9,16 +9,16 @@
      data-task-id="{{ t.id }}" data-status="{{ t.status }}">
     <div class="card-body py-2 px-2">
         <div class="d-flex justify-content-between align-items-start mb-1">
-            <a href="{{ url_for('ops.inspection_task_detail', id=t.id) }}"
+            <a href="{{ url_for('task_schedule.task_detail', task_id=t.id) }}"
                class="task-title small fw-semibold text-decoration-none text-reset"
                style="line-height:1.3;" title="查看详情">
                 {{ t.title }}
                 {% if _overdue %}<i class="bi-exclamation-circle-fill text-danger ms-1" title="已逾期"></i>{% endif %}
             </a>
             <div class="dropdown">
-                <button class="btn btn-sm btn-link p-0 text-muted" data-bs-toggle="dropdown"
-                        data-bs-container="body" data-bs-boundary="viewport"
-                        aria-expanded="false" title="操作">
+                {# V18: js-dropdown-portal 让菜单逃离卡片 overflow:auto，不再被裁切 #}
+                <button class="btn btn-sm btn-link p-0 text-muted js-dropdown-portal"
+                        data-bs-toggle="dropdown" aria-expanded="false" title="操作">
                     <i class="bi-three-dots-vertical"></i>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
@@ -29,6 +29,18 @@
                         {{ s }}
                     </a></li>
                     {% endfor %}
+                    {% if engineers %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><h6 class="dropdown-header">指派负责人</h6></li>
+                    {% for u in engineers %}
+                    <li><a class="dropdown-item small {% if t.assigned_to_user_id == u.id %}active{% endif %}"
+                           href="#" onclick="assignTask({{ t.id }}, {{ u.id }}); return false;">
+                        {{ u.realname or u.username }}
+                    </a></li>
+                    {% endfor %}
+                    <li><a class="dropdown-item small text-muted" href="#"
+                           onclick="assignTask({{ t.id }}, ''); return false;">— 清除指派 —</a></li>
+                    {% endif %}
                     <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item small text-danger" href="#"
                            onclick="deleteTask({{ t.id }}); return false;">

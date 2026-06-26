@@ -205,6 +205,14 @@
 /* badge 用 .surface-muted 时补一条边，维持原 bg-light badge 的视觉 */
 .badge.surface-muted { border: 1px solid var(--border); color: var(--text-body); }
 
+/* V18: dropdown-portal —— 菜单从 overflow:auto 容器中"逃出"挂到 body 时，
+   提升层级到 modal 之下、toast 之上，避免被表格/卡片裁切。
+   定位由 JS 控制（position:fixed），这里只管样式。 */
+.dropdown-menu.js-dropdown-portal-active {
+    z-index: 1080;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
 /* select 内当前值居中显示（仅闭合状态；展开后的 option 列表由系统决定）
    .form-select 自带 padding-right:2.25rem 给箭头让位 —— 居中时也要给左侧
    留同样空隙，否则视觉重心仍偏左 */
@@ -745,10 +753,10 @@ body {
 /* 主内容区 */
 .main-content {
     margin-left: var(--sidebar-width);
-    padding: 24px;
+    padding: 16px 20px;
     min-height: 100vh;
     background: var(--background);
-    transition: margin-left 0.3s ease;
+    transition: margin-left 0.3s ease, padding 0.3s ease;
 }
 
 /* 页面头部 */
@@ -1690,4 +1698,84 @@ code, .font-monospace {
         margin-left: 0;
         padding: 72px 16px 24px;
     }
+
+    /* 表格在移动端：滑动提示 + 缩小字号 */
+    .table-responsive, .drag-scroll { font-size: var(--fs-sm); }
+    .table-responsive::after,
+    .drag-scroll::after {
+        content: '← 左右滑动查看 →';
+        display: block;
+        text-align: center;
+        color: var(--gray-500);
+        font-size: var(--fs-xs);
+        padding: 4px 0;
+    }
+    .modal-dialog { margin: 8px; }
+    .modal-lg, .modal-xl { max-width: calc(100vw - 16px); }
+    .row > [class*="col-"] { margin-bottom: 8px; }
+}
+
+/* ========== 1080p 基线 + 自适应断点（2026-06-26 全站 UI 改造） ========== */
+/* 1080p（≥1440）作为默认基线，下面是逐级缩窄时的让位规则。 */
+
+@media (max-width: 1440px) {
+    .main-content { padding: 14px 16px; }
+}
+
+@media (max-width: 1280px) {
+    /* 表格单元格更紧凑，让窄屏笔记本也能看到更多列 */
+    .table > :not(caption) > * > * { padding: 0.4rem 0.5rem; }
+    .modal-xl { max-width: 96vw; }
+}
+
+@media (max-width: 1024px) {
+    .main-content { padding: 12px; }
+    /* 大弹窗不溢出 */
+    .modal-lg, .modal-xl { max-width: 95vw; margin: 8px auto; }
+}
+
+/* ========== 通用工具类 ========== */
+
+/* 宽表：保持 auto-layout（按内容撑列），单元格不换行，超宽则在
+   .table-responsive 容器里横向滚动，而非强行挤压压窄列。 */
+.table.wide-table { width: max-content; min-width: 100%; }
+.table.wide-table > tbody > tr > td,
+.table.wide-table > thead > tr > th {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* 紧凑表：小型管理表用，降低 padding */
+.table.tight-table > :not(caption) > * > * { padding: 0.35rem 0.5rem; }
+
+/* 行内操作下拉（⋯）：配合 row_actions_dropdown 宏与 js-dropdown-portal */
+.action-dropdown .btn-action-trigger {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--gray-700);
+    border-radius: var(--radius-md);
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.action-dropdown .btn-action-trigger:hover,
+.action-dropdown .btn-action-trigger:focus {
+    background: var(--primary-soft);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+.action-dropdown .dropdown-menu { min-width: 8rem; }
+.action-dropdown .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.action-dropdown .dropdown-item .bi {
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
 }

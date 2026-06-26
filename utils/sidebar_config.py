@@ -37,9 +37,8 @@ SIDEBAR_GROUPS = [
             {'name': '故障记录', 'url': '/faults', 'icon': 'bi-exclamation-triangle', 'perm': 'fault:view'},
             # V16: 任务安排看板（导入 + 三视图）
             {'name': '任务安排', 'url': '/task-schedule/', 'icon': 'bi-calendar3-week', 'perm': 'task:schedule'},
-            # 主要功能：巡检链路（任务 → 人员 → 记录）
-            # V17: 任务派发已并入任务安排，旧 URL 仍 301 兼容
-            {'name': '巡检任务', 'url': '/inspection-tasks', 'icon': 'bi-list-check', 'perm': 'inspection:view'},
+            # V18: 老"巡检任务"已并入"任务安排"，从侧栏移除（URL 仍 301 兼容）
+            # 主要功能：巡检链路（人员 → 记录）
             {'name': '巡检人员', 'url': '/inspectors', 'icon': 'bi-person-gear', 'perm': 'inspection:view'},
             {'name': '巡检记录', 'url': '/inspections', 'icon': 'bi-clipboard-data', 'perm': 'inspection:view'},
             # 模板（配置类）

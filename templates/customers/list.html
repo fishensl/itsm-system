@@ -30,7 +30,7 @@
     {% endcall %}
     {% if items %}
     <div class="table-responsive">
-        <table class="table data-table table-hover align-middle">
+        <table class="table data-table table-hover align-middle wide-table">
             <thead>
                 <tr>
                     <th>ID</th><th>客户名称</th><th>单位类别</th><th>联系人</th><th>电话</th>
@@ -60,7 +60,7 @@
                     <td>{% if c.has_drill %}<i class="bi-check-circle-fill text-primary"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                     <td>{{ c.device_count or c.devices.count() }}</td>
                     <td class="text-end">
-                        {{ ui.table_actions(
+                        {{ ui.row_actions_dropdown(
                             view_url=url_for('customer.customer_detail', id=c.id),
                             edit_url=url_for('customer.customer_edit', id=c.id),
                             delete_url=url_for('customer.customer_delete', id=c.id),

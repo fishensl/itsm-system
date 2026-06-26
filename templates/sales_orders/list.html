@@ -6,7 +6,7 @@
 <div class="content-card">
     {% if orders %}
     <div class="table-responsive">
-        <table class="table table-hover">
+        <table class="table table-hover wide-table">
             <thead><tr><th>ID</th><th>单号</th><th>备件</th><th>客户</th><th>数量</th><th>单价</th><th>总价</th><th>发票号</th><th>操作</th></tr></thead>
             <tbody>
                 {% for o in orders %}
@@ -19,7 +19,7 @@
                     <td>{{ o.unit_price }}</td>
                     <td>{{ o.total }}</td>
                     <td>{{ o.invoice_number }}</td>
-                    <td>{{ ui.table_actions(delete_url=url_for('spare.sales_order_delete', id=o.id), delete_confirm='确定删除？') }}</td>
+                    <td>{{ ui.row_actions_dropdown(delete_url=url_for('spare.sales_order_delete', id=o.id), delete_confirm='确定删除？') }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

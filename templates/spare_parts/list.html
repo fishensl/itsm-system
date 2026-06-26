@@ -7,7 +7,7 @@
 {% endcall %}
 <div class="content-card">
 {% if parts %}
-<div class="table-responsive"><table class="table table-hover align-middle">
+<div class="table-responsive"><table class="table table-hover align-middle wide-table">
 <thead><tr>
     <th style="width:50px">图片</th>
     <th>编码</th><th>名称</th><th>品牌</th><th>型号</th>
@@ -34,11 +34,11 @@
     <td>{% if p.reference_price %}{{ '%.2f'|format(p.reference_price) }}{% else %}-{% endif %}</td>
     <td>{{ p.min_stock }}</td>
     <td>
-        {{ ui.table_actions(
+        {{ ui.row_actions_dropdown(
             view_url=url_for('spare.spare_part_detail', id=p.id),
+            edit_onclick='editPart(' ~ p.id ~ ', ' ~ (p_dicts[loop.index0]|tojson) ~ ')',
             delete_url=url_for('spare.spare_part_delete', id=p.id),
             delete_confirm='确定删除？') }}
-        <button class="btn btn-sm btn-outline-primary" onclick='editPart({{ p.id }}, {{ p_dicts[loop.index0]|tojson }})' title="编辑"><i class="bi-pencil"></i></button>
     </td>
 </tr>
 {% endfor %}
@@ -47,7 +47,7 @@
 </div>
 
 {# ============== 新增备件 Modal ============== #}
-<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
 <div class="modal-header"><h5 class="modal-title">新增备件</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
 <form method="post" action="{{ url_for('spare.spare_part_add') }}" enctype="multipart/form-data">
 <div class="modal-body">
@@ -78,7 +78,7 @@
 </form></div></div></div>
 
 {# ============== 编辑备件 Modal ============== #}
-<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal fade" id="editModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
 <div class="modal-header"><h5 class="modal-title">编辑备件</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
 <form method="post" id="editForm" enctype="multipart/form-data">
 <div class="modal-body">

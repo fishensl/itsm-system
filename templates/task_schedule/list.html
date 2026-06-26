@@ -73,11 +73,33 @@
 </form>
 {% endcall %}
 
+{# V18: 批量工具栏 — 勾选行后显示 #}
+<div id="batchToolbar" class="alert alert-info py-2 px-3 mb-2 d-none">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <span class="me-2">已选 <strong id="selCount">0</strong> 项</span>
+        <button type="button" class="btn btn-sm btn-primary" onclick="openBatchModal('status')">
+            <i class="bi-tag"></i> 批量改状态
+        </button>
+        <button type="button" class="btn btn-sm btn-info" onclick="openBatchModal('assign')">
+            <i class="bi-person-plus"></i> 批量指派
+        </button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="openBatchModal('delete')">
+            <i class="bi-trash"></i> 批量删除
+        </button>
+        <button type="button" class="btn btn-sm btn-link ms-auto" onclick="clearSelection()">
+            <i class="bi-x-lg"></i> 取消选择
+        </button>
+    </div>
+</div>
+
 {% if items %}
 <div class="table-responsive">
-<table class="table table-hover align-middle">
+<table class="table table-hover align-middle wide-table">
     <thead>
         <tr>
+            <th style="width:32px;" class="text-center">
+                <input type="checkbox" class="form-check-input" id="selectAll" title="全选/全不选">
+            </th>
             <th>ID</th>
             <th>任务标题</th>
             <th>客户</th>
@@ -93,9 +115,12 @@
     {% for t in items %}
         {% set _overdue = is_overdue(t, today) %}
         <tr class="{% if _overdue %}table-danger{% endif %}">
+            <td class="text-center">
+                <input type="checkbox" class="form-check-input row-check" value="{{ t.id }}">
+            </td>
             <td>{{ t.id }}</td>
             <td>
-                <a href="{{ url_for('ops.inspection_task_detail', id=t.id) }}"
+                <a href="{{ url_for('task_schedule.task_detail', task_id=t.id) }}"
                    class="fw-semibold text-decoration-none">{{ t.title }}</a>
                 {% if _overdue %}<i class="bi-exclamation-circle-fill text-danger ms-1" title="已逾期"></i>{% endif %}
             </td>
@@ -113,15 +138,32 @@
             <td class="small">
                 {% if t.actual_end %}{{ t.actual_end.strftime('%Y-%m-%d') }}{% else %}-{% endif %}
             </td>
-            <td class="text-end">
+            <td class="text-end text-nowrap">
                 <div class="dropdown d-inline-block">
-                    <button class="btn btn-sm btn-outline-primary dropdown-toggle"
+                    <button class="btn btn-sm btn-outline-primary dropdown-toggle js-dropdown-portal"
                             data-bs-toggle="dropdown">改状态</button>
                     <ul class="dropdown-menu dropdown-menu-end">
                         {% for s in all_statuses %}
                         <li><a class="dropdown-item small {% if t.status==s %}active{% endif %}"
                                href="#" onclick="changeTaskStatus({{ t.id }}, '{{ s }}'); return false;">{{ s }}</a></li>
                         {% endfor %}
+                    </ul>
+                </div>
+                <div class="dropdown d-inline-block">
+                    <button class="btn btn-sm btn-outline-info dropdown-toggle js-dropdown-portal"
+                            data-bs-toggle="dropdown">指派</button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {% for u in engineers %}
+                        <li><a class="dropdown-item small {% if t.assigned_to_user_id == u.id %}active{% endif %}"
+                               href="#" onclick="assignTask({{ t.id }}, {{ u.id }}); return false;">
+                            {{ u.realname or u.username }}
+                        </a></li>
+                        {% endfor %}
+                        {% if engineers %}
+                        <li><hr class="dropdown-divider"></li>
+                        {% endif %}
+                        <li><a class="dropdown-item small text-muted" href="#"
+                               onclick="assignTask({{ t.id }}, ''); return false;">— 清除指派 —</a></li>
                     </ul>
                 </div>
                 <form method="post" action="{{ url_for('task_schedule.delete_task', task_id=t.id) }}"
@@ -140,10 +182,52 @@
 {{ eui.empty_state('bi-list-ul', '无匹配任务', '调整筛选条件或返回看板') }}
 {% endif %}
 </div>
+
+{# ============ V18: 通用批量操作 Modal ============ #}
+<div class="modal fade" id="batchActionModal" tabindex="-1">
+<div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+        <h5 class="modal-title" id="batchModalTitle">批量操作</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+        <p class="text-muted small mb-2">将对 <strong id="batchModalCount">0</strong> 个任务执行此操作。</p>
+
+        <div id="batchStatusField" class="d-none mb-2">
+            <label class="form-label">新状态</label>
+            <select id="batchStatusSelect" class="form-select">
+                {% for s in all_statuses %}
+                <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="batchAssignField" class="d-none mb-2">
+            <label class="form-label">指派给</label>
+            <select id="batchAssigneeSelect" class="form-select">
+                <option value="">— 清除指派 —</option>
+                {% for u in engineers %}
+                <option value="{{ u.id }}">{{ u.realname or u.username }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="batchDeleteField" class="d-none alert alert-danger py-2 mb-0">
+            <i class="bi-exclamation-triangle"></i> 该操作不可恢复，请确认。
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" id="batchConfirmBtn" class="btn btn-primary">确认</button>
+    </div>
+</div></div></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+/**
+ * AJAX 改单条状态 / 指派负责人 —— 与看板保持同款 fetch+reload 模式。
+ */
 function changeTaskStatus(taskId, newStatus) {
     var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
     fetch('/task-schedule/' + taskId + '/status', {
@@ -156,6 +240,153 @@ function changeTaskStatus(taskId, newStatus) {
     }).then(function(r) {
         if (r.ok) window.location.reload();
         else alert('改状态失败');
+    });
+}
+
+function assignTask(taskId, userId) {
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/assign', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'assignee_id=' + encodeURIComponent(userId),
+    }).then(function(r) {
+        if (r.ok) window.location.reload();
+        else alert('指派失败');
+    });
+}
+
+/* ============ 多选 + 批量工具栏 ============ */
+
+function getSelectedIds() {
+    var out = [];
+    document.querySelectorAll('.row-check:checked').forEach(function(cb) {
+        out.push(cb.value);
+    });
+    return out;
+}
+
+function refreshSelection() {
+    var ids = getSelectedIds();
+    var count = ids.length;
+    var toolbar = document.getElementById('batchToolbar');
+    document.getElementById('selCount').textContent = count;
+    if (count > 0) toolbar.classList.remove('d-none');
+    else toolbar.classList.add('d-none');
+
+    // 同步表头全选状态
+    var rows = document.querySelectorAll('.row-check');
+    var all = document.getElementById('selectAll');
+    if (rows.length === 0) {
+        all.checked = false; all.indeterminate = false;
+    } else if (count === rows.length) {
+        all.checked = true; all.indeterminate = false;
+    } else if (count === 0) {
+        all.checked = false; all.indeterminate = false;
+    } else {
+        all.checked = false; all.indeterminate = true;
+    }
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-check').forEach(function(cb) { cb.checked = false; });
+    refreshSelection();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            var checked = this.checked;
+            document.querySelectorAll('.row-check').forEach(function(cb) {
+                cb.checked = checked;
+            });
+            refreshSelection();
+        });
+    }
+    document.querySelectorAll('.row-check').forEach(function(cb) {
+        cb.addEventListener('change', refreshSelection);
+    });
+});
+
+/* ============ 批量 Modal ============ */
+
+var _batchAction = null; // 'status' | 'assign' | 'delete'
+
+function openBatchModal(action) {
+    var ids = getSelectedIds();
+    if (ids.length === 0) {
+        alert('请先勾选要操作的任务');
+        return;
+    }
+    _batchAction = action;
+    document.getElementById('batchModalCount').textContent = ids.length;
+
+    // 切换字段显示 + 标题
+    document.getElementById('batchStatusField').classList.add('d-none');
+    document.getElementById('batchAssignField').classList.add('d-none');
+    document.getElementById('batchDeleteField').classList.add('d-none');
+    var btn = document.getElementById('batchConfirmBtn');
+    btn.className = 'btn btn-primary';
+
+    if (action === 'status') {
+        document.getElementById('batchModalTitle').textContent = '批量改状态';
+        document.getElementById('batchStatusField').classList.remove('d-none');
+    } else if (action === 'assign') {
+        document.getElementById('batchModalTitle').textContent = '批量指派负责人';
+        document.getElementById('batchAssignField').classList.remove('d-none');
+    } else if (action === 'delete') {
+        document.getElementById('batchModalTitle').textContent = '批量删除';
+        document.getElementById('batchDeleteField').classList.remove('d-none');
+        btn.className = 'btn btn-danger';
+    }
+
+    new bootstrap.Modal(document.getElementById('batchActionModal')).show();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('batchConfirmBtn').addEventListener('click', submitBatch);
+});
+
+function submitBatch() {
+    var ids = getSelectedIds();
+    if (ids.length === 0) return;
+
+    var url, body = new URLSearchParams();
+    ids.forEach(function(id) { body.append('ids', id); });
+
+    if (_batchAction === 'status') {
+        url = '/task-schedule/batch/status';
+        body.append('status', document.getElementById('batchStatusSelect').value);
+    } else if (_batchAction === 'assign') {
+        url = '/task-schedule/batch/assign';
+        body.append('assignee_id', document.getElementById('batchAssigneeSelect').value);
+    } else if (_batchAction === 'delete') {
+        url = '/task-schedule/batch/delete';
+    } else {
+        return;
+    }
+
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: body.toString(),
+    }).then(function(r) {
+        return r.json().catch(function() { return {success: r.ok}; });
+    }).then(function(data) {
+        if (data && data.success) {
+            window.location.reload();
+        } else {
+            alert('批量操作失败：' + ((data && data.error) || '未知错误'));
+        }
+    }).catch(function(err) {
+        alert('批量操作失败：' + err);
     });
 }
 </script>

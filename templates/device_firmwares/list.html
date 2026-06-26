@@ -87,7 +87,7 @@
 
     {# 同型号设备版本对比表 #}
     {% if devs %}
-    <table class="table fw-table mb-0">
+    <table class="table fw-table mb-0 wide-table">
         <thead>
         <tr><th>客户</th><th>设备名称</th><th>管理 IP</th><th>当前系统版本</th><th>当前规则库版本</th><th>状态</th></tr>
         </thead>
@@ -176,7 +176,7 @@
 {% endif %}
 
 <!-- Add/Edit modal -->
-<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
 <div class="modal-header"><h5 class="modal-title" id="fwModalTitle">添加固件版本</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
 <form method="post" action="/device-firmwares/add" id="fwForm">
 <div class="modal-body">

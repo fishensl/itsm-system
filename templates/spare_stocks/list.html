@@ -6,7 +6,7 @@
 <div class="content-card">
     {% if stocks %}
     <div class="table-responsive">
-        <table class="table table-hover">
+        <table class="table table-hover wide-table">
             <thead><tr><th>ID</th><th>备件</th><th>位置</th><th>数量</th><th>单价</th><th>操作</th></tr></thead>
             <tbody>
                 {% for s in stocks %}
@@ -18,8 +18,10 @@
                     <td>{{ s.quantity }}</td>
                     <td>{{ s.unit_price }}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="editS({{ s.id }},{{ s.spare_part_id }},'{{ s.location }}',{{ s.quantity }},{{ s.unit_price }})"><i class="bi-pencil"></i></button>
-                        {{ ui.table_actions(delete_url=url_for('spare.spare_stock_delete', id=s.id), delete_confirm='确定删除？') }}
+                        {{ ui.row_actions_dropdown(
+                            edit_onclick="editS(" ~ s.id ~ "," ~ s.spare_part_id ~ ",'" ~ s.location ~ "'," ~ s.quantity ~ "," ~ s.unit_price ~ ")",
+                            delete_url=url_for('spare.spare_stock_delete', id=s.id),
+                            delete_confirm='确定删除？') }}
                     </td>
                 </tr>
                 {% endfor %}

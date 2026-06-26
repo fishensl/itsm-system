@@ -70,7 +70,7 @@
             <div class="card-body p-0 customer-body" style="display:none">
                 {% if group.devices %}
                 <div class="table-responsive drag-scroll" style="margin:0;">
-                    <table class="table table-hover align-middle mb-0">
+                    <table class="table table-hover align-middle mb-0 wide-table">
                         <thead>
                             <tr>
                                 <th>设备名称</th>
@@ -113,10 +113,12 @@
                                 <td><code>{{ d.ip_address }}:{{ d.port }}</code></td>
                                 <td>{{ d.username }}</td>
                                 <td class="pwd-cell" data-device-id="{{ d.id }}">
-                                    <span class="password-mask" onclick="togglePwd(this)">••••••••</span>
-                                    <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>
-                                    <button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>
-                                    <button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="{{ d.id }}" data-device-name="{{ d.device_name }}" title="查看历史密码"><i class="bi-clock-history"></i></button>
+                                    <div class="pwd-cell-inner">
+                                        <span class="password-mask" onclick="togglePwd(this)">••••••••</span>
+                                        <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>
+                                        <button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>
+                                        <button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="{{ d.id }}" data-device-name="{{ d.device_name }}" title="查看历史密码"><i class="bi-clock-history"></i></button>
+                                    </div>
                                 </td>
                                 <td>
                                     {% if d.is_maintenance %}
@@ -133,8 +135,11 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm btn-outline-primary" title="编辑" onclick="editDevice({{ d.id }})"><i class="bi-pencil"></i></button>
-                                    {{ ui.table_actions(view_url=url_for('asset.device_detail', id=d.id), delete_url=url_for('asset.device_delete', id=d.id), delete_confirm='确定删除？') }}
+                                    {{ ui.row_actions_dropdown(
+                                        edit_onclick='editDevice(' ~ d.id ~ ')',
+                                        view_url=url_for('asset.device_detail', id=d.id),
+                                        delete_url=url_for('asset.device_delete', id=d.id),
+                                        delete_confirm='确定删除？') }}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -160,7 +165,7 @@
 
 <!-- 新增/编辑设备弹窗（JS 驱动，无需页面跳转） -->
 <div class="modal fade" id="deviceModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="deviceModalTitle">新增设备</h5>
@@ -534,10 +539,12 @@ document.getElementById('deviceForm').addEventListener('submit', function(e) {
                         pwdCell.dataset.pwd = dev.password || '';
                         if (!pwdCell.dataset.deviceId) pwdCell.dataset.deviceId = dev.id;
                         pwdCell.innerHTML =
+                            '<div class="pwd-cell-inner">' +
                             '<span class="password-mask" onclick="togglePwd(this)">••••••••</span>' +
                             '<button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>' +
                             '<button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>' +
-                            '<button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="' + dev.id + '" data-device-name="' + escHtml(dev.device_name) + '" title="查看历史密码"><i class="bi-clock-history"></i></button>';
+                            '<button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="' + dev.id + '" data-device-name="' + escHtml(dev.device_name) + '" title="查看历史密码"><i class="bi-clock-history"></i></button>' +
+                            '</div>';
                         // 维修
                         cells[13].innerHTML = dev.is_maintenance ?
                             '<span class="badge bg-warning text-dark">有过维修</span>' :
@@ -744,7 +751,8 @@ function showPwdHistory(el) {
 .drag-scroll:active { cursor: grabbing; }
 .drag-scroll::-webkit-scrollbar { height: 8px; }
 .drag-scroll::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: var(--radius-sm); }
-.pwd-cell { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px; white-space: nowrap; min-width: 160px; }
+.pwd-cell { white-space: nowrap; vertical-align: middle; }
+.pwd-cell-inner { display: inline-flex; align-items: center; flex-wrap: nowrap; gap: 4px; }
 .license-period { line-height: 1.3; white-space: nowrap; }
 .license-period > div + div { color: inherit; }
 .password-mask { cursor: pointer; font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 22px; min-width: 58px; }

@@ -20,7 +20,7 @@
 <div class="content-card">
 {% if items %}
 <div class="table-responsive">
-<table class="table table-hover align-middle">
+<table class="table table-hover align-middle wide-table">
 <thead><tr><th>ID</th><th>标题</th><th>分类</th><th>标签</th><th>浏览</th><th>创建人</th><th>日期</th><th>操作</th></tr></thead>
 <tbody>
 {% for k in items %}
@@ -32,7 +32,8 @@
     <td>{{ k.view_count or 0 }}</td>
     <td>{{ k.created_by }}</td>
     <td><small>{{ k.created_at.strftime('%Y-%m-%d') if k.created_at else '' }}</small></td>
-    <td>{{ ui.table_actions(
+    <td>{{ ui.row_actions_dropdown(
+        view_url=url_for('ops.knowledge_base_detail', id=k.id),
         edit_url=url_for('ops.knowledge_base_edit', id=k.id),
         delete_url=url_for('ops.knowledge_base_delete', id=k.id),
         delete_confirm='确定删除？') }}</td>

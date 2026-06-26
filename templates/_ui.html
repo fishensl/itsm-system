@@ -33,6 +33,58 @@
 {% if delete_url %}<form method="post" action="{{ delete_url }}" class="d-inline" onsubmit="return confirm('{{ delete_confirm }}')"><button type="submit" class="btn btn-sm btn-outline-danger" title="删除"><i class="bi-trash"></i></button></form>{% endif %}
 {% endmacro %}
 
+{# 行内操作下拉（⋯）：把编辑/查看/删除（含自定义项）合并到单个按钮的 dropdown。
+   触发按钮带 js-dropdown-portal，由 static/js/dropdown-portal.js 把菜单 portal 到 body，
+   逃出 .table-responsive / .drag-scroll 的 overflow:auto 裁切。
+
+   {{ ui.row_actions_dropdown(
+        view_url=url_for('...detail'),
+        edit_onclick='editDevice(123)',   # 优先于 edit_url
+        edit_url=url_for('...edit'),
+        delete_url=url_for('...delete'),
+        delete_confirm='确定删除？',
+        extra_items=[
+          {'label':'历史','icon':'bi-clock-history','onclick':'showHist(1)'},
+          {'label':'导出','icon':'bi-download','href':'/export/1'},
+        ]) }}
+#}
+{% macro row_actions_dropdown(view_url='', edit_url='', edit_onclick='',
+                              delete_url='', delete_confirm='确定删除？',
+                              extra_items=None) %}
+<div class="dropdown d-inline-block action-dropdown">
+    <button type="button" class="btn-action-trigger js-dropdown-portal"
+            data-bs-toggle="dropdown" aria-expanded="false" title="操作">
+        <i class="bi-three-dots"></i>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+        {% if edit_onclick %}
+        <li><a class="dropdown-item" href="javascript:void(0)" onclick="{{ edit_onclick }}"><i class="bi-pencil"></i>编辑</a></li>
+        {% elif edit_url %}
+        <li><a class="dropdown-item" href="{{ edit_url }}"><i class="bi-pencil"></i>编辑</a></li>
+        {% endif %}
+        {% if view_url %}
+        <li><a class="dropdown-item" href="{{ view_url }}"><i class="bi-eye"></i>查看</a></li>
+        {% endif %}
+        {% if extra_items %}
+            {% for it in extra_items %}
+            <li><a class="dropdown-item" href="{{ it.href|default('javascript:void(0)') }}"
+                   {% if it.onclick %}onclick="{{ it.onclick }}"{% endif %}>
+                <i class="{{ it.icon }}"></i>{{ it.label }}</a></li>
+            {% endfor %}
+        {% endif %}
+        {% if delete_url %}
+        <li><hr class="dropdown-divider"></li>
+        <li>
+            <form method="post" action="{{ delete_url }}" class="d-block"
+                  onsubmit="return confirm('{{ delete_confirm }}')">
+                <button type="submit" class="dropdown-item text-danger"><i class="bi-trash"></i>删除</button>
+            </form>
+        </li>
+        {% endif %}
+    </ul>
+</div>
+{% endmacro %}
+
 {# 指标卡片
    {{ ui.metric_card('people', total_users, '用户总数', '+3 本月新增', 'primary') }}
 #}

@@ -189,38 +189,19 @@ def inspection_export():
                                download_name=f'巡检导出_{date.today().isoformat()}.xlsx')
 
 
-# ============================ 巡检任务 ============================
+# ============================ 巡检任务（V18: 已并入 task_schedule，仅保留 URL 301 兼容） ============================
 @ops_bp.route('/inspection-tasks')
 @login_required
-@require_permission('inspection:view')
 def inspection_task_list():
-    search = request.args.get('search', '')
-    page = request.args.get('page', 1, type=int)
-    query = InspectionTask.query
-    if search:
-        query = query.filter(InspectionTask.title.contains(search))
-    query = query.order_by(InspectionTask.id.desc())
-    pag = paginate(query, page=page)
-    customers = Customer.query.order_by(Customer.name).all()
-    # V11: task_templates = 新任务模板（推荐）；templates = 旧巡检模板（兼容老页面字段）
-    task_templates = InspectionTaskTemplate.query.filter_by(is_active=True).order_by(InspectionTaskTemplate.id.desc()).all()
-    templates = InspectionTemplate.query.filter_by(is_active=True).order_by(InspectionTemplate.id.desc()).all()
-    inspectors = Inspector.query.filter_by(is_active=True).join(User).order_by(User.realname, User.username).all()
-    return render_template('inspection_tasks/list.html', **paginate_render_args(pag),
-                           search=search, customers=customers,
-                           task_templates=task_templates, templates=templates,
-                           inspectors=inspectors)
+    """老列表 → 任务安排列表视图"""
+    return redirect(url_for('task_schedule.list_view', **request.args), code=301)
 
 
 @ops_bp.route('/inspection-tasks/<int:id>')
 @login_required
 def inspection_task_detail(id):
-    # V17: 任务安排看板点卡片跳这里，允许 inspection:view 或 task:schedule 任一权限
-    if not (has_permission('inspection:view') or has_permission('task:schedule')):
-        flash('权限不足，需要：巡检管理-查看 或 任务安排-看板/导入', 'danger')
-        return redirect(url_for('index'))
-    t = InspectionTask.query.get_or_404(id)
-    return render_template('inspection_tasks/detail.html', task=t)
+    """老详情 → task_schedule.task_detail"""
+    return redirect(url_for('task_schedule.task_detail', task_id=id), code=301)
 
 
 # ============================ 巡检模板 ============================
@@ -948,32 +929,16 @@ def inspection_template_delete(id):
     return redirect(url_for('ops.inspection_template_list'))
 
 
-# ============================ 巡检任务 ============================
+# ============================ 巡检任务（V18: 兼容 POST 重定向） ============================
 @ops_bp.route('/inspection-tasks/add', methods=['POST'])
 @login_required
-@require_permission('inspection:edit')
 def inspection_task_add():
-    title = (request.form.get('title') or '').strip()
-    if title:
-        t = InspectionTask(
-            title=title,
-            customer_id=int(request.form['customer_id']) if request.form.get('customer_id') else None,
-            task_type=request.form.get('task_type', '定期巡检'),
-            status='待执行',
-            inspector_ids=request.form.get('inspector_ids', ''),
-            task_template_id=int(request.form['task_template_id']) if request.form.get('task_template_id') else None,
-            priority=request.form.get('priority', '中'),
-            planned_start=_parse_date(request.form.get('planned_start')),
-            planned_end=_parse_date(request.form.get('planned_end')),
-            remark=request.form.get('remark', ''),
-        )
-        db.session.add(t); db.session.commit()
-        flash('已添加', 'success')
-    return redirect(url_for('ops.inspection_task_list'))
+    """老 add → quick_add（307 保留方法 + body）"""
+    return redirect(url_for('task_schedule.quick_add'), code=307)
 
 
 def _parse_date(s):
-    """Helper: 解析 YYYY-MM-DD 字符串为 date，失败返回 None"""
+    """Helper: 解析 YYYY-MM-DD 字符串为 date，失败返回 None（保留给其他调用方）"""
     if not s:
         return None
     try:
@@ -985,37 +950,22 @@ def _parse_date(s):
 
 @ops_bp.route('/inspection-tasks/edit/<int:id>', methods=['POST'])
 @login_required
-@require_permission('inspection:edit')
 def inspection_task_edit(id):
-    t = InspectionTask.query.get_or_404(id)
-    t.title = (request.form.get('title') or t.title).strip()
-    t.task_type = request.form.get('task_type', t.task_type)
-    t.inspector_ids = request.form.get('inspector_ids', t.inspector_ids)
-    t.status = request.form.get('status', t.status)
-    if request.form.get('task_template_id'):
-        try: t.task_template_id = int(request.form['task_template_id'])
-        except (TypeError, ValueError): pass
-    if request.form.get('priority'):
-        t.priority = request.form['priority']
-    if 'planned_start' in request.form:
-        t.planned_start = _parse_date(request.form.get('planned_start'))
-    if 'planned_end' in request.form:
-        t.planned_end = _parse_date(request.form.get('planned_end'))
-    if 'remark' in request.form:
-        t.remark = request.form.get('remark', '')
-    db.session.commit()
-    flash('已更新', 'success')
-    return redirect(url_for('ops.inspection_task_list'))
+    """老 edit：仅支持改状态字段（其余字段已迁到任务安排详情页）"""
+    new_status = (request.form.get('status') or '').strip()
+    if new_status:
+        return redirect(
+            url_for('task_schedule.change_status_form', task_id=id, status=new_status),
+            code=307,
+        )
+    return redirect(url_for('task_schedule.task_detail', task_id=id))
 
 
 @ops_bp.route('/inspection-tasks/delete/<int:id>', methods=['POST'])
 @login_required
-@require_permission('inspection:delete')
 def inspection_task_delete(id):
-    InspectionTask.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash('已删除', 'success')
-    return redirect(url_for('ops.inspection_task_list'))
+    """老 delete → task_schedule.delete_task"""
+    return redirect(url_for('task_schedule.delete_task', task_id=id), code=307)
 
 
 # ============================ 设备检查模板 (CRUD) ============================
