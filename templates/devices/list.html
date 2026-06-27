@@ -45,7 +45,7 @@
             {% endif %}
 </form>
 {% endcall %}
-{% if city_data %}
+{% if customer_groups %}
 
 {# ========== 客户卡片宏（父→子单位递归） ========== #}
 {% macro render_customer_card(group, is_child=False) %}
@@ -161,21 +161,8 @@
 </div>
 {% endmacro %}
 
-{% for city, customer_list in city_data.items() %}
-<!-- 地市区块 -->
-<div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center surface-muted" style="cursor:pointer;" onclick="toggleCity(this)">
-        <h5 class="mb-0"><i class="bi-geo-alt text-primary"></i> {{ city }}
-            <span class="badge bg-primary ms-2">{{ customer_list|length }} 个客户</span>
-        </h5>
-        <i class="bi-chevron-down"></i>
-    </div>
-    <div class="card-body city-body">
-        {% for group in customer_list %}
-            {{ render_customer_card(group, is_child=False) }}
-        {% endfor %}
-    </div>
-</div>
+{% for group in customer_groups %}
+    {{ render_customer_card(group, is_child=False) }}
 {% endfor %}
 {% else %}
 <div class="card">

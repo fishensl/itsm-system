@@ -16,7 +16,7 @@ from sqlalchemy.orm import joinedload
 from services.customer_service import (create_customer, update_customer, delete_customer,
                                         get_customer_with_regions,
                                         parse_extra_fields, serialize_extra_fields)
-from services.customer_hierarchy import build_city_tree, candidate_parents
+from services.customer_hierarchy import build_flat_nodes, candidate_parents
 from utils.permission import require_permission, get_user_permissions
 
 
@@ -45,10 +45,11 @@ def customer_list():
         joinedload(Customer.category_rel),
     )
     customers = query.order_by(Customer.id.desc()).all()
-    city_tree = build_city_tree(customers)
+    flat_nodes = build_flat_nodes(customers)
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
-    return render_template('customers/list.html', city_tree=city_tree, total=len(customers),
-                           search=search, categories=categories,
+    return render_template('customers/list.html', flat_nodes=flat_nodes,
+                           total=len(customers), search=search,
+                           categories=categories,
                            current_category_id=category_id or 0)
 
 

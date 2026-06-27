@@ -75,12 +75,10 @@ def device_list():
     models_list = db.session.query(Device.model).distinct().filter(Device.model != '').all()
     brands_list = db.session.query(Device.brand).distinct().filter(Device.brand != '').all()
     types_list = db.session.query(Device.device_type).distinct().filter(Device.device_type != '').all()
-    # 按地市 → 客户（含父/子单位嵌套）分组
-    # - 父单位卡片内先列自身设备，再嵌套该地市同类别下属县级单位的卡片
-    # - 父子关系来自 services/customer_hierarchy.derive_parent_id：
+    # 当前页按客户分组，再按父子单位嵌套（不再按地市分组 —— 客户名里已含市/县）
+    # 父子关系来自 services/customer_hierarchy.derive_parent_id：
     #   Customer.parent_id（手动覆盖）> 同类别+父市的市级客户
-    from services.customer_hierarchy import derive_parent_id, build_parent_index, city_of
-    city_data = {}
+    from services.customer_hierarchy import derive_parent_id, build_parent_index
     # 1. 当前页设备按客户分组
     by_customer = {}
     for d in pag['items']:
@@ -89,8 +87,7 @@ def device_list():
         else:
             d._days_to_expiry = None
         by_customer.setdefault(d.customer_id, []).append(d)
-    # 2. 取出本页所涉客户（用于决定父子归属）。父客户即便本页无设备，也要拉进来，
-    #    保证县级子单位能正确折叠到父市单位下。
+    # 2. 取出本页所涉客户（用于决定父子归属）。父客户即便本页无设备，也要拉进来。
     cust_ids = [cid for cid in by_customer.keys() if cid is not None]
     cust_map = {}
     if cust_ids:
@@ -98,15 +95,13 @@ def device_list():
             joinedload(Customer.region_rel).joinedload(Region.parent),
             joinedload(Customer.category_rel),
         ).filter(Customer.id.in_(cust_ids)).all()
-        # 把它们的潜在父客户也拉过来（同类别同父市的市级单位）
         extra_parent_keys = set()
         for c in page_customers:
             if c.region_rel and c.region_rel.parent_id and c.category_id:
                 extra_parent_keys.add((c.region_rel.parent_id, c.category_id))
         extra_parents = []
         if extra_parent_keys:
-            from sqlalchemy import and_, or_, tuple_
-            # 用 OR 拼接（SQLite 对 tuple_ in 支持有限）
+            from sqlalchemy import and_, or_
             cond = None
             for rid, catid in extra_parent_keys:
                 term = and_(Customer.region_id == rid, Customer.category_id == catid,
@@ -117,48 +112,40 @@ def device_list():
                     joinedload(Customer.region_rel).joinedload(Region.parent),
                     joinedload(Customer.category_rel),
                 ).filter(cond).all()
-        all_customers = page_customers + extra_parents
-        for c in all_customers:
+        for c in list(page_customers) + list(extra_parents):
             cust_map[c.id] = c
-    # 3. 算父子映射
+    # 3. 父子映射
     parent_index = build_parent_index(list(cust_map.values()))
-    parent_of = {}     # cid -> parent_cid（仅当父也在 cust_map 内）
-    children_of = {}   # cid -> [child_cid,...]
+    parent_of = {}
+    children_of = {}
     for c in cust_map.values():
         pid = derive_parent_id(c, parent_index)
         if pid and pid in cust_map:
             parent_of[c.id] = pid
             children_of.setdefault(pid, []).append(c.id)
-    # 4. 组织成 city → [节点树]
-    def _city_for(cid):
-        c = cust_map.get(cid)
-        if not c:
-            return '未分配客户'
-        return city_of(c)
-    # 仅顶层客户在 city 维度展开
-    top_ids = [cid for cid in cust_map.keys() if cid not in parent_of]
-    # 同样得保证「本页有设备但属于顶层」的客户出现；以及「父在本页但自身没设备」也要出现
-    top_ids = list(dict.fromkeys(top_ids))
+    # 4. 平铺为顶层节点列表（父行 → children），按客户名排序
+    customer_groups = []
+    top_ids = sorted([cid for cid in cust_map.keys() if cid not in parent_of],
+                     key=lambda i: cust_map[i].name)
     for top_id in top_ids:
         c = cust_map[top_id]
-        city = _city_for(top_id)
-        # 自身设备 + 子单位
         node = {
             'customer': c,
             'devices': by_customer.get(top_id, []),
             'children': [
-                {'customer': cust_map[child_id], 'devices': by_customer.get(child_id, [])}
+                {'customer': cust_map[child_id], 'devices': by_customer.get(child_id, []),
+                 'children': []}
                 for child_id in sorted(children_of.get(top_id, []),
                                        key=lambda i: cust_map[i].name)
             ],
         }
-        # 父客户若本页既无设备又无子单位的设备 → 跳过（避免拉一堆空父卡）
+        # 父客户若本页既无设备又无子单位的设备 → 跳过
         if not node['devices'] and not any(ch['devices'] for ch in node['children']):
             continue
-        city_data.setdefault(city, []).append(node)
+        customer_groups.append(node)
     # 「未分配客户」兜底：customer_id 为 None 的设备
     if None in by_customer:
-        city_data.setdefault('未分配客户', []).append({
+        customer_groups.append({
             'customer': None,
             'devices': by_customer[None],
             'children': [],
@@ -173,7 +160,7 @@ def device_list():
         models_list=[m[0] for m in models_list if m[0]],
         brands_list=[b[0] for b in brands_list if b[0]],
         types_list=[t[0] for t in types_list if t[0]],
-        city_data=city_data,
+        customer_groups=customer_groups,
         filters={
             'model': model_filter, 'brand': brand_filter,
             'device_type': type_filter, 'customer_id': customer_filter,

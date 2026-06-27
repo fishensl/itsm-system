@@ -71,6 +71,36 @@ def _category_of(customer):
     return customer.category_rel.name if customer.category_rel else '未分类'
 
 
+def build_flat_nodes(customers):
+    """把客户列表组织成「顶层节点 + 子节点」一维列表（不分地市分组）。
+
+    返回 [{'customer': Customer, 'children': [Customer, ...]}, ...]
+    - 顶层节点排序：先按客户名（中文按拼音 fallback 到 utf8）稳定
+    - 子节点按客户名排序
+    """
+    parent_index = build_parent_index(customers)
+    by_id = {c.id: c for c in customers}
+
+    effective_parent = {}
+    for c in customers:
+        pid = derive_parent_id(c, parent_index)
+        if pid and pid in by_id:
+            effective_parent[c.id] = pid
+
+    node_of = {c.id: {'customer': c, 'children': []} for c in customers}
+    for cid, pid in effective_parent.items():
+        node_of[pid]['children'].append(node_of[cid]['customer'])
+
+    # 子节点按名字排序
+    for n in node_of.values():
+        n['children'].sort(key=lambda x: x.name)
+
+    # 顶层节点按名字排序
+    tops = [node_of[c.id] for c in customers if c.id not in effective_parent]
+    tops.sort(key=lambda n: n['customer'].name)
+    return tops
+
+
 def build_city_tree(customers):
     """把客户列表组织成「地市 → 单位类别 → 父单位（含 children）」三段结构。
 
