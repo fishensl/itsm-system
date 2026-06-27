@@ -46,6 +46,121 @@
 </form>
 {% endcall %}
 {% if city_data %}
+
+{# ========== 客户卡片宏（父→子单位递归） ========== #}
+{% macro render_customer_card(group, is_child=False) %}
+<div class="card mb-2 {% if is_child %}border-secondary unit-child{% else %}border-info{% endif %}">
+    <div class="card-header d-flex justify-content-between align-items-center py-2 surface-muted" style="cursor:pointer;" onclick="toggleCustomer(this)">
+        <div>
+            {% if is_child %}
+                <i class="bi-arrow-return-right text-secondary me-1"></i>
+                <span class="text-muted small me-1">下级</span>
+            {% else %}
+                <i class="bi-building text-info me-1"></i>
+            {% endif %}
+            <strong>{% if group.customer %}{{ group.customer.name }}{% else %}未分配客户{% endif %}</strong>
+            <span class="badge {% if is_child %}bg-secondary{% else %}bg-info{% endif %} ms-1">{{ group.devices|length }} 台设备</span>
+            {% if group.children and group.children|length %}
+                <span class="badge bg-primary ms-1">下级 {{ group.children|length }}</span>
+            {% endif %}
+        </div>
+        <i class="bi-chevron-down text-muted small"></i>
+    </div>
+    <div class="card-body p-0 customer-body" style="display:none">
+        {% if group.devices %}
+        <div class="table-responsive drag-scroll" style="margin:0;">
+            <table class="table table-hover align-middle mb-0 wide-table">
+                <thead>
+                    <tr>
+                        <th>设备名称</th>
+                        <th>类型</th>
+                        <th>品牌/型号</th>
+                        <th>序列号</th>
+                        <th>安装位置</th>
+                        <th>系统版本</th>
+                        <th>规则库版本</th>
+                        <th>授权时间</th>
+                        <th>登录方式</th>
+                        <th>接口</th>
+                        <th>IP:端口</th>
+                        <th>登录用户</th>
+                        <th>密码</th>
+                        <th>维修</th>
+                        <th>在用</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in group.devices %}
+                    {% set _license_warn = (d._days_to_expiry is not none and d._days_to_expiry <= 30) %}
+                    <tr data-device-id="{{ d.id }}">
+                        <td><strong><a href="{{ url_for('asset.device_detail', id=d.id) }}" {% if _license_warn %}class="text-danger"{% endif %}>{{ d.device_name }}</a></strong></td>
+                        <td><span class="badge bg-secondary">{{ d.device_type or '-' }}</span></td>
+                        <td>{{ d.brand }} {{ d.model }}</td>
+                        <td><code>{{ d.serial_number or '-' }}</code></td>
+                        <td><code>{{ d.location or '-' }}</code></td>
+                        <td><code>{{ d.os_version or '-' }}</code></td>
+                        <td><code>{{ d.rule_version or '-' }}</code></td>
+                        <td {% if _license_warn %}class="text-danger fw-semibold" title="{% if d._days_to_expiry < 0 %}已过期 {{ -d._days_to_expiry }} 天{% else %}剩 {{ d._days_to_expiry }} 天{% endif %}"{% endif %}>
+                            <div class="license-period">
+                                <div>{{ d.license_start or '-' }}</div>
+                                <div>{{ d.license_expiry or '-' }}</div>
+                            </div>
+                        </td>
+                        <td><span class="badge bg-secondary">{{ d.login_method or '-' }}</span></td>
+                        <td><code>{{ d.interface or '-' }}</code></td>
+                        <td><code>{{ d.ip_address }}:{{ d.port }}</code></td>
+                        <td>{{ d.username }}</td>
+                        <td class="pwd-cell" data-device-id="{{ d.id }}">
+                            <div class="pwd-cell-inner">
+                                <span class="password-mask" onclick="togglePwd(this)">••••••••</span>
+                                <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>
+                                <button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>
+                                <button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="{{ d.id }}" data-device-name="{{ d.device_name }}" title="查看历史密码"><i class="bi-clock-history"></i></button>
+                            </div>
+                        </td>
+                        <td>
+                            {% if d.is_maintenance %}
+                                <span class="badge bg-warning text-dark">有过维修</span>
+                            {% else %}
+                                <span class="text-muted">无维修过</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if d.is_in_use %}
+                                <span class="badge bg-success">在用</span>
+                            {% else %}
+                                <span class="badge bg-secondary">停用</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {{ ui.row_actions_dropdown(
+                                edit_onclick='editDevice(' ~ d.id ~ ')',
+                                view_url=url_for('asset.device_detail', id=d.id),
+                                delete_url=url_for('asset.device_delete', id=d.id),
+                                delete_confirm='确定删除？') }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        {{ eui.empty_state('bi-info-circle', '该单位本页暂无设备') }}
+        {% endif %}
+
+        {# 嵌套子单位（同类别同市的县级单位） #}
+        {% if group.children %}
+        <div class="p-2 ps-4 child-wrap">
+            {% for child in group.children %}
+                {{ render_customer_card(child, is_child=True) }}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
 {% for city, customer_list in city_data.items() %}
 <!-- 地市区块 -->
 <div class="card mb-3">
@@ -57,100 +172,7 @@
     </div>
     <div class="card-body city-body">
         {% for group in customer_list %}
-        <!-- 客户区块 -->
-        <div class="card mb-2 border-info">
-            <div class="card-header d-flex justify-content-between align-items-center py-2 surface-muted" style="cursor:pointer;" onclick="toggleCustomer(this)">
-                <div>
-                    <i class="bi-building text-info me-1"></i>
-                    <strong>{{ group.customer.name }}</strong>
-                    <span class="badge bg-info ms-1">{{ group.devices|length }} 台设备</span>
-                </div>
-                <i class="bi-chevron-down text-muted small"></i>
-            </div>
-            <div class="card-body p-0 customer-body" style="display:none">
-                {% if group.devices %}
-                <div class="table-responsive drag-scroll" style="margin:0;">
-                    <table class="table table-hover align-middle mb-0 wide-table">
-                        <thead>
-                            <tr>
-                                <th>设备名称</th>
-                                <th>类型</th>
-                                <th>品牌/型号</th>
-                                <th>序列号</th>
-                                <th>安装位置</th>
-                                <th>系统版本</th>
-                                <th>规则库版本</th>
-                                <th>授权时间</th>
-                                <th>登录方式</th>
-                                <th>接口</th>
-                                <th>IP:端口</th>
-                                <th>登录用户</th>
-                                <th>密码</th>
-                                <th>维修</th>
-                                <th>在用</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for d in group.devices %}
-                            {% set _license_warn = (d._days_to_expiry is not none and d._days_to_expiry <= 30) %}
-                            <tr data-device-id="{{ d.id }}">
-                                <td><strong><a href="{{ url_for('asset.device_detail', id=d.id) }}" {% if _license_warn %}class="text-danger"{% endif %}>{{ d.device_name }}</a></strong></td>
-                                <td><span class="badge bg-secondary">{{ d.device_type or '-' }}</span></td>
-                                <td>{{ d.brand }} {{ d.model }}</td>
-                                <td><code>{{ d.serial_number or '-' }}</code></td>
-                                <td><code>{{ d.location or '-' }}</code></td>
-                                <td><code>{{ d.os_version or '-' }}</code></td>
-                                <td><code>{{ d.rule_version or '-' }}</code></td>
-                                <td {% if _license_warn %}class="text-danger fw-semibold" title="{% if d._days_to_expiry < 0 %}已过期 {{ -d._days_to_expiry }} 天{% else %}剩 {{ d._days_to_expiry }} 天{% endif %}"{% endif %}>
-                                    <div class="license-period">
-                                        <div>{{ d.license_start or '-' }}</div>
-                                        <div>{{ d.license_expiry or '-' }}</div>
-                                    </div>
-                                </td>
-                                <td><span class="badge bg-secondary">{{ d.login_method or '-' }}</span></td>
-                                <td><code>{{ d.interface or '-' }}</code></td>
-                                <td><code>{{ d.ip_address }}:{{ d.port }}</code></td>
-                                <td>{{ d.username }}</td>
-                                <td class="pwd-cell" data-device-id="{{ d.id }}">
-                                    <div class="pwd-cell-inner">
-                                        <span class="password-mask" onclick="togglePwd(this)">••••••••</span>
-                                        <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>
-                                        <button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>
-                                        <button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="{{ d.id }}" data-device-name="{{ d.device_name }}" title="查看历史密码"><i class="bi-clock-history"></i></button>
-                                    </div>
-                                </td>
-                                <td>
-                                    {% if d.is_maintenance %}
-                                        <span class="badge bg-warning text-dark">有过维修</span>
-                                    {% else %}
-                                        <span class="text-muted">无维修过</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if d.is_in_use %}
-                                        <span class="badge bg-success">在用</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">停用</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {{ ui.row_actions_dropdown(
-                                        edit_onclick='editDevice(' ~ d.id ~ ')',
-                                        view_url=url_for('asset.device_detail', id=d.id),
-                                        delete_url=url_for('asset.device_delete', id=d.id),
-                                        delete_confirm='确定删除？') }}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                {{ eui.empty_state('bi-info-circle', '该客户暂无设备') }}
-                {% endif %}
-            </div>
-        </div>
+            {{ render_customer_card(group, is_child=False) }}
         {% endfor %}
     </div>
 </div>

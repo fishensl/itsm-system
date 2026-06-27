@@ -220,6 +220,7 @@ class Customer(db.Model):
     email = db.Column(db.String(128), default='')
     region_id = db.Column(db.Integer, db.ForeignKey('regions.id'), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('customer_categories.id'), nullable=True)  # 单位类别
+    parent_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)  # 手动指定上级单位（空=按地区+类别自动推导）
     city = db.Column(db.String(64), default='')
     address = db.Column(db.String(256), default='')
     office = db.Column(db.String(128), default='')          # 办公室
@@ -240,6 +241,7 @@ class Customer(db.Model):
 
     region_rel = db.relationship('Region', backref='customers', lazy=True)
     category_rel = db.relationship('CustomerCategory', backref='customers', lazy=True)
+    parent = db.relationship('Customer', remote_side='Customer.id', backref='children')
     devices = db.relationship('Device', backref='customer', lazy='dynamic',
                               cascade='all, delete-orphan')
 

@@ -44,12 +44,22 @@
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label">单位类别</label>
-                    <select name="category_id" class="form-select">
+                    <select name="category_id" id="categorySelect" class="form-select">
                         <option value="">-- 不填 --</option>
                         {% for cat in categories %}
                         <option value="{{ cat.id }}" {% if customer and customer.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
                         {% endfor %}
                     </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">上级单位 <small class="text-muted">(可选)</small></label>
+                    <select name="parent_id" id="parentSelect" class="form-select">
+                        <option value="">-- 自动按地区+类别推导 --</option>
+                        {% for p in parent_candidates %}
+                        <option value="{{ p.id }}" {% if customer and customer.parent_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">留空 = 同类别同父市的市级单位自动作为上级；非空 = 手动覆盖</small>
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label">客户级别 <span class="text-muted small">(自动计算)</span></label>
@@ -199,6 +209,31 @@ function addCustomField(name, value){
     citySelect.addEventListener('change', function(){
         loadDistricts(this.value, null);
     });
+
+    // 切换单位类别 → 重新拉取上级单位候选
+    var categorySelect = document.getElementById('categorySelect');
+    var parentSelect = document.getElementById('parentSelect');
+    var selfId = {{ customer.id if customer else 'null' }};
+    if (categorySelect && parentSelect) {
+        categorySelect.addEventListener('change', function(){
+            var catId = this.value;
+            if (!catId) {
+                parentSelect.innerHTML = '<option value="">-- 自动按地区+类别推导 --</option>';
+                return;
+            }
+            var url = '/api/customers/parent-candidates?category_id=' + catId
+                       + (selfId ? '&exclude_id=' + selfId : '');
+            fetch(url).then(function(r){return r.json();}).then(function(d){
+                var opts = '<option value="">-- 自动按地区+类别推导 --</option>';
+                if (d.success) {
+                    d.items.forEach(function(it){
+                        opts += '<option value="' + it.id + '">' + it.name + '</option>';
+                    });
+                }
+                parentSelect.innerHTML = opts;
+            });
+        });
+    }
 
     // 勾选「有驻场服务」后展开驻场信息（联系人/联系方式/办公室）
     var onsiteCheck = document.getElementById('has_onsite');

@@ -91,6 +91,39 @@ def _derive_level(c, has_onsite, has_drill, manual_tier):
     return _calculate_tier(c.device_count or 0, has_onsite, has_drill)
 
 
+def _resolve_parent_id(raw, self_id=None):
+    """把表单提交的 parent_id 校验并转成 int|None。
+
+    - 空 → None（走自动推导）
+    - 指向自己 → ServiceError
+    - 指向自己的后代 → ServiceError（防自环）
+    - 指向不存在的客户 → ServiceError
+    """
+    if raw in (None, '', '0', 0):
+        return None
+    try:
+        pid = int(raw)
+    except (TypeError, ValueError):
+        raise ServiceError('上级单位 ID 无效')
+    if pid <= 0:
+        return None
+    if self_id and pid == self_id:
+        raise ServiceError('上级单位不能选自己')
+    parent = Customer.query.get(pid)
+    if not parent:
+        raise ServiceError('上级单位不存在')
+    # 自环检测：父→父→…若回到 self_id 则拒绝
+    if self_id:
+        seen = set()
+        cur = parent
+        while cur and cur.parent_id and cur.parent_id not in seen:
+            if cur.parent_id == self_id:
+                raise ServiceError('不能选自己的下级单位作为上级')
+            seen.add(cur.parent_id)
+            cur = Customer.query.get(cur.parent_id)
+    return pid
+
+
 @transaction
 def create_customer(data, device_count=0):
     """新增客户
@@ -116,6 +149,7 @@ def create_customer(data, device_count=0):
         email=data.get('email') or '',
         region_id=int(region_id) if region_id else None,
         category_id=int(data['category_id']) if data.get('category_id') else None,
+        parent_id=_resolve_parent_id(data.get('parent_id')),
         city='',  # 由 region 推导
         office=data.get('office') or '',
         has_onsite=data.get('has_onsite') == 'on',
@@ -157,6 +191,7 @@ def update_customer(customer_id, data):
     c.email = data.get('email') or ''
     c.region_id = int(region_id) if region_id else None
     c.category_id = int(data['category_id']) if data.get('category_id') else None
+    c.parent_id = _resolve_parent_id(data.get('parent_id'), self_id=c.id)
     c.city = ''
     c.office = data.get('office') or ''
     c.has_onsite = data.get('has_onsite') == 'on'

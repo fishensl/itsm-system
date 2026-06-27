@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_pagination.html" import pagination_bar %}
 {% import "_ui.html" as ui %}
 {% import "_empty_state.html" as eui %}
 {% block content %}{% call ui.page_header('客户管理', 'people') %}    <a href="/exports/download-template/customer" class="btn btn-outline-secondary btn-sm me-2"><i class="bi bi-download"></i> 下载模板</a>
@@ -25,56 +24,143 @@
             </select>
             <button type="submit" class="btn btn-outline-primary btn-sm">筛选</button>
             {% if search or current_category_id %}<a href="{{ url_for('customer.customer_list') }}" class="btn btn-link btn-sm">清除</a>{% endif %}
+            <span class="text-muted small ms-2">共 {{ total }} 个单位</span>
         </div>
     </form>
     {% endcall %}
-    {% if items %}
-    <div class="table-responsive">
-        <table class="table data-table table-hover align-middle wide-table">
-            <thead>
-                <tr>
-                    <th>ID</th><th>客户名称</th><th>单位类别</th><th>联系人</th><th>电话</th>
-                    <th>所属地市</th><th>级别</th><th>巡检频率</th><th>驻场</th><th>演练</th><th>设备数</th><th class="text-end">操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for c in items %}
-                <tr>
-                    <td>{{ c.id }}</td>
-                    <td><a href="{{ url_for('customer.customer_detail', id=c.id) }}" class="text-decoration-none"><strong>{{ c.name }}</strong></a></td>
-                    <td>{{ c.category_rel.name if c.category_rel else '<span class="text-muted">-</span>' }}</td>
-                    <td>{{ c.contact_person or '-' }}</td>
-                    <td>{{ c.phone or '-' }}</td>
-                    <td>
-                      {% if c.region_rel and c.region_rel.parent %}
-                        {{ c.region_rel.parent.name }} - {{ c.region_rel.name }}
-                      {% elif c.region_rel %}
-                        {{ c.region_rel.name }}
-                      {% else %}
-                        {{ c.city or '-' }}
-                      {% endif %}
-                    </td>
-                    <td>{{ eui.level_badge(c.level) }}</td>
-                    <td>{{ c.inspection_frequency or '-' }}</td>
-                    <td>{% if c.has_onsite %}<i class="bi-check-circle-fill text-success"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                    <td>{% if c.has_drill %}<i class="bi-check-circle-fill text-primary"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                    <td>{{ c.device_count or c.devices.count() }}</td>
-                    <td class="text-end">
-                        {{ ui.row_actions_dropdown(
-                            view_url=url_for('customer.customer_detail', id=c.id),
-                            edit_url=url_for('customer.customer_edit', id=c.id),
-                            delete_url=url_for('customer.customer_delete', id=c.id),
-                            delete_confirm='确定删除？'
-                        ) }}
-                    </td>
-                </tr>
+
+    {# === 树视图渲染宏 === #}
+    {% macro render_row(c, is_child=False, child_count=0) %}
+    <tr {% if is_child %}class="sub-unit-row"{% endif %}>
+        <td>
+            {% if is_child %}
+                <span class="ms-4 text-muted small me-1"><i class="bi-arrow-return-right"></i></span>
+            {% elif child_count %}
+                <i class="bi-chevron-right toggle-icon" style="cursor:pointer;" onclick="toggleSubUnits(this)"></i>
+            {% else %}
+                <span class="toggle-placeholder"></span>
+            {% endif %}
+            <a href="{{ url_for('customer.customer_detail', id=c.id) }}" class="text-decoration-none">
+                <strong>{{ c.name }}</strong>
+            </a>
+            {% if child_count %}<span class="badge bg-secondary ms-1">下级 {{ child_count }}</span>{% endif %}
+        </td>
+        <td>{{ c.contact_person or '-' }}</td>
+        <td>{{ c.phone or '-' }}</td>
+        <td>
+          {% if c.region_rel and c.region_rel.parent %}
+            {{ c.region_rel.parent.name }} - {{ c.region_rel.name }}
+          {% elif c.region_rel %}
+            {{ c.region_rel.name }}
+          {% else %}
+            {{ c.city or '-' }}
+          {% endif %}
+        </td>
+        <td>{{ eui.level_badge(c.level) }}</td>
+        <td>{{ c.inspection_frequency or '-' }}</td>
+        <td>{% if c.has_onsite %}<i class="bi-check-circle-fill text-success"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td>{% if c.has_drill %}<i class="bi-check-circle-fill text-primary"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td>{{ c.device_count or c.devices.count() }}</td>
+        <td class="text-end">
+            {{ ui.row_actions_dropdown(
+                view_url=url_for('customer.customer_detail', id=c.id),
+                edit_url=url_for('customer.customer_edit', id=c.id),
+                delete_url=url_for('customer.customer_delete', id=c.id),
+                delete_confirm='确定删除？'
+            ) }}
+        </td>
+    </tr>
+    {% endmacro %}
+
+    {% if city_tree %}
+        {% for city, cat_map in city_tree.items() %}
+        <!-- 地市卡片 -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center surface-muted"
+                 style="cursor:pointer;" onclick="toggleCity(this)">
+                <h5 class="mb-0"><i class="bi-geo-alt text-primary"></i> {{ city }}
+                    {% set city_total = namespace(n=0) %}
+                    {% for _cat, nodes in cat_map.items() %}
+                        {% set city_total.n = city_total.n + nodes|length %}
+                        {% for n in nodes %}{% set city_total.n = city_total.n + (n.children|length) %}{% endfor %}
+                    {% endfor %}
+                    <span class="badge bg-primary ms-2">{{ city_total.n }} 个单位</span>
+                </h5>
+                <i class="bi-chevron-down"></i>
+            </div>
+            <div class="card-body city-body">
+                {% for category, nodes in cat_map.items() %}
+                <div class="cat-block mb-3">
+                    <div class="cat-title text-muted small fw-semibold mb-1">
+                        <i class="bi-tag"></i> {{ category }}
+                        <span class="badge bg-light text-secondary ms-1">{{ nodes|length }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table data-table table-hover align-middle wide-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th style="min-width:240px">客户名称</th>
+                                    <th>联系人</th><th>电话</th><th>所属地市</th>
+                                    <th>级别</th><th>巡检频率</th><th>驻场</th><th>演练</th><th>设备数</th>
+                                    <th class="text-end">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for node in nodes %}
+                                    {{ render_row(node.customer, is_child=False, child_count=node.children|length) }}
+                                    {% for child in node.children %}
+                                        {{ render_row(child, is_child=True) }}
+                                    {% endfor %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {{ pagination_bar(page, total_pages, has_prev, has_next, prev_page, next_page, total, start, end, search) }}
+            </div>
+        </div>
+        {% endfor %}
     {% else %}
     {{ eui.empty_state('bi-people', '暂无客户数据', '点击右上角「新增客户」开始添加', url_for('customer.customer_add'), '新增客户') }}
     {% endif %}
 </div>
+
+<style>
+/* 子单位行视觉收紧 */
+.sub-unit-row { background-color: rgba(13,110,253,.025); display:none; }
+.sub-unit-row.show { display: table-row; }
+.toggle-icon { display:inline-block; width:1rem; text-align:center; color:#6c757d; transition: transform .15s; }
+.toggle-icon.expanded { transform: rotate(90deg); color:#0d6efd; }
+.toggle-placeholder { display:inline-block; width:1rem; }
+.cat-title { padding: .25rem .25rem .25rem 0; border-bottom: 1px dashed #dee2e6; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 展开/收起地市卡片
+function toggleCity(el) {
+    const body = el.parentElement.querySelector('.city-body');
+    const icon = el.querySelector('.bi-chevron-down, .bi-chevron-right');
+    if (body.style.display === 'none') {
+        body.style.display = '';
+        if (icon) icon.className = 'bi-chevron-down';
+    } else {
+        body.style.display = 'none';
+        if (icon) icon.className = 'bi-chevron-right';
+    }
+}
+
+// 展开/收起父单位下的子单位（同表内连续若干 .sub-unit-row）
+function toggleSubUnits(iconEl) {
+    const parentRow = iconEl.closest('tr');
+    const expanded = iconEl.classList.toggle('expanded');
+    // 向下遍历兄弟节点，遇到非 .sub-unit-row 停止
+    let row = parentRow.nextElementSibling;
+    while (row && row.classList.contains('sub-unit-row')) {
+        row.classList.toggle('show', expanded);
+        row = row.nextElementSibling;
+    }
+}
+</script>
 {% endblock %}

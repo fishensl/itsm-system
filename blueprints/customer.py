@@ -13,10 +13,10 @@ from models import (Customer, CustomerCategory, Region,
                     Device, db)
 from models import UserPermission, Permission
 from sqlalchemy.orm import joinedload
-from utils.pagination import paginate, paginate_render_args
 from services.customer_service import (create_customer, update_customer, delete_customer,
                                         get_customer_with_regions,
                                         parse_extra_fields, serialize_extra_fields)
+from services.customer_hierarchy import build_city_tree, candidate_parents
 from utils.permission import require_permission, get_user_permissions
 
 
@@ -30,7 +30,6 @@ customer_bp = Blueprint('customer', __name__)
 def customer_list():
     search = request.args.get('search', '')
     category_id = request.args.get('category_id', type=int)
-    page = request.args.get('page', 1, type=int)
     query = Customer.query
     if search:
         query = query.filter(
@@ -40,12 +39,17 @@ def customer_list():
         )
     if category_id:
         query = query.filter_by(category_id=category_id)
-    query = query.options(joinedload(Customer.region_rel).joinedload(Region.parent))
-    query = query.order_by(Customer.id.desc())
-    pag = paginate(query, page=page)
+    # 树视图整体取出（与 departments 一致），不再分页
+    query = query.options(
+        joinedload(Customer.region_rel).joinedload(Region.parent),
+        joinedload(Customer.category_rel),
+    )
+    customers = query.order_by(Customer.id.desc()).all()
+    city_tree = build_city_tree(customers)
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
-    return render_template('customers/list.html', **paginate_render_args(pag), search=search,
-                          categories=categories, current_category_id=category_id or 0)
+    return render_template('customers/list.html', city_tree=city_tree, total=len(customers),
+                           search=search, categories=categories,
+                           current_category_id=category_id or 0)
 
 
 @customer_bp.route('/customers/add', methods=['GET', 'POST'])
@@ -78,7 +82,8 @@ def customer_add():
     ctx = get_customer_with_regions()
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
     return render_template('customers/form.html', customer=None,
-                           categories=categories, custom_fields=[], **ctx)
+                           categories=categories, custom_fields=[],
+                           parent_candidates=[], **ctx)
 
 
 @customer_bp.route('/customers/edit/<int:id>', methods=['GET', 'POST'])
@@ -114,7 +119,9 @@ def customer_edit(id):
     categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
     return render_template('customers/form.html', customer=c,
                            categories=categories,
-                           custom_fields=parse_extra_fields(c), **ctx)
+                           custom_fields=parse_extra_fields(c),
+                           parent_candidates=candidate_parents(c.category_id, exclude_id=c.id),
+                           **ctx)
 
 
 @customer_bp.route('/customers/delete/<int:id>', methods=['POST'])
@@ -375,3 +382,21 @@ def api_region_children(parent_id):
     children = Region.query.filter_by(parent_id=parent_id)\
         .order_by(Region.sort_order, Region.id).all()
     return jsonify({'success': True, 'items': [{'id': r.id, 'name': r.name} for r in children]})
+
+
+@customer_bp.route('/api/customers/parent-candidates')
+@login_required
+def api_parent_candidates():
+    """返回指定类别下可作为「上级单位」的市级客户（JSON）。
+
+    Query 参数：
+      - category_id（必填）
+      - exclude_id（可选，编辑场景排除自己 + 自己的后代）
+    """
+    cat_id = request.args.get('category_id', type=int)
+    exclude_id = request.args.get('exclude_id', type=int)
+    if not cat_id:
+        return jsonify({'success': True, 'items': []})
+    items = candidate_parents(cat_id, exclude_id=exclude_id)
+    return jsonify({'success': True,
+                    'items': [{'id': c.id, 'name': c.name} for c in items]})
