@@ -234,53 +234,126 @@
 
 {# ============================ 报文分析 ============================ #}
 {% elif tool == 'packet' %}
-<h5 class="mb-3"><i class="bi-search"></i> 报文分析</h5>
-<div class="alert alert-info py-2 small">
-    <i class="bi-info-circle"></i> 支持两种输入方式：
-    <strong>① 直接粘贴</strong>十六进制或 Base64 字节串；
-    <strong>② 上传文件</strong>（.pcap/.pcapng 自动取首帧；.bin/.txt 取整体）。
-    自动解析以太网/IPv4/TCP/UDP/ICMP/ARP 字段。
-</div>
+<h5 class="mb-2"><i class="bi-search"></i> 报文分析</h5>
 
-<ul class="nav nav-tabs mb-3" role="tablist">
-    <li class="nav-item"><a class="nav-link active" href="#tab-pkt-text" data-bs-toggle="tab">直接粘贴</a></li>
-    <li class="nav-item"><a class="nav-link" href="#tab-pkt-file" data-bs-toggle="tab">上传文件</a></li>
-</ul>
-<div class="tab-content mb-3">
-    <div class="tab-pane active" id="tab-pkt-text">
-        <div class="row">
-            <div class="col-md-2 mb-3"><label class="form-label">输入格式</label>
-                <select id="pkt_fmt" class="form-select">
-                    <option value="hex" selected>HEX</option>
-                    <option value="base64">Base64</option>
-                </select>
-            </div>
-            <div class="col-md-10 mb-3"><label class="form-label">报文数据 (从以太网头开始)</label>
-                <textarea id="pkt_data" class="form-control font-monospace" rows="4" placeholder="如：001122334455aabbccddeeff080045000028..."></textarea>
-            </div>
+{# 顶部紧凑工具条：一行容纳 模式 / 格式 / 输入(粘贴)或文件 / 解析 / 重置 #}
+<div class="row g-2 align-items-center mb-2">
+    <div class="col-auto">
+        <div class="btn-group btn-group-sm" role="group" id="pkt_mode_group">
+            <input type="radio" class="btn-check" name="pkt_mode" id="pkt_mode_file" value="file" checked>
+            <label class="btn btn-outline-primary" for="pkt_mode_file"><i class="bi-upload"></i> 文件</label>
+            <input type="radio" class="btn-check" name="pkt_mode" id="pkt_mode_paste" value="paste">
+            <label class="btn btn-outline-primary" for="pkt_mode_paste"><i class="bi-clipboard"></i> 粘贴</label>
         </div>
-        <div class="small text-muted mb-2">
-            示例：<code class="ms-1" style="cursor:pointer;" onclick="loadPacketSample(this.textContent)">001122334455aabbccddeeff080045000028000040004006abcd0a0a0a01c0a801010050d4310000000100000000500240007f000000</code>
-            <span class="badge surface-muted ms-2">TCP SYN</span>
-        </div>
-        <button class="btn btn-primary" onclick="parsePacketFromText()"><i class="bi-search"></i> 解析</button>
-        <button class="btn btn-outline-secondary ms-2" onclick="document.getElementById('pkt_data').value=''; document.getElementById('pkt_result').innerHTML='';">清空</button>
     </div>
-
-    <div class="tab-pane" id="tab-pkt-file">
-        <div class="mb-3">
-            <label class="form-label">选择文件 <span class="text-danger">*</span></label>
-            <input id="pkt_file" type="file" class="form-control" accept=".pcap,.pcapng,.cap,.bin,.txt,.dump,.hex">
-            <small class="text-muted">
-                支持类型：<code>.pcap / .pcapng</code>（自动提取首帧）、<code>.bin</code>（原始字节）、<code>.txt / .hex</code>（HEX 文本，可含空格/冒号/0x 前缀）
-            </small>
-        </div>
-        <div id="pkt_file_info" class="mb-2"></div>
-        <button class="btn btn-primary" onclick="parsePacketFromFile()"><i class="bi-upload"></i> 解析文件</button>
-        <button class="btn btn-outline-secondary ms-2" onclick="document.getElementById('pkt_file').value=''; document.getElementById('pkt_file_info').innerHTML=''; document.getElementById('pkt_result').innerHTML='';">清空</button>
+    <div class="col-auto pkt-paste-only" style="display:none;">
+        <select id="pkt_fmt" class="form-select form-select-sm" style="width:100px;">
+            <option value="hex" selected>HEX</option>
+            <option value="base64">Base64</option>
+        </select>
+    </div>
+    <div class="col pkt-paste-only" style="display:none;">
+        <input id="pkt_data" type="text" class="form-control form-control-sm font-monospace" placeholder="从以太网头开始的 HEX 或 Base64，例：001122334455aabbccddeeff080045...">
+    </div>
+    <div class="col pkt-file-only">
+        <input id="pkt_file" type="file" class="form-control form-control-sm" accept=".pcap,.pcapng,.cap,.bin,.txt,.dump,.hex">
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-sm btn-primary" id="pkt_btn_parse"><i class="bi-play-fill"></i> 解析</button>
+        <button class="btn btn-sm btn-outline-secondary" id="pkt_btn_reset">重置</button>
+    </div>
+    <div class="col-12">
+        <small class="text-muted">
+            支持 <code>.pcap/.pcapng/.cap</code>（多帧）、<code>.bin</code>（原始字节）、<code>.txt/.hex/.dump</code>（HEX 文本）。
+            示例 <code class="ms-1" style="cursor:pointer;" onclick="loadPacketSample(this.textContent)">001122334455aabbccddeeff080045000028000040004006abcd0a0a0a01c0a801010050d4310000000100000000500240007f000000</code>
+            <span class="badge surface-muted ms-1">TCP SYN</span>
+        </small>
     </div>
 </div>
 
+{# 主区：左侧分类 + 右侧筛选行 + 数据表 + 详情 #}
+<div class="row g-2">
+    <div class="col-lg-2 col-md-3">
+        <div class="card" style="position:sticky; top:8px;">
+            <div class="card-body p-2 small" id="pkt_sidebar">
+                <div class="fw-bold text-muted mb-1"><i class="bi-collection"></i> 数据包</div>
+                <ul class="list-unstyled mb-2 ms-1">
+                    <li class="pkt-nav active" data-view="frames-all">全部数据包</li>
+                    <li class="pkt-nav" data-view="frames-arp">ARP 数据包</li>
+                    <li class="pkt-nav" data-view="frames-icmp">ICMP 数据包</li>
+                    <li class="pkt-nav" data-view="frames-icmpv6">ICMPv6 数据包</li>
+                </ul>
+                <div class="fw-bold text-muted mb-1"><i class="bi-chat-dots"></i> 通信会话</div>
+                <ul class="list-unstyled mb-2 ms-1">
+                    <li class="pkt-nav" data-view="sessions-tcp">TCP 会话</li>
+                    <li class="pkt-nav" data-view="sessions-udp">UDP 会话</li>
+                    <li class="pkt-nav" data-view="sessions-dns">DNS 会话</li>
+                    <li class="pkt-nav" data-view="sessions-http">HTTP 会话</li>
+                    <li class="pkt-nav" data-view="sessions-tls">SSL/TLS 会话</li>
+                    <li class="pkt-nav" data-view="sessions-ssh">SSH 会话</li>
+                </ul>
+                <div class="fw-bold text-muted mb-1"><i class="bi-bar-chart"></i> 统计分析</div>
+                <ul class="list-unstyled mb-0 ms-1">
+                    <li class="pkt-nav" data-view="stat-ip">IP 统计</li>
+                    <li class="pkt-nav" data-view="stat-proto">协议统计</li>
+                    <li class="pkt-nav" data-view="stat-country">国家统计</li>
+                </ul>
+            </div>
+        </div>
+        <style>
+        #pkt_sidebar .pkt-nav {
+            padding: 3px 8px; border-radius: 4px; cursor: pointer;
+            color: var(--bs-body-color);
+        }
+        #pkt_sidebar .pkt-nav:hover { background: var(--bs-tertiary-bg); }
+        #pkt_sidebar .pkt-nav.active {
+            background: var(--primary, #0d6efd); color: #fff;
+        }
+        #pkt_table th { white-space: nowrap; font-size: 12px; }
+        #pkt_table td { font-size: 12px; }
+        #pkt_table .pkt-row { cursor: pointer; }
+        </style>
+    </div>
+
+    <div class="col-lg-10 col-md-9">
+        {# 筛选行 #}
+        <div class="row g-2 mb-2 align-items-center">
+            <div class="col-auto"><label class="form-label small mb-0">IP</label></div>
+            <div class="col-auto"><input id="flt_ip" type="text" class="form-control form-control-sm" style="width:160px;" placeholder=""></div>
+            <div class="col-auto"><label class="form-label small mb-0">端口</label></div>
+            <div class="col-auto"><input id="flt_port" type="text" class="form-control form-control-sm" style="width:100px;" placeholder=""></div>
+            <div class="col-auto"><label class="form-label small mb-0">应用层协议</label></div>
+            <div class="col-auto"><input id="flt_app" type="text" class="form-control form-control-sm" style="width:130px;" placeholder="HTTP/DNS/TLS..."></div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-primary" id="flt_apply"><i class="bi-search"></i> 查找</button>
+                <button class="btn btn-sm btn-outline-secondary" id="flt_reset">重置</button>
+            </div>
+            <div class="col-auto ms-auto">
+                <small class="text-muted" id="flt_count">未加载数据</small>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header py-2 d-flex align-items-center">
+                <strong id="pkt_view_title">数据包列表</strong>
+                <span class="badge bg-secondary ms-2" id="pkt_view_meta"></span>
+                <small class="text-muted ms-auto" id="pkt_source_info"></small>
+            </div>
+            <div class="card-body p-0 overflow-auto" style="max-height:48vh;">
+                <table class="table table-sm table-hover table-striped mb-0" id="pkt_table">
+                    <thead class="table-light position-sticky top-0" id="pkt_thead"></thead>
+                    <tbody id="pkt_tbody">
+                        <tr><td class="text-center text-muted py-4">请先上传 PCAP 文件或粘贴报文数据后点击 "解析"</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="pkt_detail" class="mt-2"></div>
+    </div>
+</div>
+
+{# 兼容旧版函数对该容器的引用（错误/兜底信息渲染到这里） #}
 <div id="pkt_result" class="mt-3"></div>
 
 {% endif %}
@@ -771,9 +844,12 @@ function fmtIp4(b, off) {
 }
 
 function loadPacketSample(s) {
+    // 切到粘贴模式
+    const r = document.getElementById('pkt_mode_paste');
+    if (r) { r.checked = true; if (typeof pktApplyMode === 'function') pktApplyMode(); }
     document.getElementById('pkt_data').value = s;
     document.getElementById('pkt_fmt').value = 'hex';
-    parsePacketFromText();
+    pktDoParse();
 }
 
 function parseHexBytes(s) {
@@ -876,194 +952,794 @@ function parsePcapngFirstFrame(bytes) {
     return { frame: r.frames[0].bytes, info: r.info };
 }
 
-async function parsePacketFromText() {
-    const fmt = document.getElementById('pkt_fmt').value;
-    const data = document.getElementById('pkt_data').value.trim();
-    if (!data) { alert('请输入报文数据'); return; }
-    let bytes;
-    try {
-        bytes = fmt === 'hex' ? parseHexBytes(data) : parseB64Bytes(data);
-    } catch(e) { alert('解析失败: ' + e.message); return; }
-    renderPacketSingle(bytes, '直接输入 (' + bytes.length + ' 字节)');
+// ============================ 新版统一管线 ============================
+// 全局状态（一次性归一化，所有视图共享）
+const pktState = {
+    frames: [],            // 规范化 Record[]
+    sessions: [],          // 派生 Session[]
+    view: 'frames-all',
+    filter: { ip: '', port: '', app: '' },
+    geoCache: new Map(),   // ip -> { country, province, city, label }
+    geoPending: false,
+    sourceInfo: '',
+    selectedIdx: -1,
+};
+
+// ---- 模式切换 (粘贴 / 文件) ----
+function pktApplyMode() {
+    const mode = document.querySelector('input[name="pkt_mode"]:checked')?.value || 'file';
+    document.querySelectorAll('.pkt-paste-only').forEach(el => el.style.display = (mode === 'paste' ? '' : 'none'));
+    document.querySelectorAll('.pkt-file-only').forEach(el => el.style.display = (mode === 'file' ? '' : 'none'));
 }
 
-// 全局缓存当前 pcap 帧列表，供"点击包查看"使用
-window._pktFrames = [];
-
-async function parsePacketFromFile() {
-    const fileInput = document.getElementById('pkt_file');
-    const file = fileInput.files[0];
-    if (!file) { alert('请选择文件'); return; }
-    const ext = file.name.split('.').pop().toLowerCase();
-    document.getElementById('pkt_file_info').innerHTML = `<div class="alert alert-secondary py-1 small mb-0">
-        <i class="bi-file-earmark"></i> ${file.name} · ${(file.size/1024).toFixed(2)} KB
-    </div>`;
-
+// ---- 解析入口 ----
+async function pktDoParse() {
+    const mode = document.querySelector('input[name="pkt_mode"]:checked')?.value || 'file';
     try {
-        if (ext === 'pcap' || ext === 'cap') {
+        if (mode === 'paste') {
+            const fmt = document.getElementById('pkt_fmt').value;
+            const data = document.getElementById('pkt_data').value.trim();
+            if (!data) { alert('请输入报文数据'); return; }
+            const bytes = fmt === 'hex' ? parseHexBytes(data) : parseB64Bytes(data);
+            loadFrames([{ ts: 0, bytes: bytes }], `粘贴 (${bytes.length} 字节)`);
+        } else {
+            const fileInput = document.getElementById('pkt_file');
+            const file = fileInput.files[0];
+            if (!file) { alert('请选择文件'); return; }
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
             const ab = await file.arrayBuffer();
-            const r = parsePcapAllFrames(new Uint8Array(ab));
-            renderPacketList(r.frames, file.name + ' → ' + r.info);
-            return;
-        } else if (ext === 'pcapng') {
-            const ab = await file.arrayBuffer();
-            const r = parsePcapngAllFrames(new Uint8Array(ab));
-            renderPacketList(r.frames, file.name + ' → ' + r.info);
-            return;
-        } else if (ext === 'txt' || ext === 'hex' || ext === 'dump') {
-            const text = await file.text();
-            const bytes = parseHexBytes(text);
-            renderPacketSingle(bytes, file.name + ' (HEX 文本, ' + bytes.length + ' 字节)');
-            return;
-        } else if (ext === 'bin') {
-            const ab = await file.arrayBuffer();
-            const bytes = new Uint8Array(ab);
-            renderPacketSingle(bytes, file.name + ' (原始字节, ' + bytes.length + ' 字节)');
-            return;
-        }
-        // 自动识别
-        const ab = await file.arrayBuffer();
-        const u8 = new Uint8Array(ab);
-        if (u8.length >= 4) {
-            const m = (u8[0]<<24 | u8[1]<<16 | u8[2]<<8 | u8[3]) >>> 0;
-            if (m === 0xa1b2c3d4 || m === 0xd4c3b2a1 || m === 0xa1b23c4d || m === 0x4d3cb2a1) {
-                const r = parsePcapAllFrames(u8);
-                renderPacketList(r.frames, file.name + ' → ' + r.info);
-                return;
-            } else if (m === 0x0a0d0d0a) {
-                const r = parsePcapngAllFrames(u8);
-                renderPacketList(r.frames, file.name + ' → ' + r.info);
-                return;
+            const u8 = new Uint8Array(ab);
+            let rawFrames, info;
+            if (ext === 'pcap' || ext === 'cap') {
+                const r = parsePcapAllFrames(u8); rawFrames = r.frames; info = file.name + ' → ' + r.info;
+            } else if (ext === 'pcapng') {
+                const r = parsePcapngAllFrames(u8); rawFrames = r.frames; info = file.name + ' → ' + r.info;
+            } else if (ext === 'txt' || ext === 'hex' || ext === 'dump') {
+                const text = await file.text();
+                const bytes = parseHexBytes(text);
+                rawFrames = [{ ts: 0, bytes: bytes }];
+                info = file.name + ' (HEX 文本, ' + bytes.length + ' 字节)';
+            } else if (ext === 'bin') {
+                rawFrames = [{ ts: 0, bytes: u8 }];
+                info = file.name + ' (原始字节, ' + u8.length + ' 字节)';
             } else {
-                renderPacketSingle(u8, file.name + ' (自动识别为原始字节)');
-                return;
+                // 自动识别魔数
+                if (u8.length >= 4) {
+                    const m = (u8[0] << 24 | u8[1] << 16 | u8[2] << 8 | u8[3]) >>> 0;
+                    if (m === 0xa1b2c3d4 || m === 0xd4c3b2a1 || m === 0xa1b23c4d || m === 0x4d3cb2a1) {
+                        const r = parsePcapAllFrames(u8); rawFrames = r.frames; info = file.name + ' → ' + r.info;
+                    } else if (m === 0x0a0d0d0a) {
+                        const r = parsePcapngAllFrames(u8); rawFrames = r.frames; info = file.name + ' → ' + r.info;
+                    } else {
+                        rawFrames = [{ ts: 0, bytes: u8 }];
+                        info = file.name + ' (自动识别为原始字节)';
+                    }
+                } else { throw new Error('文件过小'); }
             }
+            loadFrames(rawFrames, info);
         }
-        throw new Error('文件过小');
-    } catch(e) {
-        alert('解析文件失败: ' + e.message);
+    } catch (e) {
+        alert('解析失败: ' + (e && e.message ? e.message : e));
     }
 }
 
-// 渲染 PCAP 帧列表（多帧），用户可点击查看详情
-function renderPacketList(frames, sourceInfo) {
-    if (!frames || !frames.length) {
-        document.getElementById('pkt_result').innerHTML = `<div class="alert alert-warning">未识别到任何数据包</div>`;
+function pktDoReset() {
+    pktState.frames = []; pktState.sessions = []; pktState.geoCache.clear();
+    pktState.view = 'frames-all'; pktState.filter = { ip: '', port: '', app: '' };
+    pktState.sourceInfo = ''; pktState.selectedIdx = -1;
+    document.getElementById('pkt_data').value = '';
+    const f = document.getElementById('pkt_file'); if (f) f.value = '';
+    document.getElementById('flt_ip').value = '';
+    document.getElementById('flt_port').value = '';
+    document.getElementById('flt_app').value = '';
+    document.getElementById('pkt_detail').innerHTML = '';
+    document.getElementById('pkt_result').innerHTML = '';
+    document.getElementById('pkt_source_info').textContent = '';
+    document.getElementById('flt_count').textContent = '未加载数据';
+    document.querySelectorAll('#pkt_sidebar .pkt-nav').forEach(li => li.classList.toggle('active', li.dataset.view === 'frames-all'));
+    document.getElementById('pkt_thead').innerHTML = '';
+    document.getElementById('pkt_tbody').innerHTML = '<tr><td class="text-center text-muted py-4">请先上传 PCAP 文件或粘贴报文数据后点击 "解析"</td></tr>';
+    document.getElementById('pkt_view_title').textContent = '数据包列表';
+    document.getElementById('pkt_view_meta').textContent = '';
+}
+
+// ---- 加载（一次性构建 Record/Session） ----
+function loadFrames(rawFrames, sourceInfo) {
+    if (!rawFrames || !rawFrames.length) {
+        document.getElementById('pkt_result').innerHTML = '<div class="alert alert-warning">未识别到任何数据包</div>';
         return;
     }
-    window._pktFrames = frames;
-    const tsBase = frames[0].ts;
-    const rows = frames.map((f, idx) => {
-        const summary = summarizePacket(f.bytes);
-        const relTs = f.ts > 0 ? (f.ts - tsBase).toFixed(6) : '-';
-        return `<tr class="pkt-row" data-idx="${idx}" style="cursor:pointer;">
-            <td>${idx + 1}</td>
-            <td><small>${relTs}</small></td>
-            <td><small>${summary.src}</small></td>
-            <td><small>${summary.dst}</small></td>
-            <td><span class="badge ${summary.protoBadge}">${summary.proto}</span></td>
-            <td><small>${f.bytes.length}</small></td>
-            <td><small class="text-muted">${summary.info}</small></td>
-        </tr>`;
-    }).join('');
-    document.getElementById('pkt_result').innerHTML = `
-        <div class="alert alert-info py-2 small">
-            <i class="bi-info-circle"></i> 数据来源：${sourceInfo}。
-            点击任意行查看该数据包的详细字段（最多展示 ${frames.length > 5000 ? '前 5000' : frames.length} 帧）。
-        </div>
-        <div class="card">
-            <div class="card-header py-2"><strong>数据包列表</strong> <span class="badge bg-secondary ms-2">${frames.length} 帧</span></div>
-            <div class="card-body p-0 overflow-auto" style="max-height:350px;">
-                <table class="table table-sm table-hover table-striped mb-0">
-                    <thead class="table-light position-sticky top-0">
-                        <tr>
-                            <th style="width:60px">No.</th>
-                            <th style="width:100px">Time</th>
-                            <th>Source</th>
-                            <th>Destination</th>
-                            <th style="width:80px">Protocol</th>
-                            <th style="width:60px">Length</th>
-                            <th>Info</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>
-        </div>
-        <div id="pkt_detail" class="mt-3"></div>
-    `;
-    // 绑定点击
-    document.querySelectorAll('.pkt-row').forEach(function(tr){
-        tr.addEventListener('click', function(){
-            document.querySelectorAll('.pkt-row').forEach(function(r){r.classList.remove('table-primary');});
-            this.classList.add('table-primary');
-            const idx = parseInt(this.dataset.idx);
-            const frame = window._pktFrames[idx];
-            renderPacketDetail(frame.bytes, idx, frame.ts);
-        });
-    });
-    // 默认显示第一帧详情
-    if (frames.length > 0) {
-        document.querySelector('.pkt-row').classList.add('table-primary');
-        renderPacketDetail(frames[0].bytes, 0, frames[0].ts);
-    }
+    const tsBase = rawFrames[0].ts || 0;
+    pktState.frames = rawFrames.map((f, i) => buildRecord(f.bytes, i, f.ts || 0, tsBase));
+    pktState.sessions = buildSessions(pktState.frames);
+    pktState.sourceInfo = sourceInfo;
+    pktState.selectedIdx = -1;
+    pktState.view = 'frames-all';
+    document.querySelectorAll('#pkt_sidebar .pkt-nav').forEach(li => li.classList.toggle('active', li.dataset.view === 'frames-all'));
+    document.getElementById('pkt_source_info').textContent = sourceInfo;
+    document.getElementById('pkt_detail').innerHTML = '';
+    document.getElementById('pkt_result').innerHTML = '';
+    renderView();
+    fetchGeo();  // 异步查询公网 IP 归属地，完成后再次 renderView
 }
 
-// 单包简要摘要（用于列表）
-function summarizePacket(bytes) {
-    if (!bytes || bytes.length < 14) return {src:'-', dst:'-', proto:'?', protoBadge:'bg-secondary', info:'too short'};
+// ---- 构建单帧规范化记录 ----
+function buildRecord(bytes, idx, ts, tsBase) {
+    const rec = {
+        idx: idx,
+        ts: ts,
+        relTs: ts > 0 ? (ts - tsBase) : 0,
+        src: { ip: '', mac: '', port: null, label: '' },
+        dst: { ip: '', mac: '', port: null, label: '' },
+        l3: 'OTHER', l4: null, appProto: null, tlsVersion: null,
+        domain: null, length: bytes.length, info: '', bytes: bytes, flags: null,
+    };
+    if (!bytes || bytes.length < 14) {
+        rec.info = '长度不足'; return rec;
+    }
+    rec.src.mac = fmtMac(bytes, 6);
+    rec.dst.mac = fmtMac(bytes, 0);
     const etherType = (bytes[12] << 8) | bytes[13];
     let off = 14;
     if (etherType === 0x0806) {
         // ARP
+        rec.l3 = 'ARP';
         if (bytes.length >= off + 28) {
-            const op = (bytes[off+6]<<8) | bytes[off+7];
-            const senderMac = fmtMac(bytes, off+8);
-            const senderIp = fmtIp4(bytes, off+14);
-            const targetIp = fmtIp4(bytes, off+24);
-            return {
-                src: senderMac + ' (' + senderIp + ')',
-                dst: targetIp,
-                proto: 'ARP',
-                protoBadge: 'bg-warning text-dark',
-                info: op === 1 ? `Who has ${targetIp}? Tell ${senderIp}` : op === 2 ? `${senderIp} is at ${senderMac}` : 'ARP op=' + op,
-            };
+            const op = (bytes[off + 6] << 8) | bytes[off + 7];
+            rec.src.ip = fmtIp4(bytes, off + 14);
+            rec.dst.ip = fmtIp4(bytes, off + 24);
+            rec.info = op === 1 ? `谁是 ${rec.dst.ip}？告诉 ${rec.src.ip}`
+                : op === 2 ? `${rec.src.ip} 在 ${fmtMac(bytes, off + 8)}` : `ARP op=${op}`;
         }
     } else if (etherType === 0x0800 && bytes.length >= off + 20) {
         // IPv4
+        rec.l3 = 'IPv4';
         const ihl = (bytes[off] & 0x0f) * 4;
-        const proto = bytes[off+9];
-        const srcIp = fmtIp4(bytes, off+12);
-        const dstIp = fmtIp4(bytes, off+16);
+        const proto = bytes[off + 9];
+        rec.src.ip = fmtIp4(bytes, off + 12);
+        rec.dst.ip = fmtIp4(bytes, off + 16);
         const l4 = off + ihl;
         if (proto === 6 && bytes.length >= l4 + 20) {
-            const sp = (bytes[l4]<<8) | bytes[l4+1];
-            const dp = (bytes[l4+2]<<8) | bytes[l4+3];
-            const flags = bytes[l4+13];
-            const flagNames = [];
-            if (flags & 0x10) flagNames.push('ACK');
-            if (flags & 0x08) flagNames.push('PSH');
-            if (flags & 0x04) flagNames.push('RST');
-            if (flags & 0x02) flagNames.push('SYN');
-            if (flags & 0x01) flagNames.push('FIN');
-            return {src: srcIp+':'+sp, dst: dstIp+':'+dp, proto:'TCP', protoBadge:'bg-primary', info: `${sp} → ${dp} [${flagNames.join(',')||'·'}]`};
+            rec.l4 = 'TCP';
+            rec.src.port = (bytes[l4] << 8) | bytes[l4 + 1];
+            rec.dst.port = (bytes[l4 + 2] << 8) | bytes[l4 + 3];
+            const flags = bytes[l4 + 13];
+            rec.flags = {
+                syn: !!(flags & 0x02), ack: !!(flags & 0x10), fin: !!(flags & 0x01),
+                rst: !!(flags & 0x04), psh: !!(flags & 0x08),
+            };
+            const fn = [];
+            if (flags & 0x10) fn.push('ACK'); if (flags & 0x08) fn.push('PSH');
+            if (flags & 0x04) fn.push('RST'); if (flags & 0x02) fn.push('SYN');
+            if (flags & 0x01) fn.push('FIN');
+            rec.info = `${rec.src.port} → ${rec.dst.port} [${fn.join(',') || '·'}]`;
+            // TCP 载荷起点（用于 HTTP/TLS 提取）
+            const dataOff = (bytes[l4 + 12] >> 4) * 4;
+            rec._payloadOff = l4 + dataOff;
+        } else if (proto === 17 && bytes.length >= l4 + 8) {
+            rec.l4 = 'UDP';
+            rec.src.port = (bytes[l4] << 8) | bytes[l4 + 1];
+            rec.dst.port = (bytes[l4 + 2] << 8) | bytes[l4 + 3];
+            rec.info = `${rec.src.port} → ${rec.dst.port}`;
+            rec._payloadOff = l4 + 8;
+        } else if (proto === 1 && bytes.length >= l4 + 4) {
+            rec.l4 = 'ICMP';
+            const t = bytes[l4], c = bytes[l4 + 1];
+            const tn = ({ 0: '回显应答', 8: '回显请求', 3: '目的不可达', 11: '超时', 5: '重定向' })[t] || ('类型 ' + t);
+            rec.info = `${tn} (code=${c})`;
+        } else {
+            rec.info = `IP proto=${proto}`;
         }
-        if (proto === 17 && bytes.length >= l4 + 8) {
-            const sp = (bytes[l4]<<8) | bytes[l4+1];
-            const dp = (bytes[l4+2]<<8) | bytes[l4+3];
-            return {src: srcIp+':'+sp, dst: dstIp+':'+dp, proto:'UDP', protoBadge:'bg-success', info: `${sp} → ${dp}`};
-        }
-        if (proto === 1 && bytes.length >= l4 + 4) {
-            const t = bytes[l4], c = bytes[l4+1];
-            const tn = ({0:'Echo Reply', 8:'Echo Request', 3:'Dest Unreachable', 11:'Time Exceeded'})[t] || ('Type '+t);
-            return {src: srcIp, dst: dstIp, proto:'ICMP', protoBadge:'bg-info', info: `${tn} (code=${c})`};
-        }
-        return {src: srcIp, dst: dstIp, proto: 'IP/'+proto, protoBadge:'bg-secondary', info: 'IP proto=' + proto};
     } else if (etherType === 0x86dd) {
-        return {src: fmtMac(bytes, 6), dst: fmtMac(bytes, 0), proto: 'IPv6', protoBadge: 'bg-secondary', info: 'IPv6 packet'};
+        rec.l3 = 'IPv6';
+        if (bytes.length >= off + 40) {
+            const nh = bytes[off + 6];
+            rec.src.ip = fmtIp6(bytes, off + 8);
+            rec.dst.ip = fmtIp6(bytes, off + 24);
+            const l4 = off + 40;
+            if (nh === 6 && bytes.length >= l4 + 20) {
+                rec.l4 = 'TCP';
+                rec.src.port = (bytes[l4] << 8) | bytes[l4 + 1];
+                rec.dst.port = (bytes[l4 + 2] << 8) | bytes[l4 + 3];
+                const dataOff = (bytes[l4 + 12] >> 4) * 4;
+                rec._payloadOff = l4 + dataOff;
+                rec.info = `${rec.src.port} → ${rec.dst.port}`;
+            } else if (nh === 17 && bytes.length >= l4 + 8) {
+                rec.l4 = 'UDP';
+                rec.src.port = (bytes[l4] << 8) | bytes[l4 + 1];
+                rec.dst.port = (bytes[l4 + 2] << 8) | bytes[l4 + 3];
+                rec._payloadOff = l4 + 8;
+                rec.info = `${rec.src.port} → ${rec.dst.port}`;
+            } else if (nh === 58) {
+                rec.l4 = 'ICMPv6';
+                rec.info = 'ICMPv6';
+            } else {
+                rec.info = `IPv6 next=${nh}`;
+            }
+        }
+    } else {
+        rec.info = '以太网 0x' + etherType.toString(16);
     }
-    return {src: fmtMac(bytes, 6), dst: fmtMac(bytes, 0), proto: '0x'+etherType.toString(16), protoBadge:'bg-secondary', info: 'Ethernet frame'};
+    // 应用层启发（端口）
+    const sp = rec.src.port, dp = rec.dst.port;
+    if (rec.l4 === 'UDP' && (sp === 53 || dp === 53)) rec.appProto = 'DNS';
+    else if (rec.l4 === 'TCP' && (sp === 443 || dp === 443)) rec.appProto = 'TLS';
+    else if (rec.l4 === 'TCP' && [80, 8080, 8000].some(p => p === sp || p === dp)) rec.appProto = 'HTTP';
+    else if (rec.l4 === 'TCP' && (sp === 22 || dp === 22)) rec.appProto = 'SSH';
+    // 应用层载荷提取
+    extractAppLayer(rec);
+    return rec;
 }
+
+function fmtIp6(b, off) {
+    const parts = [];
+    for (let i = 0; i < 16; i += 2) parts.push(((b[off + i] << 8) | b[off + i + 1]).toString(16));
+    // 简单压缩 0
+    return parts.join(':').replace(/(:0)+:/, '::').replace(/^0(::)/, '$1');
+}
+
+// ---- 应用层载荷提取（DNS QNAME / HTTP Host / TLS SNI） ----
+function extractAppLayer(rec) {
+    const off = rec._payloadOff;
+    if (off == null || off >= rec.bytes.length) return;
+    const b = rec.bytes;
+    if (rec.appProto === 'DNS') {
+        // DNS: 12 字节头，从 12 处开始读 QNAME（length-prefixed labels）
+        const dnsStart = off;
+        if (b.length < dnsStart + 13) return;
+        const qdcount = (b[dnsStart + 4] << 8) | b[dnsStart + 5];
+        if (qdcount < 1) return;
+        let p = dnsStart + 12;
+        const labels = [];
+        let safety = 0;
+        while (p < b.length && safety++ < 30) {
+            const len = b[p];
+            if (len === 0) break;
+            if ((len & 0xc0) === 0xc0) break; // 压缩指针，QNAME 一般不压缩，遇到就停
+            if (len > 63 || p + 1 + len > b.length) return;
+            const lbl = []; for (let i = 0; i < len; i++) lbl.push(String.fromCharCode(b[p + 1 + i]));
+            labels.push(lbl.join(''));
+            p += 1 + len;
+        }
+        if (labels.length) {
+            rec.domain = labels.join('.');
+            rec.info = '查询 ' + rec.domain;
+        }
+    } else if (rec.appProto === 'HTTP') {
+        // 前 1024 字节 ASCII 化
+        const end = Math.min(b.length, off + 1024);
+        if (end - off < 8) return;
+        let s = '';
+        for (let i = off; i < end; i++) {
+            const c = b[i];
+            s += (c >= 0x20 && c < 0x7f) || c === 0x0a || c === 0x0d ? String.fromCharCode(c) : ' ';
+        }
+        const m = s.match(/^(GET|POST|HEAD|PUT|DELETE|OPTIONS|PATCH|CONNECT|TRACE)\s+(\S+)\s+HTTP\/[\d.]+/m);
+        if (m) rec.info = `${m[1]} ${m[2]}`;
+        const h = s.match(/Host:\s*([^\r\n]+)/i);
+        if (h) rec.domain = h[1].trim();
+    } else if (rec.appProto === 'TLS') {
+        // TLS Record: type(1) ver(2) len(2)，类型 22 = Handshake；HandshakeType 1 = ClientHello
+        if (b.length < off + 5 + 4) return;
+        if (b[off] !== 22) return;
+        if (b[off + 5] !== 1) return;
+        // 跳过 record(5) + handshake_header(4) + client_version(2) + random(32)
+        let p = off + 5 + 4 + 2 + 32;
+        if (p + 1 > b.length) return;
+        const sidLen = b[p]; p += 1 + sidLen;
+        if (p + 2 > b.length) return;
+        const csLen = (b[p] << 8) | b[p + 1]; p += 2 + csLen;
+        if (p + 1 > b.length) return;
+        const cmLen = b[p]; p += 1 + cmLen;
+        if (p + 2 > b.length) return;
+        const extLen = (b[p] << 8) | b[p + 1]; p += 2;
+        const extEnd = Math.min(b.length, p + extLen);
+        let tlsVer = null;
+        while (p + 4 <= extEnd) {
+            const t = (b[p] << 8) | b[p + 1];
+            const l = (b[p + 2] << 8) | b[p + 3];
+            const v = p + 4;
+            if (t === 0x0000 && v + 5 <= extEnd) {
+                // server_name
+                const snLen = (b[v + 3] << 8) | b[v + 4];
+                if (v + 5 + snLen <= extEnd) {
+                    let name = '';
+                    for (let i = 0; i < snLen; i++) name += String.fromCharCode(b[v + 5 + i]);
+                    rec.domain = name;
+                }
+            } else if (t === 0x002b) {
+                // supported_versions: 客户端列出版本，挑最高
+                const sv = b[v];
+                let q = v + 1;
+                while (q + 1 < v + 1 + sv) {
+                    const ver = (b[q] << 8) | b[q + 1];
+                    if (ver === 0x0304) tlsVer = 'TLSv1.3';
+                    else if (ver === 0x0303 && !tlsVer) tlsVer = 'TLSv1.2';
+                    q += 2;
+                }
+            }
+            p = v + l;
+        }
+        if (!tlsVer) {
+            // fallback：legacy_version
+            const cv = (b[off + 5 + 4] << 8) | b[off + 5 + 4 + 1];
+            if (cv === 0x0303) tlsVer = 'TLSv1.2';
+            else if (cv === 0x0302) tlsVer = 'TLSv1.1';
+        }
+        rec.tlsVersion = tlsVer;
+        if (rec.domain) rec.info = 'ClientHello SNI=' + rec.domain;
+    } else if (rec.appProto === 'SSH') {
+        // SSH-2.0-Banner...
+        const end = Math.min(b.length, off + 64);
+        let s = '';
+        for (let i = off; i < end; i++) {
+            const c = b[i];
+            if (c === 0x0d || c === 0x0a) break;
+            if (c >= 0x20 && c < 0x7f) s += String.fromCharCode(c);
+        }
+        if (s.startsWith('SSH-')) rec.info = s;
+    }
+}
+
+// ---- 会话聚合 ----
+function buildSessions(records) {
+    const map = new Map();
+    for (const r of records) {
+        if (!r.l4 || (r.l4 !== 'TCP' && r.l4 !== 'UDP')) continue;
+        if (r.src.port == null || r.dst.port == null) continue;
+        const a = `${r.src.ip}|${r.src.port}`;
+        const b = `${r.dst.ip}|${r.dst.port}`;
+        const swap = a > b;
+        const k1 = swap ? b : a, k2 = swap ? a : b;
+        const key = `${r.l4}|${k1}|${k2}`;
+        let s = map.get(key);
+        if (!s) {
+            const [ip1, p1] = k1.split('|'); const [ip2, p2] = k2.split('|');
+            s = {
+                idx: 0, l4: r.l4,
+                ip1: ip1, port1: +p1, label1: '',
+                ip2: ip2, port2: +p2, label2: '',
+                appProto: null, tlsVersion: null, domain: null,
+                tsStart: r.ts || 0, tsEnd: r.ts || 0,
+                frames: 0, bytes: 0,
+                firstRecIdx: r.idx,
+            };
+            map.set(key, s);
+        }
+        if (r.ts > 0) {
+            if (!s.tsStart || r.ts < s.tsStart) s.tsStart = r.ts;
+            if (r.ts > s.tsEnd) s.tsEnd = r.ts;
+        }
+        s.frames++;
+        s.bytes += r.length;
+        if (!s.appProto && r.appProto) s.appProto = r.appProto;
+        if (!s.tlsVersion && r.tlsVersion) s.tlsVersion = r.tlsVersion;
+        if (!s.domain && r.domain) s.domain = r.domain;
+    }
+    const arr = [...map.values()];
+    arr.sort((a, b) => (a.tsStart - b.tsStart) || (a.firstRecIdx - b.firstRecIdx));
+    arr.forEach((s, i) => {
+        s.idx = i + 1;
+        if (!s.appProto) {
+            const lo = Math.min(s.port1, s.port2);
+            s.appProto = ({ 53: 'DNS', 80: 'HTTP', 8080: 'HTTP', 8000: 'HTTP', 443: 'TLS', 22: 'SSH' })[lo] || s.l4;
+        }
+        s.duration = humanizeDuration(s.tsEnd - s.tsStart);
+    });
+    return arr;
+}
+
+function humanizeDuration(sec) {
+    if (!isFinite(sec) || sec <= 0) return '0';
+    if (sec < 1) return Math.round(sec * 1000) + '毫秒';
+    if (sec < 60) {
+        const ms = Math.round((sec % 1) * 1000);
+        return Math.floor(sec) + '秒' + (ms ? ms + '毫秒' : '');
+    }
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + '分钟' + (s ? s + '秒' : '');
+}
+
+// ---- 归属地查询 ----
+function ipLocalLabel(ip) {
+    if (!ip) return '';
+    if (ip.indexOf(':') >= 0) {
+        // IPv6 简化
+        if (ip === '::1') return '回环';
+        if (ip.startsWith('fe80')) return '链路本地';
+        if (ip.startsWith('ff')) return '组播';
+        if (/^(fc|fd)/.test(ip)) return '内网';
+        return '';
+    }
+    const o = ip.split('.').map(Number);
+    if (o.length !== 4 || o.some(x => isNaN(x))) return '';
+    if (o[0] === 10) return '内网';
+    if (o[0] === 127) return '回环';
+    if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return '内网';
+    if (o[0] === 192 && o[1] === 168) return '内网';
+    if (o[0] === 169 && o[1] === 254) return '链路本地';
+    if (o[0] >= 224 && o[0] <= 239) return '组播';
+    if (o[0] === 255 && o[1] === 255 && o[2] === 255 && o[3] === 255) return '广播';
+    return '';
+}
+
+function ipLabel(ip) {
+    const local = ipLocalLabel(ip);
+    if (local) return local;
+    const g = pktState.geoCache.get(ip);
+    if (g) return g.label || '未知';
+    return pktState.geoPending ? '查询中…' : '未知';
+}
+
+async function fetchGeo() {
+    const need = new Set();
+    for (const r of pktState.frames) {
+        for (const ip of [r.src.ip, r.dst.ip]) {
+            if (!ip || ip.indexOf(':') >= 0) continue;
+            if (ipLocalLabel(ip)) continue;
+            if (pktState.geoCache.has(ip)) continue;
+            need.add(ip);
+        }
+    }
+    if (!need.size) return;
+    pktState.geoPending = true;
+    try {
+        const resp = await fetch('/api/tools/packet/ip-locate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ips: [...need] }),
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            for (const ip in data) pktState.geoCache.set(ip, data[ip]);
+        } else {
+            for (const ip of need) pktState.geoCache.set(ip, { label: '查询失败' });
+        }
+    } catch (e) {
+        for (const ip of need) pktState.geoCache.set(ip, { label: '离线' });
+    } finally {
+        pktState.geoPending = false;
+        renderView();
+    }
+}
+
+// ---- 视图分发 ----
+function renderView() {
+    const view = pktState.view;
+    if (view.startsWith('frames-')) return renderFramesTable(view);
+    if (view.startsWith('sessions-')) return renderSessionsTable(view);
+    if (view === 'stat-ip') return renderIpStats();
+    if (view === 'stat-proto') return renderProtoStats();
+    if (view === 'stat-country') return renderCountryStats();
+}
+
+function viewFramePredicate(view) {
+    switch (view) {
+        case 'frames-all': return () => true;
+        case 'frames-arp': return r => r.l3 === 'ARP';
+        case 'frames-icmp': return r => r.l4 === 'ICMP';
+        case 'frames-icmpv6': return r => r.l4 === 'ICMPv6';
+        case 'frames-tcp': return r => r.l4 === 'TCP';
+        case 'frames-udp': return r => r.l4 === 'UDP';
+    }
+    return () => true;
+}
+
+function viewSessionPredicate(view) {
+    switch (view) {
+        case 'sessions-tcp': return s => s.l4 === 'TCP';
+        case 'sessions-udp': return s => s.l4 === 'UDP';
+        case 'sessions-dns': return s => s.appProto === 'DNS';
+        case 'sessions-http': return s => s.appProto === 'HTTP';
+        case 'sessions-tls': return s => s.appProto === 'TLS';
+        case 'sessions-ssh': return s => s.appProto === 'SSH';
+    }
+    return () => true;
+}
+
+function filterFrames(records) {
+    const f = pktState.filter;
+    return records.filter(r => {
+        if (f.ip) {
+            const ok = (r.src.ip && r.src.ip.includes(f.ip)) || (r.dst.ip && r.dst.ip.includes(f.ip));
+            if (!ok) return false;
+        }
+        if (f.port) {
+            const ok = String(r.src.port) === f.port || String(r.dst.port) === f.port;
+            if (!ok) return false;
+        }
+        if (f.app) {
+            const u = f.app.toUpperCase();
+            const hay = ((r.appProto || '') + ' ' + (r.l4 || '') + ' ' + (r.l3 || '') + ' ' + (r.tlsVersion || '')).toUpperCase();
+            if (!hay.includes(u)) return false;
+        }
+        return true;
+    });
+}
+
+function filterSessions(sessions) {
+    const f = pktState.filter;
+    return sessions.filter(s => {
+        if (f.ip) {
+            const ok = s.ip1.includes(f.ip) || s.ip2.includes(f.ip);
+            if (!ok) return false;
+        }
+        if (f.port) {
+            const ok = String(s.port1) === f.port || String(s.port2) === f.port;
+            if (!ok) return false;
+        }
+        if (f.app) {
+            const u = f.app.toUpperCase();
+            const hay = ((s.appProto || '') + ' ' + (s.l4 || '') + ' ' + (s.tlsVersion || '')).toUpperCase();
+            if (!hay.includes(u)) return false;
+        }
+        return true;
+    });
+}
+
+function setViewMeta(title, count, total) {
+    document.getElementById('pkt_view_title').textContent = title;
+    document.getElementById('pkt_view_meta').textContent = count + (total != null && total !== count ? ` / ${total}` : '');
+    document.getElementById('flt_count').textContent = `显示 ${count} / 共 ${total != null ? total : count}`;
+}
+
+// ---- 协议徽标 ----
+function protoBadge(p) {
+    const map = {
+        'TCP': 'bg-primary', 'UDP': 'bg-success', 'ICMP': 'bg-info text-dark',
+        'ICMPv6': 'bg-info text-dark', 'ARP': 'bg-warning text-dark',
+        'IPv6': 'bg-secondary', 'DNS': 'bg-warning text-dark',
+        'HTTP': 'bg-success', 'TLS': 'bg-info text-dark', 'SSH': 'bg-dark',
+    };
+    return `<span class="badge ${map[p] || 'bg-secondary'}">${p}</span>`;
+}
+
+function escapeHtml(s) {
+    return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---- 表头/表体：帧列表 ----
+function renderFramesTable(view) {
+    const pred = viewFramePredicate(view);
+    const subset = pktState.frames.filter(pred);
+    const filtered = filterFrames(subset);
+    const titleMap = {
+        'frames-all': '全部数据包', 'frames-arp': 'ARP 数据包',
+        'frames-icmp': 'ICMP 数据包', 'frames-icmpv6': 'ICMPv6 数据包',
+        'frames-tcp': 'TCP 数据包', 'frames-udp': 'UDP 数据包',
+    };
+    setViewMeta(titleMap[view] || '数据包', filtered.length, subset.length);
+    document.getElementById('pkt_thead').innerHTML = `
+        <tr>
+            <th style="width:50px">序号</th>
+            <th style="width:130px">时间</th>
+            <th>源 IP</th>
+            <th>源归属地</th>
+            <th style="width:60px">源端口</th>
+            <th>目的 IP</th>
+            <th>目的归属地</th>
+            <th style="width:60px">目的端口</th>
+            <th style="width:75px">协议</th>
+            <th style="width:55px">长度</th>
+            <th>信息</th>
+        </tr>`;
+    if (!filtered.length) {
+        document.getElementById('pkt_tbody').innerHTML = `<tr><td colspan="11" class="text-center text-muted py-3">无匹配数据</td></tr>`;
+        return;
+    }
+    const rows = filtered.map(r => {
+        const relTs = r.relTs > 0 ? r.relTs.toFixed(6) : '0';
+        return `<tr class="pkt-row" data-ridx="${r.idx}">
+            <td>${r.idx + 1}</td>
+            <td>${relTs}</td>
+            <td>${escapeHtml(r.src.ip || r.src.mac)}</td>
+            <td><small class="text-muted">${escapeHtml(ipLabel(r.src.ip))}</small></td>
+            <td>${r.src.port != null ? r.src.port : ''}</td>
+            <td>${escapeHtml(r.dst.ip || r.dst.mac)}</td>
+            <td><small class="text-muted">${escapeHtml(ipLabel(r.dst.ip))}</small></td>
+            <td>${r.dst.port != null ? r.dst.port : ''}</td>
+            <td>${protoBadge(r.appProto || r.l4 || r.l3 || '?')}</td>
+            <td>${r.length}</td>
+            <td><small>${escapeHtml(r.info)}</small></td>
+        </tr>`;
+    }).join('');
+    document.getElementById('pkt_tbody').innerHTML = rows;
+    bindRowClick();
+}
+
+// ---- 表头/表体：会话 ----
+function renderSessionsTable(view) {
+    const pred = viewSessionPredicate(view);
+    const subset = pktState.sessions.filter(pred);
+    const filtered = filterSessions(subset);
+    const titleMap = {
+        'sessions-tcp': 'TCP 会话', 'sessions-udp': 'UDP 会话',
+        'sessions-dns': 'DNS 会话', 'sessions-http': 'HTTP 会话',
+        'sessions-tls': 'SSL/TLS 会话', 'sessions-ssh': 'SSH 会话',
+    };
+    setViewMeta(titleMap[view] || '通信会话', filtered.length, subset.length);
+    const showDomain = view === 'sessions-dns' || view === 'sessions-http' || view === 'sessions-tls';
+    document.getElementById('pkt_thead').innerHTML = `
+        <tr>
+            <th style="width:50px">序号</th>
+            <th>IP1</th>
+            <th>IP1 归属地</th>
+            <th style="width:65px">IP1 端口</th>
+            <th>IP2</th>
+            <th>IP2 归属地</th>
+            <th style="width:65px">IP2 端口</th>
+            <th style="width:85px">应用协议</th>
+            <th>开始时间</th>
+            <th>持续时间</th>
+            <th>数据包大小</th>
+            <th style="width:65px">包数量</th>
+            ${showDomain ? '<th>域名信息</th>' : '<th>信息</th>'}
+        </tr>`;
+    if (!filtered.length) {
+        document.getElementById('pkt_tbody').innerHTML = `<tr><td colspan="13" class="text-center text-muted py-3">无匹配会话</td></tr>`;
+        return;
+    }
+    const rows = filtered.map(s => {
+        const appLabel = s.tlsVersion ? s.tlsVersion : s.appProto;
+        const tsStr = s.tsStart > 0 ? new Date(s.tsStart * 1000).toISOString().replace('T', ' ').replace('Z', '').substring(0, 23) : '-';
+        const ridx = s.firstRecIdx;
+        return `<tr class="pkt-row" data-ridx="${ridx}">
+            <td>${s.idx}</td>
+            <td>${escapeHtml(s.ip1)}</td>
+            <td><small class="text-muted">${escapeHtml(ipLabel(s.ip1))}</small></td>
+            <td>${s.port1}</td>
+            <td>${escapeHtml(s.ip2)}</td>
+            <td><small class="text-muted">${escapeHtml(ipLabel(s.ip2))}</small></td>
+            <td>${s.port2}</td>
+            <td>${protoBadge(appLabel)}</td>
+            <td><small>${tsStr}</small></td>
+            <td>${s.duration}</td>
+            <td>${formatBytes(s.bytes)}</td>
+            <td>${s.frames}</td>
+            <td><small>${escapeHtml(s.domain || (s.l4 + ' 会话'))}</small></td>
+        </tr>`;
+    }).join('');
+    document.getElementById('pkt_tbody').innerHTML = rows;
+    bindRowClick();
+}
+
+function formatBytes(n) {
+    if (n < 1024) return n + 'B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(2) + 'KB';
+    return (n / 1024 / 1024).toFixed(2) + 'MB';
+}
+
+// ---- 统计 ----
+function renderIpStats() {
+    const map = new Map();
+    for (const r of pktState.frames) {
+        for (const ip of [r.src.ip, r.dst.ip]) {
+            if (!ip) continue;
+            const cur = map.get(ip) || { ip: ip, count: 0, bytes: 0 };
+            cur.count++; cur.bytes += r.length;
+            map.set(ip, cur);
+        }
+    }
+    const arr = [...map.values()].sort((a, b) => b.count - a.count).slice(0, 50);
+    setViewMeta('IP 统计 (Top 50)', arr.length, map.size);
+    document.getElementById('pkt_thead').innerHTML = `
+        <tr><th style="width:60px">序号</th><th>IP</th><th>归属地</th><th>出现次数</th><th>字节数</th></tr>`;
+    if (!arr.length) { document.getElementById('pkt_tbody').innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">无数据</td></tr>`; return; }
+    document.getElementById('pkt_tbody').innerHTML = arr.map((x, i) => `
+        <tr><td>${i + 1}</td><td>${escapeHtml(x.ip)}</td><td><small class="text-muted">${escapeHtml(ipLabel(x.ip))}</small></td><td>${x.count}</td><td>${formatBytes(x.bytes)}</td></tr>
+    `).join('');
+}
+
+function renderProtoStats() {
+    const map = new Map();
+    for (const r of pktState.frames) {
+        const key = r.appProto || r.l4 || r.l3 || '其他';
+        map.set(key, (map.get(key) || 0) + 1);
+    }
+    const total = pktState.frames.length;
+    const arr = [...map.entries()].sort((a, b) => b[1] - a[1]);
+    setViewMeta('协议统计', arr.length, arr.length);
+    document.getElementById('pkt_thead').innerHTML = `<tr><th>协议</th><th style="width:80px">帧数</th><th>占比</th></tr>`;
+    if (!arr.length) { document.getElementById('pkt_tbody').innerHTML = `<tr><td colspan="3" class="text-center text-muted py-3">无数据</td></tr>`; return; }
+    document.getElementById('pkt_tbody').innerHTML = arr.map(([k, v]) => {
+        const pct = total ? (v / total * 100).toFixed(1) : 0;
+        return `<tr>
+            <td>${protoBadge(k)}</td>
+            <td>${v}</td>
+            <td><div class="progress" style="height:14px;"><div class="progress-bar" style="width:${pct}%;">${pct}%</div></div></td>
+        </tr>`;
+    }).join('');
+}
+
+function renderCountryStats() {
+    const map = new Map();
+    for (const r of pktState.frames) {
+        for (const ip of [r.src.ip, r.dst.ip]) {
+            if (!ip) continue;
+            const lbl = ipLabel(ip) || '未知';
+            // 取国家粒度（label 形如 "中国-江西省-南昌市"），第一级
+            const country = lbl.split('-')[0];
+            map.set(country, (map.get(country) || 0) + 1);
+        }
+    }
+    const total = [...map.values()].reduce((a, b) => a + b, 0);
+    const tail = new Set(['内网', '回环', '链路本地', '组播', '广播', '未知', '查询中…', '查询失败', '离线']);
+    const arr = [...map.entries()].sort((a, b) => {
+        const at = tail.has(a[0]) ? 1 : 0, bt = tail.has(b[0]) ? 1 : 0;
+        if (at !== bt) return at - bt;
+        return b[1] - a[1];
+    });
+    setViewMeta('国家统计', arr.length, arr.length);
+    document.getElementById('pkt_thead').innerHTML = `<tr><th>国家/地区</th><th style="width:80px">帧数</th><th>占比</th></tr>`;
+    if (!arr.length) { document.getElementById('pkt_tbody').innerHTML = `<tr><td colspan="3" class="text-center text-muted py-3">无数据</td></tr>`; return; }
+    document.getElementById('pkt_tbody').innerHTML = arr.map(([k, v]) => {
+        const pct = total ? (v / total * 100).toFixed(1) : 0;
+        return `<tr>
+            <td>${escapeHtml(k)}</td>
+            <td>${v}</td>
+            <td><div class="progress" style="height:14px;"><div class="progress-bar bg-success" style="width:${pct}%;">${pct}%</div></div></td>
+        </tr>`;
+    }).join('');
+}
+
+// ---- 行点击 / 详情 ----
+function bindRowClick() {
+    document.querySelectorAll('#pkt_tbody .pkt-row').forEach(tr => {
+        tr.addEventListener('click', function () {
+            document.querySelectorAll('#pkt_tbody .pkt-row').forEach(r => r.classList.remove('table-primary'));
+            this.classList.add('table-primary');
+            const ridx = parseInt(this.dataset.ridx);
+            const rec = pktState.frames[ridx];
+            if (rec) renderPacketDetail(rec.bytes, rec.idx, rec.ts);
+        });
+    });
+}
+
+// ---- 兼容：旧版函数入口（loadPacketSample 等） ----
+async function parsePacketFromText() { document.getElementById('pkt_mode_paste').checked = true; pktApplyMode(); await pktDoParse(); }
+async function parsePacketFromFile() { document.getElementById('pkt_mode_file').checked = true; pktApplyMode(); await pktDoParse(); }
+function renderPacketList(frames, info) { loadFrames(frames, info); }
+function renderPacketSingle(bytes, info) { loadFrames([{ ts: 0, bytes: bytes }], info); }
+
+// ---- 初始化绑定 ----
+(function bindPacketUI() {
+    if (document.getElementById('pkt_btn_parse')) {
+        document.getElementById('pkt_btn_parse').addEventListener('click', pktDoParse);
+        document.getElementById('pkt_btn_reset').addEventListener('click', pktDoReset);
+        document.querySelectorAll('input[name="pkt_mode"]').forEach(el => el.addEventListener('change', pktApplyMode));
+        pktApplyMode();
+        // 侧栏
+        document.getElementById('pkt_sidebar').addEventListener('click', e => {
+            const li = e.target.closest('.pkt-nav'); if (!li) return;
+            if (!pktState.frames.length) return;
+            document.querySelectorAll('#pkt_sidebar .pkt-nav').forEach(x => x.classList.remove('active'));
+            li.classList.add('active');
+            pktState.view = li.dataset.view;
+            renderView();
+        });
+        // 筛选 (debounce 200ms)
+        let fltTimer = null;
+        const onFilter = () => {
+            clearTimeout(fltTimer);
+            fltTimer = setTimeout(() => {
+                pktState.filter = {
+                    ip: document.getElementById('flt_ip').value.trim(),
+                    port: document.getElementById('flt_port').value.trim(),
+                    app: document.getElementById('flt_app').value.trim(),
+                };
+                if (pktState.frames.length) renderView();
+            }, 200);
+        };
+        ['flt_ip', 'flt_port', 'flt_app'].forEach(id => document.getElementById(id).addEventListener('input', onFilter));
+        document.getElementById('flt_apply').addEventListener('click', () => { clearTimeout(fltTimer); onFilter(); });
+        document.getElementById('flt_reset').addEventListener('click', () => {
+            document.getElementById('flt_ip').value = '';
+            document.getElementById('flt_port').value = '';
+            document.getElementById('flt_app').value = '';
+            pktState.filter = { ip: '', port: '', app: '' };
+            if (pktState.frames.length) renderView();
+        });
+    }
+})();
 
 // 单帧详情（用于列表点击或单字节串）
 function renderPacketDetail(bytes, idx, ts) {
@@ -1083,17 +1759,6 @@ function renderPacketDetail(bytes, idx, ts) {
     `;
 }
 
-// 单帧（不带列表）
-function renderPacketSingle(bytes, sourceInfo) {
-    if (bytes.length < 14) { alert('长度不足以包含以太网头部'); return; }
-    const html = renderPacketSections(bytes);
-    document.getElementById('pkt_result').innerHTML = `
-        <div class="alert alert-info py-2 small">
-            <i class="bi-info-circle"></i> 数据来源：${sourceInfo}。
-        </div>
-        ${html}
-    `;
-}
 
 // 提取分层渲染逻辑（被列表详情和单帧共用）
 function renderPacketSections(bytes) {
