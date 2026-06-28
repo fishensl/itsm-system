@@ -5,10 +5,23 @@
 （依赖 ip2region xdb 数据库，纯前端不便携带）。
 """
 import os
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from flask_login import login_required
 
 tools_bp = Blueprint('tools', __name__)
+
+
+# 旧工具 key → 新工具/子工具的映射（用于兼容旧书签/外链）
+LEGACY_TOOLS = {
+    'ip-calc': ('network', 'ip-calc'),
+    'subnet': ('network', 'subnet'),
+    'mac': ('network', 'mac'),
+    'mtu': ('network', 'mtu'),
+    'bandwidth': ('network', 'bandwidth'),
+    'radix': ('convert', 'radix'),
+    'timestamp': ('convert', 'timestamp'),
+    'base64': ('convert', 'base64'),
+}
 
 
 # ============== ip2region 单例（懒加载，启动不阻塞） ==============
@@ -44,18 +57,23 @@ def _get_xdb():
 @tools_bp.route('/tools')
 @login_required
 def tools_index():
-    """工具集合主页（默认显示 IP 计算器）"""
-    return render_template('tools/index.html', tool='ip-calc')
+    """工具集合主页（默认显示网络计算工具）"""
+    return render_template('tools/index.html', tool='network')
 
 
 @tools_bp.route('/tools/<tool>')
 @login_required
 def tools_one(tool):
-    """单个工具页面"""
-    valid = {'ip-calc', 'subnet', 'mac', 'radix', 'timestamp',
-             'base64', 'mtu', 'bandwidth', 'packet'}
-    if tool not in valid:
-        tool = 'ip-calc'
+    """单个工具页面。
+
+    仅保留三个整合工具：network / convert / packet。
+    旧的细分 key（ip-calc/mac/...）302 跳转到对应新工具并通过 hash 定位子工具。
+    """
+    if tool in LEGACY_TOOLS:
+        new, sub = LEGACY_TOOLS[tool]
+        return redirect(url_for('tools.tools_one', tool=new) + '#' + sub, code=302)
+    if tool not in {'network', 'convert', 'packet'}:
+        tool = 'network'
     return render_template('tools/index.html', tool=tool)
 
 

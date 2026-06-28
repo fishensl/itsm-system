@@ -136,14 +136,8 @@ SIDEBAR_GROUPS = [
         'icon': 'bi-tools',
         'default_order': 65,  # 在备件管理和系统管理之间
         'children': [
-            {'name': 'IP地址计算器', 'url': '/tools/ip-calc', 'icon': 'bi-calculator', 'perm': None},
-            {'name': '子网划分工具', 'url': '/tools/subnet', 'icon': 'bi-diagram-3', 'perm': None},
-            {'name': 'MAC地址工具', 'url': '/tools/mac', 'icon': 'bi-hdd-network', 'perm': None},
-            {'name': '进制转换', 'url': '/tools/radix', 'icon': 'bi-123', 'perm': None},
-            {'name': '时间戳转换', 'url': '/tools/timestamp', 'icon': 'bi-clock', 'perm': None},
-            {'name': 'Base64编解码', 'url': '/tools/base64', 'icon': 'bi-file-earmark-code', 'perm': None},
-            {'name': 'MTU计算器', 'url': '/tools/mtu', 'icon': 'bi-rulers', 'perm': None},
-            {'name': '带宽计算器', 'url': '/tools/bandwidth', 'icon': 'bi-speedometer', 'perm': None},
+            {'name': '网络计算工具', 'url': '/tools/network', 'icon': 'bi-hdd-network', 'perm': None},
+            {'name': '通用换算工具', 'url': '/tools/convert', 'icon': 'bi-123', 'perm': None},
             {'name': '报文分析', 'url': '/tools/packet', 'icon': 'bi-search', 'perm': None},
         ],
     },
