@@ -20,175 +20,194 @@
 </ul>
 
 <style>
-/* 网络计算 / 通用换算：已合并为单页全铺，旧子导航样式不再需要 */
+/* 网络计算 / 通用换算：子工具多列瀑布格，按卡片自然高度横向填满 */
+.tool-grid { column-count: 1; column-gap: 1rem; }
+@media (min-width: 768px)  { .tool-grid { column-count: 2; } }
+@media (min-width: 1400px) { .tool-grid { column-count: 3; } }
+.tool-grid > .card {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 1rem;
+}
+.tool-grid .card-body { padding: .9rem 1rem; }
+.tool-grid h6 { font-weight: 600; }
 </style>
 
 <div class="card">
 <div class="card-body">
 
-{# ============================ 网络计算工具（单页全铺） ============================ #}
+{# ============================ 网络计算工具（瀑布格紧凑布局） ============================ #}
 {% if tool == 'network' %}
 
+<div class="tool-grid">
+
 {# ---- IP 计算器 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="ip-calc">
-<h5 class="mb-3"><i class="bi-calculator"></i> IP 地址计算器</h5>
-<div class="row">
-    <div class="col-md-3 mb-3">
-        <label class="form-label">IP 版本</label>
-        <select id="ipCalcVersion" class="form-select" onchange="updateIPCalcMask()">
+<h6 class="mb-2"><i class="bi-calculator"></i> IP 地址计算器</h6>
+<div class="row g-2">
+    <div class="col-12 col-xl-3 mb-2">
+        <label class="form-label small mb-1">IP 版本</label>
+        <select id="ipCalcVersion" class="form-select form-select-sm" onchange="updateIPCalcMask()">
             <option value="ipv4" selected>IPv4</option>
             <option value="ipv6">IPv6</option>
         </select>
     </div>
-    <div class="col-md-5 mb-3">
-        <label class="form-label">IP 地址 (可含 /CIDR)</label>
-        <input id="ipCalcInput" type="text" class="form-control" placeholder="如 192.168.1.10 或 192.168.1.10/24">
+    <div class="col-12 col-xl-5 mb-2">
+        <label class="form-label small mb-1">IP 地址 (可含 /CIDR)</label>
+        <input id="ipCalcInput" type="text" class="form-control form-control-sm" placeholder="如 192.168.1.10 或 192.168.1.10/24">
     </div>
-    <div class="col-md-4 mb-3">
-        <label class="form-label">子网掩码 / 前缀长度</label>
-        <select id="ipCalcMask" class="form-select"></select>
+    <div class="col-12 col-xl-4 mb-2">
+        <label class="form-label small mb-1">子网掩码 / 前缀长度</label>
+        <select id="ipCalcMask" class="form-select form-select-sm"></select>
     </div>
 </div>
-<button class="btn btn-primary" onclick="calcIP()"><i class="bi-calculator"></i> 计算</button>
-<div id="ipCalcResult" class="mt-3 tool-result" style="display:none;"></div>
+<button class="btn btn-sm btn-primary" onclick="calcIP()"><i class="bi-calculator"></i> 计算</button>
+<div id="ipCalcResult" class="mt-2 tool-result" style="display:none;"></div>
 </div>
 </div></div>
 
 {# ---- 子网划分 ---- #}
-<div class="card mb-3"><div class="card-body">
-<div data-pane="subnet">
-<h5 class="mb-3"><i class="bi-diagram-3"></i> 子网划分工具</h5>
-<div class="row">
-    <div class="col-md-6 mb-3">
-        <label class="form-label">网络地址 / CIDR</label>
-        <input id="subnetInput" type="text" class="form-control" placeholder="如 192.168.0.0/24">
+<div class="card"><div class="card-body">
+<div data-pane="subnet"><h6 class="mb-2"><i class="bi-diagram-3"></i> 子网划分工具</h6>
+<div class="row g-2">
+    <div class="col-12 col-xl-7 mb-2">
+        <label class="form-label small mb-1">网络地址 / CIDR</label>
+        <input id="subnetInput" type="text" class="form-control form-control-sm" placeholder="如 192.168.0.0/24">
     </div>
-    <div class="col-md-3 mb-3">
-        <label class="form-label">划分子网数量</label>
-        <input id="subnetCount" type="number" class="form-control" value="4" min="2" max="256">
+    <div class="col-12 col-xl-5 mb-2">
+        <label class="form-label small mb-1">划分子网数量</label>
+        <input id="subnetCount" type="number" class="form-control form-control-sm" value="4" min="2" max="256">
     </div>
 </div>
-<button class="btn btn-primary" onclick="calcSubnet()"><i class="bi-diagram-3"></i> 划分</button>
-<div id="subnetResult" class="mt-3 tool-result" style="display:none;"></div>
+<button class="btn btn-sm btn-primary" onclick="calcSubnet()"><i class="bi-diagram-3"></i> 划分</button>
+<div id="subnetResult" class="mt-2 tool-result" style="display:none;"></div>
 </div>
 </div></div>
 
 {# ---- MAC 地址工具 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="mac">
-<h5 class="mb-3"><i class="bi-hdd-network"></i> MAC 地址工具</h5>
-<div class="mb-3">
-    <label class="form-label">MAC 地址（任意格式）</label>
-    <input id="macInput" type="text" class="form-control" placeholder="如 AA:BB:CC:DD:EE:FF / AA-BB-CC-DD-EE-FF / AABB.CCDD.EEFF / AABBCCDDEEFF">
+<h6 class="mb-2"><i class="bi-hdd-network"></i> MAC 地址工具</h6>
+<div class="mb-2">
+    <label class="form-label small mb-1">MAC 地址（任意格式）</label>
+    <input id="macInput" type="text" class="form-control form-control-sm" placeholder="如 AA:BB:CC:DD:EE:FF / AABB.CCDD.EEFF / AABBCCDDEEFF">
 </div>
-<button class="btn btn-primary" onclick="convertMAC()"><i class="bi-arrow-left-right"></i> 格式转换</button>
-<button class="btn btn-success" onclick="lookupVendor()"><i class="bi-search"></i> 厂商查询</button>
-<div id="macResult" class="mt-3 tool-result" style="display:none;"></div>
-<div id="vendorResult" class="mt-3 tool-result" style="display:none;"></div>
+<div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-sm btn-primary" onclick="convertMAC()"><i class="bi-arrow-left-right"></i> 格式转换</button>
+    <button class="btn btn-sm btn-success" onclick="lookupVendor()"><i class="bi-search"></i> 厂商查询</button>
+</div>
+<div id="macResult" class="mt-2 tool-result" style="display:none;"></div>
+<div id="vendorResult" class="mt-2 tool-result" style="display:none;"></div>
 
-<hr class="mt-4">
-<div class="row">
-    <div class="col-md-6">
-        <h6 class="text-muted mb-2"><i class="bi-info-circle"></i> 关于 OUI 厂商查询</h6>
-        <p class="small text-muted mb-1">MAC 地址前 24 位（OUI - Organizationally Unique Identifier）由 IEEE 分配给厂商。</p>
-        <p class="small text-muted mb-0">本工具内置常见网络/IT 厂商的 OUI 前缀（约 200 条），支持离线查询。完整数据库可参考
-            <a href="http://standards-oui.ieee.org/" target="_blank">IEEE 官方 OUI 列表</a>。</p>
+<hr class="mt-3 mb-2">
+<div class="row g-2">
+    <div class="col-12 col-xl-6">
+        <div class="small text-muted mb-1"><i class="bi-info-circle"></i> <strong>OUI 厂商查询</strong></div>
+        <p class="small text-muted mb-0">MAC 前 24 位 (OUI) 由 IEEE 分配给厂商。内置约 200 条常见厂商前缀，完整库见
+            <a href="http://standards-oui.ieee.org/" target="_blank">IEEE 官方列表</a>。</p>
     </div>
-    <div class="col-md-6">
-        <h6 class="text-muted mb-2"><i class="bi-shield-check"></i> 单播/组播/本地</h6>
-        <p class="small text-muted mb-1"><strong>第一字节最低位</strong>：0=单播，1=组播</p>
-        <p class="small text-muted mb-0"><strong>第一字节次低位</strong>：0=全球唯一(IEEE分配)，1=本地管理(LAA)</p>
+    <div class="col-12 col-xl-6">
+        <div class="small text-muted mb-1"><i class="bi-shield-check"></i> <strong>单播/组播/本地</strong></div>
+        <p class="small text-muted mb-0"><strong>首字节最低位</strong>：0=单播，1=组播<br>
+            <strong>首字节次低位</strong>：0=全球唯一(IEEE)，1=本地管理(LAA)</p>
     </div>
 </div>
 </div>
 </div></div>
 
 {# ---- MTU 计算器 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="mtu">
-<h5 class="mb-3"><i class="bi-rulers"></i> MTU 计算器</h5>
-<div class="row">
-    <div class="col-md-6 mb-3">
-        <label class="form-label">底层链路 MTU (字节)</label>
-        <input id="mtuBase" type="number" class="form-control" value="1500" min="68" oninput="calcMtuAdvanced()">
-    </div>
-    <div class="col-md-6 mb-3">
-        <label class="form-label">叠加封装 (可多选)</label>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_dot1q" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_dot1q">802.1Q VLAN (+4)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_qinq" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_qinq">QinQ (+8)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_mpls1" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_mpls1">MPLS 1层 (+4)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_mpls2" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_mpls2">MPLS 2层 (+8)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_pppoe" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_pppoe">PPPoE (+8)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_gre" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_gre">GRE (+24)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_ipsec" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_ipsec">IPsec ESP (+50~73)</label></div>
-        <div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_vxlan" onchange="calcMtuAdvanced()"><label class="form-check-label" for="mtu_vxlan">VxLAN (+50)</label></div>
+<h6 class="mb-2"><i class="bi-rulers"></i> MTU 计算器</h6>
+<div class="mb-2">
+    <label class="form-label small mb-1">底层链路 MTU (字节)</label>
+    <input id="mtuBase" type="number" class="form-control form-control-sm" value="1500" min="68" oninput="calcMtuAdvanced()">
+</div>
+<div class="mb-2">
+    <label class="form-label small mb-1">叠加封装 (可多选)</label>
+    <div class="row g-1">
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_dot1q" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_dot1q">802.1Q VLAN (+4)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_qinq" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_qinq">QinQ (+8)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_mpls1" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_mpls1">MPLS 1层 (+4)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_mpls2" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_mpls2">MPLS 2层 (+8)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_pppoe" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_pppoe">PPPoE (+8)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_gre" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_gre">GRE (+24)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_ipsec" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_ipsec">IPsec ESP (+50~73)</label></div></div>
+        <div class="col-6"><div class="form-check"><input type="checkbox" class="form-check-input" id="mtu_vxlan" onchange="calcMtuAdvanced()"><label class="form-check-label small" for="mtu_vxlan">VxLAN (+50)</label></div></div>
     </div>
 </div>
-<div id="mtuResult" class="mt-3 tool-result"></div>
+<div id="mtuResult" class="mt-2 tool-result"></div>
 </div>
 </div></div>
 
 {# ---- 带宽计算器 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="bandwidth">
-<h5 class="mb-3"><i class="bi-speedometer"></i> 带宽计算器</h5>
-<ul class="nav nav-tabs mb-3">
-    <li class="nav-item"><a class="nav-link active" href="#bw-time" data-bs-toggle="tab">传输时间</a></li>
-    <li class="nav-item"><a class="nav-link" href="#bw-need" data-bs-toggle="tab">所需带宽</a></li>
-    <li class="nav-item"><a class="nav-link" href="#bw-concurrent" data-bs-toggle="tab">并发带宽</a></li>
+<h6 class="mb-2"><i class="bi-speedometer"></i> 带宽计算器</h6>
+<ul class="nav nav-tabs nav-tabs-sm mb-2" role="tablist">
+    <li class="nav-item" role="presentation"><button type="button" class="nav-link active py-1 px-2 small" data-bs-toggle="tab" data-bs-target="#bw-time" role="tab">传输时间</button></li>
+    <li class="nav-item" role="presentation"><button type="button" class="nav-link py-1 px-2 small" data-bs-toggle="tab" data-bs-target="#bw-need" role="tab">所需带宽</button></li>
+    <li class="nav-item" role="presentation"><button type="button" class="nav-link py-1 px-2 small" data-bs-toggle="tab" data-bs-target="#bw-concurrent" role="tab">并发带宽</button></li>
 </ul>
 <div class="tab-content">
-    <div class="tab-pane active" id="bw-time">
-        <div class="row">
-            <div class="col-md-3 mb-3"><label class="form-label">文件大小</label><input id="bw_t_size" type="number" class="form-control" value="1"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">大小单位</label>
-                <select id="bw_t_size_unit" class="form-select"><option value="KB">KB</option><option value="MB" selected>MB</option><option value="GB">GB</option><option value="TB">TB</option></select></div>
-            <div class="col-md-3 mb-3"><label class="form-label">链路带宽</label><input id="bw_t_bw" type="number" class="form-control" value="100"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">带宽单位</label>
-                <select id="bw_t_bw_unit" class="form-select"><option value="Kbps">Kbps</option><option value="Mbps" selected>Mbps</option><option value="Gbps">Gbps</option></select></div>
+    <div class="tab-pane fade show active" id="bw-time" role="tabpanel">
+        <div class="row g-2">
+            <div class="col-6 col-xl-3 mb-2"><label class="form-label small mb-1">文件大小</label><input id="bw_t_size" type="number" class="form-control form-control-sm" value="1"></div>
+            <div class="col-6 col-xl-3 mb-2"><label class="form-label small mb-1">大小单位</label>
+                <select id="bw_t_size_unit" class="form-select form-select-sm"><option value="KB">KB</option><option value="MB" selected>MB</option><option value="GB">GB</option><option value="TB">TB</option></select></div>
+            <div class="col-6 col-xl-3 mb-2"><label class="form-label small mb-1">链路带宽</label><input id="bw_t_bw" type="number" class="form-control form-control-sm" value="100"></div>
+            <div class="col-6 col-xl-3 mb-2"><label class="form-label small mb-1">带宽单位</label>
+                <select id="bw_t_bw_unit" class="form-select form-select-sm"><option value="Kbps">Kbps</option><option value="Mbps" selected>Mbps</option><option value="Gbps">Gbps</option></select></div>
         </div>
-        <button class="btn btn-primary" onclick="calcTransferTime()">计算传输时间</button>
-        <div id="bw_t_result" class="mt-3"></div>
+        <button class="btn btn-sm btn-primary" onclick="calcTransferTime()">计算传输时间</button>
+        <div id="bw_t_result" class="mt-2"></div>
     </div>
-    <div class="tab-pane" id="bw-need">
-        <div class="row">
-            <div class="col-md-3 mb-3"><label class="form-label">文件大小</label><input id="bw_n_size" type="number" class="form-control" value="100"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">大小单位</label>
-                <select id="bw_n_size_unit" class="form-select"><option value="KB">KB</option><option value="MB" selected>MB</option><option value="GB">GB</option></select></div>
-            <div class="col-md-3 mb-3"><label class="form-label">期望时间(秒)</label><input id="bw_n_time" type="number" class="form-control" value="60"></div>
+    <div class="tab-pane fade" id="bw-need" role="tabpanel">
+        <div class="row g-2">
+            <div class="col-6 col-xl-4 mb-2"><label class="form-label small mb-1">文件大小</label><input id="bw_n_size" type="number" class="form-control form-control-sm" value="100"></div>
+            <div class="col-6 col-xl-4 mb-2"><label class="form-label small mb-1">大小单位</label>
+                <select id="bw_n_size_unit" class="form-select form-select-sm"><option value="KB">KB</option><option value="MB" selected>MB</option><option value="GB">GB</option></select></div>
+            <div class="col-12 col-xl-4 mb-2"><label class="form-label small mb-1">期望时间(秒)</label><input id="bw_n_time" type="number" class="form-control form-control-sm" value="60"></div>
         </div>
-        <button class="btn btn-primary" onclick="calcRequiredBandwidth()">计算所需带宽</button>
-        <div id="bw_n_result" class="mt-3"></div>
+        <button class="btn btn-sm btn-primary" onclick="calcRequiredBandwidth()">计算所需带宽</button>
+        <div id="bw_n_result" class="mt-2"></div>
     </div>
-    <div class="tab-pane" id="bw-concurrent">
-        <div class="row">
-            <div class="col-md-3 mb-3"><label class="form-label">并发用户数</label><input id="bw_c_users" type="number" class="form-control" value="100"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">每用户带宽 (Kbps)</label><input id="bw_c_per" type="number" class="form-control" value="500"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">峰值系数</label><input id="bw_c_peak" type="number" class="form-control" value="1.5" step="0.1"></div>
+    <div class="tab-pane fade" id="bw-concurrent" role="tabpanel">
+        <div class="row g-2">
+            <div class="col-6 col-xl-4 mb-2"><label class="form-label small mb-1">并发用户数</label><input id="bw_c_users" type="number" class="form-control form-control-sm" value="100"></div>
+            <div class="col-6 col-xl-4 mb-2"><label class="form-label small mb-1">每用户带宽 (Kbps)</label><input id="bw_c_per" type="number" class="form-control form-control-sm" value="500"></div>
+            <div class="col-12 col-xl-4 mb-2"><label class="form-label small mb-1">峰值系数</label><input id="bw_c_peak" type="number" class="form-control form-control-sm" value="1.5" step="0.1"></div>
         </div>
-        <button class="btn btn-primary" onclick="calcConcurrentBandwidth()">计算总带宽</button>
-        <div id="bw_c_result" class="mt-3"></div>
+        <button class="btn btn-sm btn-primary" onclick="calcConcurrentBandwidth()">计算总带宽</button>
+        <div id="bw_c_result" class="mt-2"></div>
     </div>
 </div>
 </div>
 </div></div>
 
-{# ============================ 通用换算工具（单页全铺） ============================ #}
+</div>{# /.tool-grid #}
+
+{# ============================ 通用换算工具（瀑布格紧凑布局） ============================ #}
 {% elif tool == 'convert' %}
 
+<div class="tool-grid">
+
 {# ---- 进制转换 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="radix">
-<h5 class="mb-3"><i class="bi-123"></i> 进制转换</h5>
-    <div class="row">
-        <div class="col-md-8 mb-3">
-            <label class="form-label">数值</label>
-            <input id="radixInput" type="text" class="form-control" oninput="convertRadix()" placeholder="输入数值">
+<h6 class="mb-2"><i class="bi-123"></i> 进制转换</h6>
+    <div class="row g-2">
+        <div class="col-12 col-xl-8 mb-2">
+            <label class="form-label small mb-1">数值</label>
+            <input id="radixInput" type="text" class="form-control form-control-sm" oninput="convertRadix()" placeholder="输入数值">
         </div>
-        <div class="col-md-4 mb-3">
-            <label class="form-label">输入进制</label>
-            <select id="radixFrom" class="form-select" onchange="convertRadix()">
+        <div class="col-12 col-xl-4 mb-2">
+            <label class="form-label small mb-1">输入进制</label>
+            <select id="radixFrom" class="form-select form-select-sm" onchange="convertRadix()">
                 <option value="10" selected>10 (十进制)</option>
                 <option value="2">2 (二进制)</option>
                 <option value="8">8 (八进制)</option>
@@ -196,19 +215,19 @@
             </select>
         </div>
     </div>
-    <table class="table table-sm">
-        <tr><th width="120">二进制</th><td><code id="radixBin">-</code></td></tr>
+    <table class="table table-sm mb-2">
+        <tr><th width="80">二进制</th><td><code id="radixBin">-</code></td></tr>
         <tr><th>八进制</th><td><code id="radixOct">-</code></td></tr>
         <tr><th>十进制</th><td><code id="radixDec">-</code></td></tr>
         <tr><th>十六进制</th><td><code id="radixHex">-</code></td></tr>
     </table>
-    <hr class="mt-4">
-    <h6>IP 地址 → 多进制</h6>
-    <div class="mb-3">
-        <input id="radixIpInput" type="text" class="form-control" oninput="convertIpBinary()" placeholder="如 192.168.1.1">
+    <hr class="my-2">
+    <div class="small fw-bold mb-1">IP 地址 → 多进制</div>
+    <div class="mb-2">
+        <input id="radixIpInput" type="text" class="form-control form-control-sm" oninput="convertIpBinary()" placeholder="如 192.168.1.1">
     </div>
-    <table class="table table-sm">
-        <tr><th width="120">二进制</th><td><code id="ipBinary">-</code></td></tr>
+    <table class="table table-sm mb-0">
+        <tr><th width="80">二进制</th><td><code id="ipBinary">-</code></td></tr>
         <tr><th>十进制</th><td><code id="ipDecimal">-</code></td></tr>
         <tr><th>十六进制</th><td><code id="ipHex">-</code></td></tr>
         <tr><th>反掩码</th><td><code id="ipWildcard">-</code></td></tr>
@@ -217,48 +236,50 @@
 </div></div>
 
 {# ---- 时间戳转换 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="timestamp">
-<h5 class="mb-3"><i class="bi-clock"></i> 时间戳转换</h5>
-    <div class="row">
-        <div class="col-md-6 mb-3">
-            <label class="form-label">Unix 时间戳（秒/毫秒自动识别）</label>
-            <div class="input-group">
+<h6 class="mb-2"><i class="bi-clock"></i> 时间戳转换</h6>
+    <div class="row g-2">
+        <div class="col-12 col-xl-6 mb-2">
+            <label class="form-label small mb-1">Unix 时间戳（秒/毫秒自动识别）</label>
+            <div class="input-group input-group-sm">
                 <input id="tsInput" type="text" class="form-control" placeholder="如 1718265600 或 1718265600000">
-                <button class="btn btn-outline-secondary" onclick="document.getElementById('tsInput').value = Math.floor(Date.now()/1000); convertTimestamp()">当前时间</button>
+                <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('tsInput').value = Math.floor(Date.now()/1000); convertTimestamp()">当前</button>
             </div>
         </div>
-        <div class="col-md-6 mb-3">
-            <label class="form-label">日期时间</label>
-            <input id="dtInput" type="datetime-local" class="form-control" step="1">
+        <div class="col-12 col-xl-6 mb-2">
+            <label class="form-label small mb-1">日期时间</label>
+            <input id="dtInput" type="datetime-local" class="form-control form-control-sm" step="1">
         </div>
     </div>
-    <button class="btn btn-primary" onclick="convertTimestamp()"><i class="bi-arrow-left-right"></i> 转换</button>
-    <div id="tsResult" class="mt-3 tool-result" style="display:none;"></div>
+    <button class="btn btn-sm btn-primary" onclick="convertTimestamp()"><i class="bi-arrow-left-right"></i> 转换</button>
+    <div id="tsResult" class="mt-2 tool-result" style="display:none;"></div>
 </div>
 </div></div>
 
 {# ---- Base64 编解码 ---- #}
-<div class="card mb-3"><div class="card-body">
+<div class="card"><div class="card-body">
 <div data-pane="base64">
-<h5 class="mb-3"><i class="bi-file-earmark-code"></i> Base64 编解码</h5>
-    <div class="mb-3">
-        <label class="form-label">输入文本</label>
-        <textarea id="b64Input" class="form-control" rows="4"></textarea>
+<h6 class="mb-2"><i class="bi-file-earmark-code"></i> Base64 编解码</h6>
+    <div class="mb-2">
+        <label class="form-label small mb-1">输入文本</label>
+        <textarea id="b64Input" class="form-control form-control-sm" rows="3"></textarea>
     </div>
-    <div class="btn-group mb-3">
-        <button class="btn btn-primary" onclick="encodeBase64()">文本 → Base64</button>
-        <button class="btn btn-success" onclick="decodeBase64()">Base64 → 文本</button>
-        <button class="btn btn-info" onclick="hexToBase64()">Hex → Base64</button>
-        <button class="btn btn-warning" onclick="base64ToHex()">Base64 → Hex</button>
+    <div class="d-flex gap-1 flex-wrap mb-2">
+        <button class="btn btn-sm btn-primary" onclick="encodeBase64()">文本 → Base64</button>
+        <button class="btn btn-sm btn-success" onclick="decodeBase64()">Base64 → 文本</button>
+        <button class="btn btn-sm btn-info" onclick="hexToBase64()">Hex → Base64</button>
+        <button class="btn btn-sm btn-warning" onclick="base64ToHex()">Base64 → Hex</button>
     </div>
-    <div class="mb-3">
-        <label class="form-label">输出</label>
-        <textarea id="b64Output" class="form-control" rows="4" readonly></textarea>
+    <div class="mb-2">
+        <label class="form-label small mb-1">输出</label>
+        <textarea id="b64Output" class="form-control form-control-sm" rows="3" readonly></textarea>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" onclick="copyText(document.getElementById('b64Output').value)"><i class="bi-clipboard"></i> 复制结果</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="copyText(document.getElementById('b64Output').value)"><i class="bi-clipboard"></i> 复制结果</button>
 </div>
 </div></div>
+
+</div>{# /.tool-grid #}
 
 {# ============================ 报文分析 ============================ #}
 {% elif tool == 'packet' %}
