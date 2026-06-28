@@ -271,9 +271,10 @@
     </div>
 </div>
 
-{# 主区：左侧分类 + 右侧筛选行 + 数据表 + 详情 #}
-<div class="row g-2">
-    <div class="col-lg-2 col-md-3">
+{# 主区：左侧分类 + 右侧筛选行 + 数据表 + 详情。
+   侧栏文本都很短，用固定 170px 宽度，避免在宽屏被 col-lg-2 拉得过宽 #}
+<div class="d-flex g-2" style="gap:.5rem;">
+    <div style="flex:0 0 170px; max-width:170px;">
         <div class="card" style="position:sticky; top:8px;">
             <div class="card-body p-2 small" id="pkt_sidebar">
                 <div class="fw-bold text-muted mb-1"><i class="bi-collection"></i> 数据包</div>
@@ -315,7 +316,7 @@
         </style>
     </div>
 
-    <div class="col-lg-10 col-md-9">
+    <div style="flex:1 1 auto; min-width:0;">
         {# 筛选行 #}
         <div class="row g-2 mb-2 align-items-center">
             <div class="col-auto"><label class="form-label small mb-0">IP</label></div>
