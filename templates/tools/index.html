@@ -39,6 +39,12 @@
 .mtu-overlay { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .25rem .75rem; }
 @media (min-width: 992px) { .mtu-overlay { grid-template-columns: repeat(4, minmax(0,1fr)); } }
 @media (min-width: 1400px) { .mtu-overlay { grid-template-columns: repeat(8, minmax(0,1fr)); } }
+/* IP 详情紧凑信息网格：多列、每项 标签+值 同行，去掉大块空白 */
+.info-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .35rem .75rem; }
+@media (min-width: 768px) { .info-grid { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+.info-grid .ig { display: flex; align-items: baseline; gap: .4rem; padding: .2rem .5rem; background: var(--bs-tertiary-bg); border-radius: 4px; min-width: 0; }
+.info-grid .ig .k { font-size: 12px; color: var(--bs-secondary-color); white-space: nowrap; }
+.info-grid .ig code { word-break: break-all; }
 </style>
 
 <div class="card">
@@ -488,17 +494,16 @@ function calcIP() {
         const isPrivate = (ipInt >= 0x0a000000 && ipInt <= 0x0affffff) || (ipInt >= 0xac100000 && ipInt <= 0xac1fffff) || (ipInt >= 0xc0a80000 && ipInt <= 0xc0a8ffff);
         document.getElementById('ipCalcResult').style.display = 'block';
         document.getElementById('ipCalcResult').innerHTML = `
-        <table class="table table-sm">
-            <tr><th width="160">网络地址</th><td><code>${int2ip(network)}/${cidr}</code></td></tr>
-            <tr><th>广播地址</th><td><code>${int2ip(broadcast)}</code></td></tr>
-            <tr><th>子网掩码</th><td><code>${int2ip(mask)}</code></td></tr>
-            <tr><th>反掩码</th><td><code>${int2ip(wildcard)}</code></td></tr>
-            <tr><th>前缀长度</th><td>/${cidr}</td></tr>
-            <tr><th>总地址数</th><td>${total.toLocaleString()}</td></tr>
-            <tr><th>可用主机数</th><td>${usable.toLocaleString()}</td></tr>
-            <tr><th>可用范围</th><td><code>${int2ip(first)} - ${int2ip(last)}</code></td></tr>
-            <tr><th>地址类别</th><td>${cls} 类 ${isPrivate ? '<span class="badge bg-info ms-1">私有地址</span>' : '<span class="badge bg-success ms-1">公网地址</span>'}</td></tr>
-        </table>`;
+        <div class="info-grid">
+            <div class="ig"><span class="k">网络地址</span><code>${int2ip(network)}/${cidr}</code></div>
+            <div class="ig"><span class="k">广播地址</span><code>${int2ip(broadcast)}</code></div>
+            <div class="ig"><span class="k">子网掩码</span><code>${int2ip(mask)}</code></div>
+            <div class="ig"><span class="k">反掩码</span><code>${int2ip(wildcard)}</code></div>
+            <div class="ig"><span class="k">总地址数</span><code>${total.toLocaleString()}</code></div>
+            <div class="ig"><span class="k">可用主机</span><code>${usable.toLocaleString()}</code></div>
+            <div class="ig" style="grid-column:1/-1"><span class="k">可用范围</span><code>${int2ip(first)} - ${int2ip(last)}</code></div>
+            <div class="ig" style="grid-column:1/-1"><span class="k">地址类别</span><span>${cls} 类 ${isPrivate ? '<span class="badge bg-info ms-1">私有</span>' : '<span class="badge bg-success ms-1">公网</span>'}</span></div>
+        </div>`;
     } catch(e) { alert('计算失败: ' + e.message); }
 }
 
