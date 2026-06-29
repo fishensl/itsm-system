@@ -568,6 +568,27 @@ def change_status(task_id):
     return jsonify(success=True, status=new_status)
 
 
+@task_schedule_bp.route('/<int:task_id>/complete-time', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def set_complete_time(task_id):
+    """AJAX 手动设置/修改/清除任务完成时间（actual_end）。空值=清除。"""
+    task = InspectionTask.query.get_or_404(task_id)
+    raw = (request.form.get('actual_end') or
+           (request.get_json(silent=True) or {}).get('actual_end') or '').strip()
+    if raw:
+        d = parse_excel_date(raw)
+        if not d:
+            return jsonify(success=False, error='日期格式不正确'), 400
+        # actual_end 是 DateTime 字段，parse_excel_date 返回 date，补 00:00 转 datetime
+        task.actual_end = datetime(d.year, d.month, d.day)
+    else:
+        task.actual_end = None
+    db.session.commit()
+    return jsonify(success=True,
+                   actual_end=task.actual_end.strftime('%Y-%m-%d') if task.actual_end else '')
+
+
 @task_schedule_bp.route('/<int:task_id>/assign', methods=['POST'])
 @login_required
 @require_permission('task:schedule')

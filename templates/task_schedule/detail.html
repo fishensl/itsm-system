@@ -73,10 +73,12 @@
                     <tr><td class="text-muted">开始时间</td>
                         <td>{{ task.actual_start.strftime('%Y-%m-%d %H:%M') }}</td></tr>
                     {% endif %}
-                    {% if task.actual_end %}
                     <tr><td class="text-muted">完成时间</td>
-                        <td>{{ task.actual_end.strftime('%Y-%m-%d %H:%M') }}</td></tr>
-                    {% endif %}
+                        <td>{{ task.actual_end.strftime('%Y-%m-%d %H:%M') if task.actual_end else '—' }}
+                            <a href="#" class="ms-2 small"
+                               onclick="editCompleteTime({{ task.id }}, '{{ task.actual_end.strftime('%Y-%m-%d') if task.actual_end else '' }}'); return false;">
+                                <i class="bi-pencil"></i> 修改</a>
+                        </td></tr>
                     <tr><td class="text-muted">巡检模板</td><td>{{ template.name if template else '-' }}</td></tr>
                     <tr><td class="text-muted">来源</td><td>{{ task.source or '-' }}</td></tr>
                 </table>
@@ -169,6 +171,26 @@ function changeTaskStatus(taskId, newStatus) {
     }).then(function(r) {
         if (r.ok) window.location.reload();
         else alert('改状态失败');
+    });
+}
+
+/**
+ * 改完成时间：留空清除，成功后 reload。
+ */
+function editCompleteTime(taskId, current) {
+    var val = prompt('输入完成日期 (YYYY-MM-DD)，留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/complete-time', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'actual_end=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
     });
 }
 </script>

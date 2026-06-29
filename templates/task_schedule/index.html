@@ -314,5 +314,25 @@ function deleteTask(taskId) {
     document.body.appendChild(f);
     f.submit();
 }
+
+/**
+ * AJAX 改完成时间：留空清除。成功后 reload 保证看板各分桶对得上。
+ */
+function editCompleteTime(taskId, current) {
+    var val = prompt('输入完成日期 (YYYY-MM-DD)，留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/complete-time', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'actual_end=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
 </script>
 {% endblock %}

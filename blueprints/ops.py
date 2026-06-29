@@ -14,6 +14,7 @@ from models import (Inspection, InspectionTask, InspectionTemplate, Fault, Ticke
                     InspectionTaskTemplate, FaultType, Customer, Device, User, db)
 from utils.pagination import paginate, paginate_render_args
 from utils.permission import require_permission, has_permission
+from utils.customer_task_generator import _QUARTER_CN
 from services.ticket_service import (create_ticket, update_ticket, assign_ticket,
                                       accept_ticket, submit_ticket, audit_ticket,
                                       accept_check_ticket, close_ticket)
@@ -1283,7 +1284,7 @@ def report_list():
                 if i.inspection_date:
                     qnum = (i.inspection_date.month - 1) // 3 + 1
                     sub_key = f'{i.inspection_date.year}-Q{qnum}'
-                    sub_label = f'{i.inspection_date.year}年第{qnum}季度'
+                    sub_label = f'{i.inspection_date.year}年第{_QUARTER_CN[qnum]}季度'
                 else:
                     sub_key, sub_label = 'unknown', '未知时间'
                 _push_record(cust.id, cust.name, 'inspection', sub_key, sub_label, i)

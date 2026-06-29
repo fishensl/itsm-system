@@ -22,13 +22,16 @@ from utils.auto_task_generator import _get_frequency_delta, _add_months
 
 SOURCE_TAG = '客户频率自动'
 
+# 季度阿拉伯数字 → 中文，用于标题「第二季度」而非「第2季度」
+_QUARTER_CN = {1: '一', 2: '二', 3: '三', 4: '四'}
+
 
 def _period_label(d, months):
-    """期次标签：每月→'3月'，每季度→'第1季度'，每半年→'上半年'，每年→'年度'"""
+    """期次标签：每月→'3月'，每季度→'第二季度'，每半年→'上半年'，每年→'年度'"""
     if months == 1:
         return f'{d.month}月'
     if months == 3:
-        return f'第{(d.month - 1) // 3 + 1}季度'
+        return f'第{_QUARTER_CN[(d.month - 1) // 3 + 1]}季度'
     if months == 6:
         return '上半年' if d.month <= 6 else '下半年'
     return '年度'

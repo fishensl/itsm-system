@@ -42,6 +42,10 @@
                            onclick="assignTask({{ t.id }}, ''); return false;">— 清除指派 —</a></li>
                     {% endif %}
                     <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item small" href="#"
+                           onclick="editCompleteTime({{ t.id }}, '{{ t.actual_end.strftime('%Y-%m-%d') if t.actual_end else '' }}'); return false;">
+                        <i class="bi-calendar-check"></i> 改完成时间
+                    </a></li>
                     <li><a class="dropdown-item small text-danger" href="#"
                            onclick="deleteTask({{ t.id }}); return false;">
                         <i class="bi-trash"></i> 删除
