@@ -11,7 +11,7 @@
 """
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from collections import defaultdict
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
@@ -25,6 +25,16 @@ from utils.pagination import paginate, paginate_render_args
 
 
 task_schedule_bp = Blueprint('task_schedule', __name__, url_prefix='/task-schedule')
+
+
+# 北京本地时间（naive datetime），用于用户可见的 actual_start/actual_end。
+# 用固定 +08:00 偏移避免 zoneinfo/tzdata 跨平台问题。
+_BEIJING = timezone(timedelta(hours=8))
+
+
+def local_now():
+    """当前北京本地时间（naive）。"""
+    return datetime.now(_BEIJING).replace(tzinfo=None)
 
 
 # ============================================================
@@ -482,7 +492,7 @@ def import_excel():
                 if actual_end:
                     existing.actual_end = actual_end
                 if status == '已完成' and not existing.actual_end:
-                    existing.actual_end = datetime.utcnow()
+                    existing.actual_end = local_now()
                 existing.dispatched_by = existing.dispatched_by or current_user.id
                 existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
                 updated += 1
@@ -533,7 +543,7 @@ def import_excel():
 
 def _apply_status(task, new_status, now=None):
     """改任务状态 + 自动维护 actual_start/actual_end 时间戳。单条/批量复用。"""
-    now = now or datetime.utcnow()
+    now = now or local_now()
     task.status = new_status
     if new_status == '执行中' and not task.actual_start:
         task.actual_start = now
@@ -543,7 +553,7 @@ def _apply_status(task, new_status, now=None):
 
 def _apply_assignee(task, user, now=None):
     """指派负责人；user=None 视为清除。已派发过的不覆盖派发人。"""
-    now = now or datetime.utcnow()
+    now = now or local_now()
     if user is None:
         task.assigned_to_user_id = None
         return
@@ -587,6 +597,21 @@ def set_complete_time(task_id):
     db.session.commit()
     return jsonify(success=True,
                    actual_end=task.actual_end.strftime('%Y-%m-%d') if task.actual_end else '')
+
+
+@task_schedule_bp.route('/<int:task_id>/title', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def set_title(task_id):
+    """AJAX 改任务标题。"""
+    task = InspectionTask.query.get_or_404(task_id)
+    raw = (request.form.get('title') or
+           (request.get_json(silent=True) or {}).get('title') or '').strip()
+    if not raw:
+        return jsonify(success=False, error='标题不能为空'), 400
+    task.title = raw
+    db.session.commit()
+    return jsonify(success=True, title=task.title)
 
 
 @task_schedule_bp.route('/<int:task_id>/assign', methods=['POST'])
@@ -737,7 +762,7 @@ def batch_status():
         return jsonify(success=False, error='非法状态'), 400
 
     tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
-    now = datetime.utcnow()
+    now = local_now()
     for t in tasks:
         _apply_status(t, new_status, now)
     db.session.commit()
@@ -764,7 +789,7 @@ def batch_assign():
             return jsonify(success=False, error='用户不存在'), 400
 
     tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
-    now = datetime.utcnow()
+    now = local_now()
     for t in tasks:
         _apply_assignee(t, user, now)
     db.session.commit()

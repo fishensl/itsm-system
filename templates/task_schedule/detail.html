@@ -58,7 +58,11 @@
             <div class="card-header">任务信息</div>
             <div class="card-body">
                 <table class="table table-sm mb-0">
-                    <tr><td class="text-muted" style="width:90px;">标题</td><td><strong>{{ task.title }}</strong></td></tr>
+                    <tr><td class="text-muted" style="width:90px;">标题</td><td><strong>{{ task.title }}</strong>
+                        <a href="#" class="ms-2 small"
+                           onclick="editTaskTitle({{ task.id }}, {{ task.title|tojson }}); return false;">
+                            <i class="bi-pencil"></i> 修改</a>
+                    </td></tr>
                     <tr><td class="text-muted">类型</td>
                         <td><span class="badge bg-{{ 'primary' if task.task_type=='计划' else 'warning' if task.task_type=='突发' else 'info' }}">{{ task.task_type }}</span></td></tr>
                     <tr><td class="text-muted">状态</td>
@@ -188,6 +192,26 @@ function editCompleteTime(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'actual_end=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * 改任务名称：成功后 reload 让标题/看板/列表同步。
+ */
+function editTaskTitle(taskId, current) {
+    var val = prompt('输入任务名称：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/title', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'title=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');
