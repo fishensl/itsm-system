@@ -456,8 +456,15 @@ def index():
                 )
             ).order_by(InspectionTask.planned_start.asc()).all()
             today = date.today()
-            q_start = today.replace(month=((today.month - 1) // 3) * 3 + 1, day=1)
-            q_tasks = [t for t in dept_tasks if t.planned_start and t.planned_start >= q_start]
+            qm = (today.month - 1) // 3
+            q_start = today.replace(month=qm * 3 + 1, day=1)
+            # V18: 本季度双侧夹紧，避免把 Q4/明年任务算进"本季度"（老代码漏了上界）
+            q_end_month = qm * 3 + 3
+            import calendar as _cal
+            q_end = today.replace(
+                month=q_end_month, day=_cal.monthrange(today.year, q_end_month)[1])
+            q_tasks = [t for t in dept_tasks
+                       if t.planned_start and q_start <= t.planned_start <= q_end]
             supervisor_data = {
                 'dept_name': dept.name,
                 'dept_total': len(dept_tasks),

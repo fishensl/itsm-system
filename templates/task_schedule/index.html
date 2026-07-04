@@ -22,6 +22,13 @@
        class="btn btn-outline-info btn-sm me-2">
         <i class="bi bi-file-earmark-excel"></i> 导出
     </a>
+    <form method="post" action="{{ url_for('task_schedule.regenerate') }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-primary btn-sm me-2"
+                onclick="return confirm('将按各客户巡检频率回填本年度任务，幂等可重复点，继续？')">
+            <i class="bi bi-arrow-repeat"></i> 回填本年度任务
+        </button>
+    </form>
     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#quickAddModal">
         <i class="bi-plus-lg"></i> 新建任务
     </button>

@@ -131,6 +131,27 @@ def _base_query():
     return InspectionTask.query
 
 
+def _effective_request_args(args):
+    """默认期间口径：请求里既没带 `period`，也没手填 `start_from`/`start_to` 时，
+    自动落到 `this_quarter`，使看板/列表/导出默认展示本季度。
+
+    返回 (effective_args, effective_period)：
+      - effective_args：传给 _apply_filters 的 args（包装了 period 覆盖）；
+      - effective_period：回填筛选条 f_period 用于"本季"按钮高亮。
+    用户点了期间按钮或手填了日期则尊重原值。
+    """
+    has_explicit_period = bool(args.get('period', ''))
+    has_explicit_date = bool(args.get('start_from', '')) or bool(args.get('start_to', ''))
+    if not has_explicit_period and not has_explicit_date:
+        effective_period = 'this_quarter'
+        from werkzeug.datastructures import MultiDict
+        # 复制成可变 MultiDict 再注入 period，避免改动原始 request.args
+        merged = MultiDict(args.to_dict(flat=True))
+        merged.setlist('period', [effective_period])
+        return merged, effective_period
+    return args, args.get('period', '')
+
+
 def _apply_filters(query, args):
     """筛选条参数 → SQL filter"""
     import calendar
@@ -168,9 +189,9 @@ def _apply_filters(query, args):
     if customer_id:
         query = query.filter(InspectionTask.customer_id == customer_id)
     if start_from:
-        query = query.filter(InspectionTask.planned_end >= start_from)
+        query = query.filter(InspectionTask.planned_start >= start_from)
     if start_to:
-        query = query.filter(InspectionTask.planned_end <= start_to)
+        query = query.filter(InspectionTask.planned_start <= start_to)
     if q:
         query = query.filter(InspectionTask.title.contains(q))
     if overdue:
@@ -226,14 +247,17 @@ def index():
     """看板首页（三视图切换）
 
     任务自动生成不在此处触发 —— 客户/合同新增时已在各自路由里生成。
-    若需为存量数据补打任务，使用 /contract-tasks 页面的「生成」按钮，
-    或调用 /task-schedule/regenerate 一次性回填。
+    若需为存量数据补打本年度任务，点页头「回填本年度任务」按钮，
+    即 POST /task-schedule/regenerate 一次性回填。
     """
     view = request.args.get('view', 'by-engineer')
     if view not in ('by-engineer', 'by-status', 'matrix', 'by-customer'):
         view = 'by-engineer'
 
-    query = _apply_filters(_base_query(), request.args)
+    # V18: 默认本季度口径（无 period、无手填日期时自动落到 this_quarter）
+    eff_args, eff_period = _effective_request_args(request.args)
+
+    query = _apply_filters(_base_query(), eff_args)
     tasks = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc()).all()
 
     kpi = _kpi_counts(tasks)
@@ -307,7 +331,7 @@ def index():
         f_overdue=request.args.get('overdue', ''),
         f_start_from=request.args.get('start_from', ''),
         f_start_to=request.args.get('start_to', ''),
-        f_period=request.args.get('period', ''),
+        f_period=eff_period,
     )
 
 
@@ -317,7 +341,9 @@ def index():
 def list_view():
     """扁平表格视图（带分页）"""
     page = request.args.get('page', 1, type=int)
-    query = _apply_filters(_base_query(), request.args)
+    # V18: 默认本季度口径
+    eff_args, eff_period = _effective_request_args(request.args)
+    query = _apply_filters(_base_query(), eff_args)
     query = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc())
     pag = paginate(query, page=page, per_page=30)
 
@@ -340,7 +366,7 @@ def list_view():
         f_overdue=request.args.get('overdue', ''),
         f_start_from=request.args.get('start_from', ''),
         f_start_to=request.args.get('start_to', ''),
-        f_period=request.args.get('period', ''),
+        f_period=eff_period,
     )
 
 
@@ -729,6 +755,27 @@ def delete_task(task_id):
     return redirect(request.referrer or url_for('task_schedule.index'))
 
 
+@task_schedule_bp.route('/regenerate', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def regenerate():
+    """按各客户巡检频率一次性回填本年度全部任务（幂等，可重复点）。
+
+    生产历史客户多半在新增/编辑时才生成任务，老存量客户缺当年任务；
+    跨年/跨季度后任务也不会自动滚动。此入口让管理员手动补齐。
+    幂等性由 generate_for_all_customers 内部的 (customer_id, planned_start)
+    existing 集合保证。
+    """
+    from utils.customer_task_generator import generate_for_all_customers
+    try:
+        n = generate_for_all_customers()
+        flash(f'已回填 {n} 个本年度巡检任务', 'success')
+    except Exception as e:
+        current_app.logger.exception('regenerate 任务回填失败')
+        flash(f'回填失败：{e}', 'danger')
+    return redirect(request.referrer or url_for('task_schedule.index'))
+
+
 # ============================================================
 # AJAX 批量操作（列表视图工具栏调用）
 # ============================================================
@@ -867,7 +914,9 @@ def export_excel():
     """按当前筛选条件导出 Excel"""
     from utils.excel_export import export_xlsx
 
-    query = _apply_filters(_base_query(), request.args)
+    # V18: 导出口径与看板一致（默认本季度）
+    eff_args, _eff_period = _effective_request_args(request.args)
+    query = _apply_filters(_base_query(), eff_args)
     tasks = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc()).all()
 
     rows = []
