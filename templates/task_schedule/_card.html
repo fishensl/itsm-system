@@ -46,6 +46,10 @@
                            onclick="editCompleteTime({{ t.id }}, '{{ t.actual_end.strftime('%Y-%m-%d') if t.actual_end else '' }}'); return false;">
                         <i class="bi-calendar-check"></i> 改完成时间
                     </a></li>
+                    <li><a class="dropdown-item small" href="#"
+                           onclick="editEffort({{ t.id }}, '{{ '%g'|format(t.estimated_effort) if t.estimated_effort else '' }}'); return false;">
+                        <i class="bi-clock-history"></i> 改工作量
+                    </a></li>
                     <li><a class="dropdown-item small text-danger" href="#"
                            onclick="deleteTask({{ t.id }}); return false;">
                         <i class="bi-trash"></i> 删除
@@ -62,6 +66,11 @@
             {% if t.customer_rel %}
             <span class="badge surface-muted" title="客户">
                 <i class="bi-building"></i> {{ t.customer_rel.name }}
+            </span>
+            {% endif %}
+            {% if t.estimated_effort %}
+            <span class="badge bg-info bg-opacity-10 text-info" title="预估工作量">
+                <i class="bi-clock-history"></i> {{ '%g'|format(t.estimated_effort) }}天
             </span>
             {% endif %}
             {% if t.planned_end %}

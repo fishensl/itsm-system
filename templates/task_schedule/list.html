@@ -106,6 +106,7 @@
             <th>负责人</th>
             <th>状态</th>
             <th>优先级</th>
+            <th>工作量</th>
             <th>计划起止</th>
             <th>完成时间</th>
             <th class="text-end">操作</th>
@@ -130,6 +131,12 @@
                 <span class="badge bg-{{ status_color[t.status] if t.status in status_color else 'secondary' }}">{{ t.status }}</span>
             </td>
             <td><span class="badge bg-{{ 'danger' if t.priority=='高' else 'warning' if t.priority=='中' else 'secondary' }}">{{ t.priority or '-' }}</span></td>
+            <td class="small text-center">
+                <a href="#" class="text-decoration-none" title="点击修改"
+                   onclick="editEffort({{ t.id }}, '{{ '%g'|format(t.estimated_effort) if t.estimated_effort else '' }}'); return false;">
+                    {% if t.estimated_effort %}<span class="text-info">{{ '%g'|format(t.estimated_effort) }}天</span>{% else %}<span class="text-muted">设置</span>{% endif %}
+                </a>
+            </td>
             <td class="small">
                 {{ t.planned_start.strftime('%Y-%m-%d') if t.planned_start else '-' }}
                 ~
@@ -275,6 +282,26 @@ function editCompleteTime(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'actual_end=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * 改预估工作量（人天）：留空清除，支持 1 / 0.5 / 3天 等写法。
+ */
+function editEffort(taskId, current) {
+    var val = prompt('输入预估工作量（人天，如 1 或 0.5），留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/effort', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'estimated_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');

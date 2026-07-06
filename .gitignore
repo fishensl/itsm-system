@@ -28,6 +28,8 @@ static/uploads/spare_parts/*
 static/uploads/topologies/*
 
 # Database
+*.db
+*.db.*
 instance/*.db
 instance/*.db.*
 

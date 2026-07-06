@@ -41,6 +41,9 @@
             <div class="card-body py-2">
                 <div class="text-muted small">总数</div>
                 <div class="h3 mb-0">{{ kpi.total }}</div>
+                <div class="small text-muted mt-1" title="预估工作量合计">
+                    <i class="bi-clock-history"></i> {{ '%g'|format(kpi.effort_total) }} 人天
+                </div>
             </div>
         </div>
     </div>
@@ -70,6 +73,9 @@
             <div class="card-body py-2">
                 <div class="text-muted small">已完成</div>
                 <div class="h3 mb-0 text-success">{{ kpi.done }}</div>
+                <div class="small text-success mt-1" title="已完成工作量">
+                    <i class="bi-check2-circle"></i> {{ '%g'|format(kpi.effort_done) }} 人天
+                </div>
             </div>
         </div>
         </a>
@@ -240,7 +246,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-4 mb-2">
+            <div class="col-md-3 mb-2">
                 <label class="form-label small">优先级</label>
                 <select name="priority" class="form-select">
                     <option value="中" selected>中</option>
@@ -248,11 +254,16 @@
                     <option value="低">低</option>
                 </select>
             </div>
-            <div class="col-md-4 mb-2">
+            <div class="col-md-3 mb-2">
+                <label class="form-label small">工作量(人天)</label>
+                <input type="number" name="estimated_effort" class="form-control" min="0" step="0.5"
+                       placeholder="如 1 或 0.5">
+            </div>
+            <div class="col-md-3 mb-2">
                 <label class="form-label small">计划开始</label>
                 <input type="date" name="planned_start" class="form-control">
             </div>
-            <div class="col-md-4 mb-2">
+            <div class="col-md-3 mb-2">
                 <label class="form-label small">计划完成</label>
                 <input type="date" name="planned_end" class="form-control">
             </div>
@@ -336,6 +347,26 @@ function editCompleteTime(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'actual_end=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * AJAX 改预估工作量（人天）：留空清除。支持 1 / 0.5 / 3天 等写法。
+ */
+function editEffort(taskId, current) {
+    var val = prompt('输入预估工作量（人天，如 1 或 0.5），留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/effort', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'estimated_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');

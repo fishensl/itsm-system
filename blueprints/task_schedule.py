@@ -111,6 +111,35 @@ def parse_excel_datetime(v):
     return datetime.combine(d, datetime.min.time()) if d else None
 
 
+def _parse_effort(v):
+    """预估工作量 cell -> float(人天) | None
+
+    接受 1 / 1.5 / "3" / "0.5天" / "3人天" 等写法；非法或空返回 None。
+    """
+    if v is None or v == '':
+        return None
+    if isinstance(v, (int, float)):
+        return float(v) if v >= 0 else None
+    s = str(v).strip()
+    if not s:
+        return None
+    # 去掉"人天/天/日/days/d"等单位后缀（人天优先匹配，避免先吃掉"天"剩"人"）
+    s = re.sub(r'(人天|天|日|days?|d)\s*$', '', s, flags=re.IGNORECASE).strip()
+    try:
+        f = float(s)
+    except ValueError:
+        return None
+    return f if f >= 0 else None
+
+
+def _fmt_effort(v):
+    """float 人天 -> 展示字符串（1.0→'1'，0.5→'0.5'，None→''）。"""
+    if v is None:
+        return ''
+    # %g 去掉多余小数位：1.0→1, 0.5→0.5, 3.5→3.5
+    return '%g' % v
+
+
 def is_overdue(task, today=None):
     """计划截止过了今天且未完成 = 逾期"""
     if not task.planned_end:
@@ -216,10 +245,23 @@ def _apply_filters(query, args):
 
 
 def _engineers_with_tasks():
-    """列出曾被分配过任务的工程师 + 当前活跃的全部工程师，去重并保留顺序。"""
+    """列出可作为任务负责人的用户 — 限"巡检人员"名册内的活跃用户。
+
+    任务安排的看板列 / 筛选下拉 / 指派下拉 / 矩阵行均以此为唯一数据源，
+    避免 admin 等非巡检人员混入负责人候选。要新增候选人先到
+    /inspectors 把用户勾选为巡检人员。
+    """
+    from models import Inspector
+    inspector_uids = [uid for (uid,) in db.session.query(Inspector.user_id)
+                      .filter(Inspector.is_active == True).all()]  # noqa: E712
+    if not inspector_uids:
+        return []
     assigned_ids = {tid for (tid,) in db.session.query(InspectionTask.assigned_to_user_id)
                     .filter(InspectionTask.assigned_to_user_id.isnot(None)).distinct().all()}
-    users = User.query.filter(User.is_active == True).order_by(User.id).all()  # noqa: E712
+    users = (User.query
+             .filter(User.id.in_(inspector_uids),
+                     User.is_active == True)
+             .order_by(User.id).all())  # noqa: E712
     # 优先把"被分配过任务"的排到前面，便于看板列稳定
     ordered = sorted(users, key=lambda u: (0 if u.id in assigned_ids else 1, u.id))
     return ordered
@@ -233,7 +275,13 @@ def _kpi_counts(tasks):
     doing = sum(1 for t in tasks if t.status == '执行中')
     done = sum(1 for t in tasks if t.status == '已完成')
     overdue = sum(1 for t in tasks if is_overdue(t, today))
-    return {'total': total, 'todo': todo, 'doing': doing, 'done': done, 'overdue': overdue}
+    # 预估工作量合计（人天）— 未设置的当 0，便于"任务量"口径更准确
+    effort_total = sum(t.estimated_effort or 0 for t in tasks)
+    effort_done = sum(t.estimated_effort or 0 for t in tasks if t.status == '已完成')
+    return {
+        'total': total, 'todo': todo, 'doing': doing, 'done': done, 'overdue': overdue,
+        'effort_total': effort_total, 'effort_done': effort_done,
+    }
 
 
 # ============================================================
@@ -374,7 +422,7 @@ def list_view():
 # 导入 / 模板下载
 # ============================================================
 
-EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间']
+EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间', '预估工作量']
 
 # 优先级允许值（与 UI 保持一致；超出范围回退 '中'）
 PRIORITY_VALUES = {'低', '中', '高', '紧急'}
@@ -388,7 +436,7 @@ def import_template():
     from utils.excel_export import export_xlsx
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
-        '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15'
+        '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15', '1'
     ]]
     tmp_path, download_name = export_xlsx(
         EXCEL_HEADERS, rows,
@@ -505,6 +553,9 @@ def import_excel():
             planned_end = parse_excel_date(cell('完成日期'))
             actual_end = parse_excel_datetime(cell('完成时间'))
 
+            # 预估工作量（人天）：允许 "1"/"1.5"/"3天"，非法/空 → None
+            effort = _parse_effort(cell('预估工作量'))
+
             # upsert：(title, customer_id) 唯一
             existing = (InspectionTask.query
                         .filter_by(title=title, customer_id=customer.id)
@@ -519,6 +570,8 @@ def import_excel():
                     existing.actual_end = actual_end
                 if status == '已完成' and not existing.actual_end:
                     existing.actual_end = local_now()
+                if effort is not None:
+                    existing.estimated_effort = effort
                 existing.dispatched_by = existing.dispatched_by or current_user.id
                 existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
                 updated += 1
@@ -532,6 +585,7 @@ def import_excel():
                     planned_start=planned_start,
                     planned_end=planned_end,
                     actual_end=actual_end,
+                    estimated_effort=effort,
                     assigned_to_user_id=user.id,
                     dispatched_by=current_user.id,
                     dispatched_at=datetime.utcnow(),
@@ -640,6 +694,27 @@ def set_title(task_id):
     return jsonify(success=True, title=task.title)
 
 
+@task_schedule_bp.route('/<int:task_id>/effort', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def set_effort(task_id):
+    """AJAX 改预估工作量（人天）。空串=清除为 None。"""
+    task = InspectionTask.query.get_or_404(task_id)
+    raw = (request.form.get('estimated_effort') or
+           (request.get_json(silent=True) or {}).get('estimated_effort') or '').strip()
+    if not raw:
+        task.estimated_effort = None
+    else:
+        effort = _parse_effort(raw)
+        if effort is None:
+            return jsonify(success=False, error='工作量格式不正确（应为数字，如 1 或 0.5）'), 400
+        task.estimated_effort = effort
+    db.session.commit()
+    return jsonify(success=True,
+                   estimated_effort=task.estimated_effort,
+                   estimated_effort_text=_fmt_effort(task.estimated_effort))
+
+
 @task_schedule_bp.route('/<int:task_id>/assign', methods=['POST'])
 @login_required
 @require_permission('task:schedule')
@@ -714,6 +789,7 @@ def quick_add():
     priority = (request.form.get('priority') or '中').strip()
     planned_start = parse_excel_date(request.form.get('planned_start'))
     planned_end = parse_excel_date(request.form.get('planned_end'))
+    effort = _parse_effort(request.form.get('estimated_effort'))
 
     if not title:
         flash('任务标题不能为空', 'danger')
@@ -731,6 +807,7 @@ def quick_add():
         assigned_to_user_id=assignee_id or None,
         planned_start=planned_start,
         planned_end=planned_end,
+        estimated_effort=effort,
         dispatched_by=current_user.id,
         dispatched_at=datetime.utcnow(),
         source='手动',
@@ -931,6 +1008,7 @@ def export_excel():
             t.status,
             (user.realname or user.username) if user else '',
             t.actual_end.strftime('%Y-%m-%d') if t.actual_end else '',
+            _fmt_effort(t.estimated_effort),
         ])
 
     tmp_path, download_name = export_xlsx(

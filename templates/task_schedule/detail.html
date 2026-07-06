@@ -69,6 +69,17 @@
                         <td><span class="badge bg-{{ status_color[task.status] if task.status in status_color else 'secondary' }}">{{ task.status }}</span></td></tr>
                     <tr><td class="text-muted">优先级</td>
                         <td><span class="badge bg-{{ 'danger' if task.priority=='高' else 'warning' if task.priority=='中' else 'secondary' }}">{{ task.priority or '-' }}</span></td></tr>
+                    <tr><td class="text-muted">预估工作量</td>
+                        <td>
+                            {% if task.estimated_effort %}
+                            <span class="badge bg-info"><i class="bi-clock-history"></i> {{ '%g'|format(task.estimated_effort) }} 人天</span>
+                            {% else %}
+                            <span class="text-muted">未设置</span>
+                            {% endif %}
+                            <a href="#" class="ms-2 small"
+                               onclick="editEffort({{ task.id }}, '{{ '%g'|format(task.estimated_effort) if task.estimated_effort else '' }}'); return false;">
+                                <i class="bi-pencil"></i> 修改</a>
+                        </td></tr>
                     <tr><td class="text-muted">客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
                     <tr><td class="text-muted">计划日期</td>
                         <td>{{ task.planned_start.strftime('%Y-%m-%d') if task.planned_start else '-' }}
@@ -212,6 +223,26 @@ function editTaskTitle(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'title=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * 改预估工作量（人天）：留空清除，支持 1 / 0.5 / 3天 等写法。
+ */
+function editEffort(taskId, current) {
+    var val = prompt('输入预估工作量（人天，如 1 或 0.5），留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/effort', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'estimated_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');

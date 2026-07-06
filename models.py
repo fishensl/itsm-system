@@ -603,6 +603,8 @@ class InspectionTask(db.Model):
     planned_end = db.Column(db.Date, nullable=True)
     actual_start = db.Column(db.DateTime, nullable=True)
     actual_end = db.Column(db.DateTime, nullable=True)
+    # 预估工作量（单位：人天，允许 0.5 半天）。None=未设置，便于老数据兼容
+    estimated_effort = db.Column(db.Float, nullable=True)
     inspector_ids = db.Column(db.String(256), default='')     # 逗号分隔的巡检人员 ID 列表
     device_ids_json = db.Column(db.Text, default='[]')         # 设备ID列表
     priority = db.Column(db.String(16), default='中')
