@@ -313,43 +313,60 @@ def index():
     customers = Customer.query.order_by(Customer.name).all()
     today = date.today()
 
-    # 按工程师 + 状态分桶
+    # 分桶：一次遍历同时算任务条数 + 工作量(人天)，供各视图列头并列展示
     buckets_by_engineer = defaultdict(lambda: defaultdict(list))   # {user_id: {status: [tasks]}}
+    buckets_by_status = defaultdict(list)                          # {status: [tasks]}
+    buckets_by_customer = defaultdict(lambda: defaultdict(list))   # {customer_id: {status: [tasks]}}
     unassigned = defaultdict(list)                                 # {status: [tasks]}  无负责人
+    overdue_bucket = []
+    effort_by_engineer = defaultdict(float)                        # {user_id: 总人天}
+    effort_by_status = defaultdict(float)                          # {status: 总人天}
+    effort_by_customer = defaultdict(float)                        # {customer_id: 总人天}
+    effort_unassigned = 0.0                                        # 未指派合计人天
+    effort_overdue = 0.0                                           # 逾期合计人天
     for t in tasks:
         st = t.status if t.status in ALL_STATUSES else '待执行'
+        eff = t.estimated_effort or 0
+        effort_by_status[st] += eff
+        buckets_by_status[st].append(t)
         if t.assigned_to_user_id:
             buckets_by_engineer[t.assigned_to_user_id][st].append(t)
+            effort_by_engineer[t.assigned_to_user_id] += eff
         else:
             unassigned[st].append(t)
-
-    # 按状态分桶（视图②）
-    buckets_by_status = defaultdict(list)
-    overdue_bucket = []
-    for t in tasks:
-        st = t.status if t.status in ALL_STATUSES else '待执行'
-        buckets_by_status[st].append(t)
+            effort_unassigned += eff
+        if t.customer_id:
+            buckets_by_customer[t.customer_id][st].append(t)
+            effort_by_customer[t.customer_id] += eff
         if is_overdue(t, today):
             overdue_bucket.append(t)
+            effort_overdue += eff
 
-    # 矩阵（视图③）：engineer × status -> count
+    # 矩阵（视图③）：engineer × status -> count / effort 两套
     matrix = {}
+    matrix_effort = {}
     for u in engineers:
-        matrix[u.id] = {s: len(buckets_by_engineer[u.id][s]) for s in ALL_STATUSES}
+        bk = buckets_by_engineer[u.id]
+        matrix[u.id] = {s: len(bk[s]) for s in ALL_STATUSES}
+        matrix_effort[u.id] = {s: sum(t.estimated_effort or 0 for t in bk[s]) for s in ALL_STATUSES}
     matrix_unassigned = {s: len(unassigned[s]) for s in ALL_STATUSES}
+    matrix_unassigned_effort = {s: sum(t.estimated_effort or 0 for t in unassigned[s]) for s in ALL_STATUSES}
 
-    # 按客户分桶（视图④）：{customer_id: {status: [tasks]}}
-    buckets_by_customer = defaultdict(lambda: defaultdict(list))
-    for t in tasks:
-        if t.customer_id:
-            st = t.status if t.status in ALL_STATUSES else '待执行'
-            buckets_by_customer[t.customer_id][st].append(t)
     if buckets_by_customer:
         customers_with_tasks = (Customer.query
                                 .filter(Customer.id.in_(list(buckets_by_customer.keys())))
                                 .order_by(Customer.name).all())
     else:
         customers_with_tasks = []
+
+    # 矩阵计量口径：count(条数,默认) / effort(人天)
+    metric = request.args.get('metric', 'count')
+    if metric not in ('count', 'effort'):
+        metric = 'count'
+    # 切换 metric 时保留其他筛选参数（view/metric 除外，模板里另行拼接）
+    from urllib.parse import urlencode
+    metric_qs = urlencode({k: v for k, v in request.args.to_dict(flat=True).items()
+                           if k not in ('metric', 'view')})
 
     return render_template(
         'task_schedule/index.html',
@@ -367,10 +384,18 @@ def index():
         buckets_by_status=buckets_by_status,
         overdue_bucket=overdue_bucket,
         matrix=matrix,
+        matrix_effort=matrix_effort,
         matrix_unassigned=matrix_unassigned,
+        matrix_unassigned_effort=matrix_unassigned_effort,
         buckets_by_customer=buckets_by_customer,
         customers_with_tasks=customers_with_tasks,
+        effort_by_engineer=effort_by_engineer,
+        effort_by_status=effort_by_status,
+        effort_by_customer=effort_by_customer,
+        effort_unassigned=effort_unassigned,
+        effort_overdue=effort_overdue,
         is_overdue=is_overdue,
+        fmt_effort=_fmt_effort,
         # 回填筛选条
         f_engineer=request.args.get('engineer_id', type=int) or 0,
         f_status=request.args.get('status', ''),
@@ -380,6 +405,8 @@ def index():
         f_start_from=request.args.get('start_from', ''),
         f_start_to=request.args.get('start_to', ''),
         f_period=eff_period,
+        f_metric=metric,
+        metric_qs=metric_qs,
     )
 
 

@@ -19,7 +19,15 @@
                         <i class="bi-person-circle"></i>
                         <strong>{{ u.realname or u.username }}</strong>
                     </div>
-                    <span class="badge bg-primary rounded-pill fs-6">{{ eng_total }}</span>
+                    <span class="d-flex align-items-center gap-1">
+                        <span class="badge bg-primary rounded-pill fs-6" title="任务数">{{ eng_total }}</span>
+                        {% set eng_effort = effort_by_engineer.get(u.id, 0) %}
+                        {% if eng_effort > 0 %}
+                        <span class="badge bg-info bg-opacity-10 text-info rounded-pill fs-6" title="预估工作量">
+                            {{ fmt_effort(eng_effort) }}天
+                        </span>
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                     {% for s in active_statuses %}
@@ -78,7 +86,14 @@
                     <i class="bi-question-circle"></i>
                     <strong>未指派</strong>
                 </div>
-                <span class="badge bg-warning rounded-pill fs-6">{{ unassigned_total }}</span>
+                <span class="d-flex align-items-center gap-1">
+                    <span class="badge bg-warning rounded-pill fs-6" title="任务数">{{ unassigned_total }}</span>
+                    {% if effort_unassigned > 0 %}
+                    <span class="badge bg-info bg-opacity-10 text-info rounded-pill fs-6" title="预估工作量">
+                        {{ fmt_effort(effort_unassigned) }}天
+                    </span>
+                    {% endif %}
+                </span>
             </div>
             <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                 {% for s in active_statuses %}

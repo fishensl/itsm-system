@@ -1,7 +1,39 @@
-{# 视图③：工程师 × 状态矩阵
-   需要的变量: engineers, matrix (dict[uid][status]=count), matrix_unassigned, all_statuses, status_color
+{# 视图③：工程师 × 状态矩阵，支持"条数/人天"两种计量口径
+   需要的变量: engineers, matrix, matrix_effort, matrix_unassigned,
+              matrix_unassigned_effort, all_statuses, status_color,
+              kpi, effort_by_status, f_metric, metric_qs
    点击数字 → 跳到列表视图，附带 engineer_id + status 筛选
 #}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="btn-group btn-group-sm" role="group">
+        <a href="?view=matrix&metric=count{% if metric_qs %}&{{ metric_qs }}{% endif %}"
+           class="btn {% if f_metric == 'count' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+            按条数
+        </a>
+        <a href="?view=matrix&metric=effort{% if metric_qs %}&{{ metric_qs }}{% endif %}"
+           class="btn {% if f_metric == 'effort' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+            按人天
+        </a>
+    </div>
+    <span class="small text-muted">
+        {% if f_metric == 'effort' %}
+        单位：人天（预估工作量合计）
+        {% else %}
+        单位：任务条数
+        {% endif %}
+    </span>
+</div>
+
+{% if f_metric == 'effort' %}
+    {% set mx = matrix_effort %}
+    {% set mx_un = matrix_unassigned_effort %}
+    {% set unit = '天' %}
+{% else %}
+    {% set mx = matrix %}
+    {% set mx_un = matrix_unassigned %}
+    {% set unit = '' %}
+{% endif %}
+
 <div class="card">
 <div class="card-body p-0">
 <div class="table-responsive">
@@ -21,7 +53,7 @@
     </thead>
     <tbody>
         {% for u in engineers %}
-            {% set row = matrix.get(u.id, {}) %}
+            {% set row = mx.get(u.id, {}) %}
             {% set row_total = (row.get('待执行', 0)) + (row.get('执行中', 0))
                              + (row.get('已完成', 0)) + (row.get('已取消', 0)) %}
             {% if row_total > 0 %}
@@ -37,7 +69,7 @@
                     <a href="{{ url_for('task_schedule.list_view', engineer_id=u.id, status=s) }}"
                        class="btn btn-sm btn-{{ status_color[s] }} fw-bold"
                        style="min-width:48px;">
-                        {{ n }}
+                        {{ '%g'|format(n) }}{{ unit }}
                     </a>
                     {% else %}
                     <span class="text-muted">-</span>
@@ -46,31 +78,31 @@
                 {% endfor %}
                 <td>
                     <a href="{{ url_for('task_schedule.list_view', engineer_id=u.id) }}"
-                       class="text-decoration-none fw-bold">{{ row_total }}</a>
+                       class="text-decoration-none fw-bold">{{ '%g'|format(row_total) }}{{ unit }}</a>
                 </td>
             </tr>
             {% endif %}
         {% endfor %}
 
         {# 未指派 行 #}
-        {% set u_total = matrix_unassigned.get('待执行', 0)
-                      + matrix_unassigned.get('执行中', 0)
-                      + matrix_unassigned.get('已完成', 0)
-                      + matrix_unassigned.get('已取消', 0) %}
+        {% set u_total = mx_un.get('待执行', 0)
+                      + mx_un.get('执行中', 0)
+                      + mx_un.get('已完成', 0)
+                      + mx_un.get('已取消', 0) %}
         {% if u_total > 0 %}
         <tr class="table-warning">
             <td class="text-start">
                 <i class="bi-question-circle"></i> <strong>未指派</strong>
             </td>
             {% for s in all_statuses %}
-            {% set n = matrix_unassigned.get(s, 0) %}
+            {% set n = mx_un.get(s, 0) %}
             <td>
                 {% if n > 0 %}
-                <span class="badge bg-warning">{{ n }}</span>
+                <span class="badge bg-warning">{{ '%g'|format(n) }}{{ unit }}</span>
                 {% else %}<span class="text-muted">-</span>{% endif %}
             </td>
             {% endfor %}
-            <td><strong>{{ u_total }}</strong></td>
+            <td><strong>{{ '%g'|format(u_total) }}{{ unit }}</strong></td>
         </tr>
         {% endif %}
     </tbody>
@@ -78,10 +110,21 @@
         <tr>
             <th class="text-start">总计</th>
             {% for s in all_statuses %}
-            <th class="text-dark">{{ kpi.get(s) if false else
-                (kpi.todo if s=='待执行' else kpi.doing if s=='执行中' else kpi.done if s=='已完成' else 0) }}</th>
+            <th class="text-dark">
+                {% if f_metric == 'effort' %}
+                    {{ '%g'|format(effort_by_status.get(s, 0)) }}{{ unit }}
+                {% else %}
+                    {{ kpi.todo if s=='待执行' else kpi.doing if s=='执行中' else kpi.done if s=='已完成' else 0 }}
+                {% endif %}
+            </th>
             {% endfor %}
-            <th>{{ kpi.total }}</th>
+            <th>
+                {% if f_metric == 'effort' %}
+                    {{ '%g'|format(kpi.effort_total) }}{{ unit }}
+                {% else %}
+                    {{ kpi.total }}
+                {% endif %}
+            </th>
         </tr>
     </tfoot>
 </table>

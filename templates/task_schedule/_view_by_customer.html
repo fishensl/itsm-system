@@ -24,7 +24,15 @@
                         </span>
                         {% endif %}
                     </div>
-                    <span class="badge bg-primary rounded-pill fs-6">{{ cust_total }}</span>
+                    <span class="d-flex align-items-center gap-1">
+                        <span class="badge bg-primary rounded-pill fs-6" title="任务数">{{ cust_total }}</span>
+                        {% set cust_effort = effort_by_customer.get(c.id, 0) %}
+                        {% if cust_effort > 0 %}
+                        <span class="badge bg-info bg-opacity-10 text-info rounded-pill fs-6" title="预估工作量">
+                            {{ fmt_effort(cust_effort) }}天
+                        </span>
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="card-body p-2 surface-muted" style="overflow-y:auto;max-height:75vh;">
                     {% for s in active_statuses %}
