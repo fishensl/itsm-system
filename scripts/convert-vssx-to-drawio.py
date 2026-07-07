@@ -101,10 +101,12 @@ def make_drawio_library(shapes, xml_path, png_dir, title):
 
 def main():
     if len(sys.argv) < 2:
-        print('用法: python scripts/convert-vssx-to-drawio.py <file.vssx>')
+        print('用法: python scripts/convert-vssx-to-drawio.py <file.vssx> [输出英文名]')
+        print('例: python scripts/convert-vssx-to-drawio.py 网络安全设备.vssx network-security')
         sys.exit(1)
     vssx = sys.argv[1]
-    base = os.path.splitext(os.path.basename(vssx))[0]
+    # 输出名优先用第二个参数（英文名，避免中文 URL 编码问题），否则用 VSSX 文件名
+    base = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(os.path.basename(vssx))[0]
     out_dir = os.path.join('static', 'stencils', base)
     os.makedirs(out_dir, exist_ok=True)
 
