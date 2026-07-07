@@ -71,7 +71,7 @@
         </div>
     </div>
     <iframe id="drawioFrame"
-            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh&sidebar=1&math=0{% if clibs %}&clibs={{ clibs }}{% endif %}{% if import_url and import_type == 'visio' %}&url={{ import_url }}{% endif %}"
+            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh&sidebar=1&math=0&test=1{% if clibs %}&clibs={{ clibs }}{% endif %}{% if import_url and import_type == 'visio' %}&url={{ import_url }}{% endif %}"
             allow="clipboard-read; clipboard-write"></iframe>
 </div>
 {% endblock %}
@@ -115,7 +115,7 @@
         // 改为 true 用客户端 canvas 导出，避免依赖外部导出服务器。
         try { iframe.contentWindow.Editor.useCanvasForExport = true; } catch (e) { /* ignore */ }
 
-        // [诊断] 捕获 drawio 内部 alert/异常（drawio catch 异常后 alert，console 默认看不到堆栈）
+        // [诊断] 捕获 drawio 内部错误（drawio 用 ErrorDialog 显示，console 默认看不到堆栈）
         // 拿到 u.substring 的真正触发点后删除
         try {
             var w = iframe.contentWindow;
@@ -127,6 +127,13 @@
             w.alert = function(m) {
                 console.error('[topo-err] alert:', m, '\n堆栈:', new Error().stack);
             };
+            if (w.ErrorDialog) {
+                var _ED = w.ErrorDialog;
+                w.ErrorDialog = function(editorUi, title, message) {
+                    console.error('[topo-err] ErrorDialog:', title, '|', message, '\n堆栈:', new Error().stack);
+                    return _ED.apply(this, arguments);
+                };
+            }
         } catch (e) { console.error('[topo-err] 诊断安装失败', e); }
 
         // 预填导入元数据
