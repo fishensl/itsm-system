@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}drawio 诊断 - IT运维综合管理系统{% endblock %}
+{% block content %}
+<style>
+.diag-box { border:1px solid #dee2e6; border-radius:6px; padding:12px; margin:8px 0; background:#f8f9fa; }
+.diag-frame { width:100%; height:400px; border:1px solid #ccc; }
+#log { font-family:monospace; font-size:12px; white-space:pre-wrap; background:#1e1e1e; color:#0f0; padding:10px; border-radius:4px; max-height:300px; overflow:auto; }
+</style>
+<div class="container-fluid py-3">
+    <h5><i class="bi-bug"></i> drawio 图标库加载诊断</h5>
+    <p class="text-muted small">此页面加载 drawio（embed 模式 + clibs），5 秒后探测 iframe 内部状态，定位图标库为何不显示。</p>
+
+    <div class="diag-box">
+        <strong>iframe URL:</strong><br>
+        <code id="srcInfo" style="word-break:break-all"></code>
+    </div>
+
+    <iframe id="drawioFrame" class="diag-frame"></iframe>
+
+    <div class="diag-box">
+        <strong>诊断结果：</strong>
+        <div id="log">等待 init 事件...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var clibs = {{ clibs|tojson }};
+    var stencil_urls = {{ stencil_urls|tojson }};
+    var iframe = document.getElementById('drawioFrame');
+    var log = document.getElementById('log');
+    var srcInfo = document.getElementById('srcInfo');
+
+    function L(msg) { log.textContent += msg + '\n'; }
+
+    var src = '/static/vendor/drawio/index.html?embed=1&proto=json&spin=1&lang=zh&sidebar=1'
+        + (clibs ? '&clibs=' + clibs : '');
+    iframe.src = src;
+    srcInfo.textContent = src;
+
+    var inited = false;
+    window.addEventListener('message', function(event) {
+        var msg = event.data;
+        if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch(e) { return; } }
+        if (msg && msg.event === 'init' && !inited) {
+            inited = true;
+            L('[✓] 收到 init 事件');
+            // 不发送 load，让 clibs 自己处理
+        }
+    });
+
+    // 5 秒后探测 iframe 内部状态
+    setTimeout(function() {
+        L('\n===== 5 秒后探测 iframe 内部 =====');
+        if (!inited) L('[✗] 未收到 init 事件 — proto=json 可能未生效');
+
+        try {
+            var win = iframe.contentWindow;
+            L('contentWindow 存在: ' + !!win);
+            L('window.ui: ' + typeof win.ui);
+            L('window.App: ' + typeof win.App);
+            L('window.UrlLibrary: ' + typeof win.UrlLibrary);
+            L('window.mxUtils: ' + typeof win.mxUtils);
+            L('window.EditorUi: ' + typeof win.EditorUi);
+
+            // 检查 DOM 里的 sidebar 元素
+            var doc = win.document;
+            if (doc) {
+                L('\n--- DOM 探测 ---');
+                var sidebar = doc.querySelector('.geSidebarContainer, [class*="sidebar"]');
+                L('sidebar 元素: ' + (sidebar ? '找到' : '未找到'));
+                if (sidebar) {
+                    L('sidebar 子元素数: ' + sidebar.children.length);
+                    // 列出 sidebar 里的所有 palette 标题
+                    var titles = sidebar.querySelectorAll('.geTitle, .geSidebarContainer > div > div');
+                    L('sidebar 标题数: ' + titles.length);
+                    var nameSet = new Set();
+                    titles.forEach(function(t) {
+                        var txt = (t.textContent || '').trim();
+                        if (txt) nameSet.add(txt);
+                    });
+                    L('sidebar 标题: ' + Array.from(nameSet).join(', '));
+                }
+                // 检查 palettes 对象
+                L('\n--- drawio 内部对象探测 ---');
+                // 尝试遍历 win 找 ui 实例
+                var found = false;
+                for (var k in win) {
+                    try {
+                        var v = win[k];
+                        if (v && typeof v === 'object' && v.sidebar && v.loadLibrary) {
+                            L('找到 ui 实例: window.' + k);
+                            var palettes = v.sidebar.palettes || {};
+                            var pnames = Object.keys(palettes);
+                            L('palettes: ' + pnames.join(', '));
+                            found = true;
+                            break;
+                        }
+                    } catch(e) {}
+                }
+                if (!found) L('未找到含 sidebar+loadLibrary 的对象');
+            }
+        } catch(e) {
+            L('[✗] 跨域访问失败: ' + e.message);
+        }
+
+        // 尝试手动加载库
+        L('\n--- 尝试手动加载库 ---');
+        if (stencil_urls.length) {
+            fetch(stencil_urls[0]).then(function(r) { return r.text(); }).then(function(xml) {
+                L('库 XML fetch 成功, 长度: ' + xml.length);
+                L('XML 开头: ' + xml.substring(0, 60));
+                try {
+                    var win = iframe.contentWindow;
+                    // 找 ui 实例
+                    var ui = null;
+                    for (var k in win) {
+                        try {
+                            if (win[k] && typeof win[k] === 'object' && win[k].sidebar && win[k].loadLibrary) {
+                                ui = win[k]; break;
+                            }
+                        } catch(e) {}
+                    }
+                    if (ui) {
+                        L('找到 ui，尝试 loadLibrary...');
+                        var LibClass = win.UrlLibrary;
+                        if (LibClass) {
+                            var lib = new LibClass(ui, xml, stencil_urls[0]);
+                            ui.loadLibrary(lib, true);
+                            L('[✓] loadLibrary 调用成功');
+                        } else {
+                            L('UrlLibrary 类不存在');
+                        }
+                    } else {
+                        L('未找到 ui 实例，无法手动加载');
+                    }
+                } catch(e) {
+                    L('[✗] 手动加载失败: ' + e.message);
+                }
+            }).catch(function(e) { L('[✗] fetch 失败: ' + e); });
+        }
+    }, 5000);
+})();
+</script>
+{% endblock %}

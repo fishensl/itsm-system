@@ -619,6 +619,24 @@ def repair_schema():
     return render_template('system/repair_schema.html', reports=reports, upgrade_output=upgrade_output)
 
 
+@app.route('/system/drawio-diag')
+@login_required
+@admin_required
+def drawio_diag():
+    """drawio 图标库加载诊断页——探测 iframe 内部状态，定位 clibs 不生效的原因。"""
+    import os as _os, glob
+    from urllib.parse import quote
+    stencil_dir = os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'static', 'stencils')
+    stencil_urls = []
+    clibs = ''
+    if _os.path.isdir(stencil_dir):
+        stencil_urls = [url_for('static', filename='stencils/' + _os.path.basename(f))
+                        for f in sorted(glob.glob(_os.path.join(stencil_dir, '*.drawio.xml')))]
+        base = request.host_url.rstrip('/')
+        clibs = ';'.join('U' + quote(base + u, safe='') for u in stencil_urls)
+    return render_template('system/drawio_diag.html', clibs=clibs, stencil_urls=stencil_urls)
+
+
 @app.route('/users', methods=['GET', 'POST'])
 @login_required
 @require_permission('user:view')
