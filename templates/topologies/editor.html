@@ -188,8 +188,9 @@
               var isFirstSave = (document.getElementById('topoName').dataset.saved !== '1');
               document.getElementById('topoName').dataset.saved = '1';
               setStatus('已保存 ' + new Date().toLocaleTimeString('zh-CN', {hour12:false}));
-              // 异步生成导出文件（VSDX + PDF + 缩略图），不阻塞保存反馈
-              startExportQueue(['vsdx', 'pdf', 'png']);
+              // 异步生成 PNG 缩略图。drawio embed 的 export action 仅支持 png/svg/xml/html/json，
+              // 不支持 vsdx/pdf（会走默认 svg 分支并触发 graphReady 递归导致"非绘图文件"错误）。
+              startExportQueue(['png']);
           })
           .catch(function(e) { alert('保存失败: ' + e); setStatus('保存失败'); });
     }
@@ -264,6 +265,14 @@
         a.addEventListener('click', function(e) {
             e.preventDefault();
             var fmt = this.dataset.fmt;
+            // svg/png：embed export action 返回数据，宿主触发下载
+            // pdf/vsdx：embed export action 不支持（走默认 svg 分支会触发递归），改用
+            //           invokeAction 调 drawio 内部 exportPdf/exportVsdx（drawio 自行处理导出）
+            if (fmt === 'pdf' || fmt === 'vsdx') {
+                setStatus('正在导出 ' + fmt.toUpperCase() + '…（由 drawio 处理）', true);
+                post({action: 'invokeAction', actionName: fmt === 'pdf' ? 'exportPdf' : 'exportVsdx'});
+                return;
+            }
             pendingExport = fmt;
             exportTotal = 0;  // 标记为手动导出（非队列）
             setStatus('正在导出 ' + fmt.toUpperCase() + '…', true);
