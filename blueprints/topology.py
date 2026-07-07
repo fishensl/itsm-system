@@ -181,13 +181,16 @@ def topology_editor(id):
                                     Region.parent_id, Region.sort_order, Region.id).all()
 
     # 扫描 static/stencils/*.drawio.xml 作为自定义图标库
+    # drawio clibs 格式: U<URL编码的完整地址>（U 后无冒号！URL 需 encodeURIComponent）
+    from urllib.parse import quote
     stencil_dir = os.path.join(current_app.root_path, 'static', 'stencils')
     clibs = ''
     stencil_urls = []
     if os.path.isdir(stencil_dir):
         stencil_urls = [url_for('static', filename='stencils/' + os.path.basename(f))
                         for f in sorted(glob.glob(os.path.join(stencil_dir, '*.drawio.xml')))]
-        clibs = ';'.join('U:' + u for u in stencil_urls)
+        base = request.host_url.rstrip('/')
+        clibs = ';'.join('U' + quote(base + u, safe='') for u in stencil_urls)
 
     # 导入模式：从已上传文件导入
     import_url = None
