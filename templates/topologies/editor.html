@@ -115,6 +115,20 @@
         // 改为 true 用客户端 canvas 导出，避免依赖外部导出服务器。
         try { iframe.contentWindow.Editor.useCanvasForExport = true; } catch (e) { /* ignore */ }
 
+        // [诊断] 捕获 drawio 内部 alert/异常（drawio catch 异常后 alert，console 默认看不到堆栈）
+        // 拿到 u.substring 的真正触发点后删除
+        try {
+            var w = iframe.contentWindow;
+            w.onerror = function(msg, src, line, col, err) {
+                console.error('[topo-err] onerror:', msg, '@', src + ':' + line + ':' + col,
+                    err && err.stack ? '\n' + err.stack : '');
+                return false;
+            };
+            w.alert = function(m) {
+                console.error('[topo-err] alert:', m, '\n堆栈:', new Error().stack);
+            };
+        } catch (e) { console.error('[topo-err] 诊断安装失败', e); }
+
         // 预填导入元数据
         if (IMPORT_NAME) document.getElementById('topoName').value = IMPORT_NAME;
         if (IMPORT_CUSTOMER) document.getElementById('topoCustomer').value = IMPORT_CUSTOMER;
