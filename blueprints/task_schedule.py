@@ -18,6 +18,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, send_from_directory, current_app)
 from flask_login import login_required, current_user
 from sqlalchemy import or_
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from models import db, InspectionTask, Customer, User
 from utils.permission import require_permission, has_permission, is_supervisor
@@ -308,8 +309,16 @@ def index():
     # V18: 默认本季度口径（无 period、无手填日期时自动落到 this_quarter）
     eff_args, eff_period = _effective_request_args(request.args)
 
-    query = _apply_filters(_base_query(), eff_args)
-    tasks = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc()).all()
+    # DB schema 未同步时（如 actual_effort 列缺失）兜底：flash 提示 + 空列表，避免裸 500
+    try:
+        query = _apply_filters(_base_query(), eff_args)
+        tasks = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc()).all()
+    except (OperationalError, ProgrammingError) as e:
+        current_app.logger.exception('task_schedule 查询失败（可能 schema 未同步）: %s', e)
+        flash('任务安排查询失败——数据库 schema 可能未同步。请管理员运行 '
+              '<code>flask db upgrade</code> 或 <code>sudo bash itsm-admin.sh</code> 选 2(在线更新)。',
+              'danger')
+        tasks = []
 
     kpi = _kpi_counts(tasks)
     engineers = _engineers_with_tasks()
@@ -421,9 +430,16 @@ def list_view():
     page = request.args.get('page', 1, type=int)
     # V18: 默认本季度口径
     eff_args, eff_period = _effective_request_args(request.args)
-    query = _apply_filters(_base_query(), eff_args)
-    query = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc())
-    pag = paginate(query, page=page, per_page=30)
+    try:
+        query = _apply_filters(_base_query(), eff_args)
+        query = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc())
+        pag = paginate(query, page=page, per_page=30)
+    except (OperationalError, ProgrammingError) as e:
+        current_app.logger.exception('task_schedule/list 查询失败（可能 schema 未同步）: %s', e)
+        flash('任务安排查询失败——数据库 schema 可能未同步。请管理员运行 '
+              '<code>flask db upgrade</code> 或 <code>sudo bash itsm-admin.sh</code> 选 2(在线更新)。',
+              'danger')
+        pag = paginate(InspectionTask.query.filter(False), page=page, per_page=30)
 
     engineers = _engineers_with_tasks()
     customers = Customer.query.order_by(Customer.name).all()

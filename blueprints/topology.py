@@ -183,10 +183,11 @@ def topology_editor(id):
     # 扫描 static/stencils/*.drawio.xml 作为自定义图标库
     stencil_dir = os.path.join(current_app.root_path, 'static', 'stencils')
     clibs = ''
+    stencil_urls = []
     if os.path.isdir(stencil_dir):
-        urls = [url_for('static', filename='stencils/' + os.path.basename(f))
-                for f in sorted(glob.glob(os.path.join(stencil_dir, '*.drawio.xml')))]
-        clibs = ';'.join('U:' + u for u in urls)
+        stencil_urls = [url_for('static', filename='stencils/' + os.path.basename(f))
+                        for f in sorted(glob.glob(os.path.join(stencil_dir, '*.drawio.xml')))]
+        clibs = ';'.join('U:' + u for u in stencil_urls)
 
     # 导入模式：从已上传文件导入
     import_url = None
@@ -210,7 +211,8 @@ def topology_editor(id):
 
     return render_template('topologies/editor.html',
                            diagram_id=id, all_customers=all_customers, regions=regions,
-                           clibs=clibs, import_url=import_url, import_name=import_name,
+                           clibs=clibs, stencil_urls=stencil_urls,
+                           import_url=import_url, import_name=import_name,
                            import_customer_id=import_customer_id,
                            import_region_id=import_region_id,
                            import_type=import_type)

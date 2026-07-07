@@ -85,6 +85,7 @@
     var IMPORT_NAME = {{ import_name|tojson if import_name else 'null' }};
     var IMPORT_CUSTOMER = {{ import_customer_id|tojson if import_customer_id else 'null' }};
     var IMPORT_REGION = {{ import_region_id|tojson if import_region_id else 'null' }};
+    var STENCIL_URLS = {{ stencil_urls|tojson }};
     var iframe = document.getElementById('drawioFrame');
     var pendingExport = null;       // 当前正在处理的导出格式
     var exportQueue = [];           // 待处理导出队列
@@ -112,6 +113,12 @@
         if (IMPORT_NAME) document.getElementById('topoName').value = IMPORT_NAME;
         if (IMPORT_CUSTOMER) document.getElementById('topoCustomer').value = IMPORT_CUSTOMER;
         if (IMPORT_REGION) document.getElementById('topoRegion').value = IMPORT_REGION;
+
+        // 兜底加载图标库：clibs URL 参数不可靠时，用 postMessage 注入
+        // 延迟 600ms 等图加载完再注库，避免 load 动作竞争
+        if (STENCIL_URLS && STENCIL_URLS.length) {
+            setTimeout(loadStencilLibs, 600);
+        }
 
         if (IMPORT_TYPE === 'visio') {
             // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）
@@ -143,6 +150,20 @@
                 post({action: 'load', xml: data.diagram_xml || ''});
             })
             .catch(function(e) { alert('加载失败: ' + e); });
+    }
+
+    // ====== 图标库兜底加载（postMessage） ======
+    // clibs URL 参数在部分 drawio 版本/环境下不触发异步库加载，
+    // 这里主动 fetch 库 XML 并通过 load 动作注入。
+    // drawio 的 load 检测 <mxlibrary 前缀走 addCustomLibrary，不覆盖当前图。
+    function loadStencilLibs() {
+        STENCIL_URLS.forEach(function(url) {
+            fetch(url).then(function(r) { return r.text(); }).then(function(xml) {
+                if (xml && xml.substring(0, 10) === '<mxlibrary') {
+                    post({action: 'load', xml: xml});
+                }
+            }).catch(function() { /* 单个库加载失败不影响主流程 */ });
+        });
     }
 
     // ====== 保存 ======
