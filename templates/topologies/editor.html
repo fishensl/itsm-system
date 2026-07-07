@@ -115,25 +115,35 @@
         // 改为 true 用客户端 canvas 导出，避免依赖外部导出服务器。
         try { iframe.contentWindow.Editor.useCanvasForExport = true; } catch (e) { /* ignore */ }
 
-        // [诊断] 捕获 drawio 内部错误（drawio 用 ErrorDialog 显示，console 默认看不到堆栈）
-        // 拿到 u.substring 的真正触发点后删除
+        // [诊断] 覆盖 drawio handleError（drawio catch 异常后走 handleError→ErrorDialog）。
+        // App 挂 window 且继承 EditorUi，通过原型链覆盖 handleError 拿异常 e.stack。
+        // 之前覆盖 alert/ErrorDialog 无效：drawio 不用 window.alert，ErrorDialog 不挂 window。
         try {
             var w = iframe.contentWindow;
+            var App = w.App;
+            if (App && App.prototype) {
+                var protos = [App.prototype, App.prototype.__proto__];
+                for (var i = 0; i < protos.length; i++) {
+                    if (protos[i] && protos[i].handleError) {
+                        (function(proto, orig) {
+                            proto.handleError = function(e) {
+                                var err = (e && e.error != null) ? e.error : e;
+                                console.error('[topo-err] handleError:', err && err.message,
+                                    '\n堆栈:', (err && err.stack) || new Error().stack);
+                                return orig.apply(this, arguments);
+                            };
+                        })(protos[i], protos[i].handleError);
+                    }
+                }
+                console.log('[topo-err] 诊断已挂载到 App 原型链');
+            } else {
+                console.error('[topo-err] App 未就绪');
+            }
             w.onerror = function(msg, src, line, col, err) {
                 console.error('[topo-err] onerror:', msg, '@', src + ':' + line + ':' + col,
                     err && err.stack ? '\n' + err.stack : '');
                 return false;
             };
-            w.alert = function(m) {
-                console.error('[topo-err] alert:', m, '\n堆栈:', new Error().stack);
-            };
-            if (w.ErrorDialog) {
-                var _ED = w.ErrorDialog;
-                w.ErrorDialog = function(editorUi, title, message) {
-                    console.error('[topo-err] ErrorDialog:', title, '|', message, '\n堆栈:', new Error().stack);
-                    return _ED.apply(this, arguments);
-                };
-            }
         } catch (e) { console.error('[topo-err] 诊断安装失败', e); }
 
         // 预填导入元数据
