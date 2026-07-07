@@ -82,16 +82,15 @@ def make_drawio_library(shapes, xml_path, png_dir, title):
         png_path = os.path.join(png_dir, png_file)
         with open(png_path, 'rb') as f:
             b64 = base64.b64encode(f.read()).decode()
-        cell_xml = (
-            '<mxGraphModel><root><mxCell id="2" value="" '
-            'style="shape=image;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;'
-            'verticalAlign=top;aspect=fixed;imageAspect=0;image=data:image/png;base64,{b64};" '
-            'vertex="1" parent="1"><mxGeometry width="80" height="80" as="geometry"/></mxCell>'
-            '</root></mxGraphModel>'
-        ).format(b64=b64)
-        entries.append({'xml': cell_xml, 'w': 80, 'h': 80, 'title': name})
-    # JSON 内容必须 XML 转义后才能放进 <mxlibrary>——
-    # 否则 <mxGraphModel> 会被 parseXml 当子元素，JSON.parse 取到残缺文本失败
+        # 用 data 字段（非 xml）——drawio addLibraryEntries 的 data 路径直接创建
+        # shape=image;image=data:image/png;base64,... 条目，比 xml 路径可靠
+        entries.append({
+            'data': 'data:image/png;base64,' + b64,
+            'w': 80, 'h': 80,
+            'title': name,
+            'aspect': 'fixed',
+        })
+    # JSON 内容必须 XML 转义后才能放进 <mxlibrary>
     from xml.sax.saxutils import escape as xml_escape
     json_str = _json.dumps(entries, ensure_ascii=False)
     xml = '<mxlibrary title="' + xml_escape(title) + '">' + xml_escape(json_str) + '</mxlibrary>'
