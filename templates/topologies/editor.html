@@ -98,11 +98,14 @@
     window.addEventListener('message', function(event) {
         var msg = event.data;
         if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (e) { return; } }
-        if (!msg || !msg.event) return;
+        if (!msg) return;
+        if (msg.error) { console.error('[topo-diag] drawio error:', msg); return; }  // 诊断：捕获 drawio 错误
+        if (!msg.event) return;
 
         if (msg.event === 'init') {
             onDrawioReady();
         } else if (msg.event === 'save') {
+            console.log('[topo-diag] drawio save event, xml 长度:', (msg.xml||'').length);  // 诊断
             doSave(msg.xml);
         } else if (msg.event === 'export') {
             handleExport(msg);
@@ -146,6 +149,7 @@
                 document.getElementById('topoDesc').value = data.description || '';
                 if (data.customer_id) document.getElementById('topoCustomer').value = data.customer_id;
                 if (data.region_id) document.getElementById('topoRegion').value = data.region_id;
+                console.log('[topo-diag] LOAD diagram_xml 长度:', (data.diagram_xml||'').length, '前200:', (data.diagram_xml||'').substring(0, 200));  // 诊断
                 post({action: 'load', xml: data.diagram_xml || ''});
             })
             .catch(function(e) { alert('加载失败: ' + e); });
@@ -213,7 +217,8 @@
     function updateExportStatus() {
         if (exportQueue.length > 0 || pendingExport) {
             var done = exportTotal - exportQueue.length - (pendingExport ? 1 : 0);
-            var label = {vsdx: 'Visio', pdf: 'PDF', png: '缩略图'}[pendingExport] || pendingExport;
+            var fmt = pendingExport || exportQueue[0] || '';
+            var label = {vsdx: 'Visio', pdf: 'PDF', png: '缩略图'}[fmt] || fmt;
             setStatus('<span class="export-progress"></span>已保存 · 生成' + label + '(' + done + '/' + exportTotal + ')', true);
         }
     }
@@ -227,6 +232,7 @@
         // 保存：export xml 返回的 XML 在 msg.xml（format=='xml' 时），走 doSave 存库
         if (justFinished === SAVE_FLAG) {
             var xml = msg.xml || data;
+            console.log('[topo-diag] SAVE via export-xml, xml 长度:', (xml||'').length, '前200:', (xml||'').substring(0, 200));  // 诊断
             if (xml) doSave(xml);
             else { alert('图内容为空，无法保存'); setStatus('保存失败'); }
             return;
