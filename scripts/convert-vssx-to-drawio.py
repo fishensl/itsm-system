@@ -51,6 +51,38 @@ def parse_masters(vssx_path):
         return result
 
 
+def render_ico_to_png(ico_bytes, png_path, size=128):
+    """用 PowerShell + .NET System.Drawing.Icon 将 ICO 转 PNG，再 Pillow 放大到 size"""
+    tmp_ico = png_path + '.ico'
+    tmp_raw_png = png_path + '.raw.png'
+    with open(tmp_ico, 'wb') as f:
+        f.write(ico_bytes)
+    ico_w = tmp_ico.replace('/', '\\')
+    raw_w = tmp_raw_png.replace('/', '\\')
+    ps = (
+        'Add-Type -AssemblyName System.Drawing;'
+        '$icon = New-Object System.Drawing.Icon("' + ico_w + '");'
+        '$bmp = $icon.ToBitmap();'
+        '$bmp.Save("' + raw_w + '", [System.Drawing.Imaging.ImageFormat]::Png);'
+        '$icon.Dispose(); $bmp.Dispose()'
+    )
+    subprocess.run(['powershell', '-NoProfile', '-Command', ps],
+                   capture_output=True, text=True, timeout=20)
+    os.remove(tmp_ico)
+    if not os.path.exists(tmp_raw_png):
+        raise RuntimeError('ICO 渲染失败')
+    # Pillow 放大到 128x128 白底
+    from PIL import Image as _Img
+    img = _Img.open(tmp_raw_png).convert('RGBA')
+    canvas = _Img.new('RGBA', (size, size), (255, 255, 255, 255))
+    ratio = min(size / img.width, size / img.height)
+    nw, nh = int(img.width * ratio), int(img.height * ratio)
+    resized = img.resize((nw, nh), _Img.LANCZOS)
+    canvas.paste(resized, ((size - nw) // 2, (size - nh) // 2), resized)
+    canvas.convert('RGB').save(png_path, 'PNG')
+    os.remove(tmp_raw_png)
+
+
 def render_emf_to_png(emf_bytes, png_path, size=128):
     """用 PowerShell + .NET System.Drawing 将 EMF 渲染为 PNG"""
     tmp_emf = png_path + '.emf'
@@ -134,7 +166,9 @@ def main():
             png_file = safe + '.png'
             png_path = os.path.join(out_dir, png_file)
 
-            cache_key = icon or ('b64:' + icon_b64[:40])
+            # cache_key：media 文件用路径，ICO 用完整 base64 的 hash（前 40 字符全一样=ICO头）
+            import hashlib as _hl
+            cache_key = icon or ('b64:' + _hl.md5(icon_b64.encode()).hexdigest())
             if cache_key in seen_icons:
                 # 复用已渲染的图标
                 src_png = seen_icons[cache_key]
@@ -157,16 +191,18 @@ def main():
                             img = _Img.open(tmp_png).convert('RGBA')
                             os.remove(tmp_png)
                     else:
-                        # <Icon> base64 ICO：Pillow 直接读 ICO
+                        # <Icon> base64 ICO：PowerShell .NET System.Drawing.Icon 转 PNG
                         icon_bytes = base64.b64decode(icon_b64)
-                        img = _Img.open(_io.BytesIO(icon_bytes)).convert('RGBA')
-                    # 统一缩放到 128x128 白底
-                    canvas = _Img.new('RGBA', (128, 128), (255, 255, 255, 255))
-                    ratio = min(128 / img.width, 128 / img.height)
-                    nw, nh = int(img.width * ratio), int(img.height * ratio)
-                    resized = img.resize((nw, nh), _Img.LANCZOS)
-                    canvas.paste(resized, ((128 - nw) // 2, (128 - nh) // 2), resized)
-                    canvas.convert('RGB').save(png_path, 'PNG')
+                        render_ico_to_png(icon_bytes, png_path, 128)
+                        img = None  # 已直接保存
+                    # ICO 已由 render_ico_to_png 直接保存；其余格式统一缩放到 128x128 白底
+                    if img is not None:
+                        canvas = _Img.new('RGBA', (128, 128), (255, 255, 255, 255))
+                        ratio = min(128 / img.width, 128 / img.height)
+                        nw, nh = int(img.width * ratio), int(img.height * ratio)
+                        resized = img.resize((nw, nh), _Img.LANCZOS)
+                        canvas.paste(resized, ((128 - nw) // 2, (128 - nh) // 2), resized)
+                        canvas.convert('RGB').save(png_path, 'PNG')
                     print(f'  [ok] {name} -> {png_file} ({os.path.getsize(png_path)} bytes)')
                 except Exception as e:
                     print(f'  [fail] {name}: {e}')
