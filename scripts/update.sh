@@ -49,6 +49,12 @@ git stash pop 2>/dev/null || true
 echo "[5/6] 更新 Python 依赖..."
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
+# ---- 5.5 drawio webapp（V20 在线拓扑，gitignore 不入库，缺失则补拉）----
+if [ ! -f "${APP_DIR}/static/vendor/drawio/index.html" ]; then
+    echo "[5.5/6] 拉取 drawio webapp..."
+    bash "${APP_DIR}/scripts/fetch-drawio.sh" || echo "  [WARN] drawio 拉取失败，可稍后重跑"
+fi
+
 # ---- 6. 数据库迁移 + schema 同步 ----
 # init_db() 内部幂等：跑 flask db upgrade（Alembic）同步 schema + seed_all() 写权限/角色。
 # SQLite/PG 通用；ITSM_DATABASE_URI 从 .env 读取以连对库。

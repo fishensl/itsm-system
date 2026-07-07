@@ -27,6 +27,9 @@ static/uploads/knowledge/*
 static/uploads/spare_parts/*
 static/uploads/topologies/*
 
+# drawio webapp（V20 在线拓扑：部署时由 scripts/fetch-drawio.sh 下载，不入库）
+static/vendor/drawio/
+
 # Database
 *.db
 *.db.*

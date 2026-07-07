@@ -1030,6 +1030,11 @@ class Topology(db.Model):
     file_type = db.Column(db.String(32), default='image')    # visio/image/pdf/other
     upload_by = db.Column(db.String(64), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # V20: 在线拓扑（drawio 集成）
+    diagram_xml = db.Column(db.Text, default='')             # mxGraph XML（在线图源数据；上传图为空）
+    source = db.Column(db.String(16), default='upload')      # upload | draw
+    thumbnail_path = db.Column(db.String(512), default='')   # 在线图缩略图 PNG（列表预览用）
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     customer_rel = db.relationship('Customer', backref='topologies')
     region_rel = db.relationship('Region', backref='topologies')

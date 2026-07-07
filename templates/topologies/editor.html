@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}在线拓扑编辑器 - IT运维综合管理系统{% endblock %}
+{% block content %}
+<style>
+.topo-editor {
+    height: calc(100vh - 108px);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+}
+.topo-editor-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #dee2e6;
+    background: var(--card-bg, #f8f9fa);
+    flex-wrap: wrap;
+}
+.topo-editor-bar .form-control,
+.topo-editor-bar .form-select { font-size: 0.875rem; }
+.topo-editor iframe {
+    flex: 1 1 auto;
+    width: 100%;
+    border: 0;
+    min-height: 0;
+}
+.topo-loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #6c757d; text-align: center;
+}
+#saveStatus { min-width: 90px; font-size: 0.8rem; }
+</style>
+<div class="topo-editor position-relative">
+    <div class="topo-editor-bar">
+        <a href="{{ url_for('topology.topology_list') }}" class="btn btn-sm btn-outline-secondary" title="返回列表">
+            <i class="bi-arrow-left"></i>
+        </a>
+        <input id="topoName" class="form-control form-control-sm" style="max-width:240px" placeholder="拓扑图名称 *">
+        <select id="topoCustomer" class="form-select form-select-sm" style="max-width:180px">
+            <option value="">不关联客户</option>
+            {% for c in all_customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+        <select id="topoRegion" class="form-select form-select-sm" style="max-width:140px">
+            <option value="">不关联地区</option>
+            {% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+        </select>
+        <input id="topoDesc" class="form-control form-control-sm flex-grow-1" placeholder="描述（可选）" style="min-width:120px">
+        <span id="saveStatus" class="text-muted"></span>
+        {% if has_perm('topology:add') or has_perm('topology:edit') %}
+        <button id="btnSave" class="btn btn-sm btn-primary"><i class="bi-save"></i> 保存</button>
+        {% endif %}
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="bi-download"></i> 导出
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item export-item" href="#" data-fmt="svg"><i class="bi-file-earmark-code"></i> SVG 矢量图</a></li>
+                <li><a class="dropdown-item export-item" href="#" data-fmt="pdf"><i class="bi-file-earmark-pdf"></i> PDF 文档</a></li>
+                <li><a class="dropdown-item export-item" href="#" data-fmt="vsdx"><i class="bi-file-earmark-break"></i> Visio (VSDX)</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item export-item" href="#" data-fmt="png"><i class="bi-file-earmark-image"></i> PNG 图片</a></li>
+            </ul>
+        </div>
+    </div>
+    <iframe id="drawioFrame"
+            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh"
+            allow="clipboard-read; clipboard-write"></iframe>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var DIAGRAM_ID = {{ diagram_id | tojson }};
+    var iframe = document.getElementById('drawioFrame');
+    var pendingExport = null;   // null | 'thumbnail' | 'svg' | 'pdf' | 'vsdx' | 'png'
+
+    function post(msg) {
+        iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
+    }
+
+    // ====== drawio postMessage 通信 ======
+    window.addEventListener('message', function(event) {
+        var msg = event.data;
+        if (typeof msg === 'string') {
+            try { msg = JSON.parse(msg); } catch (e) { return; }
+        }
+        if (!msg || !msg.event) return;
+
+        if (msg.event === 'init') {
+            // drawio 就绪 → 加载图
+            loadDiagram();
+        } else if (msg.event === 'save') {
+            // drawio 回传当前 XML
+            doSave(msg.xml);
+        } else if (msg.event === 'export') {
+            handleExport(msg);
+        } else if (msg.event === 'exit') {
+            // 用户按 Esc / 关闭，忽略
+        }
+    });
+
+    // ====== 加载 ======
+    function loadDiagram() {
+        if (DIAGRAM_ID === 0) {
+            var empty = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
+            post({action: 'load', xml: empty});
+            return;
+        }
+        fetch('/topologies/api/diagram/' + DIAGRAM_ID)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.ok) { alert(data.error || '加载失败'); return; }
+                document.getElementById('topoName').value = data.name || '';
+                document.getElementById('topoDesc').value = data.description || '';
+                if (data.customer_id) document.getElementById('topoCustomer').value = data.customer_id;
+                if (data.region_id) document.getElementById('topoRegion').value = data.region_id;
+                post({action: 'load', xml: data.diagram_xml || ''});
+            })
+            .catch(function(e) { alert('加载失败: ' + e); });
+    }
+
+    // ====== 保存 ======
+    var btn = document.getElementById('btnSave');
+    if (btn) btn.addEventListener('click', function() {
+        setStatus('正在保存…');
+        // 请求 drawio 回传 XML
+        post({action: 'save', saveAndExit: false});
+    });
+
+    function doSave(xml) {
+        var name = document.getElementById('topoName').value.trim();
+        if (!name) { alert('请输入拓扑图名称'); setStatus(''); return; }
+        fetch('/topologies/api/diagram', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                id: DIAGRAM_ID,
+                name: name,
+                description: document.getElementById('topoDesc').value,
+                customer_id: parseInt(document.getElementById('topoCustomer').value) || null,
+                region_id: parseInt(document.getElementById('topoRegion').value) || null,
+                diagram_xml: xml
+            })
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+              if (!data.ok) { alert(data.error || '保存失败'); setStatus('保存失败'); return; }
+              DIAGRAM_ID = data.id;  // 新建后拿到 id
+              setStatus('已保存 ' + new Date().toLocaleTimeString('zh-CN', {hour12:false}));
+              // 异步生成缩略图（不阻塞保存反馈）
+              requestThumbnail();
+          })
+          .catch(function(e) { alert('保存失败: ' + e); setStatus('保存失败'); });
+    }
+
+    function requestThumbnail() {
+        pendingExport = 'thumbnail';
+        post({action: 'export', format: 'png', spin: false, scale: 0.3, border: 8});
+    }
+
+    // ====== 导出 ======
+    document.querySelectorAll('.export-item').forEach(function(a) {
+        a.addEventListener('click', function(e) {
+            e.preventDefault();
+            var fmt = this.dataset.fmt;
+            pendingExport = fmt;
+            setStatus('正在导出 ' + fmt.toUpperCase() + '…');
+            post({action: 'export', format: fmt, spin: true});
+        });
+    });
+
+    function handleExport(msg) {
+        var fmt = msg.format;
+        var data = msg.data;
+        if (pendingExport === 'thumbnail') {
+            pendingExport = null;
+            // 上传缩略图
+            fetch('/topologies/api/thumbnail', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: DIAGRAM_ID, thumbnail: data})
+            }).catch(function() { /* 缩略图失败不影响主流程 */ });
+            return;
+        }
+        pendingExport = null;
+        setStatus('');
+        if (!data) { alert('导出失败：drawio 返回空数据'); return; }
+
+        // SVG 格式 data 是 XML 字符串，其余是 base64 data URL
+        var name = (document.getElementById('topoName').value || 'topology').trim();
+        if (fmt === 'svg') {
+            // 转为 Blob 下载
+            var blob = new Blob([data], {type: 'image/svg+xml'});
+            downloadBlob(blob, name + '.svg');
+        } else {
+            // data URL 直接触发下载
+            var a = document.createElement('a');
+            a.href = data;
+            a.download = name + '.' + fmt;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    }
+
+    function downloadBlob(blob, filename) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+    }
+
+    function setStatus(text) {
+        document.getElementById('saveStatus').textContent = text;
+    }
+
+    // ====== 离开提醒（有未保存修改时）=====
+    var dirty = false;
+    window.addEventListener('beforeunload', function(e) {
+        if (dirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+    // 保存成功后清除 dirty（此处简化：drawio 内部编辑不追踪 dirty，仅做提示）
+})();
+</script>
+{% endblock %}

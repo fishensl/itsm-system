@@ -51,6 +51,14 @@ mkdir -p "${APP_DIR}/static/uploads/knowledge"
 mkdir -p "${APP_DIR}/static/uploads/spare_parts"
 mkdir -p "${APP_DIR}/static/uploads/topologies"
 
+# ---- 3.5 拉取 drawio webapp（V20 在线拓扑，gitignore 不入库）----
+echo "[3.5/8] 拉取 drawio webapp..."
+if [ ! -f "${APP_DIR}/static/vendor/drawio/index.html" ]; then
+    bash "${APP_DIR}/scripts/fetch-drawio.sh" || echo "  [WARN] drawio 拉取失败，在线拓扑编辑器不可用（可稍后重跑 scripts/fetch-drawio.sh）"
+else
+    echo "  drawio 已存在，跳过"
+fi
+
 # ---- 4. Python 虚拟环境 ----
 echo "[4/8] 创建 Python 虚拟环境..."
 python3 -m venv "${VENV}"

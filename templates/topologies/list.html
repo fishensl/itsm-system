@@ -4,13 +4,16 @@
 {% block content %}{% call ui.page_header('拓扑图管理', 'diagram-3') %}    <button class="btn btn-sm btn-outline-secondary me-2" onclick="toggleAll()">
         <i class="bi-arrows-expand"></i> 全部展开/收起
     </button>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal"><i class="bi-upload"></i> 上传拓扑图</button>
+    {% if has_perm('topology:add') %}
+    <a href="{{ url_for('topology.topology_editor', id=0) }}" class="btn btn-primary me-2"><i class="bi-easel"></i> 在线绘制</a>
+    {% endif %}
+    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal"><i class="bi-upload"></i> 上传拓扑图</button>
 {% endcall %}
 {# 搜索框 #}
 {% call ui.filter_bar() %}<form method="get" class="row g-2 align-items-center">
     <div class="col-md-4"><input type="text" name="search" class="form-control form-control-sm" placeholder="搜索名称/描述/客户..." value="{{ search or '' }}"></div>
     <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary"><i class="bi-search"></i> 搜索</button></div>
-    {% if search %}<div class="col-auto"><a href="{{ url_for('topology_list') }}" class="btn btn-sm btn-outline-secondary">清除</a></div>{% endif %}
+    {% if search %}<div class="col-auto"><a href="{{ url_for('topology.topology_list') }}" class="btn btn-sm btn-outline-secondary">清除</a></div>{% endif %}
 </form>
 {% endcall %}
 {% if grouped %}
@@ -32,7 +35,7 @@
                         <th>描述</th>
                         <th>上传人</th>
                         <th>上传时间</th>
-                        <th style="width:90px">操作</th>
+                        <th style="width:120px">操作</th>
                     </tr></thead>
                     <tbody>
                     {% for m in items %}
@@ -43,7 +46,11 @@
                             {# 文件类型图标（按 image/pdf/visio/other 顺序展示） #}
                             <span class="ms-2">
                             {% for t in m.files %}
-                                {% if t.file_type == 'pdf' %}
+                                {% if t.source == 'draw' %}
+                                <a href="{{ url_for('topology.topology_editor', id=t.id) }}" class="text-decoration-none me-1" title="在线拓扑图（{{ t.updated_at.strftime('%Y-%m-%d') if t.updated_at else '' }}）— 点击编辑" data-topo-id="{{ t.id }}">
+                                    <i class="bi-easel text-info" style="font-size:1.25em;"></i>
+                                </a>
+                                {% elif t.file_type == 'pdf' %}
                                 <a href="/static/{{ t.file_path }}" target="_blank" class="text-decoration-none me-1" title="点击预览 PDF（{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}）" data-topo-id="{{ t.id }}">
                                     <i class="bi-file-earmark-pdf text-danger" style="font-size:1.25em;"></i>
                                 </a>
@@ -67,6 +74,11 @@
                         <td><small>{{ m.first.upload_by or '-' }}</small></td>
                         <td><small>{{ m.first.created_at.strftime('%Y-%m-%d') if m.first.created_at else '-' }}</small></td>
                         <td>
+                            {% if m.first.source == 'draw' %}
+                            <a href="{{ url_for('topology.topology_editor', id=m.first.id) }}" class="btn btn-sm btn-outline-primary me-1" title="编辑">
+                                <i class="bi-pencil"></i>
+                            </a>
+                            {% endif %}
                             {# 删除：因为可能多文件，弹出确认整组删除 #}
                             <button class="btn btn-sm btn-outline-danger"
                                     onclick="deleteTopoGroup({{ m.files|map(attribute='id')|list|tojson }}, '{{ m.name|e }}')"
@@ -84,12 +96,12 @@
     {% endfor %}
 </div>
 {% else %}
-{{ eui.empty_state('bi-diagram-3', '暂无拓扑图' if not search else '未找到匹配的拓扑图', '点击「上传拓扑图」添加' if not search else '') }}
+{{ eui.empty_state('bi-diagram-3', '暂无拓扑图' if not search else '未找到匹配的拓扑图', '点击「在线绘制」或「上传拓扑图」添加' if not search else '') }}
 {% endif %}
 
 <div class="modal fade" id="uploadModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
 <div class="modal-header"><h5 class="modal-title">上传拓扑图</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-<form method="post" action="{{ url_for('topology_upload') }}" enctype="multipart/form-data">
+<form method="post" action="{{ url_for('topology.topology_upload') }}" enctype="multipart/form-data">
 <div class="modal-body">
 <div class="mb-3"><label class="form-label">拓扑图类型 <span class="text-danger">*</span></label>
     <select name="topo_type" id="topoTypeSelect" class="form-select" required>
