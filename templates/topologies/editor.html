@@ -90,6 +90,7 @@
     var pendingExport = null;       // 当前正在处理的导出格式
     var exportQueue = [];           // 待处理导出队列
     var exportTotal = 0;            // 本次导出总数（用于进度显示）
+    var SAVE_FLAG = '__save__';     // 保存标记：用 export xml 取 XML 后存库（非真正的导出）
 
     function post(msg) { iframe.contentWindow.postMessage(JSON.stringify(msg), '*'); }
 
@@ -114,11 +115,9 @@
         if (IMPORT_CUSTOMER) document.getElementById('topoCustomer').value = IMPORT_CUSTOMER;
         if (IMPORT_REGION) document.getElementById('topoRegion').value = IMPORT_REGION;
 
-        // 图标库由 iframe 的 clibs URL 参数加载
-        // 兜底：3 秒后检查 clibs 是否生效，若否则直接调 drawio 内部 API 注入库
-        if (STENCIL_URLS && STENCIL_URLS.length) {
-            setTimeout(ensureStencilLibs, 3000);
-        }
+        // 图标库由 iframe 的 clibs URL 参数加载（已生效）。
+        // 原 ensureStencilLibs 兜底因 drawio v30 不暴露 EditorUi 实例到 window（win.ui 恒为
+        // undefined）而无法工作，已移除 3s 延迟调用，避免无意义的重试开销。
 
         if (IMPORT_TYPE === 'visio') {
             // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）
@@ -152,44 +151,16 @@
             .catch(function(e) { alert('加载失败: ' + e); });
     }
 
-    // ====== 图标库兜底：直接调 drawio 内部 API ======
-    // clibs URL 参数在部分环境不生效，这里访问同源 iframe 内部直接注入
-    function ensureStencilLibs() {
-        var win;
-        try { win = iframe.contentWindow; } catch (e) { return; }
-        var ui = win.ui || (win.App && win.App.prototype) || null;
-        if (!ui || !ui.sidebar) {
-            // drawio 内部对象还没就绪，1 秒后重试
-            if (!ensureStencilLibs._retries) ensureStencilLibs._retries = 0;
-            if (ensureStencilLibs._retries++ < 5) setTimeout(ensureStencilLibs, 1000);
-            return;
-        }
-        // 检查是否已有自定义库（clibs 生效则无需兜底）
-        var palettes = ui.sidebar.palettes || {};
-        var hasCustom = false;
-        for (var k in palettes) { hasCustom = true; break; }
-        if (hasCustom) { setStatus('图标库已加载', false); return; }
-
-        // clibs 未生效 → 手动 fetch + loadLibrary
-        STENCIL_URLS.forEach(function(url) {
-            fetch(url).then(function(r) { return r.text(); }).then(function(xml) {
-                try {
-                    var LibClass = win.UrlLibrary || win.mxUrlLibrary;
-                    if (LibClass) {
-                        var lib = new LibClass(ui, xml, url);
-                        ui.loadLibrary(lib, true);
-                    }
-                } catch (e) { /* ignore */ }
-            }).catch(function() {});
-        });
-        setStatus('图标库已手动加载', false);
-    }
-
     // ====== 保存 ======
     var btn = document.getElementById('btnSave');
     if (btn) btn.addEventListener('click', function() {
         setStatus('正在保存…');
-        post({action: 'save', saveAndExit: false});
+        // drawio embed 模式的 action 分发链无 'save' 分支，post {action:'save'} 会被
+        // 当作 unknownMessage 丢弃。改用 {action:'export', format:'xml'} 取当前图 XML，
+        // 在 handleExport 里捕获 SAVE_FLAG 后走 doSave。XML 含 background/线条样式等全部状态。
+        pendingExport = SAVE_FLAG;
+        exportTotal = 0;
+        post({action: 'export', format: 'xml', spin: false});
     });
 
     function doSave(xml) {
@@ -252,6 +223,14 @@
         var data = msg.data;
         var justFinished = pendingExport;
         pendingExport = null;
+
+        // 保存：export xml 返回的 XML 在 msg.xml（format=='xml' 时），走 doSave 存库
+        if (justFinished === SAVE_FLAG) {
+            var xml = msg.xml || data;
+            if (xml) doSave(xml);
+            else { alert('图内容为空，无法保存'); setStatus('保存失败'); }
+            return;
+        }
 
         if (!data) { processNextExport(); return; }
 

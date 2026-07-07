@@ -56,11 +56,18 @@ def setup_logging(app):
 
 def setup_security_headers(app):
     """注册安全头响应中间件"""
+    from flask import request
     @app.after_request
     def add_security_headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-        response.headers['Cache-Control'] = 'no-store, max-age=0'
+        # drawio vendor(~21MB JS)与图标库内容不变，开长期 immutable 缓存；
+        # 其余（动态接口、HTML 入口）保持 no-store，避免拿到过期数据
+        p = request.path
+        if p.startswith('/static/vendor/') or p.startswith('/static/stencils/'):
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        else:
+            response.headers['Cache-Control'] = 'no-store, max-age=0'
         return response
