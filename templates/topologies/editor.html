@@ -194,7 +194,7 @@
         // 在 handleExport 里捕获 SAVE_FLAG 后走 doSave。XML 含 background/线条样式等全部状态。
         pendingExport = SAVE_FLAG;
         exportTotal = 0;
-        post({action: 'export', format: 'xml', spin: false});
+        post({action: 'export', format: 'xml'});
     });
 
     function doSave(xml) {
@@ -240,8 +240,8 @@
             return;
         }
         pendingExport = exportQueue.shift();
-        // spin:false 避免遮挡编辑器；导出在后台静默进行
-        post({action: 'export', format: pendingExport, spin: false,
+        // 不传 spin：drawio 的 spinner.spin 期望字符串，传 false 会触发 u.substring 错误
+        post({action: 'export', format: pendingExport,
               scale: pendingExport === 'png' ? 0.3 : 1, border: 8});
     }
 
@@ -305,7 +305,7 @@
             pendingExport = fmt;
             exportTotal = 0;  // 标记为手动导出（非队列）
             setStatus('正在导出 ' + fmt.toUpperCase() + '…', true);
-            post({action: 'export', format: fmt, spin: true});
+            post({action: 'export', format: fmt});
         });
     });
 
