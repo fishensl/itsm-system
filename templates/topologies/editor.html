@@ -71,7 +71,7 @@
         </div>
     </div>
     <iframe id="drawioFrame"
-            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh{% if clibs %}&clibs={{ clibs }}{% endif %}{% if import_url and import_type == 'visio' %}&url={{ import_url }}{% endif %}"
+            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh&sidebar=1{% if clibs %}&clibs={{ clibs }}{% endif %}{% if import_url and import_type == 'visio' %}&url={{ import_url }}{% endif %}"
             allow="clipboard-read; clipboard-write"></iframe>
 </div>
 {% endblock %}
@@ -114,7 +114,11 @@
         if (IMPORT_CUSTOMER) document.getElementById('topoCustomer').value = IMPORT_CUSTOMER;
         if (IMPORT_REGION) document.getElementById('topoRegion').value = IMPORT_REGION;
 
-        // 图标库由 iframe 的 clibs URL 参数加载，不用 postMessage（load 动作会把 <mxlibrary> 当图解析报错）
+        // 图标库由 iframe 的 clibs URL 参数加载
+        // 兜底：3 秒后检查 clibs 是否生效，若否则直接调 drawio 内部 API 注入库
+        if (STENCIL_URLS && STENCIL_URLS.length) {
+            setTimeout(ensureStencilLibs, 3000);
+        }
 
         if (IMPORT_TYPE === 'visio') {
             // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）
@@ -146,6 +150,39 @@
                 post({action: 'load', xml: data.diagram_xml || ''});
             })
             .catch(function(e) { alert('加载失败: ' + e); });
+    }
+
+    // ====== 图标库兜底：直接调 drawio 内部 API ======
+    // clibs URL 参数在部分环境不生效，这里访问同源 iframe 内部直接注入
+    function ensureStencilLibs() {
+        var win;
+        try { win = iframe.contentWindow; } catch (e) { return; }
+        var ui = win.ui || (win.App && win.App.prototype) || null;
+        if (!ui || !ui.sidebar) {
+            // drawio 内部对象还没就绪，1 秒后重试
+            if (!ensureStencilLibs._retries) ensureStencilLibs._retries = 0;
+            if (ensureStencilLibs._retries++ < 5) setTimeout(ensureStencilLibs, 1000);
+            return;
+        }
+        // 检查是否已有自定义库（clibs 生效则无需兜底）
+        var palettes = ui.sidebar.palettes || {};
+        var hasCustom = false;
+        for (var k in palettes) { hasCustom = true; break; }
+        if (hasCustom) { setStatus('图标库已加载', false); return; }
+
+        // clibs 未生效 → 手动 fetch + loadLibrary
+        STENCIL_URLS.forEach(function(url) {
+            fetch(url).then(function(r) { return r.text(); }).then(function(xml) {
+                try {
+                    var LibClass = win.UrlLibrary || win.mxUrlLibrary;
+                    if (LibClass) {
+                        var lib = new LibClass(ui, xml, url);
+                        ui.loadLibrary(lib, true);
+                    }
+                } catch (e) { /* ignore */ }
+            }).catch(function() {});
+        });
+        setStatus('图标库已手动加载', false);
     }
 
     // ====== 保存 ======
