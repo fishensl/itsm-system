@@ -131,9 +131,21 @@ def main():
                     import shutil
                     shutil.copy(os.path.join(out_dir, src_png), png_path)
             else:
-                emf_bytes = z.read(icon)
+                icon_bytes = z.read(icon)
                 try:
-                    render_emf_to_png(emf_bytes, png_path, 128)
+                    # PNG 图标直接用 Pillow 缩放；EMF 用 PowerShell 渲染
+                    if icon.lower().endswith('.png'):
+                        from PIL import Image as _Img
+                        import io as _io
+                        img = _Img.open(_io.BytesIO(icon_bytes)).convert('RGBA')
+                        canvas = _Img.new('RGBA', (128, 128), (255, 255, 255, 255))
+                        ratio = min(128 / img.width, 128 / img.height)
+                        nw, nh = int(img.width * ratio), int(img.height * ratio)
+                        canvas.paste(img.resize((nw, nh), _Img.LANCZOS),
+                                     ((128 - nw) // 2, (128 - nh) // 2), img.resize((nw, nh), _Img.LANCZOS))
+                        canvas.convert('RGB').save(png_path, 'PNG')
+                    else:
+                        render_emf_to_png(icon_bytes, png_path, 128)
                     print(f'  [ok] {name} -> {png_file} ({os.path.getsize(png_path)} bytes)')
                 except Exception as e:
                     print(f'  [fail] {name}: {e}')
