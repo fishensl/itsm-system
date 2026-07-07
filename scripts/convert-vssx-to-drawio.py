@@ -17,28 +17,37 @@ def parse_masters(vssx_path):
         mx = z.read('visio/masters/masters.xml').decode('utf-8')
         mrels = z.read('visio/masters/_rels/masters.xml.rels').decode('utf-8')
 
-        # Master ID/NameU/rId
+        # Master ID/NameU/整个元素体（<Icon> 在 <Rel r:id> 之前，需捕获整个 body）
         masters = re.findall(
-            r"<Master\s+ID='(\d+)'\s+NameU='([^']+)'.*?r:id='([^']+)'", mx, re.DOTALL)
+            r"<Master\s+ID='(\d+)'\s+NameU='([^']+)'[^>]*>(.*?)</Master>", mx, re.DOTALL)
         # rId -> master{N}.xml
         rid_to_file = dict(re.findall(
             r'Id="(\w+)"\s+Type="[^"]+"\s+Target="([^"]+)"', mrels))
 
         result = []
-        for mid, name, rid in masters:
-            mfile = rid_to_file.get(rid)
-            if not mfile:
-                continue
-            mfile = 'visio/masters/' + mfile
-            # master{N}.xml.rels -> icon
-            rels_path = mfile.replace('visio/masters/', 'visio/masters/_rels/') + '.rels'
+        for mid, name, body in masters:
+            # 从 body 里提取 r:id
+            rid_m = re.search(r"r:id='([^']+)'", body)
+            rid = rid_m.group(1) if rid_m else None
+            mfile = rid_to_file.get(rid) if rid else None
+            if mfile:
+                mfile = 'visio/masters/' + mfile
+            # 优先：master{N}.xml.rels -> media 文件（EMF/PNG，高质量）
             icon = None
-            if rels_path in z.namelist():
-                rc = z.read(rels_path).decode('utf-8')
-                m = re.search(r'Target="\.\./media/([^"]+)"', rc)
-                if m:
-                    icon = 'visio/media/' + m.group(1)
-            result.append((name, mfile, icon))
+            if mfile:
+                rels_path = mfile.replace('visio/masters/', 'visio/masters/_rels/') + '.rels'
+                if rels_path in z.namelist():
+                    rc = z.read(rels_path).decode('utf-8')
+                    m = re.search(r'Target="\.\./media/([^"]+)"', rc)
+                    if m:
+                        icon = 'visio/media/' + m.group(1)
+            # 兜底：从 <Icon> 元素提取 base64 ICO（低质量但总比没有好）
+            icon_b64 = None
+            if not icon:
+                m2 = re.search(r'<Icon>(.*?)</Icon>', body, re.DOTALL)
+                if m2:
+                    icon_b64 = m2.group(1).strip()
+            result.append((name, mfile, icon, icon_b64))
         return result
 
 
@@ -116,8 +125,8 @@ def main():
     with zipfile.ZipFile(vssx) as z:
         shapes = []
         seen_icons = {}  # 同一图标复用
-        for name, mfile, icon in masters:
-            if not icon:
+        for name, mfile, icon, icon_b64 in masters:
+            if not icon and not icon_b64:
                 print(f'  [skip] {name}: 无图标')
                 continue
             # 文件名安全化
@@ -125,34 +134,44 @@ def main():
             png_file = safe + '.png'
             png_path = os.path.join(out_dir, png_file)
 
-            if icon in seen_icons:
+            cache_key = icon or ('b64:' + icon_b64[:40])
+            if cache_key in seen_icons:
                 # 复用已渲染的图标
-                src_png = seen_icons[icon]
-                # 仍生成独立文件（不同名称）
+                src_png = seen_icons[cache_key]
                 if not os.path.exists(png_path):
                     import shutil
                     shutil.copy(os.path.join(out_dir, src_png), png_path)
             else:
-                icon_bytes = z.read(icon)
                 try:
-                    # PNG 图标直接用 Pillow 缩放；EMF 用 PowerShell 渲染
-                    if icon.lower().endswith('.png'):
-                        from PIL import Image as _Img
-                        import io as _io
-                        img = _Img.open(_io.BytesIO(icon_bytes)).convert('RGBA')
-                        canvas = _Img.new('RGBA', (128, 128), (255, 255, 255, 255))
-                        ratio = min(128 / img.width, 128 / img.height)
-                        nw, nh = int(img.width * ratio), int(img.height * ratio)
-                        canvas.paste(img.resize((nw, nh), _Img.LANCZOS),
-                                     ((128 - nw) // 2, (128 - nh) // 2), img.resize((nw, nh), _Img.LANCZOS))
-                        canvas.convert('RGB').save(png_path, 'PNG')
+                    from PIL import Image as _Img
+                    import io as _io
+                    if icon:
+                        icon_bytes = z.read(icon)
+                        if icon.lower().endswith('.png'):
+                            # PNG 图标：Pillow 缩放
+                            img = _Img.open(_io.BytesIO(icon_bytes)).convert('RGBA')
+                        else:
+                            # EMF 图标：PowerShell 渲染到临时文件
+                            tmp_png = png_path + '.tmp.png'
+                            render_emf_to_png(icon_bytes, tmp_png, 128)
+                            img = _Img.open(tmp_png).convert('RGBA')
+                            os.remove(tmp_png)
                     else:
-                        render_emf_to_png(icon_bytes, png_path, 128)
+                        # <Icon> base64 ICO：Pillow 直接读 ICO
+                        icon_bytes = base64.b64decode(icon_b64)
+                        img = _Img.open(_io.BytesIO(icon_bytes)).convert('RGBA')
+                    # 统一缩放到 128x128 白底
+                    canvas = _Img.new('RGBA', (128, 128), (255, 255, 255, 255))
+                    ratio = min(128 / img.width, 128 / img.height)
+                    nw, nh = int(img.width * ratio), int(img.height * ratio)
+                    resized = img.resize((nw, nh), _Img.LANCZOS)
+                    canvas.paste(resized, ((128 - nw) // 2, (128 - nh) // 2), resized)
+                    canvas.convert('RGB').save(png_path, 'PNG')
                     print(f'  [ok] {name} -> {png_file} ({os.path.getsize(png_path)} bytes)')
                 except Exception as e:
                     print(f'  [fail] {name}: {e}')
                     continue
-                seen_icons[icon] = png_file
+                seen_icons[cache_key] = png_file
             shapes.append((name, png_file))
 
     xml_path = os.path.join('static', 'stencils', base + '.drawio.xml')
