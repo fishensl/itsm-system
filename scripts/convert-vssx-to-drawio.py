@@ -69,11 +69,12 @@ def render_emf_to_png(emf_bytes, png_path, size=128):
     return os.path.getsize(png_path)
 
 
-def make_drawio_library(shapes, xml_path, png_dir):
+def make_drawio_library(shapes, xml_path, png_dir, title):
     """生成 drawio <mxlibrary> XML（PNG 以 base64 嵌入，自包含）
 
     shapes: [(name, png_filename), ...]
     png_dir: PNG 文件所在目录
+    title: 库标题（drawio 侧栏显示名）
     """
     import json as _json
     entries = []
@@ -89,7 +90,7 @@ def make_drawio_library(shapes, xml_path, png_dir):
             '</root></mxGraphModel>'
         ).format(b64=b64)
         entries.append({'xml': cell_xml, 'w': 80, 'h': 80, 'title': name})
-    xml = '<mxlibrary>' + _json.dumps(entries, ensure_ascii=False) + '</mxlibrary>'
+    xml = '<mxlibrary title="' + title + '">' + _json.dumps(entries, ensure_ascii=False) + '</mxlibrary>'
     with open(xml_path, 'w', encoding='utf-8') as f:
         f.write(xml)
     return len(entries)
@@ -138,7 +139,7 @@ def main():
             shapes.append((name, png_file))
 
     xml_path = os.path.join('static', 'stencils', base + '.drawio.xml')
-    n = make_drawio_library(shapes, xml_path, png_dir=out_dir)
+    n = make_drawio_library(shapes, xml_path, png_dir=out_dir, title=base)
     print(f'\n生成 drawio 库: {xml_path} ({n} 个图标)')
     print(f'PNG 目录: {out_dir}/')
     print(f'\n在编辑器中加载: clibs=U:{os.path.basename(xml_path)}')
