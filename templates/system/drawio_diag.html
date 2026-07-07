@@ -35,19 +35,36 @@
 
     function L(msg) { log.textContent += msg + '\n'; }
 
-    var src = '/static/vendor/drawio/index.html?embed=1&proto=json&spin=1&lang=zh&sidebar=1'
+    // 测试非 embed 模式（embed=1 可能导致 clibs 不加载）
+    var src = '/static/vendor/drawio/index.html?proto=json&spin=1&lang=zh&splash=0'
         + (clibs ? '&clibs=' + clibs : '');
     iframe.src = src;
     srcInfo.textContent = src;
 
     var inited = false;
+    // 在 iframe load 后立即 hook UrlLibrary 构造函数，捕获 ui 实例
+    iframe.addEventListener('load', function() {
+        try {
+            var win = iframe.contentWindow;
+            if (win.UrlLibrary && !win._hookedUrlLib) {
+                win._hookedUrlLib = true;
+                var Orig = win.UrlLibrary;
+                win.UrlLibrary = function(ui, xml, url) {
+                    win._capturedUi = win._capturedUi || ui;
+                    L('[hook] UrlLibrary 被调用, url=' + (url||'').substring(0,60));
+                    return new Orig(ui, xml, url);
+                };
+                L('[hook] UrlLibrary 已 hook');
+            }
+        } catch(e) { L('[hook] 失败: ' + e.message); }
+    });
+
     window.addEventListener('message', function(event) {
         var msg = event.data;
         if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch(e) { return; } }
         if (msg && msg.event === 'init' && !inited) {
             inited = true;
-            L('[✓] 收到 init 事件');
-            // 不发送 load，让 clibs 自己处理
+            L('[✓] 收到 init 事件（非 embed 模式 proto=json 生效）');
         }
     });
 
@@ -114,22 +131,25 @@
                 L('XML 开头: ' + xml.substring(0, 60));
                 try {
                     var win = iframe.contentWindow;
-                    // 找 ui 实例
-                    var ui = null;
-                    for (var k in win) {
-                        try {
-                            if (win[k] && typeof win[k] === 'object' && win[k].sidebar && win[k].loadLibrary) {
-                                ui = win[k]; break;
-                            }
-                        } catch(e) {}
+                    // 优先用 hook 捕获的 ui 实例
+                    var ui = win._capturedUi || null;
+                    if (!ui) {
+                        for (var k in win) {
+                            try {
+                                if (win[k] && typeof win[k] === 'object' && win[k].sidebar && win[k].loadLibrary) {
+                                    ui = win[k]; break;
+                                }
+                            } catch(e) {}
+                        }
                     }
+                    L('ui 实例: ' + (ui ? '找到' : '未找到') + (win._capturedUi ? '(hook捕获)' : ''));
                     if (ui) {
-                        L('找到 ui，尝试 loadLibrary...');
+                        L('尝试 loadLibrary...');
                         var LibClass = win.UrlLibrary;
                         if (LibClass) {
                             var lib = new LibClass(ui, xml, stencil_urls[0]);
                             ui.loadLibrary(lib, true);
-                            L('[✓] loadLibrary 调用成功');
+                            L('[✓] loadLibrary 调用成功 — 检查 sidebar 是否出现新库');
                         } else {
                             L('UrlLibrary 类不存在');
                         }
