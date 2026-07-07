@@ -30,7 +30,7 @@ fi
 # ---- 1. 系统依赖 ----
 echo "[1/8] 安装系统依赖..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip git curl
+apt-get install -y -qq python3 python3-venv python3-pip git curl libcairo2
 
 # ---- 2. 克隆仓库 ----
 echo "[2/8] 克隆仓库..."

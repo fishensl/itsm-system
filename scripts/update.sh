@@ -47,6 +47,10 @@ git stash pop 2>/dev/null || true
 
 # ---- 5. 更新依赖 ----
 echo "[5/6] 更新 Python 依赖..."
+# cairosvg（SVG→PDF，V20.3 在线拓扑自动生成 PDF）需要 libcairo2 系统库
+if ! dpkg -s libcairo2 >/dev/null 2>&1; then
+    apt-get install -y -qq libcairo2
+fi
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
 # ---- 5.5 drawio webapp（V20 在线拓扑，gitignore 不入库，缺失则补拉）----

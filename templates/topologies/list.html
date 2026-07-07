@@ -50,7 +50,17 @@
                                 <a href="{{ url_for('topology.topology_editor', id=t.id) }}" class="text-decoration-none me-1" title="在线拓扑图（{{ t.updated_at.strftime('%Y-%m-%d') if t.updated_at else '' }}）— 点击编辑" data-topo-id="{{ t.id }}">
                                     <i class="bi-easel text-info" style="font-size:1.25em;"></i>
                                 </a>
-                                {# 在线图自动生成的 PDF / VSDX 下载 #}
+                                {# 在线图自动生成的 PNG / SVG / PDF 下载 #}
+                                {% if t.thumbnail_path %}
+                                <a href="/static/{{ t.thumbnail_path }}" target="_blank" class="text-decoration-none me-1" title="PNG 缩略图 — 点击预览">
+                                    <i class="bi-file-earmark-image text-success" style="font-size:1.1em;"></i>
+                                </a>
+                                {% endif %}
+                                {% if t.svg_path %}
+                                <a href="/static/{{ t.svg_path }}" target="_blank" class="text-decoration-none me-1" title="SVG 矢量图 — 点击预览">
+                                    <i class="bi-file-earmark-code text-secondary" style="font-size:1.1em;"></i>
+                                </a>
+                                {% endif %}
                                 {% if t.pdf_path %}
                                 <a href="/static/{{ t.pdf_path }}" target="_blank" class="text-decoration-none me-1" title="PDF（自动生成）— 点击预览">
                                     <i class="bi-file-earmark-pdf text-danger" style="font-size:1.1em;"></i>

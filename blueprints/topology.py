@@ -295,9 +295,10 @@ def api_diagram_save():
 @login_required
 @require_permission('topology:edit')
 def api_diagram_export_file():
-    """保存在线拓扑图导出文件（PDF/VSDX/PNG 缩略图，base64 data URL → 文件）
+    """保存在线拓扑图导出文件（PDF/VSDX/PNG/SVG，data URL 或 svg 字符串 → 文件）
 
-    body: {id, format: 'pdf'|'vsdx'|'png', data: 'data:...;base64,...'}
+    body: {id, format: 'pdf'|'vsdx'|'png'|'svg', data: 'data:...;base64,...' 或裸 svg 字符串}
+    SVG 保存后服务端用 cairosvg 转 PDF（drawio embed 不支持 pdf 导出）。
     """
     data = request.get_json(silent=True) or {}
     topo_id = int(data.get('id') or 0)
@@ -305,20 +306,27 @@ def api_diagram_export_file():
     t = Topology.query.get_or_404(topo_id)
     if t.source != 'draw':
         return jsonify({'ok': False, 'error': '非在线图'}), 400
-    if fmt not in ('pdf', 'vsdx', 'png'):
+    if fmt not in ('pdf', 'vsdx', 'png', 'svg'):
         return jsonify({'ok': False, 'error': '不支持的格式: ' + fmt}), 400
 
     data_url = data.get('data') or ''
-    if ',' not in data_url:
+    # svg 可能是裸 svg 字符串或 data:image/svg+xml data URL；其余格式均为 data URL
+    if fmt == 'svg' and not data_url.startswith('data:'):
+        try:
+            raw = data_url.encode('utf-8')
+        except Exception:
+            return jsonify({'ok': False, 'error': 'svg 数据无效'}), 400
+    elif ',' in data_url:
+        try:
+            raw = base64.b64decode(data_url.split(',', 1)[1])
+        except Exception:
+            return jsonify({'ok': False, 'error': 'base64 解码失败'}), 400
+    else:
         return jsonify({'ok': False, 'error': '文件数据无效'}), 400
-    try:
-        raw = base64.b64decode(data_url.split(',', 1)[1])
-    except Exception:
-        return jsonify({'ok': False, 'error': 'base64 解码失败'}), 400
 
     upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
     os.makedirs(upload_dir, exist_ok=True)
-    ext = {'pdf': 'pdf', 'vsdx': 'vsdx', 'png': 'png'}[fmt]
+    ext = {'pdf': 'pdf', 'vsdx': 'vsdx', 'png': 'png', 'svg': 'svg'}[fmt]
     fname = f'{fmt}_{t.id}.{ext}'
     with open(os.path.join(upload_dir, fname), 'wb') as f:
         f.write(raw)
@@ -327,6 +335,16 @@ def api_diagram_export_file():
         t.pdf_path = rel_path
     elif fmt == 'vsdx':
         t.vsdx_path = rel_path
+    elif fmt == 'svg':
+        t.svg_path = rel_path
+        # drawio embed 不支持 pdf 导出，服务端用 cairosvg 从 svg 转 pdf
+        try:
+            import cairosvg
+            pdf_fname = f'pdf_{t.id}.pdf'
+            cairosvg.svg2pdf(bytestring=raw, write_to=os.path.join(upload_dir, pdf_fname))
+            t.pdf_path = f'uploads/topologies/{pdf_fname}'
+        except Exception as e:
+            current_app.logger.warning('cairosvg 转 PDF 失败: %s', e)
     else:
         t.thumbnail_path = rel_path
     db.session.commit()

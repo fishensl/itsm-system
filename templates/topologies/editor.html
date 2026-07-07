@@ -218,9 +218,9 @@
               var isFirstSave = (document.getElementById('topoName').dataset.saved !== '1');
               document.getElementById('topoName').dataset.saved = '1';
               setStatus('已保存 ' + new Date().toLocaleTimeString('zh-CN', {hour12:false}));
-              // 异步生成 PNG 缩略图。drawio embed 的 export action 仅支持 png/svg/xml/html/json，
-              // 不支持 vsdx/pdf（会走默认 svg 分支并触发 graphReady 递归导致"非绘图文件"错误）。
-              startExportQueue(['png']);
+              // 异步生成 PNG 缩略图 + SVG 矢量图（SVG 存后端后由 cairosvg 转 PDF）。
+              // vsdx 不支持自动导出，手动导出走 invokeAction。
+              startExportQueue(['png', 'svg']);
           })
           .catch(function(e) { alert('保存失败: ' + e); setStatus('保存失败'); });
     }
@@ -249,7 +249,7 @@
         if (exportQueue.length > 0 || pendingExport) {
             var done = exportTotal - exportQueue.length - (pendingExport ? 1 : 0);
             var fmt = pendingExport || exportQueue[0] || '';
-            var label = {vsdx: 'Visio', pdf: 'PDF', png: '缩略图'}[fmt] || fmt;
+            var label = {vsdx: 'Visio', pdf: 'PDF', png: '缩略图', svg: 'SVG'}[fmt] || fmt;
             setStatus('<span class="export-progress"></span>已保存 · 生成' + label + '(' + done + '/' + exportTotal + ')', true);
         }
     }
@@ -270,8 +270,8 @@
 
         if (!data) { processNextExport(); return; }
 
-        // 上传到服务器（vsdx/pdf/png 统一接口）
-        if (justFinished && justFinished !== 'svg') {
+        // 队列导出（自动）：上传到服务器；手动导出（exportTotal=0）只下载不上传
+        if (justFinished && exportTotal > 0) {
             fetch('/topologies/api/export-file', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
