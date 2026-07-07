@@ -544,10 +544,27 @@ from utils.permission import admin_required
 @login_required
 @admin_required
 def repair_schema():
-    """一键诊断 + 修复 DB schema：显示 alembic 版本/缺失列，并尝试 flask db upgrade。"""
+    """一键诊断 + 修复 DB schema：显示 alembic 版本/缺失列，尝试 flask db upgrade，
+    并对 alembic 误判 head 但列实际缺失的情况直接 ALTER TABLE 补列。"""
     import io, contextlib
     from sqlalchemy import inspect as sqla_inspect, text
     reports = []
+
+    # 关键列及其定义（表名 → (列名, SQL 类型)）— 与 models.py / 迁移保持一致
+    CRITICAL_COLUMNS = {
+        'inspection_tasks': [
+            ('estimated_effort', 'FLOAT'),
+            ('actual_effort', 'FLOAT'),
+        ],
+        'topologies': [
+            ('diagram_xml', 'TEXT'),
+            ('source', 'VARCHAR(16)'),
+            ('thumbnail_path', 'VARCHAR(512)'),
+            ('pdf_path', 'VARCHAR(512)'),
+            ('vsdx_path', 'VARCHAR(512)'),
+            ('updated_at', 'DATETIME'),
+        ],
+    }
 
     # 1. 当前 alembic 版本
     try:
@@ -560,20 +577,33 @@ def repair_schema():
     except Exception as e:
         reports.append(('alembic 查询失败', str(e), 'danger'))
 
-    # 2. 关键列检查
+    # 2. 关键列检查 + 缺失则直接 ALTER TABLE 补列
     try:
         insp = sqla_inspect(db.engine)
-        for tbl, col in [('inspection_tasks', 'actual_effort'),
-                         ('inspection_tasks', 'estimated_effort'),
-                         ('topologies', 'diagram_xml'),
-                         ('topologies', 'pdf_path')]:
-            cols = {c['name'] for c in insp.get_columns(tbl)} if tbl in insp.get_table_names() else set()
-            status = 'ok' if col in cols else 'missing'
-            reports.append((f'{tbl}.{col}', '存在' if status == 'ok' else '❌ 缺失', status))
+        existing_tables = set(insp.get_table_names())
+        for tbl, cols_def in CRITICAL_COLUMNS.items():
+            if tbl not in existing_tables:
+                reports.append((f'{tbl} 表', '❌ 表不存在', 'danger'))
+                continue
+            existing_cols = {c['name'] for c in insp.get_columns(tbl)}
+            for col_name, col_type in cols_def:
+                if col_name in existing_cols:
+                    reports.append((f'{tbl}.{col_name}', '✅ 存在', 'ok'))
+                else:
+                    # 直接补列（alembic 误判 head 时绕过迁移直接修 schema）
+                    try:
+                        db.session.execute(text(
+                            f'ALTER TABLE {tbl} ADD COLUMN {col_name} {col_type}'))
+                        db.session.commit()
+                        reports.append((f'{tbl}.{col_name}', '🔧 已补列', 'ok'))
+                    except Exception as add_err:
+                        db.session.rollback()
+                        reports.append((f'{tbl}.{col_name}',
+                                        f'❌ 缺失，补列失败: {str(add_err)[:150]}', 'danger'))
     except Exception as e:
         reports.append(('列检查失败', str(e), 'danger'))
 
-    # 3. 尝试 flask db upgrade
+    # 3. 尝试 flask db upgrade（补列后跑一次，确保其余迁移到位）
     upgrade_output = []
     try:
         from flask_migrate import upgrade as _migrate_upgrade
@@ -584,7 +614,7 @@ def repair_schema():
         upgrade_output = [l for l in buf.getvalue().split('\n') if l.strip()]
         reports.append(('flask db upgrade', '✅ 成功', 'ok'))
     except Exception as e:
-        reports.append(('flask db upgrade', '❌ ' + str(e)[:300], 'danger'))
+        reports.append(('flask db upgrade', '⚠ ' + str(e)[:300], 'warn'))
 
     return render_template('system/repair_schema.html', reports=reports, upgrade_output=upgrade_output)
 
