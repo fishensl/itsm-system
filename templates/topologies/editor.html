@@ -110,14 +110,17 @@
     });
 
     function onDrawioReady() {
+        // drawio 默认 Editor.useCanvasForExport=false，png 导出会走 EXPORT_URL 服务端
+        // （EXPORT_URL 是占位符 'REPLACE_WITH_YOUR_IMAGE_SERVER'，请求无效 URL 报 u.substring 错误）。
+        // 改为 true 用客户端 canvas 导出，避免依赖外部导出服务器。
+        try { iframe.contentWindow.Editor.useCanvasForExport = true; } catch (e) { /* ignore */ }
+
         // 预填导入元数据
         if (IMPORT_NAME) document.getElementById('topoName').value = IMPORT_NAME;
         if (IMPORT_CUSTOMER) document.getElementById('topoCustomer').value = IMPORT_CUSTOMER;
         if (IMPORT_REGION) document.getElementById('topoRegion').value = IMPORT_REGION;
 
         // 图标库由 iframe 的 clibs URL 参数加载（已生效）。
-        // 原 ensureStencilLibs 兜底因 drawio v30 不暴露 EditorUi 实例到 window（win.ui 恒为
-        // undefined）而无法工作，已移除 3s 延迟调用，避免无意义的重试开销。
 
         if (IMPORT_TYPE === 'visio') {
             // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）
