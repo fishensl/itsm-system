@@ -35,8 +35,8 @@
 
     function L(msg) { log.textContent += msg + '\n'; }
 
-    // 测试非 embed 模式（embed=1 可能导致 clibs 不加载）
-    var src = '/static/vendor/drawio/index.html?proto=json&spin=1&lang=zh&splash=0'
+    // 测试 embed 模式 + 修复后的 clibs
+    var src = '/static/vendor/drawio/index.html?embed=1&proto=json&spin=1&lang=zh&sidebar=1'
         + (clibs ? '&clibs=' + clibs : '');
     iframe.src = src;
     srcInfo.textContent = src;
@@ -64,7 +64,7 @@
         if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch(e) { return; } }
         if (msg && msg.event === 'init' && !inited) {
             inited = true;
-            L('[✓] 收到 init 事件（非 embed 模式 proto=json 生效）');
+            L('[✓] 收到 init 事件（embed 模式）');
         }
     });
 

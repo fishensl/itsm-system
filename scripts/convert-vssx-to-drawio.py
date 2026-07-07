@@ -90,7 +90,11 @@ def make_drawio_library(shapes, xml_path, png_dir, title):
             '</root></mxGraphModel>'
         ).format(b64=b64)
         entries.append({'xml': cell_xml, 'w': 80, 'h': 80, 'title': name})
-    xml = '<mxlibrary title="' + title + '">' + _json.dumps(entries, ensure_ascii=False) + '</mxlibrary>'
+    # JSON 内容必须 XML 转义后才能放进 <mxlibrary>——
+    # 否则 <mxGraphModel> 会被 parseXml 当子元素，JSON.parse 取到残缺文本失败
+    from xml.sax.saxutils import escape as xml_escape
+    json_str = _json.dumps(entries, ensure_ascii=False)
+    xml = '<mxlibrary title="' + xml_escape(title) + '">' + xml_escape(json_str) + '</mxlibrary>'
     with open(xml_path, 'w', encoding='utf-8') as f:
         f.write(xml)
     return len(entries)
