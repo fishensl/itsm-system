@@ -33,6 +33,10 @@ def export_masters_via_visio(vssx_path, out_dir, size=256):
         doc = visio.Documents.OpenEx(tmp_vssx, 128)
         print(f'打开 VSSX: {doc.Name}, {doc.Masters.Count} 个 master')
 
+        # 创建新绘图页，Drop master 后清空文字再导出（Master.Export 会把文字标签烤进 PNG）
+        new_doc = visio.Documents.Add('')
+        page = new_doc.Pages(1)
+
         for i in range(1, doc.Masters.Count + 1):
             master = doc.Masters(i)
             name = master.Name
@@ -40,16 +44,27 @@ def export_masters_via_visio(vssx_path, out_dir, size=256):
             png_file = safe + '.png'
             png_path = os.path.join(out_dir, png_file)
             try:
-                # 先导出到 ASCII 临时路径（Visio 对中文路径报错），再移动
+                # Drop master 到页面
+                shape = page.Drop(master, 5, 5)
+                # 清空 shape 及所有子 shape 的文字（避免文字烤进图标）
+                try:
+                    shape.Text = ''
+                    for j in range(1, shape.Shapes.Count + 1):
+                        shape.Shapes(j).Text = ''
+                except Exception:
+                    pass
+                # 导出到 ASCII 临时路径再移动
                 tmp_png = os.path.join(tempfile.gettempdir(), f'v_{i}_{int(time.time())}.png')
-                master.Export(tmp_png)
+                shape.Export(tmp_png)
                 shutil.move(tmp_png, png_path)
+                shape.Delete()
                 sz = os.path.getsize(png_path)
                 print(f'  [ok] {name} -> {png_file} ({sz} bytes)')
                 results.append((name, png_file))
             except Exception as e:
                 print(f'  [fail] {name}: {str(e)[:80]}')
 
+        new_doc.Close()
         doc.Close()
     finally:
         visio.Quit()
