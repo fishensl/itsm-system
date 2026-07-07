@@ -29,11 +29,14 @@
     border: 0;
     min-height: 0;
 }
-.topo-loading {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    color: #6c757d; text-align: center;
+#saveStatus { min-width: 120px; font-size: 0.8rem; }
+.export-progress {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #dee2e6; border-top-color: #0d6efd;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle; margin-right: 4px;
 }
-#saveStatus { min-width: 90px; font-size: 0.8rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 <div class="topo-editor position-relative">
     <div class="topo-editor-bar">
@@ -68,7 +71,7 @@
         </div>
     </div>
     <iframe id="drawioFrame"
-            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh"
+            src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh{% if clibs %}&clibs={{ clibs }}{% endif %}{% if import_url and import_type == 'visio' %}&url={{ import_url }}{% endif %}"
             allow="clipboard-read; clipboard-write"></iframe>
 </div>
 {% endblock %}
@@ -77,36 +80,53 @@
 <script>
 (function() {
     var DIAGRAM_ID = {{ diagram_id | tojson }};
+    var IMPORT_URL = {{ import_url|tojson if import_url else 'null' }};
+    var IMPORT_TYPE = {{ import_type|tojson if import_type else 'null' }};
+    var IMPORT_NAME = {{ import_name|tojson if import_name else 'null' }};
+    var IMPORT_CUSTOMER = {{ import_customer_id|tojson if import_customer_id else 'null' }};
+    var IMPORT_REGION = {{ import_region_id|tojson if import_region_id else 'null' }};
     var iframe = document.getElementById('drawioFrame');
-    var pendingExport = null;   // null | 'thumbnail' | 'svg' | 'pdf' | 'vsdx' | 'png'
+    var pendingExport = null;       // 当前正在处理的导出格式
+    var exportQueue = [];           // 待处理导出队列
+    var exportTotal = 0;            // 本次导出总数（用于进度显示）
 
-    function post(msg) {
-        iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
-    }
+    function post(msg) { iframe.contentWindow.postMessage(JSON.stringify(msg), '*'); }
 
     // ====== drawio postMessage 通信 ======
     window.addEventListener('message', function(event) {
         var msg = event.data;
-        if (typeof msg === 'string') {
-            try { msg = JSON.parse(msg); } catch (e) { return; }
-        }
+        if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (e) { return; } }
         if (!msg || !msg.event) return;
 
         if (msg.event === 'init') {
-            // drawio 就绪 → 加载图
-            loadDiagram();
+            onDrawioReady();
         } else if (msg.event === 'save') {
-            // drawio 回传当前 XML
             doSave(msg.xml);
         } else if (msg.event === 'export') {
             handleExport(msg);
-        } else if (msg.event === 'exit') {
-            // 用户按 Esc / 关闭，忽略
         }
     });
 
-    // ====== 加载 ======
-    function loadDiagram() {
+    function onDrawioReady() {
+        // 预填导入元数据
+        if (IMPORT_NAME) document.getElementById('topoName').value = IMPORT_NAME;
+        if (IMPORT_CUSTOMER) document.getElementById('topoCustomer').value = IMPORT_CUSTOMER;
+        if (IMPORT_REGION) document.getElementById('topoRegion').value = IMPORT_REGION;
+
+        if (IMPORT_TYPE === 'visio') {
+            // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）
+            return;
+        }
+        if (IMPORT_TYPE === 'image' && IMPORT_URL) {
+            // 图片导入：以底图方式加载，用户可在其上绘制
+            var xml = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>' +
+                '<mxCell id="2" value="" style="shape=image;image=' + IMPORT_URL +
+                ';imageAspect=0;opacity=70;" vertex="1" parent="1">' +
+                '<mxGeometry x="0" y="0" width="800" height="600" as="geometry"/></mxCell>' +
+                '</root></mxGraphModel>';
+            post({action: 'load', xml: xml});
+            return;
+        }
         if (DIAGRAM_ID === 0) {
             var empty = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
             post({action: 'load', xml: empty});
@@ -129,7 +149,6 @@
     var btn = document.getElementById('btnSave');
     if (btn) btn.addEventListener('click', function() {
         setStatus('正在保存…');
-        // 请求 drawio 回传 XML
         post({action: 'save', saveAndExit: false});
     });
 
@@ -150,55 +169,89 @@
         }).then(function(r) { return r.json(); })
           .then(function(data) {
               if (!data.ok) { alert(data.error || '保存失败'); setStatus('保存失败'); return; }
-              DIAGRAM_ID = data.id;  // 新建后拿到 id
+              DIAGRAM_ID = data.id;
+              var isFirstSave = (document.getElementById('topoName').dataset.saved !== '1');
+              document.getElementById('topoName').dataset.saved = '1';
               setStatus('已保存 ' + new Date().toLocaleTimeString('zh-CN', {hour12:false}));
-              // 异步生成缩略图（不阻塞保存反馈）
-              requestThumbnail();
+              // 异步生成导出文件（VSDX + PDF + 缩略图），不阻塞保存反馈
+              startExportQueue(['vsdx', 'pdf', 'png']);
           })
           .catch(function(e) { alert('保存失败: ' + e); setStatus('保存失败'); });
     }
 
-    function requestThumbnail() {
-        pendingExport = 'thumbnail';
-        post({action: 'export', format: 'png', spin: false, scale: 0.3, border: 8});
+    // ====== 导出队列（顺序执行，避免 drawio 卡顿） ======
+    function startExportQueue(formats) {
+        exportQueue = formats.slice();
+        exportTotal = exportQueue.length;
+        updateExportStatus();
+        processNextExport();
     }
 
-    // ====== 导出 ======
+    function processNextExport() {
+        if (exportQueue.length === 0) {
+            pendingExport = null;
+            if (DIAGRAM_ID) setStatus('已保存 · 导出文件已更新');
+            return;
+        }
+        pendingExport = exportQueue.shift();
+        // spin:false 避免遮挡编辑器；导出在后台静默进行
+        post({action: 'export', format: pendingExport, spin: false,
+              scale: pendingExport === 'png' ? 0.3 : 1, border: 8});
+    }
+
+    function updateExportStatus() {
+        if (exportQueue.length > 0 || pendingExport) {
+            var done = exportTotal - exportQueue.length - (pendingExport ? 1 : 0);
+            var label = {vsdx: 'Visio', pdf: 'PDF', png: '缩略图'}[pendingExport] || pendingExport;
+            setStatus('<span class="export-progress"></span>已保存 · 生成' + label + '(' + done + '/' + exportTotal + ')', true);
+        }
+    }
+
+    function handleExport(msg) {
+        var fmt = msg.format;
+        var data = msg.data;
+        var justFinished = pendingExport;
+        pendingExport = null;
+
+        if (!data) { processNextExport(); return; }
+
+        // 上传到服务器（vsdx/pdf/png 统一接口）
+        if (justFinished && justFinished !== 'svg') {
+            fetch('/topologies/api/export-file', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: DIAGRAM_ID, format: justFinished, data: data})
+            }).catch(function() { /* 导出失败不影响主流程 */ });
+        }
+
+        // 如果是用户手动导出（非队列），触发下载
+        if (justFinished && exportTotal === 0) {
+            downloadExport(data, fmt);
+        } else {
+            updateExportStatus();
+            // 间隔 300ms 再处理下一个，给 drawio 喘息时间
+            setTimeout(processNextExport, 300);
+        }
+    }
+
+    // ====== 手动导出（顶栏下拉） ======
     document.querySelectorAll('.export-item').forEach(function(a) {
         a.addEventListener('click', function(e) {
             e.preventDefault();
             var fmt = this.dataset.fmt;
             pendingExport = fmt;
-            setStatus('正在导出 ' + fmt.toUpperCase() + '…');
+            exportTotal = 0;  // 标记为手动导出（非队列）
+            setStatus('正在导出 ' + fmt.toUpperCase() + '…', true);
             post({action: 'export', format: fmt, spin: true});
         });
     });
 
-    function handleExport(msg) {
-        var fmt = msg.format;
-        var data = msg.data;
-        if (pendingExport === 'thumbnail') {
-            pendingExport = null;
-            // 上传缩略图
-            fetch('/topologies/api/thumbnail', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({id: DIAGRAM_ID, thumbnail: data})
-            }).catch(function() { /* 缩略图失败不影响主流程 */ });
-            return;
-        }
-        pendingExport = null;
-        setStatus('');
-        if (!data) { alert('导出失败：drawio 返回空数据'); return; }
-
-        // SVG 格式 data 是 XML 字符串，其余是 base64 data URL
+    function downloadExport(data, fmt) {
         var name = (document.getElementById('topoName').value || 'topology').trim();
         if (fmt === 'svg') {
-            // 转为 Blob 下载
             var blob = new Blob([data], {type: 'image/svg+xml'});
             downloadBlob(blob, name + '.svg');
         } else {
-            // data URL 直接触发下载
             var a = document.createElement('a');
             a.href = data;
             a.download = name + '.' + fmt;
@@ -211,27 +264,21 @@
     function downloadBlob(blob, filename) {
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
         setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
     }
 
-    function setStatus(text) {
-        document.getElementById('saveStatus').textContent = text;
+    function setStatus(text, isHtml) {
+        var el = document.getElementById('saveStatus');
+        if (isHtml) el.innerHTML = text; else el.textContent = text;
     }
 
-    // ====== 离开提醒（有未保存修改时）=====
-    var dirty = false;
-    window.addEventListener('beforeunload', function(e) {
-        if (dirty) {
-            e.preventDefault();
-            e.returnValue = '';
-        }
-    });
-    // 保存成功后清除 dirty（此处简化：drawio 内部编辑不追踪 dirty，仅做提示）
+    // 导入模式提示
+    if (IMPORT_URL) {
+        document.getElementById('saveStatus').innerHTML =
+            '<span class="text-warning"><i class="bi-exclamation-triangle"></i> 导入模式：保存后另存为新在线图</span>';
+    }
 })();
 </script>
 {% endblock %}

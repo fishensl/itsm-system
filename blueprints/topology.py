@@ -170,12 +170,50 @@ def topology_upload():
 @login_required
 @require_permission('topology:view')
 def topology_editor(id):
-    """在线拓扑编辑器（id=0 为新建）"""
+    """在线拓扑编辑器
+
+    id=0 新建；id>0 编辑已有在线图。
+    查询参数 import=<topo_id>：从已上传的 Visio/图片文件导入后在线编辑（另存为新在线图）。
+    """
+    import glob
     all_customers = Customer.query.order_by(Customer.name).all()
     regions = Region.query.order_by(Region.parent_id.is_(None).desc(),
                                     Region.parent_id, Region.sort_order, Region.id).all()
+
+    # 扫描 static/stencils/*.drawio.xml 作为自定义图标库
+    stencil_dir = os.path.join(current_app.root_path, 'static', 'stencils')
+    clibs = ''
+    if os.path.isdir(stencil_dir):
+        urls = [url_for('static', filename='stencils/' + os.path.basename(f))
+                for f in sorted(glob.glob(os.path.join(stencil_dir, '*.drawio.xml')))]
+        clibs = ';'.join('U:' + u for u in urls)
+
+    # 导入模式：从已上传文件导入
+    import_url = None
+    import_name = None
+    import_customer_id = None
+    import_region_id = None
+    import_type = None  # visio | image | None
+    import_topo_id = request.args.get('import', type=int)
+    if import_topo_id:
+        t = Topology.query.get_or_404(import_topo_id)
+        if t.file_path:
+            import_url = url_for('static', filename=t.file_path)
+            import_name = t.name
+            import_customer_id = t.customer_id
+            import_region_id = t.region_id
+            fp_lower = (t.file_path or '').lower()
+            if fp_lower.endswith(('.vsd', '.vsdx')):
+                import_type = 'visio'
+            elif fp_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+                import_type = 'image'
+
     return render_template('topologies/editor.html',
-                           diagram_id=id, all_customers=all_customers, regions=regions)
+                           diagram_id=id, all_customers=all_customers, regions=regions,
+                           clibs=clibs, import_url=import_url, import_name=import_name,
+                           import_customer_id=import_customer_id,
+                           import_region_id=import_region_id,
+                           import_type=import_type)
 
 
 @topology_bp.route('/topologies/api/diagram/<int:id>')
@@ -248,29 +286,43 @@ def api_diagram_save():
     return jsonify({'ok': True, 'id': t.id})
 
 
-@topology_bp.route('/topologies/api/thumbnail', methods=['POST'])
+@topology_bp.route('/topologies/api/export-file', methods=['POST'])
 @login_required
 @require_permission('topology:edit')
-def api_diagram_thumbnail():
-    """保存在线拓扑图缩略图（PNG base64 data URL → 文件）"""
+def api_diagram_export_file():
+    """保存在线拓扑图导出文件（PDF/VSDX/PNG 缩略图，base64 data URL → 文件）
+
+    body: {id, format: 'pdf'|'vsdx'|'png', data: 'data:...;base64,...'}
+    """
     data = request.get_json(silent=True) or {}
     topo_id = int(data.get('id') or 0)
+    fmt = (data.get('format') or '').lower()
     t = Topology.query.get_or_404(topo_id)
     if t.source != 'draw':
         return jsonify({'ok': False, 'error': '非在线图'}), 400
-    data_url = data.get('thumbnail') or ''
+    if fmt not in ('pdf', 'vsdx', 'png'):
+        return jsonify({'ok': False, 'error': '不支持的格式: ' + fmt}), 400
+
+    data_url = data.get('data') or ''
     if ',' not in data_url:
-        return jsonify({'ok': False, 'error': '缩略图数据无效'}), 400
+        return jsonify({'ok': False, 'error': '文件数据无效'}), 400
     try:
         raw = base64.b64decode(data_url.split(',', 1)[1])
     except Exception:
-        return jsonify({'ok': False, 'error': '缩略图解码失败'}), 400
+        return jsonify({'ok': False, 'error': 'base64 解码失败'}), 400
 
     upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
     os.makedirs(upload_dir, exist_ok=True)
-    fname = f'thumb_{t.id}.png'
+    ext = {'pdf': 'pdf', 'vsdx': 'vsdx', 'png': 'png'}[fmt]
+    fname = f'{fmt}_{t.id}.{ext}'
     with open(os.path.join(upload_dir, fname), 'wb') as f:
         f.write(raw)
-    t.thumbnail_path = f'uploads/topologies/{fname}'
+    rel_path = f'uploads/topologies/{fname}'
+    if fmt == 'pdf':
+        t.pdf_path = rel_path
+    elif fmt == 'vsdx':
+        t.vsdx_path = rel_path
+    else:
+        t.thumbnail_path = rel_path
     db.session.commit()
-    return jsonify({'ok': True, 'path': t.thumbnail_path})
+    return jsonify({'ok': True, 'path': rel_path, 'format': fmt})
