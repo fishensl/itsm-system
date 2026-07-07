@@ -70,17 +70,30 @@ def export_masters_via_visio(vssx_path, out_dir, size=256):
         visio.Quit()
         pythoncom.CoUninitialize()
 
-    # Pillow 统一缩放到 size x size 白底
+    # Pillow 后处理：白色背景转透明 + 等比缩放到 size×size 透明画布
     from PIL import Image as _Img
+    import numpy as _np
     for name, png_file in results:
         path = os.path.join(out_dir, png_file)
         img = _Img.open(path).convert('RGBA')
-        canvas = _Img.new('RGBA', (size, size), (255, 255, 255, 255))
+        # 白色背景转透明：R,G,B 均 >= 240 视为背景，alpha 设 0
+        # 边缘半透明像素做羽化（避免锯齿白边）
+        arr = _np.array(img)
+        r, g, b, a = arr[:,:,0], arr[:,:,1], arr[:,:,2], arr[:,:,3]
+        white_mask = (r >= 240) & (g >= 240) & (b >= 240)
+        # 完全白 → 完全透明
+        arr[white_mask, 3] = 0
+        # 接近白（200-239）→ 半透明，做边缘羽化
+        near_white = (r >= 200) & (g >= 200) & (b >= 200) & ~white_mask
+        arr[near_white, 3] = (arr[near_white, 3] * 0.3).astype('uint8')
+        img = _Img.fromarray(arr, 'RGBA')
+        # 缩放到 size×size 透明画布
+        canvas = _Img.new('RGBA', (size, size), (0, 0, 0, 0))
         ratio = min(size / img.width, size / img.height)
         nw, nh = int(img.width * ratio), int(img.height * ratio)
         resized = img.resize((nw, nh), _Img.LANCZOS)
         canvas.paste(resized, ((size - nw) // 2, (size - nh) // 2), resized)
-        canvas.convert('RGB').save(path, 'PNG')
+        canvas.save(path, 'PNG')  # 保持 RGBA 透明
 
     return results
 
