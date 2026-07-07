@@ -73,8 +73,9 @@
             <div class="card-body py-2">
                 <div class="text-muted small">已完成</div>
                 <div class="h3 mb-0 text-success">{{ kpi.done }}</div>
-                <div class="small text-success mt-1" title="已完成工作量">
-                    <i class="bi-check2-circle"></i> {{ '%g'|format(kpi.effort_done) }} 人天
+                <div class="small text-success mt-1" title="已完成实际工作量（无实际值时回退预估）">
+                    <i class="bi-check2-circle"></i>
+                    {{ '%g'|format(kpi.actual_effort_done if kpi.actual_effort_done else kpi.effort_done) }} 人天
                 </div>
             </div>
         </div>
@@ -367,6 +368,26 @@ function editEffort(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'estimated_effort=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * AJAX 改实际工作量（人天）：留空清除。
+ */
+function editActualEffort(taskId, current) {
+    var val = prompt('输入实际工作量（人天，如 1 或 0.5），留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/actual-effort', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'actual_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');

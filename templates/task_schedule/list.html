@@ -106,7 +106,7 @@
             <th>负责人</th>
             <th>状态</th>
             <th>优先级</th>
-            <th>工作量</th>
+            <th>预估/实际</th>
             <th>计划起止</th>
             <th>完成时间</th>
             <th class="text-end">操作</th>
@@ -131,10 +131,21 @@
                 <span class="badge bg-{{ status_color[t.status] if t.status in status_color else 'secondary' }}">{{ t.status }}</span>
             </td>
             <td><span class="badge bg-{{ 'danger' if t.priority=='高' else 'warning' if t.priority=='中' else 'secondary' }}">{{ t.priority or '-' }}</span></td>
-            <td class="small text-center">
-                <a href="#" class="text-decoration-none" title="点击修改"
+            <td class="small text-center text-nowrap">
+                <a href="#" class="text-decoration-none" title="点击修改预估"
                    onclick="editEffort({{ t.id }}, '{{ '%g'|format(t.estimated_effort) if t.estimated_effort else '' }}'); return false;">
-                    {% if t.estimated_effort %}<span class="text-info">{{ '%g'|format(t.estimated_effort) }}天</span>{% else %}<span class="text-muted">设置</span>{% endif %}
+                    {% if t.estimated_effort %}<span class="text-info">{{ '%g'|format(t.estimated_effort) }}</span>{% else %}<span class="text-muted">-</span>{% endif %}
+                </a>
+                <span class="text-muted">/</span>
+                <a href="#" class="text-decoration-none" title="点击修改实际"
+                   onclick="editActualEffort({{ t.id }}, '{{ '%g'|format(t.actual_effort) if t.actual_effort else '' }}'); return false;">
+                    {% if t.actual_effort %}
+                        {% if t.estimated_effort and t.actual_effort > t.estimated_effort %}
+                        <span class="text-danger" title="超预估">{{ '%g'|format(t.actual_effort) }}天</span>
+                        {% else %}
+                        <span class="text-success">{{ '%g'|format(t.actual_effort) }}天</span>
+                        {% endif %}
+                    {% else %}<span class="text-muted">-</span>{% endif %}
                 </a>
             </td>
             <td class="small">
@@ -302,6 +313,26 @@ function editEffort(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'estimated_effort=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * 改实际工作量（人天）：留空清除。
+ */
+function editActualEffort(taskId, current) {
+    var val = prompt('输入实际工作量（人天，如 1 或 0.5），留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/actual-effort', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'actual_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');

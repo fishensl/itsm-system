@@ -48,7 +48,11 @@
                     </a></li>
                     <li><a class="dropdown-item small" href="#"
                            onclick="editEffort({{ t.id }}, '{{ '%g'|format(t.estimated_effort) if t.estimated_effort else '' }}'); return false;">
-                        <i class="bi-clock-history"></i> 改工作量
+                        <i class="bi-clock-history"></i> 改预估工作量
+                    </a></li>
+                    <li><a class="dropdown-item small" href="#"
+                           onclick="editActualEffort({{ t.id }}, '{{ '%g'|format(t.actual_effort) if t.actual_effort else '' }}'); return false;">
+                        <i class="bi-check2-square"></i> 改实际工作量
                     </a></li>
                     <li><a class="dropdown-item small text-danger" href="#"
                            onclick="deleteTask({{ t.id }}); return false;">
@@ -68,9 +72,15 @@
                 <i class="bi-building"></i> {{ t.customer_rel.name }}
             </span>
             {% endif %}
-            {% if t.estimated_effort %}
-            <span class="badge bg-info bg-opacity-10 text-info" title="预估工作量">
-                <i class="bi-clock-history"></i> {{ '%g'|format(t.estimated_effort) }}天
+            {% set _est = t.estimated_effort %}
+            {% set _act = t.actual_effort %}
+            {% if _est or _act %}
+            <span class="badge {% if _act and _est and _act > _est %}bg-danger bg-opacity-10 text-danger{% elif _act %}bg-success bg-opacity-10 text-success{% else %}bg-info bg-opacity-10 text-info{% endif %}"
+                  title="工作量（预估→实际，红=超估）">
+                <i class="bi-clock-history"></i>
+                {% if _est and _act %}{{ '%g'|format(_est) }}→{{ '%g'|format(_act) }}天
+                {% elif _est %}{{ '%g'|format(_est) }}天
+                {% else %}✓{{ '%g'|format(_act) }}天{% endif %}
             </span>
             {% endif %}
             {% if t.planned_end %}

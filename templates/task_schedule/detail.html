@@ -80,6 +80,29 @@
                                onclick="editEffort({{ task.id }}, '{{ '%g'|format(task.estimated_effort) if task.estimated_effort else '' }}'); return false;">
                                 <i class="bi-pencil"></i> 修改</a>
                         </td></tr>
+                    <tr><td class="text-muted">实际工作量</td>
+                        <td>
+                            {% if task.actual_effort %}
+                                {% if task.estimated_effort and task.actual_effort > task.estimated_effort %}
+                                <span class="badge bg-danger" title="超预估">
+                                    <i class="bi-check2-square"></i> {{ '%g'|format(task.actual_effort) }} 人天
+                                    <small>超 {{ '%g'|format(task.actual_effort - task.estimated_effort) }}</small>
+                                </span>
+                                {% elif task.estimated_effort and task.actual_effort < task.estimated_effort %}
+                                <span class="badge bg-success" title="低于预估">
+                                    <i class="bi-check2-square"></i> {{ '%g'|format(task.actual_effort) }} 人天
+                                    <small>省 {{ '%g'|format(task.estimated_effort - task.actual_effort) }}</small>
+                                </span>
+                                {% else %}
+                                <span class="badge bg-success"><i class="bi-check2-square"></i> {{ '%g'|format(task.actual_effort) }} 人天</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="text-muted">未设置</span>
+                            {% endif %}
+                            <a href="#" class="ms-2 small"
+                               onclick="editActualEffort({{ task.id }}, '{{ '%g'|format(task.actual_effort) if task.actual_effort else '' }}'); return false;">
+                                <i class="bi-pencil"></i> 修改</a>
+                        </td></tr>
                     <tr><td class="text-muted">客户</td><td>{{ customer.name if customer else '-' }}</td></tr>
                     <tr><td class="text-muted">计划日期</td>
                         <td>{{ task.planned_start.strftime('%Y-%m-%d') if task.planned_start else '-' }}
@@ -243,6 +266,26 @@ function editEffort(taskId, current) {
             'X-CSRFToken': csrf,
         },
         body: 'estimated_effort=' + encodeURIComponent(val.trim()),
+    }).then(function(r) { return r.json(); }).then(function(j) {
+        if (j.success) window.location.reload();
+        else alert(j.error || '保存失败');
+    });
+}
+
+/**
+ * 改实际工作量（人天）：留空清除。
+ */
+function editActualEffort(taskId, current) {
+    var val = prompt('输入实际工作量（人天，如 1 或 0.5），留空清除：', current || '');
+    if (val === null) return;
+    var csrf = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+    fetch('/task-schedule/' + taskId + '/actual-effort', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrf,
+        },
+        body: 'actual_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
         else alert(j.error || '保存失败');

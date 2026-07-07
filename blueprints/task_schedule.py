@@ -278,9 +278,12 @@ def _kpi_counts(tasks):
     # 预估工作量合计（人天）— 未设置的当 0，便于"任务量"口径更准确
     effort_total = sum(t.estimated_effort or 0 for t in tasks)
     effort_done = sum(t.estimated_effort or 0 for t in tasks if t.status == '已完成')
+    # 实际工作量合计（仅已完成任务有实际值）
+    actual_effort_done = sum(t.actual_effort or 0 for t in tasks if t.status == '已完成')
     return {
         'total': total, 'todo': todo, 'doing': doing, 'done': done, 'overdue': overdue,
         'effort_total': effort_total, 'effort_done': effort_done,
+        'actual_effort_done': actual_effort_done,
     }
 
 
@@ -449,7 +452,7 @@ def list_view():
 # 导入 / 模板下载
 # ============================================================
 
-EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间', '预估工作量']
+EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间', '预估工作量', '实际工作量']
 
 # 优先级允许值（与 UI 保持一致；超出范围回退 '中'）
 PRIORITY_VALUES = {'低', '中', '高', '紧急'}
@@ -463,7 +466,7 @@ def import_template():
     from utils.excel_export import export_xlsx
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
-        '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15', '1'
+        '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15', '1', '1.5'
     ]]
     tmp_path, download_name = export_xlsx(
         EXCEL_HEADERS, rows,
@@ -582,6 +585,8 @@ def import_excel():
 
             # 预估工作量（人天）：允许 "1"/"1.5"/"3天"，非法/空 → None
             effort = _parse_effort(cell('预估工作量'))
+            # 实际工作量（人天）：同上，通常只有已完成任务才有
+            actual_effort = _parse_effort(cell('实际工作量'))
 
             # upsert：(title, customer_id) 唯一
             existing = (InspectionTask.query
@@ -599,6 +604,8 @@ def import_excel():
                     existing.actual_end = local_now()
                 if effort is not None:
                     existing.estimated_effort = effort
+                if actual_effort is not None:
+                    existing.actual_effort = actual_effort
                 existing.dispatched_by = existing.dispatched_by or current_user.id
                 existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
                 updated += 1
@@ -613,6 +620,7 @@ def import_excel():
                     planned_end=planned_end,
                     actual_end=actual_end,
                     estimated_effort=effort,
+                    actual_effort=actual_effort,
                     assigned_to_user_id=user.id,
                     dispatched_by=current_user.id,
                     dispatched_at=datetime.utcnow(),
@@ -740,6 +748,27 @@ def set_effort(task_id):
     return jsonify(success=True,
                    estimated_effort=task.estimated_effort,
                    estimated_effort_text=_fmt_effort(task.estimated_effort))
+
+
+@task_schedule_bp.route('/<int:task_id>/actual-effort', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def set_actual_effort(task_id):
+    """AJAX 改实际工作量（人天）。空串=清除为 None。"""
+    task = InspectionTask.query.get_or_404(task_id)
+    raw = (request.form.get('actual_effort') or
+           (request.get_json(silent=True) or {}).get('actual_effort') or '').strip()
+    if not raw:
+        task.actual_effort = None
+    else:
+        effort = _parse_effort(raw)
+        if effort is None:
+            return jsonify(success=False, error='工作量格式不正确（应为数字，如 1 或 0.5）'), 400
+        task.actual_effort = effort
+    db.session.commit()
+    return jsonify(success=True,
+                   actual_effort=task.actual_effort,
+                   actual_effort_text=_fmt_effort(task.actual_effort))
 
 
 @task_schedule_bp.route('/<int:task_id>/assign', methods=['POST'])
@@ -1036,6 +1065,7 @@ def export_excel():
             (user.realname or user.username) if user else '',
             t.actual_end.strftime('%Y-%m-%d') if t.actual_end else '',
             _fmt_effort(t.estimated_effort),
+            _fmt_effort(t.actual_effort),
         ])
 
     tmp_path, download_name = export_xlsx(
