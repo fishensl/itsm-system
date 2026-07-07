@@ -539,6 +539,56 @@ from models import (AIConfig, User as UserM, UserPermission, Permission, Departm
 from sqlalchemy.orm import joinedload
 from utils.permission import admin_required
 
+
+@app.route('/system/repair-schema')
+@login_required
+@admin_required
+def repair_schema():
+    """一键诊断 + 修复 DB schema：显示 alembic 版本/缺失列，并尝试 flask db upgrade。"""
+    import io, contextlib
+    from sqlalchemy import inspect as sqla_inspect, text
+    reports = []
+
+    # 1. 当前 alembic 版本
+    try:
+        insp = sqla_inspect(db.engine)
+        if 'alembic_version' not in (insp.get_table_names()):
+            reports.append(('alembic_version', '表不存在（遗留库未接入 Alembic）', 'warn'))
+        else:
+            ver = db.session.execute(text('SELECT version_num FROM alembic_version')).scalar()
+            reports.append(('alembic 当前版本', ver or '(空)', 'info'))
+    except Exception as e:
+        reports.append(('alembic 查询失败', str(e), 'danger'))
+
+    # 2. 关键列检查
+    try:
+        insp = sqla_inspect(db.engine)
+        for tbl, col in [('inspection_tasks', 'actual_effort'),
+                         ('inspection_tasks', 'estimated_effort'),
+                         ('topologies', 'diagram_xml'),
+                         ('topologies', 'pdf_path')]:
+            cols = {c['name'] for c in insp.get_columns(tbl)} if tbl in insp.get_table_names() else set()
+            status = 'ok' if col in cols else 'missing'
+            reports.append((f'{tbl}.{col}', '存在' if status == 'ok' else '❌ 缺失', status))
+    except Exception as e:
+        reports.append(('列检查失败', str(e), 'danger'))
+
+    # 3. 尝试 flask db upgrade
+    upgrade_output = []
+    try:
+        from flask_migrate import upgrade as _migrate_upgrade
+        import os as _os
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _migrate_upgrade(directory=_os.path.join(_os.path.dirname(__file__), 'migrations'))
+        upgrade_output = [l for l in buf.getvalue().split('\n') if l.strip()]
+        reports.append(('flask db upgrade', '✅ 成功', 'ok'))
+    except Exception as e:
+        reports.append(('flask db upgrade', '❌ ' + str(e)[:300], 'danger'))
+
+    return render_template('system/repair_schema.html', reports=reports, upgrade_output=upgrade_output)
+
+
 @app.route('/users', methods=['GET', 'POST'])
 @login_required
 @require_permission('user:view')

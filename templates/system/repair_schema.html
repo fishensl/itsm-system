@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}数据库 Schema 修复 - IT运维综合管理系统{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="card">
+        <div class="card-header d-flex align-items-center">
+            <i class="bi-wrench-adjustable me-2"></i>
+            <h5 class="mb-0">数据库 Schema 诊断与修复</h5>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info">
+                <i class="bi-info-circle me-1"></i>
+                此页面已自动尝试运行 <code>flask db upgrade</code>。查看下方结果——
+                如果有 ❌ 红色项，把内容发给开发人员。
+            </div>
+
+            <h6 class="mt-3">诊断结果</h6>
+            <table class="table table-sm table-bordered">
+                <thead class="table-light">
+                    <tr><th style="width:35%">检查项</th><th>结果</th></tr>
+                </thead>
+                <tbody>
+                {% for item, result, status in reports %}
+                    <tr>
+                        <td><code>{{ item }}</code></td>
+                        <td>
+                            {% if status == 'ok' %}<span class="badge bg-success">✅ {{ result }}</span>
+                            {% elif status == 'missing' %}<span class="badge bg-danger">❌ {{ result }}</span>
+                            {% elif status == 'warn' %}<span class="badge bg-warning text-dark">⚠ {{ result }}</span>
+                            {% elif status == 'danger' %}<span class="badge bg-danger">{{ result }}</span>
+                            {% else %}<span class="badge bg-secondary">{{ result }}</span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+
+            {% if upgrade_output %}
+            <h6 class="mt-3">迁移输出</h6>
+            <pre class="bg-dark text-light p-3 rounded small"><code>{% for line in upgrade_output %}{{ line }}
+{% endfor %}</code></pre>
+            {% endif %}
+
+            <div class="mt-3 d-flex gap-2">
+                <a href="/task-schedule/" class="btn btn-primary">重新访问巡检安排</a>
+                <a href="/topologies" class="btn btn-outline-secondary">拓扑图列表</a>
+                <a href="/" class="btn btn-outline-secondary">返回首页</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
