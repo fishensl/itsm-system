@@ -247,7 +247,7 @@
         pendingExport = exportQueue.shift();
         // 不传 spin：drawio 的 spinner.spin 期望字符串，传 false 会触发 u.substring 错误
         post({action: 'export', format: pendingExport,
-              scale: pendingExport === 'png' ? 0.3 : 1, border: 8});
+              scale: pendingExport === 'png' ? 2 : 1, border: 8});
     }
 
     function updateExportStatus() {
@@ -326,7 +326,9 @@
             pendingExport = fmt;
             exportTotal = 0;  // 标记为手动导出（非队列）
             setStatus('正在导出 ' + fmt.toUpperCase() + '…', true);
-            post({action: 'export', format: fmt});
+            var opts = {action: 'export', format: fmt};
+            if (fmt === 'png') opts.scale = 2;  // 高分辨率
+            post(opts);
         });
     });
 
