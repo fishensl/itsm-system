@@ -357,11 +357,13 @@ def api_diagram_export_file():
 def download_drawio(id):
     """下载在线拓扑图的 drawio 格式文件（diagram_xml，新版 Visio 可直接打开）"""
     from flask import Response
+    from urllib.parse import quote
     t = Topology.query.get_or_404(id)
     if t.source != 'draw' or not t.diagram_xml:
         flash('该拓扑图不支持 drawio 导出', 'warning')
         return redirect(url_for('topology.topology_list'))
     safe_name = (t.name or 'topology').replace(' ', '_')
-    resp = Response(t.diagram_xml, mimetype='application/xml')
-    resp.headers['Content-Disposition'] = f'attachment; filename="{safe_name}.drawio"'
+    resp = Response(t.diagram_xml, mimetype='application/octet-stream')
+    # filename* 支持中文（RFC 5987），octet-stream 强制下载避免浏览器当 XML 显示
+    resp.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(safe_name)}.drawio"
     return resp
