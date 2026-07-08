@@ -349,3 +349,19 @@ def api_diagram_export_file():
         t.thumbnail_path = rel_path
     db.session.commit()
     return jsonify({'ok': True, 'path': rel_path, 'format': fmt})
+
+
+@topology_bp.route('/topologies/download/drawio/<int:id>')
+@login_required
+@require_permission('topology:view')
+def download_drawio(id):
+    """下载在线拓扑图的 drawio 格式文件（diagram_xml，新版 Visio 可直接打开）"""
+    from flask import Response
+    t = Topology.query.get_or_404(id)
+    if t.source != 'draw' or not t.diagram_xml:
+        flash('该拓扑图不支持 drawio 导出', 'warning')
+        return redirect(url_for('topology.topology_list'))
+    safe_name = (t.name or 'topology').replace(' ', '_')
+    resp = Response(t.diagram_xml, mimetype='application/xml')
+    resp.headers['Content-Disposition'] = f'attachment; filename="{safe_name}.drawio"'
+    return resp

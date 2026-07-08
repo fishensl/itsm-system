@@ -61,6 +61,9 @@
                                     <i class="bi-file-earmark-code text-secondary" style="font-size:1.1em;"></i>
                                 </a>
                                 {% endif %}
+                                <a href="{{ url_for('topology.download_drawio', id=t.id) }}" download class="text-decoration-none me-1" title="drawio 格式 — 新版 Visio 可直接打开">
+                                    <i class="bi-diagram-3 text-warning" style="font-size:1.1em;"></i>
+                                </a>
                                 {% if t.pdf_path %}
                                 <a href="/static/{{ t.pdf_path }}" target="_blank" class="text-decoration-none me-1" title="PDF（自动生成）— 点击预览">
                                     <i class="bi-file-earmark-pdf text-danger" style="font-size:1.1em;"></i>
