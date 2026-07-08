@@ -136,6 +136,10 @@
                     }
                 }
                 console.log('[topo-err] 诊断已挂载到 App 原型链');
+                // vsdx 导出：drawio embed 的 vsdxExportEnabled 只对 atlassian 服务返回 true，
+                // 覆盖为 true 让 exportVisio 能加载本地 extensions.min.js（VsdxExport）导出 vsdx
+                var vsdxProto = App.prototype.__proto__;
+                if (vsdxProto) vsdxProto.vsdxExportEnabled = function() { return true; };
             } else {
                 console.error('[topo-err] App 未就绪');
             }
