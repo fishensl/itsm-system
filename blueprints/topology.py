@@ -72,7 +72,7 @@ def topology_list():
     for cust_name in sorted(grouped_dict.keys(), key=lambda x: (x == '未关联客户', x)):
         items = []
         for topo_name, m in grouped_dict[cust_name].items():
-            order = {'image': 0, 'pdf': 1, 'visio': 2, 'other': 3}
+            order = {'image': 0, 'pdf': 1, 'visio': 2, 'drawio': 3, 'other': 4}
             files_sorted = sorted(m['files'], key=lambda x: (order.get(x.file_type, 9), x.id))
             items.append({
                 'name': topo_name,
@@ -117,6 +117,9 @@ def topology_upload():
     elif name_lower.endswith(('.vsd', '.vsdx')):
         file_type = 'visio'
         allowed = {'.vsd', '.vsdx'}
+    elif name_lower.endswith(('.drawio', '.xml')) and not name_lower.endswith('.vsdx'):
+        file_type = 'drawio'
+        allowed = {'.drawio', '.xml'}
     else:
         file_type = 'other'
         allowed = set()
@@ -173,7 +176,7 @@ def topology_editor(id):
     """在线拓扑编辑器
 
     id=0 新建；id>0 编辑已有在线图。
-    查询参数 import=<topo_id>：从已上传的 Visio/图片文件导入后在线编辑（另存为新在线图）。
+    查询参数 import=<topo_id>：从已上传的 Visio/drawio/图片文件导入后在线编辑（另存为新在线图）。
     """
     import glob
     all_customers = Customer.query.order_by(Customer.name).all()
@@ -197,7 +200,7 @@ def topology_editor(id):
     import_name = None
     import_customer_id = None
     import_region_id = None
-    import_type = None  # visio | image | None
+    import_type = None  # visio | drawio | image | None
     import_topo_id = request.args.get('import', type=int)
     if import_topo_id:
         t = Topology.query.get_or_404(import_topo_id)
@@ -209,6 +212,8 @@ def topology_editor(id):
             fp_lower = (t.file_path or '').lower()
             if fp_lower.endswith(('.vsd', '.vsdx')):
                 import_type = 'visio'
+            elif fp_lower.endswith(('.drawio', '.xml')) and not fp_lower.endswith('.vsdx'):
+                import_type = 'drawio'
             elif fp_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
                 import_type = 'image'
 
@@ -337,18 +342,72 @@ def api_diagram_export_file():
         t.vsdx_path = rel_path
     elif fmt == 'svg':
         t.svg_path = rel_path
+        result = {'ok': True, 'path': rel_path, 'format': fmt}
         # drawio embed 不支持 pdf 导出，服务端用 cairosvg 从 svg 转 pdf
         try:
             import cairosvg
             pdf_fname = f'pdf_{t.id}.pdf'
-            cairosvg.svg2pdf(bytestring=raw, write_to=os.path.join(upload_dir, pdf_fname))
+            cleaned = _preprocess_svg_for_cairosvg(raw)
+            cairosvg.svg2pdf(bytestring=cleaned, write_to=os.path.join(upload_dir, pdf_fname))
             t.pdf_path = f'uploads/topologies/{pdf_fname}'
+            result['pdf'] = 'ok'
         except Exception as e:
             current_app.logger.warning('cairosvg 转 PDF 失败: %s', e)
+            result['warning'] = f'SVG 已保存，但 PDF 自动转换失败: {e}'
+        db.session.commit()
+        return jsonify(result)
     else:
         t.thumbnail_path = rel_path
     db.session.commit()
     return jsonify({'ok': True, 'path': rel_path, 'format': fmt})
+
+
+def _preprocess_svg_for_cairosvg(raw_svg):
+    """预处理 SVG 以提高 cairosvg 转换成功率。
+
+    cairosvg 不支持 <foreignObject>、<style> 中的 @import、部分 CSS3 属性。
+    移除这些不兼容元素，保留可渲染的矢量内容。
+    """
+    import re
+    svg_str = raw_svg.decode('utf-8') if isinstance(raw_svg, bytes) else raw_svg
+    # 移除 <foreignObject>...</foreignObject>（含嵌套标签）
+    svg_str = re.sub(r'<foreignObject[\s\S]*?</foreignObject>', '', svg_str, flags=re.IGNORECASE)
+    # 移除 <style> 中的 @import 行
+    svg_str = re.sub(r'@import[^;]+;', '', svg_str)
+    # 移除 <style> 中 cairosvg 不支持的 CSS 选择器（:hover 等伪类）
+    svg_str = re.sub(r'[^{}]*:[a-z-]+\s*\{[^}]*\}', '', svg_str)
+    return svg_str.encode('utf-8')
+
+
+@topology_bp.route('/topologies/api/regenerate-pdf/<int:id>', methods=['POST'])
+@login_required
+@require_permission('topology:edit')
+def regenerate_pdf(id):
+    """用已保存的 SVG 重新生成 PDF（cairosvg 转换失败后的补救措施）"""
+    t = Topology.query.get_or_404(id)
+    if t.source != 'draw':
+        return jsonify({'ok': False, 'error': '非在线图'}), 400
+    if not t.svg_path:
+        return jsonify({'ok': False, 'error': '没有 SVG 源文件，请先保存拓扑图'}), 400
+    upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
+    svg_full = os.path.join(upload_dir, os.path.basename(t.svg_path))
+    if not os.path.exists(svg_full):
+        return jsonify({'ok': False, 'error': 'SVG 文件不存在于磁盘'}), 400
+    try:
+        import cairosvg
+        with open(svg_full, 'rb') as f:
+            raw = f.read()
+        cleaned = _preprocess_svg_for_cairosvg(raw)
+        pdf_fname = f'pdf_{t.id}.pdf'
+        cairosvg.svg2pdf(bytestring=cleaned, write_to=os.path.join(upload_dir, pdf_fname))
+        t.pdf_path = f'uploads/topologies/{pdf_fname}'
+        db.session.commit()
+        return jsonify({'ok': True, 'pdf_path': t.pdf_path})
+    except ImportError:
+        return jsonify({'ok': False, 'error': '服务器未安装 cairosvg 库，无法转换 PDF'}), 500
+    except Exception as e:
+        current_app.logger.warning('regenerate_pdf 失败: %s', e)
+        return jsonify({'ok': False, 'error': f'PDF 转换失败: {e}'}), 500
 
 
 @topology_bp.route('/topologies/download/drawio/<int:id>')

@@ -83,7 +83,16 @@
                                     <i class="bi-file-earmark-break text-primary" style="font-size:1.25em;"></i>
                                 </a>
                                 {% if has_perm('topology:add') %}
-                                <a href="{{ url_for('topology.topology_editor', id=0, import=t.id) }}" class="text-decoration-none me-1" title="导入此 Visio 文件在线编辑（另存为新在线图）">
+                                <a href="{{ url_for('topology.topology_editor', id=0, import=t.id) }}" class="text-decoration-none me-1" title="导入此 Visio 文件在线编辑（Visio 导入较慢，建议先转为 .drawio 格式）">
+                                    <i class="bi-easel-fill text-info" style="font-size:1.1em;"></i>
+                                </a>
+                                {% endif %}
+                                {% elif t.file_type == 'drawio' %}
+                                <a href="/static/{{ t.file_path }}" download class="text-decoration-none me-1" title="点击下载 drawio 文件（{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}）" data-topo-id="{{ t.id }}">
+                                    <i class="bi-diagram-3 text-warning" style="font-size:1.25em;"></i>
+                                </a>
+                                {% if has_perm('topology:add') %}
+                                <a href="{{ url_for('topology.topology_editor', id=0, import=t.id) }}" class="text-decoration-none me-1" title="导入此 drawio 文件在线编辑（另存为新在线图）">
                                     <i class="bi-easel-fill text-info" style="font-size:1.1em;"></i>
                                 </a>
                                 {% endif %}
@@ -161,8 +170,8 @@
     <select name="region_id" class="form-select"><option value="">-- 不关联 --</option>{% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
 </div>
 <div class="mb-3"><label class="form-label">文件 <span class="text-danger">*</span></label>
-    <input type="file" name="topo_file" class="form-control" accept=".jpg,.jpeg,.png,.gif,.bmp,.pdf,.vsd,.vsdx" required>
-    <small class="text-muted">支持 JPG/PNG/PDF/Visio 文件</small>
+    <input type="file" name="topo_file" class="form-control" accept=".jpg,.jpeg,.png,.gif,.bmp,.pdf,.vsd,.vsdx,.drawio,.xml" required>
+    <small class="text-muted">支持 JPG/PNG/PDF/Visio/drawio 文件</small>
 </div>
 </div>
 <div class="modal-footer"><button type="submit" class="btn btn-primary"><i class="bi-upload"></i> 上传</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>

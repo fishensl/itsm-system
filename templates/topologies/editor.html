@@ -37,6 +37,17 @@
     vertical-align: middle; margin-right: 4px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.topo-import-overlay {
+    position: absolute; inset: 0; z-index: 9998;
+    background: rgba(255,255,255,0.92);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; text-align: center; padding: 40px;
+}
+.topo-import-overlay .spinner-border { width: 3rem; height: 3rem; }
+.topo-import-overlay h5 { color: #495057; }
+.topo-import-overlay p { color: #6c757d; max-width: 400px; }
+.topo-import-overlay .import-hint { font-size: 0.85rem; color: #adb5bd; max-width: 360px; }
+.topo-import-overlay .import-hint a { color: #0d6efd; }
 </style>
 <div class="topo-editor position-relative">
     <div class="topo-editor-bar">
@@ -57,6 +68,10 @@
         {% if has_perm('topology:add') or has_perm('topology:edit') %}
         <button id="btnSave" class="btn btn-sm btn-primary"><i class="bi-save"></i> 保存</button>
         {% endif %}
+        {% if has_perm('topology:add') %}
+        <button id="btnImportFile" class="btn btn-sm btn-outline-info" title="导入本地 .drawio / .xml 文件到编辑器"><i class="bi-box-arrow-in-down"></i> 导入文件</button>
+        <input type="file" id="importFileInput" accept=".drawio,.xml" style="display:none">
+        {% endif %}
         <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                 <i class="bi-download"></i> 导出
@@ -68,12 +83,26 @@
                 <li><a class="dropdown-item export-item" href="#" data-fmt="vsdx"><i class="bi-file-earmark-break"></i> Visio (VSDX)</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item export-item" href="#" data-fmt="png"><i class="bi-file-earmark-image"></i> PNG 图片</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="#" id="btnRegenPdf"><i class="bi-arrow-repeat"></i> 重新生成 PDF</a></li>
             </ul>
         </div>
     </div>
     <iframe id="drawioFrame"
             src="{{ url_for('static', filename='vendor/drawio/index.html') }}?embed=1&proto=json&spin=1&lang=zh&sidebar=1&math=0&test=1{% if clibs %}&clibs={{ clibs }}{% endif %}{% if import_url and import_type == 'visio' %}&url={{ import_url }}{% endif %}"
             allow="clipboard-read; clipboard-write"></iframe>
+    {% if import_type == 'visio' %}
+    <div class="topo-import-overlay" id="visioImportOverlay">
+        <div class="spinner-border text-primary" role="status"></div>
+        <h5>正在导入 Visio 文件…</h5>
+        <p>drawio 正在浏览器端解析 VSDX 文件，复杂文件可能需要 30 秒以上。</p>
+        <p class="import-hint" id="visioTimeoutHint" style="display:none;">
+            导入耗时较长，建议在 Visio 中将文件另存为 <strong>.drawio</strong> 格式后直接导入，
+            速度会快很多。<br>关闭此遮罩后可点工具栏「导入文件」按钮选择 .drawio 文件。
+        </p>
+        <button class="btn btn-sm btn-outline-secondary mt-2" onclick="document.getElementById('visioImportOverlay').remove()">关闭遮罩</button>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -91,7 +120,9 @@
     var pendingExport = null;       // 当前正在处理的导出格式
     var exportQueue = [];           // 待处理导出队列
     var exportTotal = 0;            // 本次导出总数（用于进度显示）
+    var exportResults = {};         // 本次导出结果：{png: true, svg: true, pdf: 'warning msg'}
     var SAVE_FLAG = '__save__';     // 保存标记：用 export xml 取 XML 后存库（非真正的导出）
+    var visioOverlayTimer = null;   // Visio 导入超时定时器
 
     function post(msg) { iframe.contentWindow.postMessage(JSON.stringify(msg), '*'); }
 
@@ -159,6 +190,21 @@
 
         if (IMPORT_TYPE === 'visio') {
             // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）
+            // 启动超时检测：60 秒后显示提示
+            visioOverlayTimer = setTimeout(function() {
+                var hint = document.getElementById('visioTimeoutHint');
+                if (hint) hint.style.display = 'block';
+            }, 60000);
+            return;
+        }
+        if (IMPORT_TYPE === 'drawio' && IMPORT_URL) {
+            // drawio 文件导入：fetch 获取文件内容（mxGraph XML），直接加载到编辑器
+            fetch(IMPORT_URL)
+                .then(function(r) { return r.text(); })
+                .then(function(xml) {
+                    post({action: 'load', xml: xml});
+                })
+                .catch(function(e) { showToast('导入 .drawio 文件失败: ' + e, 'danger'); });
             return;
         }
         if (IMPORT_TYPE === 'image' && IMPORT_URL) {
@@ -204,6 +250,10 @@
     function doSave(xml) {
         var name = document.getElementById('topoName').value.trim();
         if (!name) { showToast('请输入拓扑图名称', 'warning'); setStatus(''); return; }
+        // 清除 Visio 导入遮罩（如果存在）
+        var overlay = document.getElementById('visioImportOverlay');
+        if (overlay) overlay.remove();
+        if (visioOverlayTimer) { clearTimeout(visioOverlayTimer); visioOverlayTimer = null; }
         fetch('/topologies/api/diagram', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -224,6 +274,7 @@
               setStatus('已保存 ' + new Date().toLocaleTimeString('zh-CN', {hour12:false}));
               // 异步生成 PNG 缩略图 + SVG 矢量图（SVG 存后端后由 cairosvg 转 PDF）。
               // vsdx 不支持自动导出，手动导出走 invokeAction。
+              exportResults = {};
               startExportQueue(['png', 'svg']);
           })
           .catch(function(e) { showToast('保存失败: ' + e, 'danger'); setStatus('保存失败'); });
@@ -240,7 +291,15 @@
     function processNextExport() {
         if (exportQueue.length === 0) {
             pendingExport = null;
-            if (DIAGRAM_ID) setStatus('已保存 · 导出文件已更新');
+            if (DIAGRAM_ID) {
+                // 显示导出结果汇总
+                var parts = [];
+                if (exportResults.png) parts.push('PNG \u2713'); else if (exportResults.png === false) parts.push('PNG \u2717');
+                if (exportResults.svg) parts.push('SVG \u2713'); else if (exportResults.svg === false) parts.push('SVG \u2717');
+                if (exportResults.pdf === 'ok') parts.push('PDF \u2713');
+                else if (exportResults.pdf) parts.push('PDF \u2717');
+                setStatus(parts.length ? '\u5df2\u4fdd\u5b58 \u00b7 ' + parts.join(' \u00b7 ') : '\u5df2\u4fdd\u5b58 \u00b7 \u5bfc\u51fa\u6587\u4ef6\u5df2\u66f4\u65b0', true);
+            }
             return;
         }
         pendingExport = exportQueue.shift();
@@ -288,7 +347,27 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({id: DIAGRAM_ID, format: justFinished, data: data})
-            }).catch(function() { /* 导出失败不影响主流程 */ });
+            }).then(function(r) { return r.json(); })
+              .then(function(resp) {
+                if (!resp.ok) {
+                    exportResults[justFinished] = false;
+                    showToast(resp.error || ('导出 ' + justFinished + ' 失败'), 'danger');
+                } else {
+                    exportResults[justFinished] = true;
+                    // SVG 导出可能附带 PDF 转换结果
+                    if (justFinished === 'svg') {
+                        if (resp.pdf === 'ok') {
+                            exportResults.pdf = 'ok';
+                        } else if (resp.warning) {
+                            exportResults.pdf = resp.warning;
+                            showToast(resp.warning, 'warning');
+                        }
+                    }
+                }
+            }).catch(function(e) {
+                exportResults[justFinished] = false;
+                showToast('导出 ' + justFinished + ' 网络错误: ' + e, 'danger');
+            });
         }
 
         // 如果是用户手动导出（非队列），触发下载
@@ -330,6 +409,59 @@
             post(opts);
         });
     });
+
+    // ====== 导入本地 .drawio / .xml 文件 ======
+    var btnImportFile = document.getElementById('btnImportFile');
+    var importFileInput = document.getElementById('importFileInput');
+    if (btnImportFile && importFileInput) {
+        btnImportFile.addEventListener('click', function() { importFileInput.click(); });
+        importFileInput.addEventListener('change', function() {
+            var file = this.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                var xml = e.target.result;
+                if (!xml || !xml.trim()) { showToast('文件内容为空', 'warning'); return; }
+                post({action: 'load', xml: xml});
+                showToast('已导入 ' + file.name, 'success');
+                // 清空名称表示是新图（如果当前没有 DIAGRAM_ID 的话）
+                if (!DIAGRAM_ID && !document.getElementById('topoName').value) {
+                    var baseName = file.name.replace(/\.(drawio|xml)$/i, '');
+                    document.getElementById('topoName').value = baseName;
+                }
+            };
+            reader.onerror = function() { showToast('读取文件失败', 'danger'); };
+            reader.readAsText(file);
+            this.value = ''; // 允许重复导入同一文件
+        });
+    }
+
+    // ====== 重新生成 PDF（从已保存的 SVG 重新 cairosvg 转 PDF） ======
+    var btnRegenPdf = document.getElementById('btnRegenPdf');
+    if (btnRegenPdf) {
+        btnRegenPdf.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!DIAGRAM_ID) { showToast('请先保存拓扑图', 'warning'); return; }
+            setStatus('正在重新生成 PDF…', true);
+            fetch('/topologies/api/regenerate-pdf/' + DIAGRAM_ID, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            }).then(function(r) { return r.json(); })
+              .then(function(resp) {
+                  if (resp.ok) {
+                      showToast('PDF 已重新生成', 'success');
+                      setStatus('PDF 已生成');
+                  } else {
+                      showToast(resp.error || 'PDF 生成失败', 'danger');
+                      setStatus('PDF 生成失败');
+                  }
+              })
+              .catch(function(e) {
+                  showToast('请求失败: ' + e, 'danger');
+                  setStatus('PDF 生成失败');
+              });
+        });
+    }
 
     function downloadExport(data, fmt) {
         var name = (document.getElementById('topoName').value || 'topology').trim();
