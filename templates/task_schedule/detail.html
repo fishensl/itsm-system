@@ -208,7 +208,7 @@ function changeTaskStatus(taskId, newStatus) {
         body: 'status=' + encodeURIComponent(newStatus),
     }).then(function(r) {
         if (r.ok) window.location.reload();
-        else alert('改状态失败');
+        else showToast('改状态失败', 'danger');
     });
 }
 
@@ -228,7 +228,7 @@ function editCompleteTime(taskId, current) {
         body: 'actual_end=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
-        else alert(j.error || '保存失败');
+        else showToast(j.error || '保存失败', 'danger');
     });
 }
 
@@ -248,7 +248,7 @@ function editTaskTitle(taskId, current) {
         body: 'title=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
-        else alert(j.error || '保存失败');
+        else showToast(j.error || '保存失败', 'danger');
     });
 }
 
@@ -268,7 +268,7 @@ function editEffort(taskId, current) {
         body: 'estimated_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
-        else alert(j.error || '保存失败');
+        else showToast(j.error || '保存失败', 'danger');
     });
 }
 
@@ -288,7 +288,7 @@ function editActualEffort(taskId, current) {
         body: 'actual_effort=' + encodeURIComponent(val.trim()),
     }).then(function(r) { return r.json(); }).then(function(j) {
         if (j.success) window.location.reload();
-        else alert(j.error || '保存失败');
+        else showToast(j.error || '保存失败', 'danger');
     });
 }
 </script>

@@ -417,18 +417,6 @@ function toggleCard(key, el){
     }
 }
 
-function showToast(msg, type){
-    type = type || 'info';
-    var c = document.createElement('div');
-    c.className = 'toast align-items-center text-bg-' + type + ' border-0 position-fixed top-0 end-0 m-3';
-    c.style.zIndex = 9999;
-    c.innerHTML = '<div class="d-flex"><div class="toast-body">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
-    document.body.appendChild(c);
-    var t = new bootstrap.Toast(c, {delay: 3000});
-    t.show();
-    c.addEventListener('hidden.bs.toast', function(){ c.remove(); });
-}
-
 function saveCards(){
     fetch('/api/dashboard/preferences', {
         method:'POST',

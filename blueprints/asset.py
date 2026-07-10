@@ -21,18 +21,7 @@ from services.device_service import (create_device_from_form, update_device_from
                                       delete_device)
 from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT, MAX_IMPORT_ROWS
 from utils.permission import require_permission
-
-
-def api_view(func):
-    """标记为 API 端点：自动豁免 CSRF（与 app.py 中的 api_view 同等作用）"""
-    from flask_wtf.csrf import CSRFProtect
-    try:
-        csrf = current_app.extensions.get('csrf')
-        if csrf is not None:
-            return csrf.exempt(func)
-    except Exception:
-        pass
-    return func
+from utils.decorators import api_view
 
 
 asset_bp = Blueprint('asset', __name__)

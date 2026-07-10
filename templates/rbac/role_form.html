@@ -103,9 +103,9 @@
         }).then(function (r) { return r.json().catch(function () { return {success: r.ok, message: 'HTTP ' + r.status}; }); })
           .then(function (d) {
               if (d && d.success) { location.href = '{{ url_for("permission_list") }}'; }
-              else alert((d && d.message) || '删除失败');
+              else showToast((d && d.message) || '删除失败', 'danger');
           })
-          .catch(function (e) { alert('请求失败：' + e); });
+          .catch(function (e) { showToast('请求失败：' + e, 'danger'); });
     });
 })();
 </script>

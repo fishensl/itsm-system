@@ -223,7 +223,7 @@ function addPickedDt() {
     if (!sel.value) return;
     var existing = Array.from(document.querySelectorAll('#ttDtList .dt-row')).map(function(r){return r.dataset.id;});
     if (existing.indexOf(sel.value) >= 0) {
-        alert('该设备模板已添加');
+        showToast('该设备模板已添加', 'warning');
         return;
     }
     var ids = existing.concat([sel.value]);
@@ -239,7 +239,7 @@ function collectDtIds() {
 function autoMatchTemplates() {
     var cid = document.getElementById('ttMatchCustomer').value;
     if (!cid) {
-        alert('请先选择目标客户');
+        showToast('请先选择目标客户', 'warning');
         return;
     }
     var preview = document.getElementById('ttMatchPreview');

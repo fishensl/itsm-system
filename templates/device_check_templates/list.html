@@ -376,7 +376,7 @@ function collectDtItems() {
         items.push(item);
     });
     if (items.length === 0) {
-        alert('请至少添加一个检查项');
+        showToast('请至少添加一个检查项', 'warning');
         return false;
     }
     document.getElementById('dtItems').value = JSON.stringify(items);

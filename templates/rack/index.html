@@ -335,8 +335,8 @@ async function saveCabinet() {
         pdu_total_w: parseInt(document.getElementById('cab_pdu_total_w').value) || 0,
         remark: document.getElementById('cab_remark').value,
     };
-    if (!data.customer_id) { alert('请选择所属客户'); return; }
-    if (!data.name) { alert('名称不能为空'); return; }
+    if (!data.customer_id) { showToast('请选择所属客户', 'warning'); return; }
+    if (!data.name) { showToast('名称不能为空', 'warning'); return; }
     const url = id ? '/api/rack/cabinets/' + id : '/api/rack/cabinets';
     const method = id ? 'PUT' : 'POST';
     const r = await fetch(url, {
@@ -349,7 +349,7 @@ async function saveCabinet() {
         // 机柜按客户分组为服务端渲染，改动后刷新页面
         location.reload();
     } else {
-        alert(ret.error || '保存失败');
+        showToast(ret.error || '保存失败', 'danger');
     }
 }
 
@@ -361,13 +361,13 @@ async function deleteCabinet() {
     if (ret.ok) {
         location.reload();
     } else {
-        alert(ret.error || '删除失败');
+        showToast(ret.error || '删除失败', 'danger');
     }
 }
 
 // ============================ 模态框：上架 ============================
 async function showInstallModal() {
-    if (!currentRackId) { alert('请先选择机柜'); return; }
+    if (!currentRackId) { showToast('请先选择机柜', 'warning'); return; }
     // 仅加载本机柜所属客户的设备
     const r = await fetch('/api/rack/devices/all?rack_id=' + currentRackId);
     const data = await r.json();
@@ -406,8 +406,8 @@ async function saveInstall() {
         rated_w: parseInt(document.getElementById('inst_rated_w').value) || 0,
         remark: document.getElementById('inst_remark').value,
     };
-    if (isManaged && !data.device_id) { alert('请选择设备'); return; }
-    if (!isManaged && !data.manual_name) { alert('请填写设备名称'); return; }
+    if (isManaged && !data.device_id) { showToast('请选择设备', 'warning'); return; }
+    if (!isManaged && !data.manual_name) { showToast('请填写设备名称', 'warning'); return; }
     const r = await fetch('/api/rack/installs', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data),
@@ -417,7 +417,7 @@ async function saveInstall() {
         bootstrap.Modal.getInstance(document.getElementById('installModal')).hide();
         selectRack(currentRackId);
     } else {
-        alert(ret.error || '上架失败');
+        showToast(ret.error || '上架失败', 'danger');
     }
 }
 
@@ -453,7 +453,7 @@ async function saveAdjust() {
         bootstrap.Modal.getInstance(document.getElementById('adjustModal')).hide();
         selectRack(currentRackId);
     } else {
-        alert(ret.error || '保存失败');
+        showToast(ret.error || '保存失败', 'danger');
     }
 }
 
@@ -464,7 +464,7 @@ async function deleteInstall(install_id) {
     if (ret.ok) {
         selectRack(currentRackId);
     } else {
-        alert(ret.error || '下架失败');
+        showToast(ret.error || '下架失败', 'danger');
     }
 }
 </script>

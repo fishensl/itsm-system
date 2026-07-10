@@ -295,7 +295,6 @@ SCOPE_LABELS = {
 
 def has_permission(code, user=None):
     """模板中检查权限"""
-    from flask_login import current_user
     if user is None:
         user = current_user
     return code in get_user_permissions(user)
@@ -307,7 +306,6 @@ def role_label(role):
 
 def is_supervisor(user=None):
     """判断用户是否为部门主管"""
-    from flask_login import current_user
     if user is None:
         user = current_user
     if not user or not getattr(user, 'is_authenticated', False):

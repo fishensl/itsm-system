@@ -18,8 +18,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-import json
-
 from models import db, User, Customer, Device, Inspection, Fault, Inspector, DeviceType, PasswordHistory, FaultType, InspectionTemplate
 from models import Region, Ticket, KnowledgeBase, Brand, NetworkType, CustomField, DeviceCredential, DeviceInterface, InspectionTask, TicketLog
 from models import SparePart, SpareStock, PurchaseOrder, SalesOrder
@@ -29,9 +27,9 @@ from models import Department, CustomerCategory, FormDraft, DeviceSubType, UserD
 from models import Role, RolePermission
 from models import InspectionDeviceTemplate, InspectionTaskTemplate
 from utils.crypto import encrypt_password, decrypt_password
-from utils.report_generator import generate_inspection_report, generate_fault_report
 from utils.pagination import paginate, paginate_render_args
-from utils.permission import require_permission, get_user_permissions, register_template_functions, FAULT_CATEGORY_LEVEL1, FAULT_CATEGORY_LEVEL2, ROOT_CAUSE_CATEGORIES, SEVERITY_LEVELS, is_supervisor
+from utils.permission import require_permission, get_user_permissions, register_template_functions, is_supervisor
+from utils.decorators import api_view
 from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT, MAX_IMPORT_ROWS
 from config import Config, setup_logging, setup_security_headers
 
@@ -137,13 +135,6 @@ def err_413(e):
     return render_template('errors/error.html', code=413,
                            title='文件过大', message='上传的文件超过系统允许的大小限制（默认 100MB）。',
                            show_back=True), 413
-
-
-# 豁免 CSRF 的 API 装饰器：用于 /api/* 端点（这些端点通常基于 session/auth 鉴权，
-# 不暴露给第三方站点。CSRF 豁免是为了避免 fetch 调用被拒。）
-def api_view(func):
-    """标记为 API 端点：自动豁免 CSRF"""
-    return csrf.exempt(func)
 
 
 # 注入 csrf_token() 到所有模板（也可用 {{ csrf_token() }} 直接调用）
@@ -1251,7 +1242,7 @@ def _bootstrap_legacy_db():
     import os as _os
     _migrate_stamp(directory=_os.path.join(_os.path.dirname(__file__), 'migrations'),
                    revision='3f82f965fb25')
-    print('[INIT] 检测到遗留库（无 alembic_version），已 stamp 到 initial_schema，后续 upgrade 将应用 pg_type_fixes')
+    app.logger.info('检测到遗留库（无 alembic_version），已 stamp 到 initial_schema，后续 upgrade 将应用 pg_type_fixes')
     return True
 
 
@@ -1298,7 +1289,7 @@ def _dedup_before_unique_constraints():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f'[WARN] 去重清理失败（非致命，可能在 pg_type_fixes 加唯一约束时报错）: {e}')
+        app.logger.warning('去重清理失败（非致命，可能在 pg_type_fixes 加唯一约束时报错）: %s', e)
 
 
 def init_db():
@@ -1319,7 +1310,7 @@ def init_db():
             from utils.seed_permissions import seed_all
             seed_all(app)
         except Exception as e:
-            print(f'[WARN] 权限 seed 失败（非致命）: {e}')
+            app.logger.warning('权限 seed 失败（非致命）: %s', e)
             db.session.rollback()
 
         # 创建默认管理员：仅在系统中不存在任何 admin 角色用户时（首次空库引导），
@@ -1328,8 +1319,7 @@ def init_db():
             admin = User.create_with_password(username='admin', password='admin123', realname='管理员', role='admin')
             db.session.add(admin)
             db.session.commit()
-            app.logger.info('[INIT] 默认管理员已创建: admin / admin123')
-            print('[OK] 默认用户已创建: admin / admin123')
+            app.logger.info('默认管理员已创建: admin / admin123')
 
         # 创建默认设备类型
         if DeviceType.query.count() == 0:
@@ -1337,7 +1327,7 @@ def init_db():
             for i, name in enumerate(defaults):
                 db.session.add(DeviceType(name=name, sort_order=i))
             db.session.commit()
-            print('[OK] 默认设备类型已创建')
+            app.logger.info('默认设备类型已创建')
 
         # 创建默认故障类型
         if FaultType.query.count() == 0:
@@ -1345,15 +1335,15 @@ def init_db():
             for i, name in enumerate(defaults):
                 db.session.add(FaultType(name=name, sort_order=i))
             db.session.commit()
-            print('[OK] 默认故障类型已创建')
+            app.logger.info('默认故障类型已创建')
 
 
 if __name__ == '__main__':
     init_db()
-    print('=' * 50)
-    print('=== ITSM 简易运维管理系统 ===')
-    print('=' * 50)
-    print('默认登录: admin / admin123')
-    print('访问地址: http://127.0.0.1:5000')
-    print('=' * 50)
+    app.logger.info('=' * 50)
+    app.logger.info('=== ITSM 简易运维管理系统 ===')
+    app.logger.info('=' * 50)
+    app.logger.info('默认登录: admin / admin123')
+    app.logger.info('访问地址: http://127.0.0.1:5000')
+    app.logger.info('=' * 50)
     app.run(debug=True, host='127.0.0.1', port=5000)

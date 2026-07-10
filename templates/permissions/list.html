@@ -215,7 +215,7 @@
             return r.json().catch(function () { return {success: r.ok, message: 'HTTP ' + r.status}; });
         }).then(function (d) {
             if (d && d.success === false) {
-                alert('保存失败：' + (d.message || '未知错误'));
+                showToast('保存失败：' + (d.message || '未知错误'), 'danger');
                 if (saveBtn) saveBtn.disabled = false;
             } else {
                 // 清掉所有卡片的 _pending，并置保存标志位
@@ -225,7 +225,7 @@
                 location.reload();
             }
         }).catch(function (e) {
-            alert('请求失败：' + e);
+            showToast('请求失败：' + e, 'danger');
             if (saveBtn) saveBtn.disabled = false;
         });
     }

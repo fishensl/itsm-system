@@ -17,14 +17,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import app
 from models import db, InspectionTask
-from utils.customer_task_generator import _QUARTER_CN
+from utils.customer_task_generator import QUARTER_CN
 
 # 第1季度 / 第2季度 ... → 第一季度 / 第二季度 ...
 _PATTERN = re.compile(r'第([1-4])季度')
 
 
 def _convert(title):
-    return _PATTERN.sub(lambda m: f'第{_QUARTER_CN[int(m.group(1))]}季度', title)
+    return _PATTERN.sub(lambda m: f'第{QUARTER_CN[int(m.group(1))]}季度', title)
 
 
 def main(apply=False):

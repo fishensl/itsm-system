@@ -568,11 +568,10 @@ document.getElementById('deviceForm').addEventListener('submit', function(e) {
                     if (historyBtn) historyBtn.dataset.deviceName = document.querySelector('[name="device_name"]').value;
             }
         } else {
-            alert('保存失败，请重试');
+            showToast('保存失败，请重试', 'danger');
         }
     }).catch(function(err) {
-        alert('操作失败，请重试');
-        console.error(err);
+        showToast('操作失败，请重试', 'danger');
     }).finally(function() {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi-save"></i> 保存';
@@ -683,7 +682,7 @@ function togglePwd(el) {
     const cell = el.closest('.pwd-cell');
     const masked = '••••••••';
     fetchPwd(cell).then(pwd => {
-        if (!pwd) { alert('该设备未设置密码'); return; }
+        if (!pwd) { showToast('该设备未设置密码', 'warning'); return; }
         const isMasked = el.textContent === masked;
         el.textContent = isMasked ? pwd : masked;
         const eye = cell.querySelector('.bi-eye, .bi-eye-slash');
@@ -697,7 +696,7 @@ function togglePwdIcon(btn) {
     const icon = btn.querySelector('i');
     const masked = '••••••••';
     fetchPwd(cell).then(pwd => {
-        if (!pwd) { alert('该设备未设置密码'); return; }
+        if (!pwd) { showToast('该设备未设置密码', 'warning'); return; }
         const showing = mask.textContent !== masked;
         if (showing) {
             mask.textContent = masked;
@@ -712,8 +711,8 @@ function togglePwdIcon(btn) {
 function copyPwd(btn) {
     const cell = btn.closest('.pwd-cell');
     fetchPwd(cell).then(pwd => {
-        if (!pwd) { alert('该设备未设置密码'); return; }
-        navigator.clipboard.writeText(pwd).then(() => { alert('密码已复制'); });
+        if (!pwd) { showToast('该设备未设置密码', 'warning'); return; }
+        navigator.clipboard.writeText(pwd).then(() => { showToast('密码已复制', 'success'); });
     });
 }
 function toggleFormPwd(btn) {

@@ -103,12 +103,12 @@ function previewGenerate(contractId) {
                 data.tasks.forEach(function(t) {
                     msg += '- ' + t.title + ' (' + t.task_start + ' ~ ' + t.task_end + ')\n';
                 });
-                alert(msg);
+                showToast(msg, 'info');
             } else {
-                alert('预览失败：' + data.error);
+                showToast('预览失败：' + data.error, 'danger');
             }
         })
-        .catch(function() { alert('请求失败'); });
+        .catch(function() { showToast('请求失败', 'danger'); });
 }
 </script>
 {% endblock %}

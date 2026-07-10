@@ -282,7 +282,7 @@ function togglePwdIcon(el) {
     el.style.cssText = 'cursor:pointer;margin-left:4px';
 }
 function copyPwd(el) {
-    navigator.clipboard.writeText(el.dataset.pwd).then(function() { alert('密码已复制'); });
+    navigator.clipboard.writeText(el.dataset.pwd).then(function() { showToast('密码已复制', 'success'); });
 }
 function editDevice(id) {
     document.getElementById('deviceForm').action = '{{ url_for("asset.device_edit", id=0) }}'.replace('/0', '/' + id);
@@ -300,10 +300,10 @@ document.getElementById('deviceForm').addEventListener('submit', function(e) {
                 bootstrap.Modal.getInstance(document.getElementById('deviceModal')).hide();
                 location.reload();
             } else {
-                alert('保存失败，请重试');
+                showToast('保存失败，请重试', 'danger');
             }
         })
-        .catch(function(err) { alert('操作失败'); console.error(err); })
+        .catch(function(err) { showToast('操作失败', 'danger'); })
         .finally(function() {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi-save"></i> 保存';

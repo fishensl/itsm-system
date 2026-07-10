@@ -136,7 +136,6 @@
                         })(protos[i], protos[i].handleError);
                     }
                 }
-                console.log('[topo-err] 诊断已挂载到 App 原型链');
                 // vsdx 导出：drawio embed 的 vsdxExportEnabled 只对 atlassian 服务返回 true，
                 // 覆盖为 true 让 exportVisio 能加载本地 extensions.min.js（VsdxExport）导出 vsdx
                 var vsdxProto = App.prototype.__proto__;
@@ -180,14 +179,14 @@
         fetch('/topologies/api/diagram/' + DIAGRAM_ID)
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (!data.ok) { alert(data.error || '加载失败'); return; }
+                if (!data.ok) { showToast(data.error || '加载失败', 'danger'); return; }
                 document.getElementById('topoName').value = data.name || '';
                 document.getElementById('topoDesc').value = data.description || '';
                 if (data.customer_id) document.getElementById('topoCustomer').value = data.customer_id;
                 if (data.region_id) document.getElementById('topoRegion').value = data.region_id;
                 post({action: 'load', xml: data.diagram_xml || ''});
             })
-            .catch(function(e) { alert('加载失败: ' + e); });
+            .catch(function(e) { showToast('加载失败: ' + e, 'danger'); });
     }
 
     // ====== 保存 ======
@@ -204,7 +203,7 @@
 
     function doSave(xml) {
         var name = document.getElementById('topoName').value.trim();
-        if (!name) { alert('请输入拓扑图名称'); setStatus(''); return; }
+        if (!name) { showToast('请输入拓扑图名称', 'warning'); setStatus(''); return; }
         fetch('/topologies/api/diagram', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -218,7 +217,7 @@
             })
         }).then(function(r) { return r.json(); })
           .then(function(data) {
-              if (!data.ok) { alert(data.error || '保存失败'); setStatus('保存失败'); return; }
+              if (!data.ok) { showToast(data.error || '保存失败', 'danger'); setStatus('保存失败'); return; }
               DIAGRAM_ID = data.id;
               var isFirstSave = (document.getElementById('topoName').dataset.saved !== '1');
               document.getElementById('topoName').dataset.saved = '1';
@@ -227,7 +226,7 @@
               // vsdx 不支持自动导出，手动导出走 invokeAction。
               startExportQueue(['png', 'svg']);
           })
-          .catch(function(e) { alert('保存失败: ' + e); setStatus('保存失败'); });
+          .catch(function(e) { showToast('保存失败: ' + e, 'danger'); setStatus('保存失败'); });
     }
 
     // ====== 导出队列（顺序执行，避免 drawio 卡顿） ======
@@ -269,7 +268,7 @@
         if (justFinished === SAVE_FLAG) {
             var xml = msg.xml || data;
             if (xml) doSave(xml);
-            else { alert('图内容为空，无法保存'); setStatus('保存失败'); }
+            else { showToast('图内容为空，无法保存', 'warning'); setStatus('保存失败'); }
             return;
         }
         // 手动导出 drawio 格式：下载当前 XML 为 .drawio 文件（Visio 可打开）

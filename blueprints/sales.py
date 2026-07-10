@@ -179,7 +179,6 @@ def contract_edit(id):
     # 合同更新后：若打开了自动巡检 + 设置了频率/模板，补齐尚未生成的任务（幂等）
     gen_msg = ''
     try:
-        from models import Contract
         c = Contract.query.get(id)
         if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
             from utils.auto_task_generator import generate_contract_tasks
