@@ -343,17 +343,16 @@ def api_diagram_export_file():
     elif fmt == 'svg':
         t.svg_path = rel_path
         result = {'ok': True, 'path': rel_path, 'format': fmt}
-        # drawio embed 不支持 pdf 导出，服务端用 cairosvg 从 svg 转 pdf
-        try:
-            import cairosvg
-            pdf_fname = f'pdf_{t.id}.pdf'
-            cleaned = _preprocess_svg_for_cairosvg(raw)
-            cairosvg.svg2pdf(bytestring=cleaned, write_to=os.path.join(upload_dir, pdf_fname))
+        # drawio embed 不支持 pdf 导出，服务端从 svg 转 pdf（双引擎后备）
+        pdf_fname = f'pdf_{t.id}.pdf'
+        pdf_full = os.path.join(upload_dir, pdf_fname)
+        ok, engine = _svg_to_pdf(raw, pdf_full)
+        if ok:
             t.pdf_path = f'uploads/topologies/{pdf_fname}'
             result['pdf'] = 'ok'
-        except Exception as e:
-            current_app.logger.warning('cairosvg 转 PDF 失败: %s', e)
-            result['warning'] = f'SVG 已保存，但 PDF 自动转换失败: {e}'
+        else:
+            current_app.logger.warning('SVG→PDF 转换失败: %s', engine)
+            result['warning'] = f'SVG 已保存，但 PDF 转换失败: {engine}'
         db.session.commit()
         return jsonify(result)
     else:
@@ -362,28 +361,53 @@ def api_diagram_export_file():
     return jsonify({'ok': True, 'path': rel_path, 'format': fmt})
 
 
-def _preprocess_svg_for_cairosvg(raw_svg):
-    """预处理 SVG 以提高 cairosvg 转换成功率。
-
-    cairosvg 不支持 <foreignObject>、<style> 中的 @import、部分 CSS3 属性。
-    移除这些不兼容元素，保留可渲染的矢量内容。
-    """
+def _preprocess_svg(raw_svg):
+    """预处理 SVG：移除 cairosvg/svglib 均不兼容的元素，提高转换成功率。"""
     import re
     svg_str = raw_svg.decode('utf-8') if isinstance(raw_svg, bytes) else raw_svg
-    # 移除 <foreignObject>...</foreignObject>（含嵌套标签）
     svg_str = re.sub(r'<foreignObject[\s\S]*?</foreignObject>', '', svg_str, flags=re.IGNORECASE)
-    # 移除 <style> 中的 @import 行
     svg_str = re.sub(r'@import[^;]+;', '', svg_str)
-    # 移除 <style> 中 cairosvg 不支持的 CSS 选择器（:hover 等伪类）
     svg_str = re.sub(r'[^{}]*:[a-z-]+\s*\{[^}]*\}', '', svg_str)
     return svg_str.encode('utf-8')
+
+
+def _svg_to_pdf(raw_svg, output_path):
+    """SVG → PDF 转换（双引擎后备）。
+
+    优先 cairosvg（Linux 生产环境，质量高）；
+    失败后回退 svglib + reportlab（纯 Python，Windows 兼容，无需系统库）。
+    """
+    cleaned = _preprocess_svg(raw_svg)
+    # 引擎 1：cairosvg（需 libcairo 系统库）
+    try:
+        import cairosvg
+        cairosvg.svg2pdf(bytestring=cleaned, write_to=output_path)
+        return True, 'cairosvg'
+    except Exception as e:
+        current_app.logger.info('cairosvg 不可用或转换失败 (%s)，尝试 svglib 后备', e)
+    # 引擎 2：svglib + reportlab（纯 Python，无系统库依赖）
+    try:
+        import tempfile
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPDF
+        tmp = tempfile.NamedTemporaryFile(suffix='.svg', delete=False)
+        tmp.write(cleaned)
+        tmp.close()
+        drawing = svg2rlg(tmp.name)
+        os.unlink(tmp.name)
+        if drawing:
+            renderPDF.drawToFile(drawing, output_path)
+            return True, 'svglib'
+        return False, 'svglib 返回空绘图对象'
+    except Exception as e:
+        return False, f'svglib 也失败: {e}'
 
 
 @topology_bp.route('/topologies/api/regenerate-pdf/<int:id>', methods=['POST'])
 @login_required
 @require_permission('topology:edit')
 def regenerate_pdf(id):
-    """用已保存的 SVG 重新生成 PDF（cairosvg 转换失败后的补救措施）"""
+    """用已保存的 SVG 重新生成 PDF（双引擎后备：cairosvg → svglib）"""
     t = Topology.query.get_or_404(id)
     if t.source != 'draw':
         return jsonify({'ok': False, 'error': '非在线图'}), 400
@@ -393,21 +417,18 @@ def regenerate_pdf(id):
     svg_full = os.path.join(upload_dir, os.path.basename(t.svg_path))
     if not os.path.exists(svg_full):
         return jsonify({'ok': False, 'error': 'SVG 文件不存在于磁盘'}), 400
-    try:
-        import cairosvg
-        with open(svg_full, 'rb') as f:
-            raw = f.read()
-        cleaned = _preprocess_svg_for_cairosvg(raw)
-        pdf_fname = f'pdf_{t.id}.pdf'
-        cairosvg.svg2pdf(bytestring=cleaned, write_to=os.path.join(upload_dir, pdf_fname))
+    with open(svg_full, 'rb') as f:
+        raw = f.read()
+    pdf_fname = f'pdf_{t.id}.pdf'
+    pdf_full = os.path.join(upload_dir, pdf_fname)
+    ok, engine = _svg_to_pdf(raw, pdf_full)
+    if ok:
         t.pdf_path = f'uploads/topologies/{pdf_fname}'
         db.session.commit()
         return jsonify({'ok': True, 'pdf_path': t.pdf_path})
-    except ImportError:
-        return jsonify({'ok': False, 'error': '服务器未安装 cairosvg 库，无法转换 PDF'}), 500
-    except Exception as e:
-        current_app.logger.warning('regenerate_pdf 失败: %s', e)
-        return jsonify({'ok': False, 'error': f'PDF 转换失败: {e}'}), 500
+    else:
+        current_app.logger.warning('regenerate_pdf 失败: %s', engine)
+        return jsonify({'ok': False, 'error': f'PDF 转换失败: {engine}'}), 500
 
 
 @topology_bp.route('/topologies/download/drawio/<int:id>')
