@@ -20,6 +20,10 @@ def login():
             current_app.logger.warning(f'停用账号 [{username}] 尝试登录')
             return render_template('login.html')
         if user and user.check_password(password):
+            # 历史明文账号本次登录已就地升级为哈希（模型只打标记，这里显式提交）
+            if getattr(user, '_plaintext_upgraded', False):
+                db.session.commit()
+                current_app.logger.info(f'用户 [{username}] 的明文密码已自动升级为哈希存储')
             login_user(user)
             current_app.logger.info(f'用户 [{username}] 登录成功')
             return redirect(url_for('index'))

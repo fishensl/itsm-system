@@ -51,12 +51,11 @@ class User(UserMixin, db.Model):
     def check_password(self, raw_password):
         if check_password_hash(self.password, raw_password):
             return True
+        # 历史明文数据兼容：校验通过则就地升级为哈希。
+        # 副作用提交上移：不再在模型内隐式 commit，由登录流程显式提交（见 views/auth.login）
         if self.password == raw_password:
             self.password = generate_password_hash(raw_password)
-            try:
-                db.session.commit()
-            except:
-                db.session.rollback()
+            self._plaintext_upgraded = True  # 标记位，login 流程检测后显式 commit
             return True
         return False
 

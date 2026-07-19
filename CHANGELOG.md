@@ -8,6 +8,20 @@
 
 ## [未发布] — 2026-07-19
 
+### 数据一致性（W4）
+
+- **状态常量化**：新增 `utils/constants.py` 单一真源（工单/巡检任务/审核/商机/报价/合同/项目/采集任务）；
+  sales_service 写入边界校验非法状态直接拒绝；ticket_service / inspection_service 切换引用
+- **JSON 边界**：新增 `utils/json_fields.py`（parse_json 失败记日志非静默）；修复模板匹配 API
+  `len(items_json)` 数 JSON 字符数的 bug（改用模型 `total_sub_items`）；裸 dict 返回改 jsonify
+- **事务完整性**：备件新增两次 commit 改 service 单事务 + 图片失败不阻塞；设备导入逐行 commit
+  改整批事务（顺带补齐「是否维修/是否在用」两列长期被忽略的导入缺陷）；工单删除走 form_commit
+  + 审计日志；`User.check_password` 明文升级不再隐式 commit（登录流程显式提交）
+- **怪异行为清理**：故障类型页不再按 cwd 相对路径双态返回（固定渲染页面）
+- **双轨收敛**：新增 `scripts/faults_to_tickets.py` 迁移脚本（dry-run 默认、幂等、fault.ticket_id 桥接）；
+  模型层标注旧 InspectionTemplate 仍被合同自动生成链依赖（下线前需先迁 contract.inspection_template_id）
+- 新增 W4 测试 10 用例；累计 **111 用例全绿**
+
 ### 结构重构（W3）
 
 - **巨型文件拆包**（端点名全部不变，模板零改动）：

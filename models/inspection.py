@@ -139,7 +139,13 @@ class InspectionTaskTemplate(db.Model):
 
 # 旧模板（降级为只读，逐步迁移到新体系）
 class InspectionTemplate(db.Model):
-    """巡检模板（旧版，已废弃）"""
+    """巡检模板（旧版，已废弃）
+
+    【注意-仍有的活跃依赖】contract.inspection_template_id 仍指向本表：
+    合同自动生成巡检任务（utils/auto_task_generator + contract_tasks 页）读取本表。
+    彻底下线前必须先做 contract.inspection_template_id → task_template_id 的数据与
+    生成器迁移（见 docs 优化规划 W4-D3 评估结论），否则自动任务链断裂。
+    """
     __tablename__ = 'inspection_templates'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128), nullable=False)

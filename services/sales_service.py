@@ -2,11 +2,19 @@
 """Sales 业务服务：商机/报价/合同/项目"""
 from datetime import datetime
 from models import db, Opportunity, Quotation, Contract, Project
+from utils import constants as _const
 from .base import ServiceError, transaction
 
 
-# 商机阶段
-OPP_STAGES = ['初步接触', '需求确认', '方案报价', '商务谈判', '成交', '失败']
+# 商机阶段（单一真源在 utils/constants.py，此处保留 list 别名兼容模板/旧引用）
+OPP_STAGES = list(_const.OPP_STAGES)
+
+
+def _check_status(value, allowed, label):
+    """写入边界校验：状态值必须在允许集合内（防拼写错误产生脏数据）"""
+    if value and not _const.is_valid_status(value, allowed):
+        raise ServiceError(f'非法的{label}：{value}')
+    return value
 
 
 @transaction
@@ -17,7 +25,7 @@ def create_opportunity(data, current_user_name):
     o = Opportunity(
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        stage=data.get('stage', '初步接触'),
+        stage=_check_status(data.get('stage', '初步接触'), OPP_STAGES, '商机阶段'),
         expected_amount=float(data.get('expected_amount') or 0),
         owner=data.get('owner') or current_user_name,
         expected_close_date=_parse_date(data.get('expected_close_date')),
@@ -32,7 +40,8 @@ def update_opportunity(opp_id, data):
     o = Opportunity.query.get_or_404(opp_id)
     o.title = (data.get('title') or o.title).strip()
     o.customer_id = int(data['customer_id']) if data.get('customer_id') else o.customer_id
-    o.stage = data.get('stage', o.stage)
+    if 'stage' in data:
+        o.stage = _check_status(data.get('stage'), OPP_STAGES, '商机阶段')
     o.expected_amount = float(data.get('expected_amount') or 0)
     o.owner = data.get('owner', o.owner)
     if 'expected_close_date' in data:
@@ -54,7 +63,7 @@ def create_quotation(data, current_user_name):
         opportunity_id=int(data['opportunity_id']) if data.get('opportunity_id') else None,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         total_amount=float(data.get('total_amount') or 0),
-        status=data.get('status', '草稿'),
+        status=_check_status(data.get('status', '草稿'), _const.QUOTATION_STATUSES, '报价单状态'),
         valid_until=_parse_date(data.get('valid_until')) if data.get('valid_until') else None,
     )
     db.session.add(q)
@@ -70,7 +79,8 @@ def update_quotation(quot_id, data):
     if data.get('customer_id'):
         q.customer_id = int(data['customer_id'])
     q.total_amount = float(data.get('total_amount') or 0)
-    q.status = data.get('status', q.status)
+    if 'status' in data:
+        q.status = _check_status(data.get('status'), _const.QUOTATION_STATUSES, '报价单状态')
     if 'valid_until' in data:
         q.valid_until = _parse_date(data.get('valid_until'))
     return q
@@ -93,7 +103,7 @@ def create_contract(data, current_user_name):
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         opportunity_id=int(data['opportunity_id']) if data.get('opportunity_id') else None,
         amount=float(data.get('amount') or 0),
-        status=data.get('status', '执行中'),
+        status=_check_status(data.get('status', '执行中'), _const.CONTRACT_STATUSES, '合同状态'),
         start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
         end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
     )
@@ -111,7 +121,8 @@ def update_contract(contract_id, data):
     if data.get('opportunity_id'):
         c.opportunity_id = int(data['opportunity_id'])
     c.amount = float(data.get('amount') or 0)
-    c.status = data.get('status', c.status)
+    if 'status' in data:
+        c.status = _check_status(data.get('status'), _const.CONTRACT_STATUSES, '合同状态')
     if 'start_date' in data:
         c.start_date = _parse_date(data.get('start_date'))
     if 'end_date' in data:
@@ -135,7 +146,7 @@ def create_project(data, current_user_name):
         contract_id=int(data['contract_id']) if data.get('contract_id') else None,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         manager=data.get('manager') or current_user_name,
-        status=data.get('status', '进行中'),
+        status=_check_status(data.get('status', '进行中'), _const.PROJECT_STATUSES, '项目状态'),
         start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
         end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
         progress=int(data.get('progress') or 0),
@@ -154,7 +165,8 @@ def update_project(project_id, data):
     if data.get('customer_id'):
         p.customer_id = int(data['customer_id'])
     p.manager = data.get('manager', p.manager)
-    p.status = data.get('status', p.status)
+    if 'status' in data:
+        p.status = _check_status(data.get('status'), _const.PROJECT_STATUSES, '项目状态')
     if 'start_date' in data:
         p.start_date = _parse_date(data.get('start_date'))
     if 'end_date' in data:

@@ -7,7 +7,7 @@ import os
 import uuid
 from datetime import date
 from flask import (Blueprint, render_template, request,
-                   send_from_directory, flash, redirect, url_for)
+                   send_from_directory, flash, redirect, url_for, current_app)
 from flask_login import login_required, current_user
 from models import (SparePart, SpareStock, PurchaseOrder, SalesOrder, Customer, db)
 from services.spare_service import (
@@ -72,13 +72,16 @@ def spare_part_list():
 @require_permission('spare:add')
 @form_commit(lambda sp: f'备件 "{sp.name}" 已添加', 'spare.spare_part_list', '备件添加失败')
 def spare_part_add():
-    sp = create_spare_part(request.form.to_dict())
-    db.session.commit()  # 立即提交以获取 ID
-    # 处理图片上传
-    img_path = _save_spare_image(request.files.get('image'), sp.id)
-    if img_path:
-        sp.image_path = img_path
-        db.session.commit()
+    sp = create_spare_part(request.form.to_dict())  # service 层单事务提交
+    # 图片上传失败不阻塞建档（仅记日志），消除原两次 commit 的部分成功态
+    try:
+        img_path = _save_spare_image(request.files.get('image'), sp.id)
+        if img_path:
+            sp.image_path = img_path
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('备件图片保存失败 spare_id=%s', sp.id)
     return sp
 
 

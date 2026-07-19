@@ -332,7 +332,8 @@ def api_match_device_templates(cid):
             candidates.append({
                 'id': tpl.id, 'name': tpl.name,
                 'category': tpl.device_category, 'sub_type': tpl.device_sub_type or '',
-                'items_count': len(tpl.items_json or '[]'),
+                # 修复：曾用 len(items_json) 数 JSON 字符串字符数；total_sub_items 才是子检查项条数
+                'items_count': tpl.total_sub_items,
                 'match_score': 100,
             })
         # 中分：其他模板里子类型包含此 cat
@@ -353,7 +354,7 @@ def api_match_device_templates(cid):
             'devices': dev_list,
             'matched_templates': candidates,
         })
-    return {'groups': out, 'total_devices': len(devices)}
+    return jsonify({'groups': out, 'total_devices': len(devices)})
 
 
 @ops_bp.route('/task-templates/delete/<int:id>', methods=['POST'])

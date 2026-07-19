@@ -7,6 +7,7 @@ from models import (Ticket,
                     TicketLog, KnowledgeBase, FaultType, Customer, Device, db)
 from utils.pagination import paginate, paginate_render_args
 from utils.permission import require_permission
+from utils.decorators import form_commit
 from services.ticket_service import (create_ticket, update_ticket, assign_ticket,
                                       accept_ticket, submit_ticket, audit_ticket,
                                       accept_check_ticket, close_ticket)
@@ -88,14 +89,19 @@ def ticket_detail(id):
 
 
 @ops_bp.route('/tickets/delete/<int:id>', methods=['POST'])
+@ops_bp.route('/tickets/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('ticket:delete')
+@form_commit('工单已删除', 'ops.ticket_list', '工单删除失败')
 def ticket_delete(id):
+    """删除工单（连带日志）。form_commit 统一异常回滚；删除写审计日志。"""
+    t = Ticket.query.get_or_404(id)
+    current_app.logger.info(
+        '工单删除审计: 用户[%s] 删除工单[%s](id=%s), IP=%s',
+        current_user.username, t.number, t.id, request.remote_addr)
     TicketLog.query.filter_by(ticket_id=id).delete()
     Ticket.query.filter_by(id=id).delete()
     db.session.commit()
-    flash('工单已删除', 'success')
-    return redirect(url_for('ops.ticket_list'))
 
 
 # 工单状态流转

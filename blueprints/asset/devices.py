@@ -414,8 +414,12 @@ def device_import():
             '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
             '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method', '安装位置': 'location',
             '系统版本': 'os_version', '规则库版本': 'rule_version', '备注': 'remark',
+            # 补齐模板中已有但导入长期忽略的两列（下载模板含这两列）
+            '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
         }
 
+        # 整批事务：先构建全部合法行，最后一次 commit（替代逐行 commit——慢且产生部分成功态）
+        new_devices = []
         for row_idx in range(2, ws.max_row + 1):
             row_data = {}
             for cn, idx in col_map.items():
@@ -440,10 +444,8 @@ def device_import():
                 from utils.crypto import encrypt_password as _ep
                 plain_password = row_data.get('password', '')
                 encrypted = _ep(plain_password) if plain_password else ''
-                license_expiry = _parse_date(row_data.get('license_expiry'))
-                license_start = _parse_date(row_data.get('license_start'))
 
-                d = Device(
+                new_devices.append(Device(
                     customer_id=customer.id if customer else None,
                     device_name=device_name,
                     device_type=row_data.get('device_type', ''),
@@ -459,17 +461,25 @@ def device_import():
                     rule_version=row_data.get('rule_version', ''),
                     is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
                     is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
-                    license_expiry=license_expiry,
-                    license_start=license_start,
+                    license_expiry=_parse_date(row_data.get('license_expiry')),
+                    license_start=_parse_date(row_data.get('license_start')),
                     remark=row_data.get('remark', ''),
-                )
-                db.session.add(d)
-                db.session.commit()
-                success_count += 1
+                ))
             except Exception as e:
-                db.session.rollback()
                 error_count += 1
                 errors.append(f'第{row_idx}行（{device_name}）：{e}')
+
+        if new_devices:
+            try:
+                db.session.add_all(new_devices)
+                db.session.commit()
+                success_count = len(new_devices)
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.exception('设备批量导入提交失败: %s', e)
+                error_count += len(new_devices)
+                errors.append(f'批量提交失败：{e}')
+                success_count = 0
 
         msg = f'导入完成：成功 {success_count} 条'
         if error_count:

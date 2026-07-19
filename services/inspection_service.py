@@ -116,9 +116,10 @@ def update_inspection(inspection_id, data):
 @transaction
 def submit_for_review(inspection_id, current_user_name):
     """提交审核 — V11: 同时更新 review_status='待审核'"""
+    from utils.constants import REVIEW_PENDING
     i = Inspection.query.get_or_404(inspection_id)
-    i.overall_status = '待审核'
-    i.review_status = '待审核'
+    i.overall_status = REVIEW_PENDING
+    i.review_status = REVIEW_PENDING
     return i
 
 
@@ -137,12 +138,13 @@ def review_inspection(inspection_id, approved, current_user_name, remark=''):
         - 不生成报告，工程师可修改后重新提交
     """
     from models import User
+    from utils.constants import REVIEW_APPROVED, REVIEW_REJECTED
     i = Inspection.query.get_or_404(inspection_id)
 
     # 找审核人 user 对象
     reviewer = User.query.filter_by(username=current_user_name).first()
 
-    i.review_status = '已通过' if approved else '已退回'
+    i.review_status = REVIEW_APPROVED if approved else REVIEW_REJECTED
     i.overall_status = '正常' if approved else '异常'
     i.reviewed_by = reviewer.id if reviewer else None
     i.reviewed_at = datetime.utcnow()

@@ -2,18 +2,12 @@
 """Ticket 工单业务服务"""
 from datetime import datetime
 from models import db, Ticket, TicketLog
+from utils.constants import TICKET_STATUSES
 from .base import ServiceError, transaction
 
 
-TICKET_STATES = {
-    '待派单',  # pending_assign
-    '已派单',  # assigned
-    '已接单',  # accepted
-    '处理中',  # processing
-    '待审核',  # submitted
-    '已验收',  # checked
-    '已关闭',  # closed
-}
+# 状态集合单一真源在 utils/constants.py（此处保留别名兼容旧引用）
+TICKET_STATES = TICKET_STATUSES
 
 # 状态机：定义允许的状态转换
 TICKET_TRANSITIONS = {

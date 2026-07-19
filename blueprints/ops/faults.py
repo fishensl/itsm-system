@@ -2,7 +2,7 @@
 """故障管理 CRUD + 故障类型 CRUD"""
 import os
 from flask import (render_template, request, redirect, url_for,
-                   flash, send_from_directory, jsonify, current_app)
+                   flash, send_from_directory, current_app)
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
 from models import (Fault, Ticket,
@@ -118,9 +118,9 @@ def fault_export():
 @login_required
 @require_permission('fault:view')
 def fault_type_list():
+    """故障类型管理页（修复：曾按 cwd 相对路径判断模板存在而双态返回 HTML/JSON）"""
     types = FaultType.query.order_by(FaultType.sort_order, FaultType.id).all()
-    return render_template('fault_types/list.html', types=types) if os.path.exists('templates/fault_types/list.html') \
-        else (jsonify([{'id': t.id, 'name': t.name, 'sort_order': t.sort_order} for t in types]))
+    return render_template('fault_types/list.html', types=types)
 
 
 # ============================ 故障类型 (CRUD) ============================
