@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """W3-R7 form_commit 封装路由回归：成功/失败路径的消息与重定向"""
-import pytest
 
 from models import db, SparePart, SpareStock, Opportunity, Customer
 
