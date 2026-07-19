@@ -2,19 +2,35 @@
 """销售管理蓝图：商机 / 报价单 / 合同 / 项目
 
 所有业务规则下沉到 services/sales_service.py，路由层只做参数接收和模板渲染。
+写操作统一走 utils.decorators.form_commit（try/except/rollback/flash/redirect 封装）。
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
-from flask_login import login_required
-from models import Opportunity, Quotation, Contract, Project, Customer, db
+from flask import Blueprint, render_template, request
+from flask_login import login_required, current_user
+from models import Opportunity, Quotation, Contract, Project, Customer
 from services.sales_service import (
     create_opportunity, update_opportunity, delete_opportunity,
     create_quotation, update_quotation, delete_quotation,
     create_contract, update_contract, delete_contract,
     create_project, update_project, delete_project,
 )
+from utils.decorators import form_commit
 from utils.permission import require_permission
 
 sales_bp = Blueprint('sales', __name__)
+
+
+def _gen_contract_tasks_msg(c):
+    """合同保存后自动生成巡检任务（幂等；作为 form_commit after 钩子，失败仅记日志）"""
+    if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
+        from utils.auto_task_generator import generate_contract_tasks
+        generated = generate_contract_tasks(contract_id=c.id)
+        if generated:
+            return f'，已生成 {len(generated)} 个巡检任务'
+    return ''
+
+
+def _me():
+    return current_user.realname or current_user.username
 
 
 # ============================ 商机 ============================
@@ -30,47 +46,25 @@ def opportunity_list():
 @sales_bp.route('/opportunities/add', methods=['POST'])
 @login_required
 @require_permission('sales:add')
+@form_commit('商机已创建', 'sales.opportunity_list', '商机创建失败')
 def opportunity_add():
-    from flask_login import current_user
-    try:
-        create_opportunity(request.form.to_dict(), current_user.realname or current_user.username)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '商机创建失败', 'danger')
-        return redirect(url_for('sales.opportunity_list'))
-    flash('商机已创建', 'success')
-    return redirect(url_for('sales.opportunity_list'))
+    create_opportunity(request.form.to_dict(), _me())
 
 
 @sales_bp.route('/opportunities/edit/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:edit')
+@form_commit('已更新', 'sales.opportunity_list', '商机更新失败')
 def opportunity_edit(id):
-    try:
-        update_opportunity(id, request.form.to_dict())
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '商机更新失败', 'danger')
-        return redirect(url_for('sales.opportunity_list'))
-    flash('已更新', 'success')
-    return redirect(url_for('sales.opportunity_list'))
+    update_opportunity(id, request.form.to_dict())
 
 
 @sales_bp.route('/opportunities/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
+@form_commit('已删除', 'sales.opportunity_list', '商机删除失败')
 def opportunity_delete(id):
-    try:
-        delete_opportunity(id)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '商机删除失败', 'danger')
-        return redirect(url_for('sales.opportunity_list'))
-    flash('已删除', 'success')
-    return redirect(url_for('sales.opportunity_list'))
+    delete_opportunity(id)
 
 
 # ============================ 报价单 ============================
@@ -86,47 +80,25 @@ def quotation_list():
 @sales_bp.route('/quotations/add', methods=['POST'])
 @login_required
 @require_permission('sales:add')
+@form_commit('报价单已创建', 'sales.quotation_list', '报价单创建失败')
 def quotation_add():
-    from flask_login import current_user
-    try:
-        create_quotation(request.form.to_dict(), current_user.realname or current_user.username)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '报价单创建失败', 'danger')
-        return redirect(url_for('sales.quotation_list'))
-    flash('报价单已创建', 'success')
-    return redirect(url_for('sales.quotation_list'))
+    create_quotation(request.form.to_dict(), _me())
 
 
 @sales_bp.route('/quotations/edit/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:edit')
+@form_commit('已更新', 'sales.quotation_list', '报价单更新失败')
 def quotation_edit(id):
-    try:
-        update_quotation(id, request.form.to_dict())
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '报价单更新失败', 'danger')
-        return redirect(url_for('sales.quotation_list'))
-    flash('已更新', 'success')
-    return redirect(url_for('sales.quotation_list'))
+    update_quotation(id, request.form.to_dict())
 
 
 @sales_bp.route('/quotations/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
+@form_commit('已删除', 'sales.quotation_list', '报价单删除失败')
 def quotation_delete(id):
-    try:
-        delete_quotation(id)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '报价单删除失败', 'danger')
-        return redirect(url_for('sales.quotation_list'))
-    flash('已删除', 'success')
-    return redirect(url_for('sales.quotation_list'))
+    delete_quotation(id)
 
 
 # ============================ 合同 ============================
@@ -142,68 +114,25 @@ def contract_list():
 @sales_bp.route('/contracts/add', methods=['POST'])
 @login_required
 @require_permission('sales:add')
+@form_commit('合同已创建', 'sales.contract_list', '合同创建失败', after=_gen_contract_tasks_msg)
 def contract_add():
-    from flask_login import current_user
-    try:
-        c = create_contract(request.form.to_dict(), current_user.realname or current_user.username)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '合同创建失败', 'danger')
-        return redirect(url_for('sales.contract_list'))
-    # 新合同：若配置了巡检频率 + 模板，立即按合同自动生成历史和未来任务（失败不阻塞）
-    gen_msg = ''
-    if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
-        try:
-            from utils.auto_task_generator import generate_contract_tasks
-            generated = generate_contract_tasks(contract_id=c.id)
-            if generated:
-                gen_msg = f'，已生成 {len(generated)} 个巡检任务'
-        except Exception:
-            current_app.logger.exception('合同 %s 任务自动生成失败', c.id)
-    flash(f'合同已创建{gen_msg}', 'success')
-    return redirect(url_for('sales.contract_list'))
+    return create_contract(request.form.to_dict(), _me())
 
 
 @sales_bp.route('/contracts/edit/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:edit')
+@form_commit('已更新', 'sales.contract_list', '合同更新失败', after=_gen_contract_tasks_msg)
 def contract_edit(id):
-    try:
-        update_contract(id, request.form.to_dict())
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '合同更新失败', 'danger')
-        return redirect(url_for('sales.contract_list'))
-    # 合同更新后：若打开了自动巡检 + 设置了频率/模板，补齐尚未生成的任务（幂等）
-    gen_msg = ''
-    try:
-        c = Contract.query.get(id)
-        if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
-            from utils.auto_task_generator import generate_contract_tasks
-            generated = generate_contract_tasks(contract_id=c.id)
-            if generated:
-                gen_msg = f'，已生成 {len(generated)} 个巡检任务'
-    except Exception:
-        current_app.logger.exception('合同 %s 任务自动生成失败', id)
-    flash(f'已更新{gen_msg}', 'success')
-    return redirect(url_for('sales.contract_list'))
+    return update_contract(id, request.form.to_dict())
 
 
 @sales_bp.route('/contracts/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
+@form_commit('已删除', 'sales.contract_list', '合同删除失败')
 def contract_delete(id):
-    try:
-        delete_contract(id)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '合同删除失败', 'danger')
-        return redirect(url_for('sales.contract_list'))
-    flash('已删除', 'success')
-    return redirect(url_for('sales.contract_list'))
+    delete_contract(id)
 
 
 # ============================ 项目 ============================
@@ -219,44 +148,22 @@ def project_list():
 @sales_bp.route('/projects/add', methods=['POST'])
 @login_required
 @require_permission('sales:add')
+@form_commit('项目已创建', 'sales.project_list', '项目创建失败')
 def project_add():
-    from flask_login import current_user
-    try:
-        create_project(request.form.to_dict(), current_user.realname or current_user.username)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '项目创建失败', 'danger')
-        return redirect(url_for('sales.project_list'))
-    flash('项目已创建', 'success')
-    return redirect(url_for('sales.project_list'))
+    create_project(request.form.to_dict(), _me())
 
 
 @sales_bp.route('/projects/edit/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:edit')
+@form_commit('已更新', 'sales.project_list', '项目更新失败')
 def project_edit(id):
-    try:
-        update_project(id, request.form.to_dict())
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '项目更新失败', 'danger')
-        return redirect(url_for('sales.project_list'))
-    flash('已更新', 'success')
-    return redirect(url_for('sales.project_list'))
+    update_project(id, request.form.to_dict())
 
 
 @sales_bp.route('/projects/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('sales:delete')
+@form_commit('已删除', 'sales.project_list', '项目删除失败')
 def project_delete(id):
-    try:
-        delete_project(id)
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("更新失败：%s", repr(e))
-        flash(str(e) or '项目删除失败', 'danger')
-        return redirect(url_for('sales.project_list'))
-    flash('已删除', 'success')
-    return redirect(url_for('sales.project_list'))
+    delete_project(id)

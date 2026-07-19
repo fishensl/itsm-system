@@ -4,7 +4,6 @@
 所有业务规则下沉到 services/，路由层只做参数接收和模板渲染。
 """
 import os
-import tempfile
 from datetime import datetime, timedelta
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_from_directory, jsonify, current_app, abort, session)
@@ -27,10 +26,9 @@ from services.fault_service import (create_fault, update_fault)
 ops_bp = Blueprint('ops', __name__)
 
 
-# V7 知识库附件保存目录
+# V7 知识库附件保存目录（目录由 create_app 的 _ensure_runtime_dirs 统一创建，消除导入副作用）
 KB_ATTACH_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              'static', 'uploads', 'knowledge')
-os.makedirs(KB_ATTACH_DIR, exist_ok=True)
 ALLOWED_KB_EXTS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx',
                    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.txt'}
 
@@ -172,24 +170,19 @@ def inspection_delete(id):
 @login_required
 @require_permission('inspection:view')
 def inspection_export():
-    # 简化版：导出 Excel（保留兼容性）
-    import openpyxl
+    # 统一走 utils.excel_export；joinedload 消除逐行 customer_rel N+1
     from datetime import date
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = '巡检记录'
-    ws.append(['标题', '客户', '巡检员', '巡检日期', '结果', '结论'])
-    for i in Inspection.query.order_by(Inspection.id.desc()).all():
-        cust = i.customer_rel.name if i.customer_rel else '-'
-        ws.append([i.title, cust, i.inspector,
-                   i.inspection_date.isoformat() if i.inspection_date else '',
-                   i.overall_status or '', i.conclusion or ''])
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-    tmp.close()
-    wb.save(tmp.name)
-    return send_from_directory(os.path.dirname(tmp.name), os.path.basename(tmp.name),
-                               as_attachment=True,
-                               download_name=f'巡检导出_{date.today().isoformat()}.xlsx')
+    from utils.excel_export import export_xlsx
+    rows = [[i.title, i.customer_rel.name if i.customer_rel else '-', i.inspector,
+             i.inspection_date.isoformat() if i.inspection_date else '',
+             i.overall_status or '', i.conclusion or '']
+            for i in Inspection.query.options(joinedload(Inspection.customer_rel))
+            .order_by(Inspection.id.desc()).all()]
+    path, download_name = export_xlsx(
+        ['标题', '客户', '巡检员', '巡检日期', '结果', '结论'], rows,
+        f'巡检导出_{date.today().isoformat()}.xlsx', sheet_name='巡检记录')
+    return send_from_directory(os.path.dirname(path), os.path.basename(path),
+                               as_attachment=True, download_name=download_name)
 
 
 # ============================ 巡检任务（V18: 已并入 task_schedule，仅保留 URL 301 兼容） ============================
@@ -366,23 +359,19 @@ def fault_delete(id):
 @login_required
 @require_permission('fault:view')
 def fault_export():
-    import openpyxl
+    # 统一走 utils.excel_export；joinedload 消除逐行 customer N+1
     from datetime import date
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = '故障记录'
-    ws.append(['标题', '客户', '处理人', '故障时间', '结果'])
-    for f in Fault.query.order_by(Fault.id.desc()).all():
-        cust = f.customer.name if f.customer else '-'
-        ws.append([f.title, cust, f.handler or '',
-                   f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '',
-                   f.result or ''])
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-    tmp.close()
-    wb.save(tmp.name)
-    return send_from_directory(os.path.dirname(tmp.name), os.path.basename(tmp.name),
-                               as_attachment=True,
-                               download_name=f'故障导出_{date.today().isoformat()}.xlsx')
+    from utils.excel_export import export_xlsx
+    rows = [[f.title, f.customer_rel.name if f.customer_rel else '-', f.handler or '',
+             f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '',
+             f.result or '']
+            for f in Fault.query.options(joinedload(Fault.customer_rel))
+            .order_by(Fault.id.desc()).all()]
+    path, download_name = export_xlsx(
+        ['标题', '客户', '处理人', '故障时间', '结果'], rows,
+        f'故障导出_{date.today().isoformat()}.xlsx', sheet_name='故障记录')
+    return send_from_directory(os.path.dirname(path), os.path.basename(path),
+                               as_attachment=True, download_name=download_name)
 
 
 # ============================ 工单管理 ============================

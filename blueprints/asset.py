@@ -6,7 +6,6 @@
 业务复杂、模板互相引用多，暂留 app.py 中。
 """
 import os
-import tempfile
 from datetime import date
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_from_directory, jsonify, current_app)
@@ -324,8 +323,6 @@ def api_device_password_history(id):
 @login_required
 @require_permission('device:view')
 def device_export():
-    import openpyxl
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     search = request.args.get('search', '')
     customer_filter = request.args.get('customer_id', '', type=int)
     query = Device.query
@@ -359,21 +356,11 @@ def device_export():
             current_user.username, len(devices), request.remote_addr)
     if not selected_cols:
         selected_cols = list(all_columns.keys())
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = '设备信息'
-    header_font = Font(name='微软雅黑', bold=True, size=11, color='FFFFFF')
-    header_fill = PatternFill(start_color='1890FF', end_color='096DD9', fill_type='solid')
-    header_align = Alignment(horizontal='center', vertical='center')
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
-                        top=Side(style='thin'), bottom=Side(style='thin'))
+    # 统一走 utils.excel_export（替代手写 openpyxl 样式代码）
+    from utils.excel_export import export_xlsx
     headers = [all_columns[c] for c in selected_cols]
-    for col_idx, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx, value=h)
-        cell.font = header_font; cell.fill = header_fill
-        cell.alignment = header_align; cell.border = thin_border
-    for row_idx, d in enumerate(devices, 2):
-        license_remaining = (d.license_expiry - date.today()).days if d.license_expiry else ''
+    rows = []
+    for d in devices:
         data_map = {
             'customer_name': d.customer.name if d.customer else '',
             'device_name': d.device_name, 'device_type': d.device_type,
@@ -388,20 +375,15 @@ def device_export():
             'os_version': d.os_version or '', 'rule_version': d.rule_version or '',
             'is_maintenance': '是' if d.is_maintenance else '否',
             'is_in_use': '是' if d.is_in_use else '否',
-            'license_remaining_days': license_remaining,
+            'license_remaining_days': (d.license_expiry - date.today()).days if d.license_expiry else '',
             'remark': d.remark or '',
         }
-        for col_idx, c in enumerate(selected_cols, 1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=data_map.get(c, ''))
-            cell.border = thin_border
-            cell.alignment = Alignment(vertical='center')
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-    wb.save(tmp.name)
-    tmp.close()
+        rows.append([data_map.get(c, '') for c in selected_cols])
+    path, download_name = export_xlsx(
+        headers, rows, f'设备导出_{date.today().isoformat()}.xlsx', sheet_name='设备信息')
     return send_from_directory(
-        os.path.dirname(tmp.name), os.path.basename(tmp.name),
-        as_attachment=True,
-        download_name=f'设备导出_{date.today().isoformat()}.xlsx'
+        os.path.dirname(path), os.path.basename(path),
+        as_attachment=True, download_name=download_name
     )
 
 
@@ -514,218 +496,103 @@ def _sync_customer_device_count(customer_id):
     if not customer_id:
         return
     from models import Customer
-    from app import calculate_customer_tier
+    # 直接走服务层，消除 blueprints → app 的反向依赖
+    from services.customer_service import _calculate_tier
     cnt = Device.query.filter_by(customer_id=customer_id).count()
     c = Customer.query.get(customer_id)
     if c:
         c.device_count = cnt
-        auto_tier = calculate_customer_tier(cnt, c.has_onsite, c.has_drill)
+        auto_tier = _calculate_tier(cnt, c.has_onsite, c.has_drill)
         if c.level not in ('核心', '重点', '常规') or not c.level:
             c.level = auto_tier
         db.session.commit()
 
 
-# ============================ 设备配置子路由 ============================
-@asset_bp.route("/device-types", methods=["GET", "POST"])
-@login_required
-@require_permission("device:view")
-def device_type_list():
-    if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
+# ============================ 设备字典配置（工厂生成：设备类型/品牌/网络类型/自定义字段） ============================
+def register_dict_crud(bp, *, path, model, template, list_var, endpoint_prefix,
+                       order='sort', extra_fields=()):
+    """注册字典配置 CRUD 路由（替代原四份同构复制代码）。
+
+    path: URL 前缀（如 '/device-types'）；model: 需有 name 字段的 ORM 模型
+    order: 'sort' 按 sort_order+id，'id' 仅按 id
+    extra_fields: add/edit 时从表单透传的额外字段（如 ('field_type',)）
+    生成端点名与原手工路由完全一致（list/edit/delete/add），模板 url_for 不受影响。
+    """
+    list_ep = f'{endpoint_prefix}_list'
+    sort_cols = (model.sort_order, model.id) if order == 'sort' else (model.id,)
+
+    def _apply_form(obj, is_new):
+        """表单值落模型；新增时 name 必填（返回 False 表示校验失败）"""
+        name = (request.form.get('name') or '').strip()
         if name:
-            dt = DeviceType(name=name, sort_order=int(request.form.get("sort_order") or 0))
-            db.session.add(dt); db.session.commit()
-            flash("已添加", "success")
-        return redirect(url_for("asset.device_type_list"))
-    types = DeviceType.query.order_by(DeviceType.sort_order, DeviceType.id).all()
-    return render_template("device_types/list.html", types=types)
+            obj.name = name
+        elif is_new:
+            return False
+        if hasattr(model, 'sort_order') and request.form.get('sort_order') is not None:
+            obj.sort_order = int(request.form.get('sort_order') or 0)
+        for f in extra_fields:
+            v = request.form.get(f)
+            if v is not None:
+                setattr(obj, f, v)
+        return True
+
+    def _do_add():
+        obj = model()
+        if _apply_form(obj, is_new=True):
+            db.session.add(obj)
+            db.session.commit()
+            flash('已添加', 'success')
+        return redirect(url_for(f'asset.{list_ep}'))
+
+    @login_required
+    @require_permission('device:view')
+    def list_view():
+        if request.method == 'POST':
+            return _do_add()
+        items = model.query.order_by(*sort_cols).all()
+        return render_template(template, **{list_var: items})
+
+    @login_required
+    @require_permission('device:edit')
+    def edit_view(id):
+        obj = model.query.get_or_404(id)
+        _apply_form(obj, is_new=False)
+        db.session.commit()
+        flash('已更新', 'success')
+        return redirect(url_for(f'asset.{list_ep}'))
+
+    @login_required
+    @require_permission('device:delete')
+    def delete_view(id):
+        model.query.filter_by(id=id).delete()
+        db.session.commit()
+        flash('已删除', 'success')
+        return redirect(url_for(f'asset.{list_ep}'))
+
+    @login_required
+    @require_permission('device:edit')
+    def add_view():
+        return _do_add()
+
+    bp.add_url_rule(path, endpoint_prefix + '_list', list_view, methods=['GET', 'POST'])
+    bp.add_url_rule(f'{path}/edit/<int:id>', endpoint_prefix + '_edit', edit_view, methods=['POST'])
+    bp.add_url_rule(f'{path}/delete/<int:id>', endpoint_prefix + '_delete', delete_view, methods=['POST'])
+    bp.add_url_rule(f'{path}/add', endpoint_prefix + '_add', add_view, methods=['POST'])
 
 
-@asset_bp.route("/device-types/edit/<int:id>", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def device_type_edit(id):
-    dt = DeviceType.query.get_or_404(id)
-    dt.name = (request.form.get("name") or dt.name).strip()
-    dt.sort_order = int(request.form.get("sort_order") or 0)
-    db.session.commit()
-    flash("已更新", "success")
-    return redirect(url_for("asset.device_type_list"))
-
-
-@asset_bp.route("/device-types/delete/<int:id>", methods=['POST'])
-@login_required
-@require_permission("device:delete")
-def device_type_delete(id):
-    DeviceType.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash("已删除", "success")
-    return redirect(url_for("asset.device_type_list"))
-
-
-@asset_bp.route("/device-brands", methods=["GET", "POST"])
-@login_required
-@require_permission("device:view")
-def brand_list():
-    if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        sort_order = int(request.form.get("sort_order") or 0)
-        if name:
-            b = Brand(name=name, sort_order=sort_order)
-            db.session.add(b); db.session.commit()
-            flash("已添加", "success")
-        return redirect(url_for("asset.brand_list"))
-    brands = Brand.query.order_by(Brand.sort_order, Brand.id).all()
-    return render_template("brands/list.html", brands=brands)
-
-
-@asset_bp.route("/device-brands/edit/<int:id>", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def brand_edit(id):
-    b = Brand.query.get_or_404(id)
-    b.name = (request.form.get("name") or b.name).strip()
-    if request.form.get("sort_order") is not None:
-        b.sort_order = int(request.form.get("sort_order") or 0)
-    db.session.commit()
-    flash("已更新", "success")
-    return redirect(url_for("asset.brand_list"))
-
-
-@asset_bp.route("/device-brands/delete/<int:id>", methods=['POST'])
-@login_required
-@require_permission("device:delete")
-def brand_delete(id):
-    Brand.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash("已删除", "success")
-    return redirect(url_for("asset.brand_list"))
-
-
-@asset_bp.route("/device-network-types", methods=["GET", "POST"])
-@login_required
-@require_permission("device:view")
-def network_type_list():
-    if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        if name:
-            n = NetworkType(name=name)
-            db.session.add(n); db.session.commit()
-            flash("已添加", "success")
-        return redirect(url_for("asset.network_type_list"))
-    types = NetworkType.query.order_by(NetworkType.id).all()
-    return render_template("network_types/list.html", types=types)
-
-
-@asset_bp.route("/device-network-types/edit/<int:id>", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def network_type_edit(id):
-    n = NetworkType.query.get_or_404(id)
-    n.name = (request.form.get("name") or n.name).strip()
-    db.session.commit()
-    flash("已更新", "success")
-    return redirect(url_for("asset.network_type_list"))
-
-
-@asset_bp.route("/device-network-types/delete/<int:id>", methods=['POST'])
-@login_required
-@require_permission("device:delete")
-def network_type_delete(id):
-    NetworkType.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash("已删除", "success")
-    return redirect(url_for("asset.network_type_list"))
-
-
-@asset_bp.route("/device-custom-fields", methods=["GET", "POST"])
-@login_required
-@require_permission("device:view")
-def custom_field_list():
-    if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        if name:
-            f = CustomField(name=name, field_type=request.form.get("field_type", "text"))
-            db.session.add(f); db.session.commit()
-            flash("已添加", "success")
-        return redirect(url_for("asset.custom_field_list"))
-    fields = CustomField.query.order_by(CustomField.id).all()
-    return render_template("custom_fields/list.html", fields=fields)
-
-
-@asset_bp.route("/device-custom-fields/edit/<int:id>", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def custom_field_edit(id):
-    f = CustomField.query.get_or_404(id)
-    f.name = (request.form.get("name") or f.name).strip()
-    f.field_type = request.form.get("field_type", f.field_type)
-    db.session.commit()
-    flash("已更新", "success")
-    return redirect(url_for("asset.custom_field_list"))
-
-
-@asset_bp.route("/device-custom-fields/delete/<int:id>", methods=['POST'])
-@login_required
-@require_permission("device:delete")
-def custom_field_delete(id):
-    CustomField.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash("已删除", "success")
-    return redirect(url_for("asset.custom_field_list"))
-
-
-# ============================ 设备类型 add（之前漏了） ============================
-@asset_bp.route("/device-types/add", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def device_type_add():
-    name = (request.form.get("name") or "").strip()
-    if name:
-        dt = DeviceType(name=name, sort_order=int(request.form.get("sort_order") or 0))
-        db.session.add(dt); db.session.commit()
-        flash("已添加", "success")
-    return redirect(url_for("asset.device_type_list"))
-
-
-# ============================ 品牌 add（之前漏了） ============================
-@asset_bp.route("/device-brands/add", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def brand_add():
-    name = (request.form.get("name") or "").strip()
-    sort_order = int(request.form.get("sort_order") or 0)
-    if name:
-        b = Brand(name=name, sort_order=sort_order)
-        db.session.add(b); db.session.commit()
-        flash("已添加", "success")
-    return redirect(url_for("asset.brand_list"))
-
-
-# ============================ 网络类型 add ============================
-@asset_bp.route("/device-network-types/add", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def network_type_add():
-    name = (request.form.get("name") or "").strip()
-    if name:
-        n = NetworkType(name=name)
-        db.session.add(n); db.session.commit()
-        flash("已添加", "success")
-    return redirect(url_for("asset.network_type_list"))
-
-
-# ============================ 自定义字段 add ============================
-@asset_bp.route("/device-custom-fields/add", methods=["POST"])
-@login_required
-@require_permission("device:edit")
-def custom_field_add():
-    name = (request.form.get("name") or "").strip()
-    if name:
-        f = CustomField(name=name, field_type=request.form.get("field_type", "text"))
-        db.session.add(f); db.session.commit()
-        flash("已添加", "success")
-    return redirect(url_for("asset.custom_field_list"))
+register_dict_crud(asset_bp, path='/device-types', model=DeviceType,
+                   template='device_types/list.html', list_var='types',
+                   endpoint_prefix='device_type')
+register_dict_crud(asset_bp, path='/device-brands', model=Brand,
+                   template='brands/list.html', list_var='brands',
+                   endpoint_prefix='brand')
+register_dict_crud(asset_bp, path='/device-network-types', model=NetworkType,
+                   template='network_types/list.html', list_var='types',
+                   endpoint_prefix='network_type', order='id')
+register_dict_crud(asset_bp, path='/device-custom-fields', model=CustomField,
+                   template='custom_fields/list.html', list_var='fields',
+                   endpoint_prefix='custom_field', order='id',
+                   extra_fields=('field_type',))
 
 
 # ============================ 设备固件版本库 (V12) ============================

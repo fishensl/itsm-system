@@ -10,7 +10,8 @@ import os
 import tempfile
 
 
-def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True):
+def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True,
+                header_color=('1890FF', '096DD9')):
     """生成 Excel 并通过 send_from_directory 发送给客户端
 
     :param headers: 列名 list，如 ['客户名称', '电话']
@@ -18,6 +19,7 @@ def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True):
     :param filename: 客户端看到的下载文件名
     :param sheet_name: 工作表名
     :param use_styles: 是否使用彩色表头样式
+    :param header_color: (起始色, 结束色) 表头渐变，默认蓝；备件用绿 ('52C41A','389E0D')
     :return: (file_path, download_name) — 传给 send_from_directory
     """
     import openpyxl
@@ -28,7 +30,7 @@ def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True):
 
     if use_styles:
         header_font = Font(name='微软雅黑', bold=True, size=11, color='FFFFFF')
-        header_fill = PatternFill(start_color='1890FF', end_color='096DD9', fill_type='solid')
+        header_fill = PatternFill(start_color=header_color[0], end_color=header_color[1], fill_type='solid')
         header_align = Alignment(horizontal='center', vertical='center')
         thin = Side(style='thin')
         thin_border = Border(left=thin, right=thin, top=thin, bottom=thin)

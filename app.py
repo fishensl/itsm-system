@@ -1053,28 +1053,8 @@ def customer_list():
 
 
 # ==================== 客户管理（已迁移至 blueprints/customer.py）====================
-# ========== 客户定级（保留路由层封装，业务规则见 services/customer_service._calculate_tier）==========
-def calculate_customer_tier(device_count, has_onsite, has_drill):
-    """根据设备数、驻场、攻防演练自动定级（兼容旧调用；新代码用 customer_service._calculate_tier）"""
-    from services.customer_service import _calculate_tier
-    return _calculate_tier(device_count, has_onsite, has_drill)
-
-def _sync_customer_device_count(customer_id):
-    """同步客户的 device_count 冗余字段"""
-    if not customer_id:
-        return
-    cnt = Device.query.filter_by(customer_id=customer_id).count()
-    c = Customer.query.get(customer_id)
-    if c:
-        c.device_count = cnt
-        # 重新定级
-        auto_tier = calculate_customer_tier(cnt, c.has_onsite, c.has_drill)
-        if c.level not in ('核心', '重点', '常规') or not c.level:
-            c.level = auto_tier
-        db.session.commit()
-
-
-
+# 客户定级/设备数同步逻辑统一在 services/customer_service.py 与 blueprints/asset.py
+# （原 app.py 内的 calculate_customer_tier/_sync_customer_device_count 兼容封装已删除，无调用方）
 
 # ==================== 设备密码管理 ====================
 @login_required
@@ -1201,6 +1181,17 @@ def register_routes(app):
                      api_dashboard_preferences_reset, methods=['POST'])
 
 
+# ==================== 运行时目录 ====================
+def _ensure_runtime_dirs():
+    """创建运行时目录（替代原各蓝图模块级 os.makedirs 导入副作用）"""
+    base = os.path.dirname(os.path.abspath(__file__))
+    for d in ('instance', 'logs', 'reports', 'uploads', 'backups',
+              os.path.join('static', 'uploads'),
+              os.path.join('static', 'uploads', 'spare_parts'),
+              os.path.join('static', 'uploads', 'knowledge')):
+        os.makedirs(os.path.join(base, d), exist_ok=True)
+
+
 # ==================== 应用工厂 ====================
 def create_app(test_config=None):
     """应用工厂：创建并配置 Flask 实例。
@@ -1208,6 +1199,7 @@ def create_app(test_config=None):
     test_config: 测试/特殊部署时的配置覆盖 dict
     （如 SQLALCHEMY_DATABASE_URI 指向临时库、WTF_CSRF_ENABLED=False、RATELIMIT_ENABLED=False）。
     """
+    _ensure_runtime_dirs()
     app = Flask(__name__)
     # 经 nginx/反代时识别 X-Forwarded-Proto，使 request.is_secure 正确反映外部协议
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
