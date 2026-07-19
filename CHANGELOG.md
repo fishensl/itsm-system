@@ -8,6 +8,20 @@
 
 ## [未发布] — 2026-07-19
 
+### 结构重构（W3）
+
+- **巨型文件拆包**（端点名全部不变，模板零改动）：
+  - `ops.py`（1476 行）→ `blueprints/ops/` 8 模块（巡检/任务重定向/模板/故障/工单/知识库/巡检员/报告）
+  - `asset.py`（982 行）→ `blueprints/asset/` 4 模块（设备/字典/固件/配置备份）
+  - `app.py`（1245 行）→ 325 行，24 个视图迁入 `views/` 包（dashboard/auth/admin_users/system）
+  - `models.py`（1108 行）→ `models/` 包 11 模块（`base.py` 持 db 单例，`__init__` 全量 re-export）
+- **重复代码消除**：
+  - `register_dict_crud` 工厂替代设备类型/品牌/网络类型/自定义字段四份同构 CRUD（-200 行）
+  - 四份手写 Excel 导出统一走 `utils.excel_export`；修 `fault_export` 引用不存在的 `Fault.customer`（必 500）
+  - `utils.decorators.form_commit` 封装表单写操作，sales/spare 26 个路由收敛
+- **依赖清理**：消除 asset→app 循环导入（删 app.py 死封装）；模块级 `os.makedirs` 导入副作用移入 `create_app._ensure_runtime_dirs`
+- 新增测试 16 用例；累计 **101 用例全绿**
+
 ### 性能优化（W1）
 
 - **N+1 消除**：固件版本库按品牌+型号挂设备（单条 OR 查询替代逐组查询）；机柜列表/详情（selectinload+joinedload）；部门树（head/members 预加载）；报告中心三类记录 customer_rel 预加载
