@@ -61,7 +61,8 @@ def update_spare_part(spare_id, data):
 @transaction
 def delete_spare_part(spare_id):
     p = SparePart.query.get_or_404(spare_id)
-    if p.stocks.count() > 0:
+    # p.stocks 是 list（backref 默认 lazy select），.count() 无参会 TypeError——用查询计数
+    if SpareStock.query.filter_by(spare_part_id=p.id).count() > 0:
         raise ServiceError('该备件仍有库存记录，无法删除')
     db.session.delete(p)
 

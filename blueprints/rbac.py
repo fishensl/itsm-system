@@ -10,13 +10,13 @@ URL 前缀：/rbac
   GET  /rbac/roles/<int:rid>/permissions   权限矩阵
   POST /rbac/roles/<int:rid>/permissions   保存勾选（接受 _remove 取消列表）
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
 from flask_login import login_required, current_user
 from models import db, Role, RolePermission, Permission, UserPermission, User
 from utils.permission import (
     require_permission, admin_required,
-    PERMISSION_MAP, invalidate_role,
+    invalidate_role,
 )
 
 rbac_bp = Blueprint('rbac', __name__)
@@ -271,7 +271,6 @@ def user_permissions(uid):
         return redirect(url_for('rbac.user_permissions', uid=uid))
 
     # GET
-    from utils.permission import PERMISSION_MAP
     from datetime import date
     all_perms = Permission.query.filter_by(is_active=True).order_by(
         Permission.category, Permission.sort_order, Permission.id

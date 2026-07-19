@@ -15,9 +15,11 @@ import sys
 # 让脚本能从项目根目录导入 app / models
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import app
+from app import create_app
 from models import db, InspectionTask
 from utils.customer_task_generator import QUARTER_CN
+
+app = create_app()
 
 # 第1季度 / 第2季度 ... → 第一季度 / 第二季度 ...
 _PATTERN = re.compile(r'第([1-4])季度')

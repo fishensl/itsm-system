@@ -47,31 +47,18 @@ def _seed_all_impl() -> None:
     # 1. 权限码
     from utils.permission import PERMISSION_MAP, ROLE_PERMISSIONS_MAP
 
-    # 分类映射（更细粒度）
-    CATEGORY_LABELS = {
-        'dashboard': '工作台', 'customer': '客户管理', 'region': '地区管理',
-        'device': '设备管理', 'topology': '拓扑图', 'inspection': '巡检管理',
-        'ticket': '工单管理', 'fault': '故障管理', 'kb': '知识库',
-        'task': '任务派发', 'department': '部门管理', 'category': '单位类别',
-        'spare': '备件管理', 'sales': '销售管理', 'contract_auto': '合同自动巡检',
-        'user': '用户管理', 'permission': '权限管理', 'report': '数据报表',
-        'ai': 'AI 对接', 'draft': '草稿管理', 'system': '系统设置',
-    }
-
     existing_perms = {p.code: p for p in Permission.query.all()}
     for code, name in PERMISSION_MAP.items():
         cat = _category_from_code(code)
         if code in existing_perms:
             p = existing_perms[code]
             # 只更新 label/category，is_system 一旦 True 不再覆盖
-            updated = False
             if p.name != name:
-                p.name = name; updated = True
-            new_cat = cat
-            if p.category != new_cat:
-                p.category = new_cat; updated = True
+                p.name = name
+            if p.category != cat:
+                p.category = cat
             if not p.is_system:
-                p.is_system = True; updated = True
+                p.is_system = True
             # 不再强制 is_active=True：尊重管理员对系统权限的停用操作，
             # 否则每次重启都会把被停用的权限重新激活
             # 不动 description（用户可能改过）

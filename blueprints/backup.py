@@ -5,12 +5,11 @@
 便于服务器迁移后一键恢复。属高敏感操作，必须 admin + 二次确认 + CSRF。
 """
 import os
-import io
 import tempfile
 import subprocess
 from datetime import datetime
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, send_file, current_app, jsonify, abort, after_this_request)
+                   flash, send_file, current_app, after_this_request)
 from flask_login import login_required, current_user
 from models import db
 from utils.permission import admin_required

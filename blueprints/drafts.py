@@ -8,7 +8,17 @@ import json
 draft_bp = Blueprint('drafts', __name__)
 
 
-# 视图注册后再调用 csrf.exempt（在 blueprints/__init__.py 注册时统一处理）
+def _norm_related_id(raw):
+    """related_id 统一为 int 或 None（前端 JSON 可能传字符串/'null'/空值）。
+
+    修复 save 不转型入库、load 用 type=int 查询导致的类型不匹配隐患。
+    """
+    if raw in (None, '', 'null', 'undefined'):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 @draft_bp.route('/save', methods=['POST'])
@@ -17,7 +27,7 @@ def draft_save():
     """保存草稿"""
     data = request.get_json() or request.form
     form_type = data.get('form_type', '')
-    related_id = data.get('related_id')
+    related_id = _norm_related_id(data.get('related_id'))
     form_data = data.get('form_data_json', '{}')
 
     if not form_type:
@@ -52,7 +62,7 @@ def draft_save():
 def draft_load():
     """加载草稿"""
     form_type = request.args.get('form_type', '')
-    related_id = request.args.get('related_id', type=int)
+    related_id = _norm_related_id(request.args.get('related_id'))
 
     if not form_type:
         return jsonify({'success': False, 'error': 'form_type required'}), 400
@@ -80,7 +90,7 @@ def draft_delete():
     """删除草稿"""
     data = request.get_json() or request.form
     form_type = data.get('form_type', '')
-    related_id = data.get('related_id')
+    related_id = _norm_related_id(data.get('related_id'))
 
     draft = FormDraft.query.filter_by(
         user_id=current_user.id,

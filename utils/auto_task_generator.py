@@ -1,7 +1,7 @@
 """合同自动巡检任务生成器"""
 from datetime import date, timedelta
 from flask import current_app
-from models import db, Contract, InspectionTask, InspectionTemplate, Customer
+from models import db, Contract, InspectionTask, InspectionTemplate
 
 
 def _get_frequency_delta(frequency):
@@ -117,7 +117,6 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
                 }
 
                 if not dry_run:
-                    customer = Customer.query.get(contract.customer_id) if contract.customer_id else None
                     task = InspectionTask(
                         title=task_title,
                         task_type='计划',

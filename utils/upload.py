@@ -3,7 +3,6 @@
 import os
 import re
 import tempfile
-from flask import flash, redirect, url_for, request
 from werkzeug.utils import secure_filename
 
 
@@ -49,7 +48,6 @@ def validate_upload(f, allowed_ext, max_size_mb=20):
 
 def save_temp_upload(f, suffix=None):
     """保存上传文件到临时目录并返回路径"""
-    import tempfile
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix or '')
     tmp.close()
     f.save(tmp.name)
@@ -63,7 +61,6 @@ def open_excel(path, app=None, max_rows=MAX_IMPORT_ROWS):
     error_response 不为 None 时直接返回给调用方
     """
     import openpyxl
-    from flask import flash, redirect, url_for
     try:
         wb = openpyxl.load_workbook(path)
         ws = wb.active

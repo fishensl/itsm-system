@@ -4,62 +4,46 @@
 
 import json
 import os
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, send_from_directory, jsonify, abort)
+                   flash, send_from_directory, jsonify, current_app)
 from flask_login import (LoginManager, login_user, logout_user,
                          login_required, current_user)
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from models import db, User, Customer, Device, Inspection, Fault, Inspector, DeviceType, PasswordHistory, FaultType, InspectionTemplate
-from models import Region, Ticket, KnowledgeBase, Brand, NetworkType, CustomField, DeviceCredential, DeviceInterface, InspectionTask, TicketLog
-from models import SparePart, SpareStock, PurchaseOrder, SalesOrder
+from models import db, User, Customer, Device, Inspection, Fault, Inspector, DeviceType, FaultType
+from models import Region, Ticket, KnowledgeBase, InspectionTask
+from models import SparePart, SpareStock
 from models import Opportunity, Quotation, Contract, Project
-from models import AIConfig, Topology, DeviceConfigBackup, DeviceCollectTask
-from models import Department, CustomerCategory, FormDraft, DeviceSubType, UserDashboardPreference, UserPermission, Permission
-from models import Role, RolePermission
-from models import InspectionDeviceTemplate, InspectionTaskTemplate
-from utils.crypto import encrypt_password, decrypt_password
+from models import AIConfig, Topology
+from models import Department, CustomerCategory, FormDraft, UserDashboardPreference
+from models import Role
 from utils.pagination import paginate, paginate_render_args
-from utils.permission import require_permission, get_user_permissions, register_template_functions, is_supervisor
+from utils.permission import require_permission, register_template_functions, is_supervisor
 from utils.decorators import api_view
-from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT, MAX_IMPORT_ROWS
 from config import Config, setup_logging, setup_security_headers
 
-app = Flask(__name__)
-# 经 nginx/反代时识别 X-Forwarded-Proto，使 request.is_secure 正确反映外部协议
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-app.config['SECRET_KEY'] = Config.SECRET_KEY
-app.config['SQLALCHEMY_DATABASE_URI'] = Config.SQLALCHEMY_DATABASE_URI
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = Config.SQLALCHEMY_TRACK_MODIFICATIONS
-app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
-# CSRF：默认对所有 POST/PUT/PATCH/DELETE 启用
-app.config['WTF_CSRF_HEADERS'] = ['X-CSRFToken', 'X-CSRF-Token']
-app.config['WTF_CSRF_TIME_LIMIT'] = 60 * 60 * 4  # 4 小时
-
+# ==================== 扩展实例（应用工厂模式：在 create_app 中 init_app） ====================
+csrf = CSRFProtect()
 # Limiter：基于 IP 的限流（限流存储使用内存，单进程足够）
-app.config['RATELIMIT_STORAGE_URI'] = 'memory://'
 limiter = Limiter(
     key_func=get_remote_address,
-    app=app,
     default_limits=[],  # 默认不限；个别路由显式声明
     headers_enabled=True,
 )
-
-setup_logging(app)
-register_template_functions(app)
-setup_security_headers(app)
+login_manager = LoginManager()
+login_manager.login_view = 'login'
+# flask-migrate（Alembic）接管 schema 演进：替代旧 utils/seed_permissions.py 的 PRAGMA 自动 ADD COLUMN
+# init_db() 内部会调 flask db upgrade 应用 migrations/ 下的迁移脚本
+from flask_migrate import Migrate
+migrate = Migrate()
 
 # V13: 证书选项注入 Jinja 全局，模板按分组渲染 checkbox
 from utils.cert_options import CERT_CATEGORIES as _CERT_CATEGORIES
-app.jinja_env.globals['CERT_CATEGORIES'] = _CERT_CATEGORIES
 
 # 读取应用版本号
 _VERSION_FILE = os.path.join(os.path.dirname(__file__), 'VERSION')
@@ -68,14 +52,9 @@ try:
         _APP_VERSION = _vf.read().strip()
 except Exception:
     _APP_VERSION = 'unknown'
-app.jinja_env.globals['APP_VERSION'] = _APP_VERSION
-
-# CSRF 必须在 register_blueprints 之前 init，但 login 路由要豁免（外部 POST）
-csrf = CSRFProtect(app)
 
 
-# CSRF token 同步写入非 HttpOnly cookie，供前端 JS 读取
-@app.after_request
+# CSRF token 同步写入非 HttpOnly cookie，供前端 JS 读取（create_app 中 after_request 注册）
 def _set_csrf_cookie(response):
     try:
         # 触发 token 生成（写入 session + g.csrf_token）
@@ -91,46 +70,27 @@ def _set_csrf_cookie(response):
         pass
     return response
 
-db.init_app(app)
 
-# flask-migrate（Alembic）接管 schema 演进：替代旧 utils/seed_permissions.py 的 PRAGMA 自动 ADD COLUMN
-# init_db() 内部会调 flask db upgrade 应用 migrations/ 下的迁移脚本
-from flask_migrate import Migrate
-migrate = Migrate(app, db)
-
-# 注册新增蓝图模块
-from blueprints import register_blueprints
-register_blueprints(app)
-
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-
-
-# ==================== 全局错误处理 ====================
-@app.errorhandler(404)
+# ==================== 全局错误处理（create_app 中 register_error_handler 注册） ====================
 def err_404(e):
     return render_template('errors/error.html', code=404,
                            title='页面未找到', message='您访问的页面不存在或已被移除。',
                            show_back=True), 404
 
 
-@app.errorhandler(500)
 def err_500(e):
-    app.logger.exception('500 错误: %s', e)
+    current_app.logger.exception('500 错误: %s', e)
     return render_template('errors/error.html', code=500,
                            title='服务器内部错误', message='抱歉，服务器处理您的请求时出错。请稍后重试或联系管理员。',
                            show_back=True), 500
 
 
-@app.errorhandler(403)
 def err_403(e):
     return render_template('errors/error.html', code=403,
                            title='权限不足', message='您没有权限访问此页面。',
                            show_back=True), 403
 
 
-@app.errorhandler(413)
 def err_413(e):
     return render_template('errors/error.html', code=413,
                            title='文件过大', message='上传的文件超过系统允许的大小限制（默认 100MB）。',
@@ -138,13 +98,11 @@ def err_413(e):
 
 
 # 注入 csrf_token() 到所有模板（也可用 {{ csrf_token() }} 直接调用）
-@app.context_processor
 def inject_csrf_token():
     return {'csrf_token': generate_csrf}
 
 
 # 注入侧栏配置到所有模板
-@app.context_processor
 def inject_sidebar():
     """每个请求渲染时，根据当前用户的偏好返回侧栏分组"""
     from utils.sidebar_config import get_user_sidebar_groups
@@ -181,7 +139,6 @@ def inject_sidebar():
     return {'sidebar_groups': groups, 'request_path': request.path}
 
 
-@app.template_filter('from_json')
 def from_json_filter(value):
     try:
         return json.loads(value) if value else []
@@ -196,7 +153,6 @@ def load_user(user_id):
 
 
 # ---------- 首页 ----------
-@app.route('/')
 @login_required
 def index():
     from sqlalchemy import func, or_
@@ -497,7 +453,6 @@ def index():
 
 
 # ---------- 登录 ----------
-@app.route('/login', methods=['GET', 'POST'])
 @limiter.limit('5 per minute;30 per hour', methods=['POST'])
 @csrf.exempt  # 登录页对未登录用户开放，不能强制 CSRF
 def login():
@@ -507,37 +462,36 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and not user.is_active:
             flash('该账号已停用，请联系管理员', 'danger')
-            app.logger.warning(f'停用账号 [{username}] 尝试登录')
+            current_app.logger.warning(f'停用账号 [{username}] 尝试登录')
             return render_template('login.html')
         if user and user.check_password(password):
             login_user(user)
-            app.logger.info(f'用户 [{username}] 登录成功')
+            current_app.logger.info(f'用户 [{username}] 登录成功')
             return redirect(url_for('index'))
         flash('用户名或密码错误', 'danger')
-        app.logger.warning(f'用户 [{username}] 登录失败')
+        current_app.logger.warning(f'用户 [{username}] 登录失败')
     return render_template('login.html')
 
 
-@app.route('/logout')
 @login_required
 def logout():
-    app.logger.info(f'用户 [{current_user.username}] 登出')
+    current_app.logger.info(f'用户 [{current_user.username}] 登出')
     logout_user()
     return redirect(url_for('login'))
 
 # ==================== 简化的 admin 路由（暂留 app.py 后续蓝图化）====================
-from models import (AIConfig, User as UserM, UserPermission, Permission, Department)
+from models import (User as UserM)
 from sqlalchemy.orm import joinedload
 from utils.permission import admin_required
 
 
-@app.route('/system/repair-schema')
 @login_required
 @admin_required
 def repair_schema():
     """一键诊断 + 修复 DB schema：显示 alembic 版本/缺失列，尝试 flask db upgrade，
     并对 alembic 误判 head 但列实际缺失的情况直接 ALTER TABLE 补列。"""
-    import io, contextlib
+    import io
+    import contextlib
     from sqlalchemy import inspect as sqla_inspect, text
     reports = []
 
@@ -610,12 +564,12 @@ def repair_schema():
     return render_template('system/repair_schema.html', reports=reports, upgrade_output=upgrade_output)
 
 
-@app.route('/system/drawio-diag')
 @login_required
 @admin_required
 def drawio_diag():
     """drawio 图标库加载诊断页——探测 iframe 内部状态，定位 clibs 不生效的原因。"""
-    import os as _os, glob
+    import os as _os
+    import glob
     from urllib.parse import quote
     stencil_dir = os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'static', 'stencils')
     stencil_urls = []
@@ -628,7 +582,6 @@ def drawio_diag():
     return render_template('system/drawio_diag.html', clibs=clibs, stencil_urls=stencil_urls)
 
 
-@app.route('/users', methods=['GET', 'POST'])
 @login_required
 @require_permission('user:view')
 @admin_required
@@ -660,7 +613,6 @@ def user_list():
                            total=len(users), start=1 if users else 0, end=len(users))
 
 
-@app.route('/users/delete/<int:id>', methods=['POST'])
 @login_required
 @require_permission('user:delete')
 @admin_required
@@ -671,7 +623,6 @@ def user_delete(id):
     return redirect(url_for('user_list'))
 
 
-@app.route('/users/add', methods=['POST'])
 @login_required
 @require_permission('user:add')
 @admin_required
@@ -680,7 +631,6 @@ def user_add():
 
 
 # ==================== 用户编辑（V6.1.4） ====================
-@app.route('/users/edit/<int:id>', methods=['GET', 'POST'])
 @login_required
 @require_permission('user:edit')
 @admin_required
@@ -721,7 +671,6 @@ def user_edit(id):
 
 
 # ==================== V13: 管理员重置密码 ====================
-@app.route('/users/<int:id>/reset_password', methods=['POST'])
 @login_required
 @require_permission('user:edit')
 @admin_required
@@ -734,13 +683,12 @@ def user_reset_password(id):
         return redirect(url_for('user_list'))
     u.set_password(new_pwd)
     db.session.commit()
-    app.logger.info(f'管理员 [{current_user.username}] 重置了用户 [{u.username}] 的密码')
+    current_app.logger.info(f'管理员 [{current_user.username}] 重置了用户 [{u.username}] 的密码')
     flash(f'用户 {u.username} 的密码已重置', 'success')
     return redirect(url_for('user_list'))
 
 
 # ==================== V13: 用户自助修改密码 ====================
-@app.route('/me/change_password', methods=['GET', 'POST'])
 @login_required
 @limiter.limit('10 per hour')
 def me_change_password():
@@ -763,7 +711,7 @@ def me_change_password():
             return redirect(url_for('me_change_password'))
         current_user.set_password(new_pwd)
         db.session.commit()
-        app.logger.info(f'用户 [{current_user.username}] 自助修改了密码')
+        current_app.logger.info(f'用户 [{current_user.username}] 自助修改了密码')
         flash('密码已修改，请使用新密码重新登录', 'success')
         # 改完强制退出，让用户用新密码登录
         from flask_login import logout_user
@@ -772,13 +720,10 @@ def me_change_password():
     return render_template('auth/change_password.html')
 
 
-@app.route('/system')
 @login_required
 def system_settings():
     """系统概览页：业务统计 + 部署系统信息（CPU/内存/磁盘/版本）"""
-    from sqlalchemy import func as _func
     import platform as _plat
-    import sys as _sys
     stats = {
         'user_count': UserM.query.filter_by(is_active=True).count(),
         'user_total': UserM.query.count(),
@@ -825,7 +770,7 @@ def system_settings():
     # 数据库版本
     db_info = {'engine': '-', 'version': '-', 'path': '-'}
     try:
-        uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+        uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
         if uri.startswith('sqlite:///'):
             import sqlite3 as _sqlite3
             db_info['engine'] = 'SQLite'
@@ -852,7 +797,7 @@ def system_settings():
             except Exception:
                 pass
     except Exception as _e:
-        app.logger.warning(f'数据库信息获取失败: {_e}')
+        current_app.logger.warning(f'数据库信息获取失败: {_e}')
 
     # 资源占用（CPU/内存/磁盘）
     resources = {}
@@ -892,7 +837,7 @@ def system_settings():
             'available': True,
         }
     except Exception as _e:
-        app.logger.warning(f'资源占用获取失败: {_e}')
+        current_app.logger.warning(f'资源占用获取失败: {_e}')
         resources = {'available': False, 'error': str(_e)}
 
     return render_template('system/index.html',
@@ -904,8 +849,7 @@ def system_settings():
                            resources=resources)
 
 
-# ==================== 侧栏自定义 ====================
-@app.route('/system/sidebar', methods=['GET', 'POST'])
+    # ==================== 侧栏自定义 ====================
 @login_required
 @api_view  # POST 路由需要豁免 CSRF（前端用 fetch + JSON body）
 def system_sidebar():
@@ -926,7 +870,6 @@ def system_sidebar():
                            current_groups=current_groups)
 
 
-@app.route('/api/sidebar/reset', methods=['POST'])
 @login_required
 @api_view
 def api_sidebar_reset():
@@ -939,7 +882,6 @@ def api_sidebar_reset():
     return jsonify({'success': True, 'message': '已重置为系统默认'})
 
 
-@app.route('/permissions')
 @login_required
 @require_permission('permission:view')
 def permission_list():
@@ -966,14 +908,12 @@ def permission_list():
                            role_meta=role_meta)
 
 
-@app.route('/ai-config', methods=['GET', 'POST'])
 @login_required
 def ai_config_page():
     configs = AIConfig.query.order_by(AIConfig.id.desc()).all()
     return render_template('ai_config/list.html', configs=configs)
 
 
-@app.route('/ai-config/delete/<int:id>', methods=['POST'])
 @login_required
 @admin_required
 def ai_config_delete(id):
@@ -985,13 +925,11 @@ def ai_config_delete(id):
 
 # /dashboard/reports 路由已删除（与运维管理 /reports 重复，且本路由是空壳）
 # 旧链接重定向到统一的 /reports
-@app.route('/dashboard/reports')
 @login_required
 def dashboard_reports():
     return redirect(url_for('ops.report_list'))
 
 
-@app.route('/exports/download-template/<module>')
 @login_required
 @require_permission('report:view')
 def download_template(module):
@@ -1069,7 +1007,6 @@ def download_template(module):
 
 
 # ==================== 客户管理 ====================
-@app.route('/customers')
 @login_required
 @require_permission('customer:view')
 def customer_list():
@@ -1120,7 +1057,6 @@ def _sync_customer_device_count(customer_id):
 
 
 # ==================== 设备密码管理 ====================
-@app.route('/api/dashboard/opportunity-stages')
 @login_required
 @api_view
 def api_dashboard_opp_stages():
@@ -1172,7 +1108,6 @@ def get_dashboard_cards(user):
             pass
     return ROLE_DEFAULT_CARDS.get(user.role, ['ticket', 'device', 'customer'])
 
-@app.route('/api/dashboard/preferences')
 @login_required
 @api_view
 def api_dashboard_preferences():
@@ -1185,7 +1120,6 @@ def api_dashboard_preferences():
         'pool': {k: v for k, v in DASHBOARD_CARD_POOL.items()},
     })
 
-@app.route('/api/dashboard/preferences', methods=['POST'])
 @login_required
 @api_view
 def api_dashboard_preferences_save():
@@ -1201,7 +1135,6 @@ def api_dashboard_preferences_save():
     db.session.commit()
     return jsonify({'success': True, 'cards': valid})
 
-@app.route('/api/dashboard/preferences/reset', methods=['POST'])
 @login_required
 @api_view
 def api_dashboard_preferences_reset():
@@ -1213,8 +1146,112 @@ def api_dashboard_preferences_reset():
     return jsonify({'success': True, 'cards': cards})
 
 
+# ==================== 路由集中注册 ====================
+def register_routes(app):
+    """集中注册主应用路由。
+
+    端点名与历史 @app.route 完全一致，模板中的 url_for('index') 等无需改动。
+    注意：必须先于 register_blueprints 调用，保持与原模块级注册相同的路由优先级。
+    """
+    app.add_url_rule('/', 'index', index)
+    app.add_url_rule('/login', 'login', login, methods=['GET', 'POST'])
+    app.add_url_rule('/logout', 'logout', logout)
+    app.add_url_rule('/system/repair-schema', 'repair_schema', repair_schema)
+    app.add_url_rule('/system/drawio-diag', 'drawio_diag', drawio_diag)
+    app.add_url_rule('/users', 'user_list', user_list, methods=['GET', 'POST'])
+    app.add_url_rule('/users/delete/<int:id>', 'user_delete', user_delete, methods=['POST'])
+    app.add_url_rule('/users/add', 'user_add', user_add, methods=['POST'])
+    app.add_url_rule('/users/edit/<int:id>', 'user_edit', user_edit, methods=['GET', 'POST'])
+    app.add_url_rule('/users/<int:id>/reset_password', 'user_reset_password', user_reset_password, methods=['POST'])
+    app.add_url_rule('/me/change_password', 'me_change_password', me_change_password, methods=['GET', 'POST'])
+    app.add_url_rule('/system', 'system_settings', system_settings)
+    app.add_url_rule('/system/sidebar', 'system_sidebar', system_sidebar, methods=['GET', 'POST'])
+    app.add_url_rule('/api/sidebar/reset', 'api_sidebar_reset', api_sidebar_reset, methods=['POST'])
+    app.add_url_rule('/permissions', 'permission_list', permission_list)
+    app.add_url_rule('/ai-config', 'ai_config_page', ai_config_page, methods=['GET', 'POST'])
+    app.add_url_rule('/ai-config/delete/<int:id>', 'ai_config_delete', ai_config_delete, methods=['POST'])
+    app.add_url_rule('/dashboard/reports', 'dashboard_reports', dashboard_reports)
+    app.add_url_rule('/exports/download-template/<module>', 'download_template', download_template)
+    app.add_url_rule('/customers', 'customer_list', customer_list)
+    app.add_url_rule('/api/dashboard/opportunity-stages', 'api_dashboard_opp_stages', api_dashboard_opp_stages)
+    app.add_url_rule('/api/dashboard/preferences', 'api_dashboard_preferences', api_dashboard_preferences)
+    app.add_url_rule('/api/dashboard/preferences', 'api_dashboard_preferences_save',
+                     api_dashboard_preferences_save, methods=['POST'])
+    app.add_url_rule('/api/dashboard/preferences/reset', 'api_dashboard_preferences_reset',
+                     api_dashboard_preferences_reset, methods=['POST'])
+
+
+# ==================== 应用工厂 ====================
+def create_app(test_config=None):
+    """应用工厂：创建并配置 Flask 实例。
+
+    test_config: 测试/特殊部署时的配置覆盖 dict
+    （如 SQLALCHEMY_DATABASE_URI 指向临时库、WTF_CSRF_ENABLED=False、RATELIMIT_ENABLED=False）。
+    """
+    app = Flask(__name__)
+    # 经 nginx/反代时识别 X-Forwarded-Proto，使 request.is_secure 正确反映外部协议
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    app.config['SECRET_KEY'] = Config.SECRET_KEY
+    app.config['SQLALCHEMY_DATABASE_URI'] = Config.SQLALCHEMY_DATABASE_URI
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = Config.SQLALCHEMY_TRACK_MODIFICATIONS
+    app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
+    # CSRF：默认对所有 POST/PUT/PATCH/DELETE 启用
+    app.config['WTF_CSRF_HEADERS'] = ['X-CSRFToken', 'X-CSRF-Token']
+    app.config['WTF_CSRF_TIME_LIMIT'] = 60 * 60 * 4  # 4 小时
+    # Limiter：基于 IP 的限流（限流存储使用内存，单进程足够）
+    app.config['RATELIMIT_STORAGE_URI'] = 'memory://'
+    if test_config:
+        app.config.update(test_config)
+
+    setup_logging(app)
+    register_template_functions(app)
+    setup_security_headers(app)
+
+    # V13: 证书选项注入 Jinja 全局，模板按分组渲染 checkbox
+    app.jinja_env.globals['CERT_CATEGORIES'] = _CERT_CATEGORIES
+    app.jinja_env.globals['APP_VERSION'] = _APP_VERSION
+
+    # CSRF 必须在 register_blueprints 之前 init（login 路由已通过 @csrf.exempt 豁免）
+    csrf.init_app(app)
+    # CSRF token 同步写入非 HttpOnly cookie，供前端 JS 读取
+    app.after_request(_set_csrf_cookie)
+
+    db.init_app(app)
+    migrate.init_app(app, db)
+    login_manager.init_app(app)
+    limiter.init_app(app)
+
+    # API 请求未登录返回 JSON 401（而非 302 跳登录页，避免前端 fetch 解析到 HTML）
+    # 判定同 utils.permission._is_api_request：兼容蓝图内 /xxx/api/... 路径
+    @login_manager.unauthorized_handler
+    def _unauthorized():
+        if '/api/' in request.path:
+            return jsonify({'success': False, 'error': '未登录或会话已过期'}), 401
+        return redirect(url_for('login', next=request.url))
+
+    # 全局错误处理
+    app.register_error_handler(404, err_404)
+    app.register_error_handler(500, err_500)
+    app.register_error_handler(403, err_403)
+    app.register_error_handler(413, err_413)
+
+    # 上下文处理器 / 模板过滤器
+    app.context_processor(inject_csrf_token)
+    app.context_processor(inject_sidebar)
+    app.add_template_filter(from_json_filter, 'from_json')
+
+    # 主应用路由（必须先于蓝图注册，与原模块级定义顺序一致）
+    register_routes(app)
+
+    # 注册业务蓝图模块
+    from blueprints import register_blueprints
+    register_blueprints(app)
+
+    return app
+
+
 # ---------- 初始化 ----------
-def _bootstrap_legacy_db():
+def _bootstrap_legacy_db(app):
     """引导遗留库（由旧 db.create_all + ensure_schema 建好但无 alembic_version）接入 Alembic。
 
     三种库状态：
@@ -1225,7 +1262,7 @@ def _bootstrap_legacy_db():
       3) 已接入 Alembic：有 alembic_version → 不处理，交给 upgrade。
     返回 True 表示已处理（调用了 stamp），False 表示无需处理。
     """
-    from sqlalchemy import inspect as sqla_inspect, text
+    from sqlalchemy import inspect as sqla_inspect
     insp = sqla_inspect(db.engine)
     all_tables = set(insp.get_table_names())
     if 'alembic_version' in all_tables:
@@ -1292,7 +1329,8 @@ def _dedup_before_unique_constraints():
         app.logger.warning('去重清理失败（非致命，可能在 pg_type_fixes 加唯一约束时报错）: %s', e)
 
 
-def init_db():
+def init_db(app):
+    """初始化数据库：Alembic 迁移 + 种子数据 + 默认账号（幂等）。"""
     with app.app_context():
         # Schema 演进交给 Alembic（flask-migrate），替代旧 db.create_all + ensure_schema(PRGAMA)
         from flask_migrate import upgrade as _migrate_upgrade
@@ -1300,7 +1338,7 @@ def init_db():
         migrations_dir = _os.path.join(_os.path.dirname(__file__), 'migrations')
 
         # 先引导遗留库（有表但无 alembic_version 的旧 SQLite 库）接入 Alembic
-        _bootstrap_legacy_db()
+        _bootstrap_legacy_db(app)
 
         # 应用所有待执行的迁移（空库会从 initial_schema 一路建到 head；遗留库只跑 pg_type_fixes）
         _migrate_upgrade(directory=migrations_dir)
@@ -1339,7 +1377,8 @@ def init_db():
 
 
 if __name__ == '__main__':
-    init_db()
+    app = create_app()
+    init_db(app)
     app.logger.info('=' * 50)
     app.logger.info('=== ITSM 简易运维管理系统 ===')
     app.logger.info('=' * 50)

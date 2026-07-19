@@ -19,7 +19,7 @@ from utils.pagination import paginate, paginate_render_args
 from utils.crypto import decrypt_password
 from services.device_service import (create_device_from_form, update_device_from_form,
                                       delete_device)
-from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT, MAX_IMPORT_ROWS
+from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT
 from utils.permission import require_permission
 from utils.decorators import api_view
 
@@ -225,7 +225,8 @@ def device_detail(id):
     import json as _json
     d = Device.query.get_or_404(id)
     customer = Customer.query.get(d.customer_id) if d.customer_id else None
-    password = decrypt_password(d.password_encrypted) if d.password_encrypted else ''
+    # 安全：不再把明文密码渲染进 HTML，由前端按需调 reveal API（带审计）
+    has_password = bool(d.password_encrypted)
     remaining = (d.license_expiry - date.today()).days if d.license_expiry else None
     interface_list = _json.loads(d.interface) if d.interface and d.interface.startswith('[') else (
         [d.interface] if d.interface else []
@@ -233,7 +234,7 @@ def device_detail(id):
     histories = PasswordHistory.query.filter_by(device_id=id)\
         .order_by(PasswordHistory.id.desc()).limit(20).all()
     return render_template('devices/detail.html',
-                           device=d, customer=customer, password=password,
+                           device=d, customer=customer, has_password=has_password,
                            remaining=remaining, interface_list=interface_list,
                            histories=histories)
 
@@ -246,6 +247,7 @@ def device_detail(id):
 def api_device_get(id):
     import json as _json
     d = Device.query.get_or_404(id)
+    # 安全：明文密码不随设备 JSON 下发，需单独调 reveal-password（device:reveal 权限 + 审计）
     return jsonify({
         'id': d.id,
         'customer_id': d.customer_id,
@@ -258,7 +260,7 @@ def api_device_get(id):
         'ip_address': d.ip_address,
         'port': d.port,
         'username': d.username,
-        'password': decrypt_password(d.password_encrypted) if d.password_encrypted else '',
+        'has_password': bool(d.password_encrypted),
         'login_method': d.login_method,
         'location': d.location,
         'interface': _json.loads(d.interface) if d.interface and d.interface.startswith('[') else (
@@ -272,6 +274,49 @@ def api_device_get(id):
         'license_start': d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
         'remark': d.remark,
     })
+
+
+@asset_bp.route('/api/devices/<int:id>/reveal-password', methods=['POST'])
+@login_required
+@require_permission('device:reveal')
+def api_device_reveal_password(id):
+    """按需查看设备明文密码（当前密码或指定历史密码）。
+
+    安全设计：
+    - 独立权限码 device:reveal（admin/operator 默认持有）
+    - POST + CSRF 保护（不豁免），前端 fetch 经 base.html 自动带 X-CSRFToken
+    - 每次调用写审计日志（操作人/设备/来源 IP/是否历史密码）
+    """
+    d = Device.query.get_or_404(id)
+    history_id = request.form.get('history_id', type=int)
+    if history_id:
+        h = PasswordHistory.query.filter_by(id=history_id, device_id=id).first_or_404()
+        pwd = decrypt_password(h.password_encrypted) if h.password_encrypted else ''
+        kind = f'历史密码(history_id={history_id})'
+    else:
+        pwd = decrypt_password(d.password_encrypted) if d.password_encrypted else ''
+        kind = '当前密码'
+    current_app.logger.info(
+        '密码查看审计: 用户[%s] 查看设备[%s](id=%s) %s, IP=%s',
+        current_user.username, d.device_name, d.id, kind, request.remote_addr)
+    return jsonify({'password': pwd})
+
+
+@asset_bp.route('/api/devices/<int:id>/password-history')
+@login_required
+@require_permission('device:view')
+@api_view
+def api_device_password_history(id):
+    """历史密码列表（不含明文；明文经 reveal-password?history_id= 单独查看并审计）"""
+    Device.query.get_or_404(id)
+    rows = PasswordHistory.query.filter_by(device_id=id)\
+        .order_by(PasswordHistory.id.desc()).limit(50).all()
+    return jsonify([{
+        'id': h.id,
+        'changed_by': h.changed_by or '-',
+        'created_at': h.created_at.strftime('%Y-%m-%d %H:%M') if h.created_at else '-',
+        'remark': h.remark or '-',
+    } for h in rows])
 
 
 # ============================ 设备导入/导出 ============================
@@ -303,6 +348,15 @@ def device_export():
         'is_maintenance': '是否维修', 'is_in_use': '是否在用',
         'license_remaining_days': '剩余天数', 'remark': '备注',
     }
+    # 安全：密码列仅 device:reveal 权限可见/可选；含密码导出写审计日志
+    from utils.permission import has_permission
+    if not has_permission('device:reveal'):
+        all_columns.pop('password', None)
+        selected_cols = [c for c in selected_cols if c != 'password']
+    elif 'password' in selected_cols:
+        current_app.logger.info(
+            '密码导出审计: 用户[%s] 导出含明文密码的设备清单(%d台), IP=%s',
+            current_user.username, len(devices), request.remote_addr)
     if not selected_cols:
         selected_cols = list(all_columns.keys())
     wb = openpyxl.Workbook()
@@ -886,7 +940,7 @@ def device_config_backups(id):
 def device_config_backup_add(id):
     import hashlib
     from werkzeug.utils import secure_filename
-    d = Device.query.get_or_404(id)
+    Device.query.get_or_404(id)  # 设备不存在则 404
     content = request.form.get('config_content', '')
     backup_type = request.form.get('backup_type', '运行配置')
     backup_method = request.form.get('backup_method', '手动输入')

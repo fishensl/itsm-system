@@ -4,7 +4,6 @@
 把客户相关的业务规则从路由层分离出来。
 路由层只负责参数接收、权限检查、模板渲染。
 """
-from datetime import date
 import json
 from models import db, Customer, Region
 from .base import ServiceError, transaction

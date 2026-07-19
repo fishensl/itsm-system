@@ -1,7 +1,7 @@
 """合同自动巡检任务蓝图"""
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
-from flask_login import login_required, current_user
-from models import db, Contract, InspectionTask, InspectionTemplate, Customer
+from flask_login import login_required
+from models import Contract, InspectionTask, InspectionTemplate
 from utils.permission import require_permission
 
 contract_task_bp = Blueprint('contract_tasks', __name__)
@@ -54,7 +54,6 @@ def generate_tasks():
 def preview_tasks(contract_id):
     """预览将生成的任务（干跑，不入库）"""
     from utils.auto_task_generator import generate_contract_tasks
-    from datetime import date
     try:
         generated = generate_contract_tasks(contract_id=contract_id, dry_run=True)
         return jsonify({'success': True, 'tasks': generated, 'count': len(generated)})
@@ -65,6 +64,7 @@ def preview_tasks(contract_id):
 
 @contract_task_bp.route('/api/contracts/<int:contract_id>/generated-tasks')
 @login_required
+@require_permission('contract_auto:manage')
 def api_contract_tasks(contract_id):
     """获取合同关联的自动生成任务"""
     tasks = InspectionTask.query.filter_by(

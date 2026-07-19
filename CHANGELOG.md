@@ -6,6 +6,34 @@
 
 ---
 
+## [未发布] — 2026-07-19
+
+### 安全加固（W0）
+
+- **设备明文密码收敛**：设备 JSON（`/api/devices/<id>`）不再携带明文密码；新增 `POST /api/devices/<id>/reveal-password` 按需查看（新权限码 `device:reveal` + 审计日志含操作人/IP）；Excel 导出密码列按权限收敛并记导出审计；设备列表/详情页改为掩码 + 按需查看
+- **报告加固**：删除报告改用新权限码 `report:delete`；删除/下载均做 realpath 防路径穿越 + 扩展名白名单；删除写审计日志
+- **读 API 权限补齐**：机柜（device:view）、部门树（department:view）、合同任务（contract_auto:manage）、客户级联（customer:view）
+- **CSRF 收敛**：取消 drafts/rack 蓝图级豁免（前端 fetch 经 base.html 自动带 X-CSRFToken，保护不变、攻击面收窄）
+- **API 错误格式统一**：API 请求未登录/无权限返回 JSON 401/403（兼容蓝图内 `/xxx/api/...` 路径），不再 302 跳登录页
+- **知识库浏览计数**：改原子 UPDATE 自增 + 会话去重，修复并发丢失与 GET 副作用问题
+- **日志轮转**：`RotatingFileHandler`（10MB × 10），修复 app.log 无限增长
+
+### 重构与缺陷修复（T0）
+
+- `app.py` 改造为 `create_app()` 应用工厂，路由集中注册（端点名不变，模板 url_for 不受影响）；`wsgi.py` 同步更新
+- 修复备件删除校验必抛 `TypeError` 的缺陷（`p.stocks.count()` 对 list 调用），备件删除恢复正常
+- 修复设备详情页「密码修改历史」从不渲染（路由传 `histories`、模板用 `history_data` 变量名不一致），历史密码改掩码 + 按需 reveal
+- 草稿 `related_id` 统一 int 入库（修复 save/load 类型不匹配隐患）
+- 实现 `/api/devices/<id>/password-history` 端点（前端原调用 404），列表不含明文
+
+### 工程化（W2）
+
+- 新增 pytest 测试套件 **72 用例**：工单状态机全转换、备件 FIFO/冲销、巡检审核流、四角色权限矩阵、密码安全、CSRF 策略、报告安全、草稿、冒烟
+- 新增 GitHub Actions CI（ruff + pytest + pip-audit 告警）、`requirements-dev.txt`、`pyproject.toml`
+- ruff 首次全量清理（104 处未用导入/未用变量）
+
+---
+
 ## [v1.0] — 2026-06-15
 
 ### 首个 GitHub 版本

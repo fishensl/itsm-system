@@ -5,7 +5,11 @@
 用法: python scripts/convert-vssx-visio.py 网络安全设备.vssx network-security
 输出: static/stencils/<name>/<master名>.png + <name>.drawio.xml
 """
-import sys, os, re, json, base64
+import sys
+import os
+import re
+import json
+import base64
 from xml.sax.saxutils import escape as xml_escape
 
 
@@ -18,7 +22,9 @@ def export_masters_via_visio(vssx_path, out_dir, size=256):
     os.makedirs(out_dir, exist_ok=True)
 
     # 复制到临时 vsdx（Visio 导出要求可写文件，VSSX 只读打开会报错）
-    import shutil, tempfile, time
+    import shutil
+    import tempfile
+    import time
     tmp_vssx = os.path.join(tempfile.gettempdir(), f'itsm_stencil_{int(time.time())}.vssx')
     shutil.copy(abs_vssx, tmp_vssx)
 

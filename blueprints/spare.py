@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """备件管理蓝图：备件档案 / 库存 / 采购入库 / 销售出库"""
 import os
-import re
 import tempfile
 import uuid
 from datetime import date
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, send_from_directory, current_app, abort)
+                   flash, send_from_directory, current_app)
 from flask_login import login_required
 from models import (SparePart, SpareStock, PurchaseOrder, SalesOrder, Customer, db)
 from services.spare_service import (

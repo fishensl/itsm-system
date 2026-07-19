@@ -26,7 +26,7 @@ def transaction(func):
             result = func(*args, **kwargs)
             db.session.commit()
             return result
-        except Exception as e:
+        except Exception:
             db.session.rollback()
             raise
     return wrapper

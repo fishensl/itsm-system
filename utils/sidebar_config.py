@@ -13,7 +13,6 @@
   工作台 → 运维管理 → 资产管理 → 销售管理 → 客户管理 → 备件管理 → 系统管理
 """
 import json
-from flask import current_app
 from models import db, UserDashboardPreference
 
 

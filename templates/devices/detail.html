@@ -47,10 +47,14 @@
                     <tr><td class="text-muted">登录方式</td><td><span class="badge bg-secondary">{{ device.login_method or '-' }}</span></td></tr>
                     <tr><td class="text-muted">登录用户</td><td>{{ device.username or '-' }}</td></tr>
                     <tr><td class="text-muted">登录密码</td>
-                        <td>
-                            <span class="password-mask font-monospace" style="cursor:pointer;" onclick="togglePwd(this)" data-pwd="{{ password }}">••••••••</span>
-                            <i class="bi-eye text-muted" style="cursor:pointer;margin-left:4px" onclick="togglePwdIcon(this)" data-pwd="{{ password }}"></i>
-                            <i class="bi-copy text-muted" style="cursor:pointer;margin-left:4px" onclick="copyPwd(this)" data-pwd="{{ password }}"></i>
+                        <td class="pwd-cell" data-device-id="{{ device.id }}">
+                            {% if has_perm('device:reveal') %}
+                            <span class="password-mask font-monospace" style="cursor:pointer;" onclick="togglePwd(this)">••••••••</span>
+                            <i class="bi-eye text-muted" style="cursor:pointer;margin-left:4px" onclick="togglePwdIcon(this)"></i>
+                            <i class="bi-copy text-muted" style="cursor:pointer;margin-left:4px" onclick="copyPwd(this)"></i>
+                            {% else %}
+                            <span class="text-muted font-monospace">{{ '••••••••' if has_password else '未设置' }}</span>
+                            {% endif %}
                         </td>
                     </tr>
                     <tr><td class="text-muted">接口</td>
@@ -119,17 +123,22 @@
 <div class="card">
     <div class="card-header"><i class="bi-clock-history"></i> 密码修改历史</div>
     <div class="card-body">
-        {% if history_data %}
+        {% if histories %}
         <table class="table table-sm table-hover">
             <thead><tr><th>#</th><th>历史密码</th><th>修改人</th><th>修改时间</th><th>备注</th></tr></thead>
             <tbody>
-                {% for h in history_data %}
+                {% for h in histories %}
                 <tr>
                     <td>{{ loop.index }}</td>
-                    <td><code>{{ h.password }}</code></td>
-                    <td>{{ h.changed_by }}</td>
-                    <td>{{ h.created_at }}</td>
-                    <td>{{ h.remark }}</td>
+                    <td>
+                        <code class="hist-pwd" id="hist-pwd-{{ h.id }}">••••••••</code>
+                        {% if has_perm('device:reveal') %}
+                        <i class="bi-eye text-muted" style="cursor:pointer" title="查看明文" onclick="revealHistPwd(this, {{ device.id }}, {{ h.id }})"></i>
+                        {% endif %}
+                    </td>
+                    <td>{{ h.changed_by or '-' }}</td>
+                    <td>{{ h.created_at.strftime('%Y-%m-%d %H:%M') if h.created_at else '-' }}</td>
+                    <td>{{ h.remark or '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -225,7 +234,7 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">登录密码</label>
-                            <input type="text" name="password" class="form-control" value="{{ password }}" placeholder="留空则不修改">
+                            <input type="text" name="password" class="form-control" value="" placeholder="留空则不修改">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">修改备注</label>
@@ -259,30 +268,60 @@
 
 {% block scripts %}
 <script>
-function togglePwd(el) {
-    const isMasked = el.textContent === '••••••••';
-    el.textContent = isMasked ? el.dataset.pwd : '••••••••';
-    const eye = el.parentElement.querySelector('.fa-eye, .fa-eye-slash');
-    if (eye) {
-        eye.className = isMasked ? 'bi-eye-slash text-muted' : 'bi-eye text-muted';
-        eye.style.cssText = 'cursor:pointer;margin-left:4px';
+// 明文密码不随页面渲染，按需经 reveal API 获取（device:reveal 权限 + 服务端审计），td 上缓存
+function fetchPwd(cell) {
+    if (cell.dataset.pwd !== undefined) {
+        return Promise.resolve(cell.dataset.pwd);
     }
+    const devId = cell.dataset.deviceId;
+    return fetch('/api/devices/' + devId + '/reveal-password', { method: 'POST', credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(d => { cell.dataset.pwd = d.password || ''; return cell.dataset.pwd; })
+        .catch(() => { cell.dataset.pwd = ''; return ''; });
+}
+function togglePwd(el) {
+    const cell = el.closest('.pwd-cell');
+    fetchPwd(cell).then(pwd => {
+        if (!pwd) { showToast('该设备未设置密码', 'warning'); return; }
+        const isMasked = el.textContent === '••••••••';
+        el.textContent = isMasked ? pwd : '••••••••';
+        const eye = cell.querySelector('.bi-eye, .bi-eye-slash');
+        if (eye) eye.className = isMasked ? 'bi-eye-slash text-muted' : 'bi-eye text-muted';
+    });
 }
 function togglePwdIcon(el) {
-    const cell = el.parentElement;
+    const cell = el.closest('.pwd-cell');
     const mask = cell.querySelector('.password-mask');
-    const isEye = el.className.includes('fa-eye') && !el.className.includes('fa-eye-slash');
-    if (isEye) {
-        mask.textContent = mask.dataset.pwd;
-        el.className = 'bi-eye-slash text-muted';
-    } else {
-        mask.textContent = '••••••••';
-        el.className = 'bi-eye text-muted';
-    }
-    el.style.cssText = 'cursor:pointer;margin-left:4px';
+    fetchPwd(cell).then(pwd => {
+        if (!pwd) { showToast('该设备未设置密码', 'warning'); return; }
+        const showing = mask.textContent !== '••••••••';
+        mask.textContent = showing ? '••••••••' : pwd;
+        el.className = showing ? 'bi-eye text-muted' : 'bi-eye-slash text-muted';
+    });
 }
 function copyPwd(el) {
-    navigator.clipboard.writeText(el.dataset.pwd).then(function() { showToast('密码已复制', 'success'); });
+    const cell = el.closest('.pwd-cell');
+    fetchPwd(cell).then(pwd => {
+        if (!pwd) { showToast('该设备未设置密码', 'warning'); return; }
+        navigator.clipboard.writeText(pwd).then(function() { showToast('密码已复制', 'success'); });
+    });
+}
+// 历史密码明文按需 reveal
+function revealHistPwd(el, deviceId, historyId) {
+    const cell = document.getElementById('hist-pwd-' + historyId);
+    if (!cell) return;
+    if (cell.dataset.revealed === '1') {
+        cell.textContent = '••••••••';
+        cell.dataset.revealed = '';
+        return;
+    }
+    fetch('/api/devices/' + deviceId + '/reveal-password', {
+        method: 'POST', credentials: 'same-origin',
+        body: new URLSearchParams({ history_id: historyId })
+    })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(d => { cell.textContent = d.password || '(空)'; cell.dataset.revealed = '1'; })
+        .catch(() => showToast('无权限查看或加载失败', 'danger'));
 }
 function editDevice(id) {
     document.getElementById('deviceForm').action = '{{ url_for("asset.device_edit", id=0) }}'.replace('/0', '/' + id);

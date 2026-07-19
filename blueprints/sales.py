@@ -3,7 +3,7 @@
 
 所有业务规则下沉到 services/sales_service.py，路由层只做参数接收和模板渲染。
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required
 from models import Opportunity, Quotation, Contract, Project, Customer, db
 from services.sales_service import (

@@ -7,13 +7,14 @@ import os
 import tempfile
 from datetime import datetime
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, send_from_directory, jsonify, current_app, abort)
+                   flash, send_from_directory, jsonify, current_app, abort, session)
 from flask_login import login_required, current_user
-from models import (Inspection, InspectionTask, InspectionTemplate, Fault, Ticket,
+from sqlalchemy import text as sa_text
+from models import (Inspection, InspectionTemplate, Fault, Ticket,
                     TicketLog, KnowledgeBase, KnowledgeAttachment, Inspector, InspectionDeviceTemplate,
-                    InspectionTaskTemplate, FaultType, Customer, Device, User, db)
+                    InspectionTaskTemplate, FaultType, Customer, Device, db)
 from utils.pagination import paginate, paginate_render_args
-from utils.permission import require_permission, has_permission
+from utils.permission import require_permission
 from utils.customer_task_generator import QUARTER_CN
 from services.ticket_service import (create_ticket, update_ticket, assign_ticket,
                                       accept_ticket, submit_ticket, audit_ticket,
@@ -83,7 +84,7 @@ def inspection_list():
 def inspection_add():
     if request.method == 'POST':
         try:
-            i = create_inspection(request.form.to_dict(), current_user.realname or current_user.username)
+            create_inspection(request.form.to_dict(), current_user.realname or current_user.username)
         except Exception as e:
             db.session.rollback()
             flash(str(e) or '巡检添加失败', 'danger')
@@ -247,8 +248,6 @@ def api_inspection_templates():
 @login_required
 @require_permission('inspection:view')
 def device_check_template_list():
-    from models import Region
-    import json
     from collections import OrderedDict
     templates = InspectionDeviceTemplate.query.order_by(
         InspectionDeviceTemplate.device_category, InspectionDeviceTemplate.id).all()
@@ -306,7 +305,7 @@ def fault_list():
 def fault_add():
     if request.method == 'POST':
         try:
-            f = create_fault(request.form.to_dict(), current_user.realname or current_user.username)
+            create_fault(request.form.to_dict(), current_user.realname or current_user.username)
         except Exception as e:
             db.session.rollback()
             flash(str(e) or '故障添加失败', 'danger')
@@ -651,9 +650,15 @@ def knowledge_base_edit(id):
 @require_permission('kb:view')
 def knowledge_base_detail(id):
     kb = KnowledgeBase.query.get_or_404(id)
-    # 浏览次数 +1
-    kb.view_count = (kb.view_count or 0) + 1
-    db.session.commit()
+    # 浏览次数 +1：原子 UPDATE，避免 read-modify-write 并发丢失；session 去重（1 小时内同人重复访问不计）
+    viewed_key = f'kb_viewed_{id}'
+    if not session.get(viewed_key):
+        db.session.execute(
+            sa_text('UPDATE knowledge_base SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :kid'),
+            {'kid': id})
+        db.session.commit()
+        session[viewed_key] = True
+        kb.view_count = (kb.view_count or 0) + 1  # 页面展示同步
     ticket = Ticket.query.get(kb.related_ticket_id) if kb.related_ticket_id else None
     fault = Fault.query.get(kb.related_fault_id) if kb.related_fault_id else None
     return render_template('knowledge_base/detail.html', kb=kb, ticket=ticket, fault=fault)
@@ -665,7 +670,6 @@ def knowledge_base_detail(id):
 def knowledge_base_delete(id):
     # V7：先删除物理附件
     kb = KnowledgeBase.query.get_or_404(id)
-    import shutil as _shutil
     for att in kb.attachments:
         full = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             'static', att.file_path)
@@ -996,7 +1000,7 @@ def device_check_template_add():
         remark=request.form.get('remark', ''),
     )
     db.session.add(t); db.session.commit()
-    flash(f'已添加', 'success')
+    flash('已添加', 'success')
     return redirect(url_for('ops.device_check_template_list'))
 
 
@@ -1215,6 +1219,17 @@ def fault_type_delete(id):
 # ============================ 报告 ============================
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'reports')
 
+
+def _safe_report_path(filename):
+    """报告文件名安全校验：防路径穿越 + 扩展名白名单。返回绝对路径或 None。"""
+    if not filename or not filename.lower().endswith(('.docx', '.pdf')):
+        return None
+    full = os.path.realpath(os.path.join(REPORTS_DIR, filename))
+    base = os.path.realpath(REPORTS_DIR)
+    if full.startswith(base + os.sep) and os.path.isfile(full):
+        return full
+    return None
+
 @ops_bp.route('/reports')
 @login_required
 @require_permission('report:view')
@@ -1423,12 +1438,20 @@ def report_list():
 
 @ops_bp.route('/reports/delete/<path:filename>', methods=['POST'])
 @login_required
-@require_permission('report:view')
+@require_permission('report:delete')
 def report_delete(filename):
-    full = os.path.join(REPORTS_DIR, filename)
-    if os.path.isfile(full) and '..' not in filename:
-        os.remove(full)
-        flash('已删除', 'success')
+    full = _safe_report_path(filename)
+    if full is None:
+        flash('非法的报告文件名', 'danger')
+        current_app.logger.warning(
+            '报告删除被拒绝: 用户[%s] 文件名[%s], IP=%s',
+            current_user.username, filename, request.remote_addr)
+        return redirect(url_for('ops.report_list'))
+    os.remove(full)
+    current_app.logger.info(
+        '报告删除审计: 用户[%s] 删除报告[%s], IP=%s',
+        current_user.username, os.path.basename(full), request.remote_addr)
+    flash('已删除', 'success')
     return redirect(url_for('ops.report_list'))
 
 
@@ -1436,4 +1459,7 @@ def report_delete(filename):
 @login_required
 @require_permission('report:view')
 def report_download(filename):
-    return send_from_directory(REPORTS_DIR, filename, as_attachment=True)
+    full = _safe_report_path(filename)
+    if full is None:
+        abort(404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)

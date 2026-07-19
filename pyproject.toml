@@ -1,0 +1,19 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = [
+    ".venv",
+    "venv",
+    "migrations",
+    "scripts/archive",
+    "static",
+]
+
+[tool.ruff.lint]
+# 现阶段只强制 Pyflakes 真实问题（未用导入/重定义/未用变量等），
+# 代码风格类（E7xx 单行多语句、E722 裸 except 等）纳入后续 W3/W4 整改。
+select = ["F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

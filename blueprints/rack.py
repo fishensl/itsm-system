@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """机柜管理蓝图：机柜 / 设备上架 — 按客户分组管理"""
-from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, jsonify, abort)
-from flask_login import login_required, current_user
+from flask import (Blueprint, render_template, request, jsonify)
+from flask_login import login_required
 from sqlalchemy.orm import joinedload
 from models import (Rack, RackInstall, Device, Customer, Region, db)
 from utils.permission import require_permission
@@ -48,6 +47,7 @@ def rack_index():
 # ============================ 机柜 API ============================
 @rack_bp.route('/api/rack/cabinets', methods=['GET'])
 @login_required
+@require_permission('device:view')
 def api_cabinets():
     """获取机柜列表（可按 customer_id 过滤）"""
     customer_id = request.args.get('customer_id', type=int)
@@ -80,6 +80,7 @@ def api_cabinets():
 
 @rack_bp.route('/api/rack/cabinets/<int:rack_id>', methods=['GET'])
 @login_required
+@require_permission('device:view')
 def api_cabinet_detail(rack_id):
     """获取单个机柜详情（含设备布局）"""
     r = Rack.query.get_or_404(rack_id)
@@ -176,6 +177,7 @@ def api_cabinet_delete(rack_id):
 # ============================ 设备上架 API ============================
 @rack_bp.route('/api/rack/devices/all', methods=['GET'])
 @login_required
+@require_permission('device:view')
 def api_all_devices():
     """获取可上架设备（仅本机柜所属客户的设备）。
 
@@ -252,7 +254,7 @@ def api_install_update(install_id):
     new_occupy = int(data.get('occupy_u') or inst.occupy_u)
     r = inst.rack_rel
     if new_start < 1 or new_start + new_occupy - 1 > r.total_u:
-        return jsonify({'error': f'U 位超出范围'}), 400
+        return jsonify({'error': 'U 位超出范围'}), 400
     # 冲突检查（排除自身）
     for other in r.installs:
         if other.id == inst.id:

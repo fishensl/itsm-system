@@ -1,6 +1,6 @@
 """部门管理蓝图"""
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
-from flask_login import login_required, current_user
+from flask_login import login_required
 from models import db, Department, User
 from utils.permission import require_permission
 
@@ -91,6 +91,7 @@ def dept_delete(id):
 
 @dept_bp.route('/api/tree')
 @login_required
+@require_permission('department:view')
 def api_dept_tree():
     """返回部门树 JSON"""
     departments = Department.query.order_by(Department.sort_order, Department.id).all()

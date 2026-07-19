@@ -2,8 +2,6 @@
 import os
 import base64
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # 密钥文件路径
 KEY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.secret.key')

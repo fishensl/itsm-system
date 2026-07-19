@@ -19,15 +19,12 @@ from blueprints.task_schedule import task_schedule_bp
 
 
 def register_blueprints(app):
-    # drafts 是纯 API 蓝图（/api/drafts/*），整蓝图豁免 CSRF
-    csrf_ext = app.extensions.get('csrf')
-    if csrf_ext is not None:
-        csrf_ext.exempt(draft_bp)
-        # rack 蓝图的 /api/rack/* 端点也豁免 CSRF（前端用 fetch）
-        csrf_ext.exempt(rack_bp)
-        # 注：rbac 蓝图不再整体豁免 CSRF——其 fetch 已显式带 X-CSRFToken，
-        #     普通 POST 表单经 base.html 自动注入 csrf_token，保持 CSRF 保护防越权提权
-    # 注意：app.py 中的 /api/* 路由已通过 @api_view (= @csrf.exempt) 单独豁免
+    # CSRF 策略（全站统一）：
+    # - 不再做蓝图级豁免。drafts/rack 等 JSON API 的非 GET 请求由 base.html 的
+    #   fetch 包装器自动附加 X-CSRFToken 头，保持 CSRF 保护且功能不变。
+    # - rbac 蓝图不豁免：其 fetch 已显式带 X-CSRFToken，普通 POST 表单经 base.html
+    #   自动注入 csrf_token，保持 CSRF 保护防越权提权。
+    # - 仅个别需接收外部 POST 的端点用 @api_view 显式豁免（如登录态外的回调）。
     # 不要再把 customer_bp/asset_bp 等加入 exempt，否则普通 POST 表单也被绕过
 
     app.register_blueprint(dept_bp, url_prefix='/departments')

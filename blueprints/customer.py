@@ -4,20 +4,18 @@
 业务规则下沉到 services/customer_service.py，路由层只做参数接收和模板渲染。
 """
 import os
-import tempfile
 from datetime import date
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_from_directory, jsonify, current_app)
-from flask_login import login_required, current_user
+from flask_login import login_required
 from models import (Customer, CustomerCategory, Region,
                     Device, db)
-from models import UserPermission, Permission
 from sqlalchemy.orm import joinedload
 from services.customer_service import (create_customer, update_customer, delete_customer,
                                         get_customer_with_regions,
                                         parse_extra_fields, serialize_extra_fields)
 from services.customer_hierarchy import build_flat_nodes, candidate_parents
-from utils.permission import require_permission, get_user_permissions
+from utils.permission import require_permission
 
 
 customer_bp = Blueprint('customer', __name__)
@@ -378,6 +376,7 @@ def region_delete(id):
 
 @customer_bp.route('/api/regions/children/<int:parent_id>')
 @login_required
+@require_permission('customer:view')
 def api_region_children(parent_id):
     """返回指定地区的直接子地区列表（JSON），用于客户表单的市→区/县级联"""
     children = Region.query.filter_by(parent_id=parent_id)\
@@ -387,6 +386,7 @@ def api_region_children(parent_id):
 
 @customer_bp.route('/api/customers/parent-candidates')
 @login_required
+@require_permission('customer:view')
 def api_parent_candidates():
     """返回指定类别下可作为「上级单位」的市级客户（JSON）。
 

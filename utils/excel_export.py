@@ -8,7 +8,6 @@ P1-3.2: 统一 Excel 导出工具
 """
 import os
 import tempfile
-from datetime import date
 
 
 def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True):

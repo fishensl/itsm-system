@@ -41,9 +41,11 @@ class Config:
 
 
 def setup_logging(app):
-    """配置日志"""
+    """配置日志：RotatingFileHandler 轮转（10MB × 10），避免 app.log 无限增长"""
+    from logging.handlers import RotatingFileHandler
     os.makedirs(Config.LOG_DIR, exist_ok=True)
-    handler = logging.FileHandler(Config.LOG_FILE, encoding='utf-8')
+    handler = RotatingFileHandler(
+        Config.LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=10, encoding='utf-8')
     handler.setFormatter(logging.Formatter(
         '[%(asctime)s] %(levelname)s %(module)s:%(lineno)d - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'

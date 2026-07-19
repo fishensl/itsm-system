@@ -9,7 +9,12 @@
 
 在编辑器中通过 clibs=U:<xml 的 URL> 加载。
 """
-import sys, os, zipfile, re, json, subprocess, tempfile, base64
+import sys
+import os
+import zipfile
+import re
+import subprocess
+import base64
 
 def parse_masters(vssx_path):
     """解析 VSSX，返回 [(name, master_file, icon_path), ...]"""

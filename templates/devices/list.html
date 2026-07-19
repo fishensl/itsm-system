@@ -112,12 +112,16 @@
                         <td><code>{{ d.ip_address }}:{{ d.port }}</code></td>
                         <td>{{ d.username }}</td>
                         <td class="pwd-cell" data-device-id="{{ d.id }}">
+                            {% if has_perm('device:reveal') %}
                             <div class="pwd-cell-inner">
                                 <span class="password-mask" onclick="togglePwd(this)">••••••••</span>
                                 <button type="button" class="pwd-btn" onclick="togglePwdIcon(this)" title="显示/隐藏密码"><i class="bi-eye"></i></button>
                                 <button type="button" class="pwd-btn" onclick="copyPwd(this)" title="复制密码"><i class="bi-copy"></i></button>
                                 <button type="button" class="pwd-btn" onclick="showPwdHistory(this)" data-device-id="{{ d.id }}" data-device-name="{{ d.device_name }}" title="查看历史密码"><i class="bi-clock-history"></i></button>
                             </div>
+                            {% else %}
+                            <span class="text-muted font-monospace">••••••••</span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if d.is_maintenance %}
@@ -382,7 +386,7 @@
                             ('ip_address', 'IP地址'),
                             ('port', '端口'),
                             ('username', '登录用户名'),
-                            ('password', '登录密码'),
+                            {% if has_perm('device:reveal') %}('password', '登录密码（明文）'),{% endif %}
                             ('login_method', '登录方式'),
                             ('interface', '接口'),
                             ('os_version', '系统版本'),
@@ -543,9 +547,9 @@ document.getElementById('deviceForm').addEventListener('submit', function(e) {
                         cells[9].innerHTML = '<code>' + escHtml(dev.interface || '-') + '</code>';
                         cells[10].innerHTML = '<code>' + escHtml(dev.ip_address || '') + ':' + dev.port + '</code>';
                         cells[11].textContent = dev.username || '';
-                        // 密码：本次保存后将明文缓存到 td.dataset.pwd，按钮不再嵌密码
+                        // 密码：不再随设备 JSON 下发；清掉缓存，下次点击经 reveal API 按需获取
                         var pwdCell = cells[12];
-                        pwdCell.dataset.pwd = dev.password || '';
+                        delete pwdCell.dataset.pwd;
                         if (!pwdCell.dataset.deviceId) pwdCell.dataset.deviceId = dev.id;
                         pwdCell.innerHTML =
                             '<div class="pwd-cell-inner">' +
@@ -616,7 +620,7 @@ function editDevice(id) {
             setFormValue('login_method', d.login_method);
             setFormValue('port', d.port);
             setFormValue('username', d.username);
-            setFormValue('password', d.password);
+            // 密码不预填：留空提交表示不修改（服务端 update_device_from_form 保持原密码）
             setFormValue('remark', d.remark);
             document.getElementById('chkMaintenance').checked = d.is_maintenance;
             document.getElementById('chkInUse').checked = d.is_in_use;
@@ -665,14 +669,14 @@ function toggleExportCols(checked) {
     document.querySelectorAll('.export-col').forEach(cb => cb.checked = checked);
 }
 
-// 按需向后端拉取明文密码，缓存到 td.dataset.pwd 上；第二次点击读缓存不再请求。
-// 模板里不预填密码（避免全表明文随 HTML 渲染泄露）。
+// 按需经 reveal API 拉取明文密码（device:reveal 权限 + 服务端审计），缓存到 td.dataset.pwd；
+// 第二次点击读缓存不再请求。模板里不预填密码（避免明文随 HTML 渲染泄露）。
 function fetchPwd(cell) {
     if (cell.dataset.pwd !== undefined) {
         return Promise.resolve(cell.dataset.pwd);
     }
     const devId = cell.dataset.deviceId;
-    return fetch('/api/devices/' + devId, { credentials: 'same-origin' })
+    return fetch('/api/devices/' + devId + '/reveal-password', { method: 'POST', credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(d => { cell.dataset.pwd = d.password || ''; return cell.dataset.pwd; })
         .catch(() => { cell.dataset.pwd = ''; return ''; });
@@ -743,13 +747,33 @@ function showPwdHistory(el) {
             } else {
                 html = '<table class="table table-hover"><thead><tr><th>#</th><th>历史密码</th><th>修改人</th><th>修改时间</th><th>备注</th></tr></thead><tbody>';
                 data.forEach(function(h, idx) {
-                    html += '<tr><td>' + (idx + 1) + '</td><td><code>' + (h.password || '') + '</code></td><td>' + (h.changed_by || '-') + '</td><td>' + (h.created_at || '') + '</td><td>' + (h.remark || '-') + '</td></tr>';
+                    html += '<tr><td>' + (idx + 1) + '</td>' +
+                        '<td><code class="hist-pwd" id="hist-pwd-' + h.id + '">••••••••</code>' +
+                        ' <i class="bi-eye text-muted" style="cursor:pointer" title="查看明文" onclick="revealHistPwd(this, ' + deviceId + ', ' + h.id + ')"></i></td>' +
+                        '<td>' + (h.changed_by || '-') + '</td><td>' + (h.created_at || '') + '</td><td>' + (h.remark || '-') + '</td></tr>';
                 });
                 html += '</tbody></table>';
             }
             document.getElementById('pwdHistoryBody').innerHTML = html;
         })
         .catch(function() { document.getElementById('pwdHistoryBody').innerHTML = '<div class="text-center py-4 text-danger"><i class="bi-exclamation-circle"></i> 加载失败</div>'; });
+}
+// 历史密码明文按需 reveal（同样走 reveal-password 端点 + 服务端审计）
+function revealHistPwd(el, deviceId, historyId) {
+    const cell = document.getElementById('hist-pwd-' + historyId);
+    if (!cell) return;
+    if (cell.dataset.revealed === '1') {
+        cell.textContent = '••••••••';
+        cell.dataset.revealed = '';
+        return;
+    }
+    fetch('/api/devices/' + deviceId + '/reveal-password', {
+        method: 'POST', credentials: 'same-origin',
+        body: new URLSearchParams({ history_id: historyId })
+    })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(d => { cell.textContent = d.password || '(空)'; cell.dataset.revealed = '1'; })
+        .catch(() => showToast('无权限查看或加载失败', 'danger'));
 }
 </script>
 

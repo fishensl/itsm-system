@@ -7,7 +7,7 @@ V14: get_user_permissions 改为读 DB + 进程级缓存。
 """
 from functools import wraps
 from datetime import datetime
-from flask import flash, redirect, url_for
+from flask import flash, redirect, url_for, request, jsonify
 from flask_login import current_user
 from sqlalchemy.orm import joinedload
 
@@ -38,6 +38,7 @@ PERMISSION_MAP = {
     # 运维管理
     'device:view': '设备管理-查看', 'device:add': '设备管理-新增',
     'device:edit': '设备管理-编辑', 'device:delete': '设备管理-删除',
+    'device:reveal': '设备管理-查看明文密码',
     'topology:view': '拓扑图-查看', 'topology:add': '拓扑图-新增',
     'topology:edit': '拓扑图-编辑', 'topology:delete': '拓扑图-删除',
     'inspection:view': '巡检管理-查看', 'inspection:add': '巡检管理-新增',
@@ -68,7 +69,7 @@ PERMISSION_MAP = {
     'user:view': '用户管理-查看', 'user:add': '用户管理-新增',
     'user:edit': '用户管理-编辑', 'user:delete': '用户管理-删除',
     'permission:view': '权限管理-查看', 'permission:edit': '权限管理-编辑',
-    'report:view': '报告管理-查看',
+    'report:view': '报告管理-查看', 'report:delete': '报告管理-删除',
     'ai:view': 'AI对接-查看', 'ai:edit': 'AI对接-编辑',
     'dashboard:reports': '数据报表-查看',
     'draft:manage': '草稿管理',
@@ -79,7 +80,7 @@ ADMIN_PERMISSIONS = list(PERMISSION_MAP.keys())
 OPERATOR_PERMISSIONS = [
     'dashboard:view',
     'customer:view', 'region:view',
-    'device:view', 'device:add', 'device:edit',
+    'device:view', 'device:add', 'device:edit', 'device:reveal',
     'topology:view',
     'inspection:view', 'inspection:add', 'inspection:edit', 'inspection:review',
     'ticket:view', 'ticket:add', 'ticket:edit',
@@ -90,7 +91,7 @@ OPERATOR_PERMISSIONS = [
     'contract_auto:manage',
     'spare:view', 'spare:add', 'spare:edit',
     'sales:view',
-    'report:view', 'dashboard:reports',
+    'report:view', 'report:delete', 'dashboard:reports',
     'draft:manage',
 ]
 
@@ -317,15 +318,24 @@ def is_supervisor(user=None):
     return dept is not None and dept.head_id == user.id
 
 
+def _is_api_request():
+    """判定 API 请求：路径含 /api/ 段（兼容蓝图内 API，如 /contract-tasks/api/...）"""
+    return '/api/' in request.path
+
+
 def require_permission(code):
-    """权限验证装饰器"""
+    """权限验证装饰器：页面重定向，API 请求返回 JSON 401/403（前端 fetch 友好）"""
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
             if not current_user.is_authenticated:
+                if _is_api_request():
+                    return jsonify({'success': False, 'error': '未登录或会话已过期'}), 401
                 return redirect(url_for('login'))
             perms = get_user_permissions(current_user)
             if code not in perms:
+                if _is_api_request():
+                    return jsonify({'success': False, 'error': '权限不足', 'required': code}), 403
                 flash('权限不足，需要：' + PERMISSION_MAP.get(code, code), 'danger')
                 return redirect(url_for('index'))
             return f(*args, **kwargs)
@@ -334,10 +344,12 @@ def require_permission(code):
 
 
 def admin_required(f):
-    """装饰器：要求当前用户是 admin 角色"""
+    """装饰器：要求当前用户是 admin 角色（API 请求返回 JSON）"""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or current_user.role != 'admin':
+            if _is_api_request():
+                return jsonify({'success': False, 'error': '需要管理员权限'}), 403
             flash('需要管理员权限', 'danger')
             return redirect(url_for('index'))
         return f(*args, **kwargs)
