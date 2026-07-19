@@ -24,6 +24,11 @@ def login():
             if getattr(user, '_plaintext_upgraded', False):
                 db.session.commit()
                 current_app.logger.info(f'用户 [{username}] 的明文密码已自动升级为哈希存储')
+            elif user.needs_rehash():
+                # 旧 pbkdf2 哈希透明升级为 scrypt（werkzeug 3 默认，零依赖）
+                user.set_password(password)
+                db.session.commit()
+                current_app.logger.info(f'用户 [{username}] 密码哈希已升级 pbkdf2→scrypt')
             login_user(user)
             current_app.logger.info(f'用户 [{username}] 登录成功')
             return redirect(url_for('index'))

@@ -220,26 +220,30 @@ sudo bash /opt/itsm/scripts/backup.sh   # 手动备份
 
 ```
 itsm-system/
-├── app.py                        # 主应用入口（登录、首页、拓扑、用户管理、系统设置）
+├── app.py                        # 应用工厂 create_app() / 扩展实例 / 路由集中注册 / init_db
 ├── wsgi.py                       # Gunicorn 生产入口
-├── models.py                     # 数据库模型（46 个模型类，45 张表）
-├── config.py                     # 应用配置（密钥、数据库、日志）
+├── config.py                     # 应用配置（密钥、数据库、轮转日志）
+├── models/                       # 数据库模型包（46 个模型类，45 张表）
+│   ├── base.py                   # db 单例
+│   └── user/customer/device/inspection/ticket/knowledge/spare/sales/misc/rack.py
+├── views/                        # 主应用视图（dashboard/auth/admin_users/system）
 ├── requirements.txt              # Python 依赖
-├── .gitignore                    # Git 忽略规则
+├── requirements-dev.txt          # 开发依赖（pytest/ruff/pip-audit）
+├── pyproject.toml                # ruff/pytest 配置
 │
 ├── blueprints/                   # Flask 蓝图（业务路由）
-│   ├── __init__.py               # 蓝图注册
-│   ├── asset.py                  # 设备资产管理
+│   ├── __init__.py               # 蓝图注册（CSRF 策略集中）
+│   ├── asset/                    # 设备资产管理包（devices/dicts/firmwares/config_backups）
+│   ├── ops/                      # 运维管理包（inspections/tickets/faults/knowledge/templates/reports/...）
 │   ├── categories.py             # 客户单位分类
 │   ├── contract_tasks.py         # 合同自动巡检任务
 │   ├── customer.py               # 客户管理
 │   ├── departments.py            # 部门管理
 │   ├── drafts.py                 # 表单草稿 API
-│   ├── ops.py                    # 巡检/故障/工单/知识库/模板
 │   ├── rack.py                   # 机柜管理
 │   ├── sales.py                  # 销售管线
 │   ├── spare.py                  # 备件管理
-│   ├── task_dispatch.py          # 工单调度
+│   ├── task_dispatch.py          # 工单调度（仅 301/307 兼容重定向）
 │   └── tools.py                  # 网络常用工具
 │
 ├── services/                     # 服务层（业务逻辑）
@@ -256,8 +260,11 @@ itsm-system/
 │   ├── ai_client.py              # 多厂商 AI 客户端
 │   ├── auto_task_generator.py    # 合同自动任务生成
 │   ├── cert_options.py           # 认证证书选项
+│   ├── constants.py              # 业务状态常量（单一真源）
 │   ├── crypto.py                 # AES 密码加密/解密
+│   ├── decorators.py             # api_view / form_commit 装饰器
 │   ├── excel_export.py           # Excel 导出
+│   ├── json_fields.py            # JSON Text 字段读写边界
 │   ├── pagination.py             # 分页工具
 │   ├── permission.py             # 权限系统（50+ 权限码）
 │   ├── report_generator.py       # Word 报告生成
@@ -269,12 +276,14 @@ itsm-system/
 │   ├── css/                      # 样式
 │   ├── js/                       # 脚本
 │   ├── img/                      # 图片
-│   ├── vendor/                   # 第三方库（Bootstrap 5, Chart.js）
+│   ├── vendor/                   # 第三方库（Bootstrap 5, Chart.js, drawio）
 │   └── uploads/                  # 用户上传（运行时）
 │
-├── scripts/                      # 部署运维脚本
+├── tests/                        # pytest 测试（100+ 用例，详见 AGENTS.md）
+├── migrations/                   # Alembic 数据库迁移
+├── scripts/                      # 部署运维 + 数据脚本（故障迁移/密钥轮换）
 ├── instance/                     # SQLite 数据库（运行时）
-├── logs/                         # 日志（运行时）
+├── logs/                         # 日志（运行时，自动轮转）
 ├── reports/                      # Word 报告（运行时）
 ├── uploads/                      # 上传文件（运行时）
 └── backups/                      # 备份（运行时）
@@ -586,6 +595,7 @@ sudo bash /opt/itsm/scripts/rollback.sh backups/itsm.db.pre_update_20260615_1200
 | cryptography | AES 密码加密 |
 | openpyxl | Excel 导入导出 |
 | psutil | 系统监控 |
+| pytest + ruff | 测试与代码检查（GitHub Actions CI） |
 
 ---
 
