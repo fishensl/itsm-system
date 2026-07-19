@@ -109,6 +109,24 @@ class TestPlaintextPasswordUpgrade:
             assert u.check_password('plain123') is True
             assert u.check_password('wrong') is False
 
+    def test_pbkdf2_hash_upgraded_to_scrypt_on_login(self, client, app):
+        """W5：旧 pbkdf2 哈希在登录成功后透明重哈希为 scrypt"""
+        from werkzeug.security import generate_password_hash
+        with app.app_context():
+            u = User(username='pbkdf2user',
+                     password=generate_password_hash('pw123456', method='pbkdf2:sha256:600000'),
+                     realname='旧', role='viewer', is_active=True)
+            db.session.add(u)
+            db.session.commit()
+            assert u.needs_rehash() is True
+        r = client.post('/login', data={'username': 'pbkdf2user', 'password': 'pw123456'})
+        assert r.status_code == 302
+        with app.app_context():
+            u = User.query.filter_by(username='pbkdf2user').first()
+            assert u.password.startswith('scrypt:')
+            assert u.needs_rehash() is False
+            assert u.check_password('pw123456') is True
+
 
 class TestDeviceImportBatch:
     def _make_xlsx(self, rows):

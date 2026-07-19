@@ -59,6 +59,10 @@ class User(UserMixin, db.Model):
             return True
         return False
 
+    def needs_rehash(self):
+        """旧 pbkdf2 哈希标记：登录成功后应升级为 scrypt（werkzeug 3 默认算法）"""
+        return (self.password or '').startswith('pbkdf2:')
+
     @staticmethod
     def create_with_password(username, password, realname='', role='operator', department_id=None):
         return User(
