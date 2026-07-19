@@ -2,7 +2,7 @@
 """机柜管理蓝图：机柜 / 设备上架 — 按客户分组管理"""
 from flask import (Blueprint, render_template, request, jsonify)
 from flask_login import login_required
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from models import (Rack, RackInstall, Device, Customer, Region, db)
 from utils.permission import require_permission
 
@@ -51,7 +51,11 @@ def rack_index():
 def api_cabinets():
     """获取机柜列表（可按 customer_id 过滤）"""
     customer_id = request.args.get('customer_id', type=int)
-    q = Rack.query
+    # 性能：预加载 installs + customer_rel，消除循环内 lazy 加载 N+1
+    q = Rack.query.options(
+        selectinload(Rack.installs),
+        joinedload(Rack.customer_rel),
+    )
     if customer_id:
         q = q.filter_by(customer_id=customer_id)
     items = []
@@ -83,7 +87,11 @@ def api_cabinets():
 @require_permission('device:view')
 def api_cabinet_detail(rack_id):
     """获取单个机柜详情（含设备布局）"""
-    r = Rack.query.get_or_404(rack_id)
+    # 性能：installs + 其 device_rel 一次预加载，消除逐设备 N+1
+    r = Rack.query.options(
+        selectinload(Rack.installs).joinedload(RackInstall.device_rel),
+        joinedload(Rack.customer_rel),
+    ).filter_by(id=rack_id).first_or_404()
     installs = []
     for i in sorted(r.installs, key=lambda x: x.start_u or 0):
         if i.device_id and i.device_rel:
@@ -191,8 +199,9 @@ def api_all_devices():
         customer_id = r.customer_id if r else None
     if not customer_id:
         return jsonify({'items': []})
-    # 已上架设备 ID 集
-    installed = {i.device_id for i in RackInstall.query.filter(RackInstall.device_id.isnot(None)).all()}
+    # 已上架设备 ID 集（只取 device_id 列，不实例化 ORM 对象）
+    installed = {row[0] for row in db.session.query(RackInstall.device_id)
+                 .filter(RackInstall.device_id.isnot(None)).all()}
     items = []
     for d in Device.query.filter_by(customer_id=customer_id).order_by(Device.device_name).all():
         items.append({

@@ -1,6 +1,7 @@
 """部门管理蓝图"""
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required
+from sqlalchemy.orm import joinedload, selectinload
 from models import db, Department, User
 from utils.permission import require_permission
 
@@ -11,7 +12,11 @@ dept_bp = Blueprint('departments', __name__)
 @login_required
 @require_permission('department:view')
 def dept_list():
-    departments = Department.query.order_by(Department.sort_order, Department.id).all()
+    # 性能：预加载 head/members，消除构建树时的 N+1
+    departments = Department.query.options(
+        joinedload(Department.head),
+        selectinload(Department.members),
+    ).order_by(Department.sort_order, Department.id).all()
     users = User.query.filter(User.is_active == True).order_by(User.realname).all()
     # 构建树：顶级部门 + 其 children
     dept_map = {}
@@ -94,7 +99,8 @@ def dept_delete(id):
 @require_permission('department:view')
 def api_dept_tree():
     """返回部门树 JSON"""
-    departments = Department.query.order_by(Department.sort_order, Department.id).all()
+    departments = Department.query.options(joinedload(Department.head))\
+        .order_by(Department.sort_order, Department.id).all()
     result = []
     for d in departments:
         head_name = d.head.realname if d.head else ''

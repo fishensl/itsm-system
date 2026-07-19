@@ -767,10 +767,24 @@ def firmware_list():
         grouped.setdefault(key, OrderedDict()).setdefault(fw.firmware_type or '其他', []).append(fw)
 
     # 为每组挂上设备清单（同 brand+model 的所有设备，便于对比版本）
-    group_devices = {}
-    for (brand, model) in grouped.keys():
-        devs = Device.query.filter_by(brand=brand, model=model).all()
-        group_devices[(brand, model)] = devs
+    # 性能：单条 OR 组合查询 + Python 分桶，替代逐组 N+1 查询
+    group_devices = {k: [] for k in grouped.keys()}
+    if grouped:
+        from sqlalchemy import and_, or_
+        pair_conds = []
+        for brand, model in grouped.keys():
+            # grouped 的 key 已做空值替换（'未分类'/'未分类型号'），还原为 DB 匹配条件
+            b_cond = Device.brand == (brand if brand != '未分类' else '')
+            m_cond = Device.model == (model if model != '未分类型号' else '')
+            if brand == '未分类':
+                b_cond = or_(Device.brand == '', Device.brand.is_(None))
+            if model == '未分类型号':
+                m_cond = or_(Device.model == '', Device.model.is_(None))
+            pair_conds.append(and_(b_cond, m_cond))
+        for dev in Device.query.filter(or_(*pair_conds)).all():
+            key = (dev.brand or '未分类', dev.model or '未分类型号')
+            if key in group_devices:
+                group_devices[key].append(dev)
 
     # 筛选下拉
     all_brands = sorted(set(b for b, _ in grouped.keys() if b))

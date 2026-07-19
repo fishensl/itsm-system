@@ -197,74 +197,52 @@ def index():
         1 for _spid, min_s, qty in stock_total if (min_s or 0) > 0 and qty < min_s
     )
 
-    # 预加载所有客户字典（消除 N+1 查询）
-    customer_map = {c.id: c.name for c in Customer.query.all()}
+    # 客户名映射：先收集各查询涉及的 customer_id，再一次 IN 加载（替代全表 Customer.query.all()）
+    _needed_cids = set()
 
     # ---- 即将到期授权（仅 admin / operator 可看）----
     today = date.today()
     deadline = today + timedelta(days=30)
-    expiring_devices_data = []
+    expiring_devices = []
     if role in ('admin', 'operator', 'viewer'):
         expiring_devices = Device.query.filter(
             Device.license_expiry.isnot(None),
             Device.license_expiry <= deadline
         ).order_by(Device.license_expiry).limit(8).all()
-        for d in expiring_devices:
-            remaining = (d.license_expiry - today).days if d.license_expiry else 0
-            expiring_devices_data.append({
-                'id': d.id, 'device_name': d.device_name,
-                'customer_name': customer_map.get(d.customer_id, '-'),
-                'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
-                'remaining_days': remaining,
-            })
+        _needed_cids.update(d.customer_id for d in expiring_devices if d.customer_id)
 
-    # ---- 我的待处理任务 ----
+    # ---- 我的待处理任务（先取实体，客户名映射构建后再组装展示字典） ----
     my_tasks = []
     my_tickets = []
     my_insp_tasks = []
     my_faults = []
+    my_opps = []
+    my_contracts = []
 
     if role in ('admin', 'operator'):
         my_tickets = Ticket.query.filter(
             Ticket.assigned_to.in_([me_realname, me.username]),
             ~Ticket.status.in_(['已验收', '已关闭'])
         ).order_by(Ticket.created_at.desc()).limit(8).all()
-        for t in my_tickets:
-            my_tasks.append({
-                'type_label': '工单', 'type_color': 'danger',
-                'title': t.title,
-                'sub': f"{customer_map.get(t.customer_id, '-')} · {t.priority} · {t.status}",
-                'url': f"/tickets/{t.id}",
-                'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
-            })
 
         # 巡检任务：通过关联 user_id 查 Inspector（V13 后 name 是 property 不是列，不能 filter_by(name=)）
         insp = Inspector.query.filter_by(user_id=me.id).first()
         my_iid = str(insp.id) if insp else None
         if my_iid:
-            for t in InspectionTask.query.order_by(InspectionTask.id.desc()).limit(50).all():
-                if my_iid in (t.inspector_ids or '').split(',') and t.status in ('待执行', '执行中'):
-                    my_insp_tasks.append(t)
-            my_insp_tasks = my_insp_tasks[:5]
-        for t in my_insp_tasks:
-            my_tasks.append({
-                'type_label': '巡检', 'type_color': 'primary',
-                'title': t.title,
-                'sub': f"{customer_map.get(t.customer_id, '-')} · {t.status} · {t.task_type}",
-                'url': f"/task-schedule/{t.id}",
-                'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' + (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
-            })
+            # 性能：逗号包裹匹配下推 SQL（,ids, LIKE '%,iid,%'，防 id 12 误匹配 123），
+            # 替代先取 50 条再 Python split 过滤的做法
+            from sqlalchemy import literal
+            haystack = literal(',') + func.coalesce(InspectionTask.inspector_ids, '') + literal(',')
+            my_insp_tasks = InspectionTask.query.filter(
+                haystack.like(f'%,{my_iid},%'),
+                InspectionTask.status.in_(['待执行', '执行中'])
+            ).order_by(InspectionTask.id.desc()).limit(5).all()
 
         # 待处理故障
         my_faults = Fault.query.filter(Fault.result != '已解决').order_by(Fault.fault_time.desc()).limit(5).all()
-        for f in my_faults:
-            my_tasks.append({
-                'type_label': '故障', 'type_color': 'warning',
-                'title': f.title,
-                'sub': f"{customer_map.get(f.customer_id, '-')} · {f.fault_type or '-'}",
-                'url': f"/faults/{f.id}",
-                'time': f.fault_time.strftime('%m-%d %H:%M') if f.fault_time else '',
-            })
+
+        for coll in (my_tickets, my_insp_tasks, my_faults):
+            _needed_cids.update(x.customer_id for x in coll if x.customer_id)
 
     elif role == 'sales':
         # 销售看待处理商机
@@ -272,37 +250,77 @@ def index():
             Opportunity.owner.in_([me_realname, me.username]),
             ~Opportunity.stage.in_(['成交', '失败'])
         ).order_by(Opportunity.expected_close_date.asc().nullslast()).limit(8).all()
-        for o in my_opps:
-            my_tasks.append({
-                'type_label': '商机', 'type_color': 'primary',
-                'title': o.title,
-                'sub': f"{customer_map.get(o.customer_id, '-')} · {o.stage} · {o.expected_amount or 0}",
-                'url': "/opportunities",
-                'time': o.expected_close_date.strftime('%Y-%m-%d') if o.expected_close_date else '-',
-            })
         # 销售也看进行中合同
         my_contracts = Contract.query.filter(Contract.status == '执行中').order_by(Contract.end_date.asc().nullslast()).limit(5).all()
-        for c in my_contracts:
-            my_tasks.append({
-                'type_label': '合同', 'type_color': 'success',
-                'title': c.title,
-                'sub': f"{customer_map.get(c.customer_id, '-')} · {c.amount or 0}",
-                'url': "/contracts",
-                'time': c.end_date.strftime('%Y-%m-%d') if c.end_date else '-',
-            })
+        for coll in (my_opps, my_contracts):
+            _needed_cids.update(x.customer_id for x in coll if x.customer_id)
+
+    # 最近巡检
+    recent_inspections = []
+    if role in ('admin', 'operator', 'viewer'):
+        recent_inspections = Inspection.query.order_by(Inspection.id.desc()).limit(5).all()
+        _needed_cids.update(i.customer_id for i in recent_inspections if i.customer_id)
+
+    # ---- 客户名映射一次加载 + 组装展示字典 ----
+    customer_map = ({c.id: c.name for c in Customer.query.filter(Customer.id.in_(_needed_cids)).all()}
+                    if _needed_cids else {})
+
+    expiring_devices_data = [{
+        'id': d.id, 'device_name': d.device_name,
+        'customer_name': customer_map.get(d.customer_id, '-'),
+        'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+        'remaining_days': (d.license_expiry - today).days if d.license_expiry else 0,
+    } for d in expiring_devices]
+
+    for t in my_tickets:
+        my_tasks.append({
+            'type_label': '工单', 'type_color': 'danger',
+            'title': t.title,
+            'sub': f"{customer_map.get(t.customer_id, '-')} · {t.priority} · {t.status}",
+            'url': f"/tickets/{t.id}",
+            'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
+        })
+    for t in my_insp_tasks:
+        my_tasks.append({
+            'type_label': '巡检', 'type_color': 'primary',
+            'title': t.title,
+            'sub': f"{customer_map.get(t.customer_id, '-')} · {t.status} · {t.task_type}",
+            'url': f"/task-schedule/{t.id}",
+            'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' + (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
+        })
+    for f in my_faults:
+        my_tasks.append({
+            'type_label': '故障', 'type_color': 'warning',
+            'title': f.title,
+            'sub': f"{customer_map.get(f.customer_id, '-')} · {f.fault_type or '-'}",
+            'url': f"/faults/{f.id}",
+            'time': f.fault_time.strftime('%m-%d %H:%M') if f.fault_time else '',
+        })
+    for o in my_opps:
+        my_tasks.append({
+            'type_label': '商机', 'type_color': 'primary',
+            'title': o.title,
+            'sub': f"{customer_map.get(o.customer_id, '-')} · {o.stage} · {o.expected_amount or 0}",
+            'url': "/opportunities",
+            'time': o.expected_close_date.strftime('%Y-%m-%d') if o.expected_close_date else '-',
+        })
+    for c in my_contracts:
+        my_tasks.append({
+            'type_label': '合同', 'type_color': 'success',
+            'title': c.title,
+            'sub': f"{customer_map.get(c.customer_id, '-')} · {c.amount or 0}",
+            'url': "/contracts",
+            'time': c.end_date.strftime('%Y-%m-%d') if c.end_date else '-',
+        })
 
     my_tasks = my_tasks[:8]
 
-    # 最近巡检
-    recent_inspections_data = []
-    if role in ('admin', 'operator', 'viewer'):
-        for i in Inspection.query.order_by(Inspection.id.desc()).limit(5).all():
-            recent_inspections_data.append({
-                'id': i.id, 'title': i.title,
-                'customer_name': customer_map.get(i.customer_id, '-'),
-                'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
-                'overall_status': i.overall_status,
-            })
+    recent_inspections_data = [{
+        'id': i.id, 'title': i.title,
+        'customer_name': customer_map.get(i.customer_id, '-'),
+        'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
+        'overall_status': i.overall_status,
+    } for i in recent_inspections]
 
     # 设备类型分布
     device_type_stats = []
@@ -395,7 +413,9 @@ def index():
     if is_supervisor_user and current_user.department_id:
         dept = Department.query.get(current_user.department_id)
         if dept:
-            dept_user_ids = [u.id for u in User.query.filter_by(department_id=dept.id, is_active=True).all()]
+            # 部门成员只查一次（原实现成员列表与 dept_user_ids 各查一遍）
+            dept_users = User.query.filter_by(department_id=dept.id, is_active=True).all()
+            dept_user_ids = [u.id for u in dept_users]
             dept_tasks = InspectionTask.query.filter(
                 or_(
                     InspectionTask.assigned_to_user_id.in_(dept_user_ids),
@@ -422,7 +442,7 @@ def index():
                 'dept_members': [{'name': u.realname or u.username, 'id': u.id,
                                   'task_count': len([t for t in dept_tasks if t.assigned_to_user_id == u.id]),
                                   'completed': len([t for t in dept_tasks if t.assigned_to_user_id == u.id and t.status == '已完成'])}
-                                 for u in User.query.filter_by(department_id=dept.id, is_active=True).all()],
+                                 for u in dept_users],
                 'quarter_start': q_start.strftime('%Y-%m-%d'),
             }
 

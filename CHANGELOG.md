@@ -8,6 +8,15 @@
 
 ## [未发布] — 2026-07-19
 
+### 性能优化（W1）
+
+- **N+1 消除**：固件版本库按品牌+型号挂设备（单条 OR 查询替代逐组查询）；机柜列表/详情（selectinload+joinedload）；部门树（head/members 预加载）；报告中心三类记录 customer_rel 预加载
+- **报告中心**：首次进入默认近 12 个月窗口（页面有提示，可清空查看全部）；文件反查索引只取有报告文件的记录（原三表全量扫描）
+- **首页**：客户名映射按需 IN 加载（替代全表）；巡检任务匹配下推 SQL（逗号包裹防 id 误匹配，如 12 误中 123）；主管视角部门成员去重查询
+- **索引迁移**（f7a8b9c0d1e2）：devices(customer_id)、devices(brand,model)、inspection_tasks(status/assigned_to_user_id/contract_id)、inspections(customer_id/review_status)、tickets(customer_id/assigned_to)
+- **修复**：报告中心明细行从不渲染（路由写 `items`、模板读 `items_list`，HEAD 上即存在）
+- 新增 W1 回归测试 13 用例（各角色首页、SQL 匹配防误伤、固件分组、机柜 API、报告窗口）
+
 ### 安全加固（W0）
 
 - **设备明文密码收敛**：设备 JSON（`/api/devices/<id>`）不再携带明文密码；新增 `POST /api/devices/<id>/reveal-password` 按需查看（新权限码 `device:reveal` + 审计日志含操作人/IP）；Excel 导出密码列按权限收敛并记导出审计；设备列表/详情页改为掩码 + 按需查看

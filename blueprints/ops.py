@@ -5,11 +5,12 @@
 """
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_from_directory, jsonify, current_app, abort, session)
 from flask_login import login_required, current_user
 from sqlalchemy import text as sa_text
+from sqlalchemy.orm import joinedload
 from models import (Inspection, InspectionTemplate, Fault, Ticket,
                     TicketLog, KnowledgeBase, KnowledgeAttachment, Inspector, InspectionDeviceTemplate,
                     InspectionTaskTemplate, FaultType, Customer, Device, db)
@@ -1247,6 +1248,13 @@ def report_list():
 
     me = current_user.realname or current_user.username
 
+    # 性能：首次进入（无任何过滤条件）默认只看近 12 个月，避免三表全量扫描；
+    # 用户显式选择日期/客户后按条件查询（客户传 customer_id=0 视为全部）
+    default_window = False
+    if not date_from and not date_to and not customer_id:
+        date_from = (datetime.now().date() - timedelta(days=365)).isoformat()
+        default_window = True
+
     # --- 顶部"客户"下拉（预加载所有客户） ---
     customers_index = {c.id: c for c in Customer.query.order_by(Customer.name).all()}
 
@@ -1273,16 +1281,17 @@ def report_list():
         if rt == 'file':
             bucket['types']['file']['files'].append(item)
         else:
+            # 键名 items_list 与 reports/list.html 渲染契约一致（曾用 items 导致明细行不渲染）
             sub = bucket['types'][rt]['subs'].setdefault(
-                sub_key, {'label': sub_label, 'items': []}
+                sub_key, {'label': sub_label, 'items_list': []}
             )
-            sub['items'].append(item)
+            sub['items_list'].append(item)
 
     data = {}  # customer_id | None -> payload
 
     # --- 巡检：按季度子分组 ---
     if tab in ('all', 'inspection'):
-        q = Inspection.query
+        q = Inspection.query.options(joinedload(Inspection.customer_rel))
         if date_from:
             q = q.filter(Inspection.inspection_date >= date_from)
         if date_to:
@@ -1306,7 +1315,7 @@ def report_list():
 
     # --- 故障：按一级分类子分组 ---
     if tab in ('all', 'fault'):
-        q = Fault.query
+        q = Fault.query.options(joinedload(Fault.customer_rel))
         if date_from:
             q = q.filter(Fault.fault_time >= date_from)
         if date_to:
@@ -1325,7 +1334,7 @@ def report_list():
 
     # --- 工单：按优先级子分组 ---
     if tab in ('all', 'ticket'):
-        q = Ticket.query
+        q = Ticket.query.options(joinedload(Ticket.customer_rel))
         if date_from:
             q = q.filter(Ticket.created_at >= date_from)
         if date_to:
@@ -1352,7 +1361,9 @@ def report_list():
 
         file_to_record = {}
         for Mdl in (Inspection, Fault, Ticket):
-            for rec in Mdl.query.all():
+            # 只取有报告文件的记录（原实现三表全量扫描），并预加载 customer_rel
+            for rec in Mdl.query.options(joinedload(Mdl.customer_rel)).filter(
+                    Mdl.report_file.isnot(None), Mdl.report_file != '').all():
                 v = (rec.report_file or '').strip()
                 if not v:
                     continue
@@ -1433,6 +1444,7 @@ def report_list():
         tab=tab,
         tab_stats=tab_stats,
         scope=scope, date_from=date_from, date_to=date_to, customer_id=customer_id,
+        default_window=default_window,
     )
 
 

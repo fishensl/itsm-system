@@ -27,6 +27,9 @@
     </div>
     <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi-funnel"></i> 应用筛选</button></div>
     <div class="col-auto"><a href="{{ url_for('ops.report_list') }}" class="btn btn-sm btn-outline-secondary">重置</a></div>
+    {% if default_window %}
+    <div class="col-auto"><span class="badge bg-info text-dark" title="清空开始日期并应用筛选可查看全部">默认显示近 12 个月</span></div>
+    {% endif %}
 </form>
 {% endcall %}
 

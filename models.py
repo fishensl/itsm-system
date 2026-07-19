@@ -253,8 +253,11 @@ class Customer(db.Model):
 class Device(db.Model):
     """网络设备"""
     __tablename__ = 'devices'
+    __table_args__ = (
+        db.Index('ix_devices_brand_model', 'brand', 'model'),  # 固件按品牌+型号匹配设备
+    )
     id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
     region_id = db.Column(db.Integer, db.ForeignKey('regions.id'), nullable=True)
     device_name = db.Column(db.String(128), nullable=False)
     device_type = db.Column(db.String(64), default='')
@@ -594,7 +597,7 @@ class InspectionTask(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(128), nullable=False)
     task_type = db.Column(db.String(16), default='计划')    # 计划/突发
-    status = db.Column(db.String(32), default='待执行')      # 待执行/执行中/已完成/已取消
+    status = db.Column(db.String(32), default='待执行', index=True)      # 待执行/执行中/已完成/已取消
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
     template_id = db.Column(db.Integer, db.ForeignKey('inspection_templates.id'), nullable=True)
     # V11: 关联新任务模板（推荐使用，旧 template_id 保留只读做兼容）
@@ -612,9 +615,9 @@ class InspectionTask(db.Model):
     priority = db.Column(db.String(16), default='中')
     created_by = db.Column(db.String(64), default='')
     # v3 新增：派发 + 来源追踪
-    contract_id = db.Column(db.Integer, db.ForeignKey('contracts.id'), nullable=True)         # 来源合同
+    contract_id = db.Column(db.Integer, db.ForeignKey('contracts.id'), nullable=True, index=True)  # 来源合同
     source = db.Column(db.String(32), default='手动')          # 手动/合同自动生成
-    assigned_to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)    # 被派发的运维人员
+    assigned_to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)  # 被派发的运维人员
     dispatched_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)          # 派发人（主管）
     dispatched_at = db.Column(db.DateTime, nullable=True)
     template_category = db.Column(db.String(32), default='巡检')  # 巡检/故障处置/攻防演练/其他
@@ -636,7 +639,7 @@ class Inspection(db.Model):
     __tablename__ = 'inspections'
     id = db.Column(db.Integer, primary_key=True)
     task_id = db.Column(db.Integer, db.ForeignKey('inspection_tasks.id'), nullable=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False, index=True)
     title = db.Column(db.String(128), nullable=False)
     inspector = db.Column(db.String(64), default='')
     # V13: 巡检人员关联（FK 用于追溯归属）+ 冻结快照（保护历史报告免疫改名）
@@ -654,7 +657,7 @@ class Inspection(db.Model):
     # v3 新增：自定义字段值 + 审核流程 + 跳过原因
     field_values_json = db.Column(db.Text, default='{}')     # {"设备名": {"检查项": "值"}}
     skip_reasons_json = db.Column(db.Text, default='{}')      # {"检查项": {"reason": "...", "detail": "..."}}
-    review_status = db.Column(db.String(16), default='')      # ''(草稿)/待审核/已通过/已退回
+    review_status = db.Column(db.String(16), default='', index=True)      # ''(草稿)/待审核/已通过/已退回
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_comment = db.Column(db.Text, default='')
@@ -689,13 +692,13 @@ class Ticket(db.Model):
     status = db.Column(db.String(32), default='待派单', index=True)            # 待派单/待接单/处理中/待审核/待验收/已完成/已关闭
     title = db.Column(db.String(256), nullable=False)
     description = db.Column(db.Text, default='')
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
     reporter = db.Column(db.String(64), default='')
     reporter_phone = db.Column(db.String(32), default='')
     related_inspection_id = db.Column(db.Integer, db.ForeignKey('inspections.id'), nullable=True)
     related_device_id = db.Column(db.Integer, db.ForeignKey('devices.id'), nullable=True)
     fault_category_id = db.Column(db.Integer, db.ForeignKey('fault_types.id'), nullable=True)
-    assigned_to = db.Column(db.String(64), default='')
+    assigned_to = db.Column(db.String(64), default='', index=True)
     assigned_by = db.Column(db.String(64), default='')
     assigned_at = db.Column(db.DateTime, nullable=True)
     accepted_at = db.Column(db.DateTime, nullable=True)
