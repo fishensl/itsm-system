@@ -4,10 +4,13 @@
 {% import "_empty_state.html" as eui %}
 {% block content %}{% call ui.page_header('故障记录（历史归档）', 'exclamation-triangle') %}    <a href="/exports/download-template/fault" class="btn btn-outline-secondary btn-sm me-2"><i class="bi-download"></i> 下载模板</a>
     <a href="{{ url_for('ops.fault_export') }}" class="btn btn-outline-info btn-sm me-2"><i class="bi-file-earmark-excel"></i> 导出Excel</a>
+    {% if has_perm('fault:add') %}
+    <a href="{{ url_for('ops.fault_add') }}" class="btn btn-outline-primary btn-sm me-2"><i class="bi-plus-lg"></i> 新增故障</a>
+    {% endif %}
     <a href="{{ url_for('ops.ticket_add') }}" class="btn btn-primary btn-sm"><i class="bi-plus-lg"></i> 新建工单</a>
 {% endcall %}
-<div class="alert alert-warning py-2 mb-3">
-    <i class="bi-info-circle me-1"></i> <strong>提示：</strong>故障记录为历史归档，仅支持查看和导出。新建故障请使用 <a href="{{ url_for('ops.ticket_add') }}" class="alert-link">工单管理</a>。
+<div class="alert alert-info py-2 mb-3">
+    <i class="bi-info-circle me-1"></i> <strong>提示：</strong>故障记录为历史归档数据，可查看、编辑、删除和导出；新发生的故障建议优先使用 <a href="{{ url_for('ops.ticket_add') }}" class="alert-link">工单管理</a> 全流程跟踪。
 </div>
 
 <!-- 搜索 -->
@@ -70,7 +73,11 @@
                             {% else %}-{% endif %}
                         </td>
                         <td>
-                            {{ ui.table_actions(view_url=url_for('ops.fault_detail', id=f.id)) }}
+                            {{ ui.table_actions(
+                                view_url=url_for('ops.fault_detail', id=f.id),
+                                edit_url=url_for('ops.fault_edit', id=f.id) if has_perm('fault:edit') else '',
+                                delete_url=url_for('ops.fault_delete', id=f.id) if has_perm('fault:delete') else '',
+                                delete_confirm='确定删除该故障记录吗？') }}
                         </td>
                     </tr>
                     {% endfor %}

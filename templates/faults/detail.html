@@ -2,13 +2,21 @@
 {% block content %}
 <div class="page-toolbar">
     <div class="actions">
+        {% if has_perm('fault:edit') %}
+        <a href="{{ url_for('ops.fault_edit', id=fault.id) }}" class="btn btn-outline-primary btn-sm me-1"><i class="bi-pencil"></i> 编辑</a>
+        {% endif %}
+        {% if has_perm('fault:delete') %}
+        <form method="post" action="{{ url_for('ops.fault_delete', id=fault.id) }}" class="d-inline" onsubmit="return confirm('确定删除该故障记录吗？')">
+            <button type="submit" class="btn btn-outline-danger btn-sm me-1"><i class="bi-trash"></i> 删除</button>
+        </form>
+        {% endif %}
         <a href="{{ url_for('ops.ticket_add') }}" class="btn btn-primary btn-sm"><i class="bi-plus-lg"></i> 转为工单</a>
         <a href="{{ url_for('ops.fault_list') }}" class="btn btn-secondary btn-sm">返回列表</a>
     </div>
 </div>
 
-<div class="alert alert-warning py-2 mb-3">
-    <i class="bi-info-circle me-1"></i> <strong>提示：</strong>故障记录为历史归档，仅支持查看。新建故障请使用 <a href="{{ url_for('ops.ticket_add') }}" class="alert-link">工单管理</a>。
+<div class="alert alert-info py-2 mb-3">
+    <i class="bi-info-circle me-1"></i> <strong>提示：</strong>故障记录为历史归档数据，可编辑或删除；新发生的故障建议优先使用 <a href="{{ url_for('ops.ticket_add') }}" class="alert-link">工单管理</a> 全流程跟踪。
 </div>
 
 <div class="card mb-3">

@@ -84,7 +84,7 @@ OPERATOR_PERMISSIONS = [
     'topology:view',
     'inspection:view', 'inspection:add', 'inspection:edit', 'inspection:review',
     'ticket:view', 'ticket:add', 'ticket:edit',
-    'fault:view', 'fault:add', 'fault:edit',
+    'fault:view', 'fault:add', 'fault:edit', 'fault:delete',
     'kb:view', 'kb:add', 'kb:edit',
     'task:view_dept', 'task:dispatch', 'task:schedule',
     'department:view', 'category:view',
