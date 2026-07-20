@@ -58,16 +58,19 @@ def backup_page():
 @login_required
 @admin_required
 def backup_export():
-    """导出备份包（zip，流式临时文件下载）"""
+    """导出备份包（zip，流式临时文件下载；可选密码保护整包加密）"""
     config_only = request.form.get('config_only') == '1'
-    tmp_path, size, manifest = build_export_zip(config_only=config_only)
+    password = (request.form.get('password') or '').strip() or None
+    tmp_path, size, manifest = build_export_zip(config_only=config_only, password=password)
     ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     suffix = '_config' if config_only else ''
-    download_name = f'itsm_backup_{ts}{suffix}.zip'
-    current_app.logger.info('用户 [%s] 导出备份包 %s（%s 字节，%d 表%s）',
+    enc_mark = '_encrypted' if password else ''
+    download_name = f'itsm_backup_{ts}{suffix}{enc_mark}.zip'
+    current_app.logger.info('用户 [%s] 导出备份包 %s（%s 字节，%d 表%s%s）',
                             current_user.username, download_name, size,
                             sum(manifest.get('table_counts', {}).values()),
-                            '，仅配置' if config_only else '')
+                            '，仅配置' if config_only else '',
+                            '，密码加密' if password else '')
     # 响应发送结束后再删临时文件，避免流式传输途中被删
     @after_this_request
     def _cleanup(resp):
@@ -100,6 +103,7 @@ def backup_import():
         return redirect(url_for('backup.backup_page'))
 
     restore_key = request.form.get('restore_secret_key') == '1'
+    import_password = (request.form.get('password') or '').strip() or None
 
     # 把上传包存到临时文件，避免大包全量读入内存
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip', prefix='itsm_import_')
@@ -127,7 +131,8 @@ def backup_import():
             shuttle_msg = str(e)[:200]
 
         try:
-            result = perform_import(tmp_path, restore_secret_key=restore_key)
+            result = perform_import(tmp_path, restore_secret_key=restore_key,
+                                    password=import_password)
             db.session.commit()
         except ValueError as e:
             db.session.rollback()

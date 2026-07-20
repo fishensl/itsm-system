@@ -106,6 +106,10 @@ def create_contract(data, current_user_name):
         status=_check_status(data.get('status', '执行中'), _const.CONTRACT_STATUSES, '合同状态'),
         start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
         end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
+        # 自动巡检配置（此前表单无字段、service 不持久化，属死逻辑——已补齐）
+        inspection_frequency=data.get('inspection_frequency') or '',
+        inspection_template_id=int(data['inspection_template_id']) if data.get('inspection_template_id') else None,
+        auto_generate_tasks=bool(data.get('auto_generate_tasks')),
     )
     db.session.add(c)
     return c
@@ -127,6 +131,14 @@ def update_contract(contract_id, data):
         c.start_date = _parse_date(data.get('start_date'))
     if 'end_date' in data:
         c.end_date = _parse_date(data.get('end_date'))
+    # 自动巡检配置（频率/模板下拉总会提交，空串=清除；
+    # checkbox 只有表单显式带 inspection_config_present 标记时才重置，保留局部更新语义）
+    if 'inspection_frequency' in data:
+        c.inspection_frequency = data.get('inspection_frequency') or ''
+    if 'inspection_template_id' in data:
+        c.inspection_template_id = int(data['inspection_template_id']) if data['inspection_template_id'] else None
+    if data.get('inspection_config_present'):
+        c.auto_generate_tasks = bool(data.get('auto_generate_tasks'))
     return c
 
 

@@ -2,6 +2,7 @@
 """W3-R7 form_commit 封装路由回归：成功/失败路径的消息与重定向"""
 
 from models import db, SparePart, SpareStock, Opportunity, Customer
+from services import sales_service
 
 
 class TestSalesRoutes:
@@ -51,6 +52,53 @@ class TestSalesRoutes:
             from models import InspectionTask
             tasks = InspectionTask.query.filter_by(source='合同自动生成').all()
             assert len(tasks) >= 1
+
+
+    def test_contract_add_with_inspection_config_generates_tasks(self, sales_client, app):
+        """端到端：合同新增时配置巡检频率+模板 → 字段持久化 + after 钩子自动生成任务。
+
+        （此前表单无字段/service 不持久化，add 路径自动生成为死逻辑——本用例锁定修复）
+        """
+        with app.app_context():
+            from models import InspectionTemplate
+            db.session.add(Customer(name='配置客户'))
+            tpl = InspectionTemplate(name='月巡模板', is_active=True)
+            db.session.add(tpl)
+            db.session.commit()
+            cid = Customer.query.filter_by(name='配置客户').first().id
+            tid = tpl.id
+        r = sales_client.post('/contracts/add', data={
+            'title': '含巡检合同', 'customer_id': cid, 'status': '执行中',
+            'start_date': '2026-01-01', 'end_date': '2026-12-31',
+            'inspection_frequency': '每月', 'inspection_template_id': str(tid),
+            'auto_generate_tasks': 'on',
+        })
+        assert r.status_code == 302
+        with app.app_context():
+            from models import Contract, InspectionTask
+            ct = Contract.query.filter_by(title='含巡检合同').first()
+            assert ct.inspection_frequency == '每月'
+            assert ct.inspection_template_id == tid
+            assert ct.auto_generate_tasks is True
+            tasks = InspectionTask.query.filter_by(contract_id=ct.id, source='合同自动生成').all()
+            assert len(tasks) >= 1
+
+    def test_contract_create_update_persist_inspection_fields(self, app):
+        """service 层：create/update 均持久化巡检配置三字段"""
+        with app.app_context():
+            c = sales_service.create_contract({
+                'title': 'X', 'inspection_frequency': '每季度',
+                'inspection_template_id': '3', 'auto_generate_tasks': 'on'}, 'admin')
+            assert c.inspection_frequency == '每季度'
+            assert c.inspection_template_id == 3
+            assert c.auto_generate_tasks is True
+            # 局部更新（无 inspection_config_present 标记）：checkbox 状态保持不变
+            sales_service.update_contract(c.id, {'inspection_frequency': ''})
+            assert c.inspection_frequency == ''
+            assert c.auto_generate_tasks is True
+            # 表单提交（带标记）：未勾选的 checkbox 正确重置为 False
+            sales_service.update_contract(c.id, {'inspection_config_present': '1'})
+            assert c.auto_generate_tasks is False
 
 
 class TestSpareRoutes:
