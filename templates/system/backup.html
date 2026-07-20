@@ -35,6 +35,12 @@
                             <span class="text-muted">用于把一台调好的系统配置克隆到新环境</span>
                         </label>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label small">备份包密码（可选）</label>
+                        <input type="password" name="password" class="form-control form-control-sm"
+                               placeholder="留空则不加密；设置后导入时需输入同一密码" autocomplete="new-password">
+                        <div class="form-text small text-muted">加密后整个备份包（含密钥）以 PBKDF2+Fernet 保护，可安全外传/上云</div>
+                    </div>
                     <button type="submit" class="btn btn-primary">
                         <i class="bi-box-arrow-down"></i> 下载备份包
                     </button>
@@ -68,6 +74,11 @@
                         <label class="form-check-label small" for="restoreKey">
                             同时还原加密密钥（<strong>迁移到新服务器时勾选</strong>，否则设备密码无法解密）
                         </label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">备份包密码（加密包必填）</label>
+                        <input type="password" name="password" class="form-control form-control-sm"
+                               placeholder="导出时设置的密码；未加密包留空" autocomplete="off">
                     </div>
                     <div class="mb-3">
                         <label class="form-label small">输入 <code>我确认覆盖</code> 以二次确认</label>

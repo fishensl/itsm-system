@@ -38,6 +38,54 @@ FILE_DIRS = [
 SECRET_KEY_FILE = '.secret.key'   # AES 密钥（crypto.KEY_FILE 指向它）
 BACKUP_FORMAT_VERSION = 1
 
+# ---- 备份包密码保护（可选）：PBKDF2 派生密钥 + Fernet 整包加密，magic 头识别 ----
+_BACKUP_MAGIC = b'ITSMBAK1'
+_PBKDF2_ITERATIONS = 480_000
+
+
+def _fernet_for_password(password, salt):
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
+                     iterations=_PBKDF2_ITERATIONS)
+    return Fernet(base64.urlsafe_b64encode(kdf.derive(password.encode('utf-8'))))
+
+
+def _encrypt_file_inplace(path, password):
+    """把 zip 文件整体加密为 <magic><salt><fernet_token>（原地替换）"""
+    salt = os.urandom(16)
+    f = _fernet_for_password(password, salt)
+    with open(path, 'rb') as fh:
+        data = fh.read()
+    with open(path, 'wb') as fh:
+        fh.write(_BACKUP_MAGIC + salt + f.encrypt(data))
+
+
+def is_encrypted_backup(path):
+    """判断备份包是否带密码保护（magic 头探测）"""
+    try:
+        with open(path, 'rb') as fh:
+            return fh.read(8) == _BACKUP_MAGIC
+    except OSError:
+        return False
+
+
+def _decrypt_backup_to_temp(path, password):
+    """加密备份包 → 解密出 zip 临时文件；密码错误/损坏抛 ValueError"""
+    with open(path, 'rb') as fh:
+        blob = fh.read()
+    salt, token = blob[8:24], blob[24:]
+    f = _fernet_for_password(password or '', salt)
+    try:
+        data = f.decrypt(token)
+    except Exception:
+        raise ValueError('备份包密码错误或文件已损坏')
+    fd, tmp = tempfile.mkstemp(suffix='.zip', prefix='itsm_dec_')
+    with os.fdopen(fd, 'wb') as fh:
+        fh.write(data)
+    return tmp
+
 # 「仅配置」导出子集：把一台调好的系统配置克隆到新环境，不带业务数据。
 # 配置类表（角色/权限/各模板/AI配置/字典）；其余视为业务数据。
 CONFIG_TABLES = {
@@ -105,7 +153,8 @@ def _current_alembic_version():
         return None
 
 
-def build_export_zip(config_only=False):
+def build_export_zip(config_only=False, password=None):
+    """构建导出 zip；password 非空时整包加密（magic 头 + PBKDF2 + Fernet）"""
     """生成导出 zip，流式写入临时文件后返回 (文件路径, 大小, manifest)。
 
     config_only=True 时只导出配置类表（CONFIG_TABLES），不含业务数据，
@@ -213,6 +262,10 @@ def build_export_zip(config_only=False):
             pass
         raise
 
+    if password:
+        _encrypt_file_inplace(tmp_path, password)
+        size = os.path.getsize(tmp_path)
+
     return tmp_path, size, manifest
 
 
@@ -268,7 +321,28 @@ def _reset_pg_sequences(ordered_tables):
     return warnings
 
 
-def perform_import(zip_path, restore_secret_key=False):
+def perform_import(zip_path, restore_secret_key=False, password=None):
+    """导入备份包；带密码保护的包需先解密（password 错误抛 ValueError）。
+
+    注意：解密出的临时 zip 在用完后由本函数负责清理。
+    """
+    _dec_tmp = None
+    if is_encrypted_backup(zip_path):
+        if not password:
+            raise ValueError('该备份包已加密，请提供密码')
+        _dec_tmp = _decrypt_backup_to_temp(zip_path, password)
+        zip_path = _dec_tmp
+    try:
+        return _perform_import_inner(zip_path, restore_secret_key)
+    finally:
+        if _dec_tmp:
+            try:
+                os.remove(_dec_tmp)
+            except OSError:
+                pass
+
+
+def _perform_import_inner(zip_path, restore_secret_key=False):
     """导入 zip：清空并回灌全部表数据 + 还原文件 + 可选还原密钥。
 
     zip_path: 备份包磁盘路径（由调用方提供，通常是上传保存的临时文件）。

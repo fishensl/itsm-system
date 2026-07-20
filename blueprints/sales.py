@@ -108,7 +108,11 @@ def quotation_delete(id):
 def contract_list():
     contracts = Contract.query.order_by(Contract.id.desc()).all()
     customers = Customer.query.order_by(Customer.name).all()
-    return render_template('contracts/list.html', contracts=contracts, customers=customers)
+    # 自动巡检配置的模板下拉（沿用旧 InspectionTemplate，与自动生成链路一致）
+    from models import InspectionTemplate
+    templates = InspectionTemplate.query.filter_by(is_active=True).order_by(InspectionTemplate.name).all()
+    return render_template('contracts/list.html', contracts=contracts, customers=customers,
+                           templates=templates)
 
 
 @sales_bp.route('/contracts/add', methods=['POST'])
