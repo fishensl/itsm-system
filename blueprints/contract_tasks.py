@@ -1,7 +1,7 @@
 """合同自动巡检任务蓝图"""
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from flask_login import login_required
-from models import Contract, InspectionTask, InspectionTemplate
+from models import Contract, InspectionTask
 from utils.permission import require_permission
 
 contract_task_bp = Blueprint('contract_tasks', __name__)
@@ -17,7 +17,10 @@ def contract_task_list():
         Contract.inspection_frequency.isnot(None)
     ).order_by(Contract.id.desc()).all()
     all_contracts = Contract.query.order_by(Contract.id.desc()).all()
-    templates = InspectionTemplate.query.filter_by(is_active=True).order_by(InspectionTemplate.name).all()
+    # 模板下拉：新任务模板（旧模板仅存于历史合同，只读回退）
+    from models import InspectionTaskTemplate
+    templates = InspectionTaskTemplate.query.filter_by(is_active=True)\
+        .order_by(InspectionTaskTemplate.name).all()
     return render_template('contract_tasks/list.html',
                            contracts=contracts, all_contracts=all_contracts, templates=templates)
 

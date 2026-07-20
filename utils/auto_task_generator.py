@@ -56,12 +56,22 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
     generated = []
 
     for contract in contracts:
-        if not contract.inspection_template_id:
-            continue
-
-        template = InspectionTemplate.query.get(contract.inspection_template_id)
-        if not template:
-            continue
+        # 模板解析：优先新任务模板 task_template_id，回退旧 inspection_template_id（迁移期兼容）
+        template_name = None
+        new_template_id = None
+        if contract.task_template_id:
+            from models import InspectionTaskTemplate
+            tt = InspectionTaskTemplate.query.get(contract.task_template_id)
+            if tt:
+                template_name = tt.name
+                new_template_id = tt.id
+        if template_name is None:
+            if not contract.inspection_template_id:
+                continue
+            template = InspectionTemplate.query.get(contract.inspection_template_id)
+            if not template:
+                continue
+            template_name = template.name
 
         frequency = contract.inspection_frequency
         months = _get_frequency_delta(frequency)
@@ -103,7 +113,7 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
             ).first()
 
             if not existing:
-                task_title = f"{contract.title or contract.number} - {template.name} ({cursor.strftime('%Y-%m')})"
+                task_title = f"{contract.title or contract.number} - {template_name} ({cursor.strftime('%Y-%m')})"
 
                 task_info = {
                     'contract_id': contract.id,
@@ -112,7 +122,7 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
                     'task_end': task_end.isoformat(),
                     'frequency': frequency,
                     'customer_id': contract.customer_id,
-                    'template_id': contract.inspection_template_id,
+                    'template_id': new_template_id or contract.inspection_template_id,
                     'title': task_title,
                 }
 
@@ -122,7 +132,9 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
                         task_type='计划',
                         status='待执行',
                         customer_id=contract.customer_id,
-                        template_id=contract.inspection_template_id,
+                        # 新链路写 task_template_id；未迁移的旧合同回退 legacy template_id
+                        task_template_id=new_template_id,
+                        template_id=None if new_template_id else contract.inspection_template_id,
                         planned_start=cursor,
                         planned_end=task_end,
                         priority='中',

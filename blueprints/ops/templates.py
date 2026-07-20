@@ -83,73 +83,10 @@ def task_template_list():
                            customers=customers)
 
 
-# ============================ 巡检模板 ============================
-@ops_bp.route('/inspection-templates/add', methods=['POST'])
-@login_required
-@require_permission('inspection:edit')
-def inspection_template_add():
-    """V11 接续：保存完整 V11 字段（items_json / device_type / device_model /
-    template_category / report_section_name / is_active / remark）。"""
-    import json
-    name = (request.form.get('name') or '').strip()
-    if not name:
-        flash('模板名称不能为空', 'danger')
-        return redirect(url_for('ops.inspection_template_list'))
-    items_json_raw = request.form.get('items_json', '[]')
-    try:
-        json.loads(items_json_raw)
-    except Exception:
-        items_json_raw = '[]'
-    t = InspectionTemplate(
-        name=name,
-        device_type=request.form.get('device_type', ''),
-        device_model=request.form.get('device_model', ''),
-        template_category=request.form.get('template_category', '网络设备'),
-        report_section_name=request.form.get('report_section_name', ''),
-        items_json=items_json_raw,
-        is_active=bool(request.form.get('is_active')),
-        remark=request.form.get('remark', ''),
-    )
-    db.session.add(t)
-    db.session.commit()
-    flash('已添加', 'success')
-    return redirect(url_for('ops.inspection_template_list'))
-
-
-@ops_bp.route('/inspection-templates/edit/<int:id>', methods=['POST'])
-@login_required
-@require_permission('inspection:edit')
-def inspection_template_edit(id):
-    """V11 接续：编辑完整 V11 字段。"""
-    import json
-    t = InspectionTemplate.query.get_or_404(id)
-    t.name = (request.form.get('name') or t.name).strip()
-    t.device_type = request.form.get('device_type', t.device_type or '')
-    t.device_model = request.form.get('device_model', t.device_model or '')
-    t.template_category = request.form.get('template_category', t.template_category or '网络设备')
-    t.report_section_name = request.form.get('report_section_name', t.report_section_name or '')
-    items_json_raw = request.form.get('items_json', t.items_json or '[]')
-    try:
-        json.loads(items_json_raw)
-        t.items_json = items_json_raw
-    except Exception:
-        pass  # 保留旧值，避免脏数据覆盖
-    t.is_active = bool(request.form.get('is_active'))
-    t.remark = request.form.get('remark', t.remark or '')
-    db.session.commit()
-    flash('已更新', 'success')
-    return redirect(url_for('ops.inspection_template_list'))
-
-
-@ops_bp.route('/inspection-templates/delete/<int:id>', methods=['POST'])
-@login_required
-@require_permission('inspection:delete')
-def inspection_template_delete(id):
-    InspectionTemplate.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash('已删除', 'success')
-    return redirect(url_for('ops.inspection_template_list'))
-
+# ============================ 巡检模板（旧版：已只读，写路径下线） ============================
+# 旧 InspectionTemplate 的 add/edit/delete 路由已于 v1.1 移除——
+# 合同自动巡检链路已迁移到新任务模板（InspectionTaskTemplate，contract.task_template_id）。
+# 旧模板仅保留列表页与 /api/inspection-templates 只读（历史任务/巡检表单仍引用）。
 
 # ============================ 设备检查模板 (CRUD) ============================
 @ops_bp.route('/device-check-templates/add', methods=['POST'])

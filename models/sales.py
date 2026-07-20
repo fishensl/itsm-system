@@ -57,7 +57,10 @@ class Contract(db.Model):
     content_json = db.Column(db.Text, default='{}')
     # v3 新增：巡检自动生成配置
     inspection_frequency = db.Column(db.String(32), default='')  # ''/每月/每季度/每半年/每年
-    inspection_template_id = db.Column(db.Integer, db.ForeignKey('inspection_templates.id'), nullable=True)
+    inspection_template_id = db.Column(db.Integer, db.ForeignKey('inspection_templates.id'), nullable=True)  # 旧模板（只读回退，勿再写入）
+    # 新任务模板（v1.1 起自动巡检链路的主引用；旧 inspection_template_id 经迁移 a8b9c0d1e2f3 按名匹配回填）
+    task_template_id = db.Column(db.Integer, db.ForeignKey('inspection_task_templates.id'),
+                                 nullable=True, index=True)
     last_generated_date = db.Column(db.Date, nullable=True)       # 上次生成日，防重复
     auto_generate_tasks = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -65,6 +68,7 @@ class Contract(db.Model):
     customer_rel = db.relationship('Customer', backref='contracts')
     opportunity_rel = db.relationship('Opportunity', backref='contracts')
     template_rel = db.relationship('InspectionTemplate', backref='contracts_with_template')
+    task_template_rel = db.relationship('InspectionTaskTemplate', backref='contracts_with_task_template')
 
 
 class Project(db.Model):
