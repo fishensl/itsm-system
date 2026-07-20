@@ -10,6 +10,12 @@
 
 ### 功能补全（v1.1 续）
 
+- **旧 InspectionTemplate 下线（合同链迁移）**：contracts 新增 `task_template_id`（指向新任务模板），
+  迁移 `a8b9c0d1e2f3` 按模板名匹配回填存量合同（无同名则创建最小新任务模板）；
+  自动生成器/合同表单/合同任务页全部切换新模板（旧模板只读回退兼容）；旧模板 add/edit/delete
+  路由下线，列表页与 API 保留只读（历史任务/巡检表单仍引用）。迁移文件已修复 SQLite 批处理内
+  create_index 失败问题（索引移至批处理块外），并经降级重放验证
+
 - **合同自动巡检配置端到端可用**：合同表单补齐「巡检频率/巡检模板/自动生成任务 + 开始/结束日期」字段，
   create/update_contract 持久化（此前表单无字段、service 不持久化，自动生成在新增路径为死逻辑）；
   编辑预填改用 `tojson` 安全序列化（修复标题含引号截断隐患）；checkbox 经 `inspection_config_present`

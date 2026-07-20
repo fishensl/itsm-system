@@ -20,8 +20,12 @@ sales_bp = Blueprint('sales', __name__)
 
 
 def _gen_contract_tasks_msg(c):
-    """合同保存后自动生成巡检任务（幂等；作为 form_commit after 钩子，失败仅记日志）"""
-    if c and c.inspection_frequency and c.inspection_template_id and c.auto_generate_tasks:
+    """合同保存后自动生成巡检任务（幂等；作为 form_commit after 钩子，失败仅记日志）
+
+    模板条件：新任务模板 task_template_id 优先，旧 inspection_template_id 回退（迁移期兼容）。
+    """
+    has_template = c and (c.task_template_id or c.inspection_template_id)
+    if has_template and c.inspection_frequency and c.auto_generate_tasks:
         from utils.auto_task_generator import generate_contract_tasks
         generated = generate_contract_tasks(contract_id=c.id)
         if generated:
@@ -108,11 +112,12 @@ def quotation_delete(id):
 def contract_list():
     contracts = Contract.query.order_by(Contract.id.desc()).all()
     customers = Customer.query.order_by(Customer.name).all()
-    # 自动巡检配置的模板下拉（沿用旧 InspectionTemplate，与自动生成链路一致）
-    from models import InspectionTemplate
-    templates = InspectionTemplate.query.filter_by(is_active=True).order_by(InspectionTemplate.name).all()
+    # 自动巡检配置的模板下拉：新任务模板（v1.1 起主链路；旧模板仅存于历史合同，只读回退）
+    from models import InspectionTaskTemplate
+    task_templates = InspectionTaskTemplate.query.filter_by(is_active=True)\
+        .order_by(InspectionTaskTemplate.name).all()
     return render_template('contracts/list.html', contracts=contracts, customers=customers,
-                           templates=templates)
+                           templates=task_templates)
 
 
 @sales_bp.route('/contracts/add', methods=['POST'])

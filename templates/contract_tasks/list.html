@@ -57,7 +57,7 @@
                         <select name="contract_id" class="form-select">
                             <option value="">-- 所有符合条件的合同 --</option>
                             {% for c in all_contracts %}
-                            {% if c.inspection_frequency and c.inspection_template_id %}
+                            {% if c.inspection_frequency and (c.task_template_id or c.inspection_template_id) %}
                             <option value="{{ c.id }}">{{ c.number }} - {{ c.title }} ({{ c.inspection_frequency }})</option>
                             {% endif %}
                             {% endfor %}

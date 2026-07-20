@@ -26,22 +26,18 @@ class TestSalesRoutes:
             assert Opportunity.query.count() == 0
 
     def test_contract_edit_generates_tasks(self, sales_client, app):
-        """合同已配置巡检频率+模板时，编辑保存触发 after 钩子自动生成任务（幂等）。
-
-        注：合同表单本身不含巡检配置字段（create/update_contract 均不持久化它们），
-        配置经 DB 直接写入——与原行为一致，这里验证 after 钩子接线正确。
-        """
+        """合同已配置巡检频率+新任务模板时，编辑保存触发 after 钩子自动生成任务（幂等）。"""
         with app.app_context():
-            from models import Contract, InspectionTemplate
+            from models import Contract, InspectionTaskTemplate
             db.session.add(Customer(name='合同客户'))
-            tpl = InspectionTemplate(name='季巡模板', is_active=True)
+            tpl = InspectionTaskTemplate(name='季巡任务模板', category='季度', is_active=True)
             db.session.add(tpl)
             db.session.flush()
             from datetime import date as _date
             ct = Contract(title='年度维保合同', number='HT-001',
                           customer_id=Customer.query.filter_by(name='合同客户').first().id,
                           status='执行中', inspection_frequency='每季度',
-                          inspection_template_id=tpl.id, auto_generate_tasks=True,
+                          task_template_id=tpl.id, auto_generate_tasks=True,
                           start_date=_date(2026, 1, 1), end_date=_date(2026, 12, 31))
             db.session.add(ct)
             db.session.commit()
@@ -49,20 +45,20 @@ class TestSalesRoutes:
         r = sales_client.post(f'/contracts/edit/{ctid}', data={'title': '年度维保合同V2'})
         assert r.status_code == 302
         with app.app_context():
-            from models import InspectionTask
+            from models import InspectionTask, InspectionTaskTemplate
+            tid = InspectionTaskTemplate.query.filter_by(name='季巡任务模板').first().id
             tasks = InspectionTask.query.filter_by(source='合同自动生成').all()
             assert len(tasks) >= 1
+            # 新链路：生成的任务挂 task_template_id
+            assert all(t.task_template_id == tid for t in tasks)
 
 
     def test_contract_add_with_inspection_config_generates_tasks(self, sales_client, app):
-        """端到端：合同新增时配置巡检频率+模板 → 字段持久化 + after 钩子自动生成任务。
-
-        （此前表单无字段/service 不持久化，add 路径自动生成为死逻辑——本用例锁定修复）
-        """
+        """端到端：合同新增时配置巡检频率+新任务模板 → 字段持久化 + after 钩子自动生成任务"""
         with app.app_context():
-            from models import InspectionTemplate
+            from models import InspectionTaskTemplate
             db.session.add(Customer(name='配置客户'))
-            tpl = InspectionTemplate(name='月巡模板', is_active=True)
+            tpl = InspectionTaskTemplate(name='月巡任务模板', category='日常', is_active=True)
             db.session.add(tpl)
             db.session.commit()
             cid = Customer.query.filter_by(name='配置客户').first().id
@@ -70,7 +66,7 @@ class TestSalesRoutes:
         r = sales_client.post('/contracts/add', data={
             'title': '含巡检合同', 'customer_id': cid, 'status': '执行中',
             'start_date': '2026-01-01', 'end_date': '2026-12-31',
-            'inspection_frequency': '每月', 'inspection_template_id': str(tid),
+            'inspection_frequency': '每月', 'task_template_id': str(tid),
             'auto_generate_tasks': 'on',
         })
         assert r.status_code == 302
@@ -78,7 +74,7 @@ class TestSalesRoutes:
             from models import Contract, InspectionTask
             ct = Contract.query.filter_by(title='含巡检合同').first()
             assert ct.inspection_frequency == '每月'
-            assert ct.inspection_template_id == tid
+            assert ct.task_template_id == tid
             assert ct.auto_generate_tasks is True
             tasks = InspectionTask.query.filter_by(contract_id=ct.id, source='合同自动生成').all()
             assert len(tasks) >= 1
@@ -88,9 +84,9 @@ class TestSalesRoutes:
         with app.app_context():
             c = sales_service.create_contract({
                 'title': 'X', 'inspection_frequency': '每季度',
-                'inspection_template_id': '3', 'auto_generate_tasks': 'on'}, 'admin')
+                'task_template_id': '3', 'auto_generate_tasks': 'on'}, 'admin')
             assert c.inspection_frequency == '每季度'
-            assert c.inspection_template_id == 3
+            assert c.task_template_id == 3
             assert c.auto_generate_tasks is True
             # 局部更新（无 inspection_config_present 标记）：checkbox 状态保持不变
             sales_service.update_contract(c.id, {'inspection_frequency': ''})
