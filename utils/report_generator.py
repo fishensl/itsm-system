@@ -158,6 +158,18 @@ def _add_section_photos(doc, sections, key):
 # V4: 9章固定结构巡检报告生成器
 # ============================
 
+def _section_enabled(sections, key):
+    """报告章节是否启用：sections.enabled_sections（任务模板同步）存在时按 key 判定；
+    无配置（旧记录）默认全部启用，保持向后兼容。"""
+    cfg = sections.get('enabled_sections') if isinstance(sections, dict) else None
+    if not cfg:
+        return True
+    for s in cfg:
+        if isinstance(s, dict) and s.get('key') == key:
+            return s.get('enabled', True) is not False
+    return True
+
+
 def generate_inspection_report_v4(inspection, customer_name, device_results=None, sections=None):
     """按固定9章结构生成巡检报告（V4复合巡检）。参见模块文档了解完整参数说明。"""
     import json
@@ -261,13 +273,14 @@ def generate_inspection_report_v4(inspection, customer_name, device_results=None
         doc.add_paragraph('本次巡检未发现重大隐患。')
 
     # === Ch2: 季度运维工作 ===
-    _add_chapter_heading(doc, '二', '季度运维工作内容')
-    for sub, title in [('q2_1', '季度巡检'), ('q2_2', '机房环境检查'), ('q2_3', '网络设备配置备份'),
-                        ('q2_4', '标签及线缆检查'), ('q2_5', '核心交换机空接口做shutdown处理')]:
-        _add_sub_heading(doc, sub.replace('q', '').replace('_', '.'), title)
-        doc.add_paragraph(sections.get(sub, ''))
-        if sub in ('q2_3', 'q2_4'):
-            _add_section_photos(doc, sections, sub.replace('q', ''))
+    if _section_enabled(sections, 'quarterly_work'):
+        _add_chapter_heading(doc, '二', '季度运维工作内容')
+        for sub, title in [('q2_1', '季度巡检'), ('q2_2', '机房环境检查'), ('q2_3', '网络设备配置备份'),
+                            ('q2_4', '标签及线缆检查'), ('q2_5', '核心交换机空接口做shutdown处理')]:
+            _add_sub_heading(doc, sub.replace('q', '').replace('_', '.'), title)
+            doc.add_paragraph(sections.get(sub, ''))
+            if sub in ('q2_3', 'q2_4'):
+                _add_section_photos(doc, sections, sub.replace('q', ''))
 
     # === Ch3: 巡检记录表 ===
     _add_chapter_heading(doc, '三', '巡检记录表')
@@ -328,37 +341,43 @@ def generate_inspection_report_v4(inspection, customer_name, device_results=None
                 _add_table_row(chk_t, [str(item_idx), name, help_txt, disp, ''])
         doc.add_paragraph()
 
-    # === Ch4-9 ===
-    _add_chapter_heading(doc, '四', '现场图片')
-    doc.add_paragraph(sections.get('q4_images', '（暂无现场图片）'))
-    _add_chapter_heading(doc, '五', '故障工单')
-    doc.add_paragraph('无')
-    _add_chapter_heading(doc, '六', '网络拓扑图')
-    topology_photos = sections.get('topology_photos', [])
-    if topology_photos:
-        for tp in topology_photos:
-            if os.path.exists(tp.lstrip('/')):
-                try:
-                    doc.add_picture(tp.lstrip('/'), width=Inches(5.0))
-                except:
-                    pass
-    _add_chapter_heading(doc, '七', '设备台账')
-    if device_results:
-        ldr_t = doc.add_table(rows=1, cols=5)
-        ldr_t.style = 'Table Grid'
-        ldr_t.alignment = WD_TABLE_ALIGNMENT.CENTER
-        _add_table_row(ldr_t, ['序号', '设备名称', '设备型号', '管理IP', '位置'], bold=True, header=True)
-        for idx, dr in enumerate(device_results, 1):
-            _add_table_row(ldr_t, [str(idx), dr.get('device_name', '-'), dr.get('model', '-'), dr.get('ip_address', '-'), dr.get('location', '-')])
-    doc.add_paragraph()
-    _add_chapter_heading(doc, '八', '网络运行建议')
-    doc.add_paragraph(sections.get('flood_advice', ''))
-    _add_chapter_heading(doc, '九', '售后服务电话')
-    doc.add_paragraph(f'运维工程师 {sections.get("tech_support", "")}')
-    doc.add_paragraph(f'业务经理 {sections.get("complaint", "")}')
-    doc.add_paragraph(f'业主签字：{sections.get("owner_sign", "")}')
-    doc.add_paragraph('运维公司：江西丰功信息技术有限公司')
-    doc.add_paragraph(f'报告生成日期：{datetime.now().strftime("%Y年%m月%d日")}')
+    # === Ch4-9（各章节按任务模板 enabled_sections 配置取舍） ===
+    if _section_enabled(sections, 'photos'):
+        _add_chapter_heading(doc, '四', '现场图片')
+        doc.add_paragraph(sections.get('q4_images', '（暂无现场图片）'))
+    if _section_enabled(sections, 'faults'):
+        _add_chapter_heading(doc, '五', '故障工单')
+        doc.add_paragraph('无')
+    if _section_enabled(sections, 'topology'):
+        _add_chapter_heading(doc, '六', '网络拓扑图')
+        topology_photos = sections.get('topology_photos', [])
+        if topology_photos:
+            for tp in topology_photos:
+                if os.path.exists(tp.lstrip('/')):
+                    try:
+                        doc.add_picture(tp.lstrip('/'), width=Inches(5.0))
+                    except:
+                        pass
+    if _section_enabled(sections, 'asset_ledger'):
+        _add_chapter_heading(doc, '七', '设备台账')
+        if device_results:
+            ldr_t = doc.add_table(rows=1, cols=5)
+            ldr_t.style = 'Table Grid'
+            ldr_t.alignment = WD_TABLE_ALIGNMENT.CENTER
+            _add_table_row(ldr_t, ['序号', '设备名称', '设备型号', '管理IP', '位置'], bold=True, header=True)
+            for idx, dr in enumerate(device_results, 1):
+                _add_table_row(ldr_t, [str(idx), dr.get('device_name', '-'), dr.get('model', '-'), dr.get('ip_address', '-'), dr.get('location', '-')])
+        doc.add_paragraph()
+    if _section_enabled(sections, 'suggestions'):
+        _add_chapter_heading(doc, '八', '网络运行建议')
+        doc.add_paragraph(sections.get('flood_advice', ''))
+    if _section_enabled(sections, 'support_contacts'):
+        _add_chapter_heading(doc, '九', '售后服务电话')
+        doc.add_paragraph(f'运维工程师 {sections.get("tech_support", "")}')
+        doc.add_paragraph(f'业务经理 {sections.get("complaint", "")}')
+        doc.add_paragraph(f'业主签字：{sections.get("owner_sign", "")}')
+        doc.add_paragraph('运维公司：江西丰功信息技术有限公司')
+        doc.add_paragraph(f'报告生成日期：{datetime.now().strftime("%Y年%m月%d日")}')
     seal = sections.get('seal_image', '')
     if seal and os.path.exists(seal.lstrip('/')):
         try:

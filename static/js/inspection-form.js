@@ -361,6 +361,8 @@ function saveInspection() {
         complaint: document.querySelector('[name="s_complaint"]')?.value || '',
         owner_sign: document.querySelector('[name="s_owner_sign"]')?.value || '',
         seal_image: sealEl ? sealEl.value : '',
+        // 任务模板章节配置（选择模板后同步；报告生成据此控制章节取舍）
+        enabled_sections: window._enabledSections || undefined,
     };
     document.getElementById('sectionsJson').value = JSON.stringify(sections);
     for (const d of devices) {
@@ -488,8 +490,45 @@ function loadCustomerDevices() {
                     grouped[cat].forEach(function(d) { renderDeviceCard(d, container); });
                 }
             });
+            // 任务模板章节同步：按模板 sections_json 显隐报告章节并应用自定义标题
+            _applyTaskTemplateSections(data.task_template || null);
         })
         .catch(function() { container.innerHTML = '<div class="text-danger text-center py-3">加载失败，请刷新重试</div>'; });
+}
+
+// ===== 任务模板 → 报告章节同步 =====
+// window._enabledSections: 当前生效的章节配置（随表单提交写入 sections.enabled_sections）
+function _applyTaskTemplateSections(tt) {
+    var blocks = document.querySelectorAll('.tpl-section-block');
+    var hint = document.getElementById('tplSectionHint');
+    if (!tt) {
+        // 未选模板：全部恢复可见 + 默认标题
+        blocks.forEach(function(b) {
+            b.classList.remove('d-none');
+            var lb = b.querySelector('.tpl-section-title');
+            if (lb) lb.textContent = lb.dataset.defaultTitle;
+        });
+        if (hint) hint.textContent = '';
+        window._enabledSections = null;
+        return;
+    }
+    var secs = [];
+    try { secs = (JSON.parse(tt.sections_json || '{}').sections) || []; } catch (e) { secs = []; }
+    var byKey = {};
+    secs.forEach(function(s) { byKey[s.key] = s; });
+    blocks.forEach(function(b) {
+        var key = b.dataset.tplSection;
+        var cfg = byKey[key];
+        var lb = b.querySelector('.tpl-section-title');
+        if (cfg && cfg.enabled === false) {
+            b.classList.add('d-none');
+        } else {
+            b.classList.remove('d-none');
+            if (lb && cfg && cfg.title) lb.textContent = cfg.title;
+        }
+    });
+    if (hint) hint.textContent = '（已按任务模板「' + tt.name + '」同步章节）';
+    window._enabledSections = secs;
 }
 
 function renderDeviceCard(d, container) {
