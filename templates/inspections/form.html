@@ -95,11 +95,13 @@
 
             {% set sections = inspection.sections_json|from_json if inspection and inspection.sections_json else {} %}
             <div class="card mt-3" id="reportSections">
-                <div class="card-header"><i class="bi-file-earmark-text"></i> 报告章节内容</div>
+                <div class="card-header"><i class="bi-file-earmark-text"></i> 报告章节内容
+                    <small class="text-muted ms-2" id="tplSectionHint"></small>
+                </div>
                 <div class="card-body">
                     <div class="row">
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">二、季度运维工作内容</label>
+                        <div class="col-md-12 mb-3 tpl-section-block" data-tpl-section="quarterly_work">
+                            <label class="form-label tpl-section-title" data-default-title="二、季度运维工作内容">二、季度运维工作内容</label>
                             <div class="ms-3">
                                 <div class="mb-2">
                                     <label class="form-label small">2.1 季度巡检</label>
@@ -143,8 +145,8 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">四、网络拓扑图</label>
+                        <div class="col-md-12 mb-3 tpl-section-block" data-tpl-section="topology">
+                            <label class="form-label tpl-section-title" data-default-title="四、网络拓扑图">四、网络拓扑图</label>
                             <textarea name="s_network_topology" class="form-control" rows="2" placeholder="请描述网络拓扑情况">{{ sections.get('network_topology', '') }}</textarea>
                             <div class="mt-1">
                                 <button type="button" class="btn btn-sm btn-outline-info" onclick="addTopologyPhoto(this)"><i class="bi-image"></i> 上传拓扑图</button>
@@ -161,17 +163,17 @@
                                 {% endfor %}
                             </div>
                         </div>
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">五、设备台账</label>
+                        <div class="col-md-12 mb-3 tpl-section-block" data-tpl-section="asset_ledger">
+                            <label class="form-label tpl-section-title" data-default-title="五、设备台账">五、设备台账</label>
                             <p class="text-muted small mb-1">报告中将自动调用本次巡检设备的设备管理信息</p>
                             <textarea name="s_device_ledger" class="form-control" rows="2" placeholder="补充说明（可选）">{{ sections.get('device_ledger', '') }}</textarea>
                         </div>
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">六、防汛网络运行建议</label>
+                        <div class="col-md-12 mb-3 tpl-section-block" data-tpl-section="suggestions">
+                            <label class="form-label tpl-section-title" data-default-title="六、防汛网络运行建议">六、防汛网络运行建议</label>
                             <textarea name="s_flood_advice" class="form-control" rows="3" placeholder="请填写防汛网络运行建议">{{ sections.get('flood_advice', '') }}</textarea>
                         </div>
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">七、售后服务电话及联系人</label>
+                        <div class="col-md-12 mb-3 tpl-section-block" data-tpl-section="support_contacts">
+                            <label class="form-label tpl-section-title" data-default-title="七、售后服务电话及联系人">七、售后服务电话及联系人</label>
                             <div class="row">
                                 <div class="col-md-6 mb-2">
                                     <label class="form-label small">技术支持</label>
