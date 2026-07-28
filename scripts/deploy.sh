@@ -123,7 +123,7 @@ fi
 # ---- 6. 初始化数据库 ----
 echo "[6/8] 初始化数据库..."
 cd "${APP_DIR}"
-"${VENV}/bin/python" -c "from app import app, init_db; init_db(); print('数据库初始化完成')"
+"${VENV}/bin/python" -c "from app import create_app, init_db; init_db(create_app()); print('数据库初始化完成')"
 
 # ---- 7. 创建系统用户 ----
 echo "[7/8] 创建系统用户..."

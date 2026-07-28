@@ -79,7 +79,8 @@ ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
   "${VENV}/bin/python" - "${APP_DIR}" <<'PYEOF'
 import sys, os
 app_dir = sys.argv[1]; os.chdir(app_dir)
-from app import app, db
+from app import create_app, db
+app = create_app()
 with app.app_context():
     d = db.engine.dialect.name
     print(f"  当前 dialect: {d}")

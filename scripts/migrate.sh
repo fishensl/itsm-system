@@ -37,4 +37,4 @@ export ITSM_ENV=production
 export FLASK_ENV=production
 [ -n "${DB_URI_VAL}" ] && export ITSM_DATABASE_URI="${DB_URI_VAL}"
 
-"${VENV}/bin/python" -c "from app import init_db; init_db(); print('[migrate] OK schema + seed 已同步')"
+"${VENV}/bin/python" -c "from app import create_app, init_db; init_db(create_app()); print('[migrate] OK schema + seed 已同步')"

@@ -126,8 +126,9 @@ ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
 import sys, os
 app_dir = sys.argv[1]
 os.chdir(app_dir)
-from app import app, db
+from app import create_app, db
 from sqlalchemy import text, inspect
+app = create_app()
 issues = []
 with app.app_context():
     insp = inspect(db.engine)
