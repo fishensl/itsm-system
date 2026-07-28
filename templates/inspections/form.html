@@ -9,6 +9,17 @@
     <div class="card-body">
         <form method="post" id="inspectionForm">
             <div class="row">
+                {% if task_templates %}
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">任务模板 <span class="text-muted small">（选择后自动加载检查项框架）</span></label>
+                    <select id="taskTemplateSelect" class="form-select">
+                        <option value="">-- 不使用模板（按设备类型自动匹配） --</option>
+                        {% for t in task_templates %}
+                        <option value="{{ t.id }}">{{ t.name }}{% if t.category %}（{{ t.category }}）{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
                 <div class="col-md-4 mb-3">
                     <label class="form-label">选择客户 <span class="text-danger">*</span></label>
                     <select name="customer_id" class="form-select" required id="customerSelect">

@@ -2,7 +2,7 @@
 """故障管理 CRUD + 故障类型 CRUD"""
 import os
 from flask import (render_template, request, redirect, url_for,
-                   flash, send_from_directory, current_app)
+                   flash, send_from_directory, current_app, jsonify)
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
 from models import (Fault, Ticket,
@@ -134,6 +134,24 @@ def fault_type_add():
         db.session.add(t); db.session.commit()
         flash('已添加', 'success')
     return redirect(url_for('ops.fault_type_list'))
+
+
+@ops_bp.route('/api/fault-types/add', methods=['POST'])
+@login_required
+@require_permission('fault:edit')
+def api_fault_type_add():
+    """JSON API：工单表单内快速新增故障类别（重名校验，sort_order 自动排尾）"""
+    data = request.get_json(silent=True) or request.form
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': '类别名称不能为空'}), 400
+    if FaultType.query.filter_by(name=name).first():
+        return jsonify({'success': False, 'error': f'类别「{name}」已存在'}), 409
+    max_order = db.session.query(db.func.max(FaultType.sort_order)).scalar() or 0
+    t = FaultType(name=name, sort_order=max_order + 1)
+    db.session.add(t)
+    db.session.commit()
+    return jsonify({'success': True, 'id': t.id, 'name': t.name})
 
 
 @ops_bp.route('/fault-types/delete/<int:id>', methods=['POST'])

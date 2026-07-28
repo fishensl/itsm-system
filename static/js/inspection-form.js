@@ -427,6 +427,7 @@ if (window._inspectionData) {
 // V4: 设备自动匹配 + 复合巡检表单
 // ============================================================
 var customerSelect = document.getElementById('customerSelect');
+var taskTemplateSelect = document.getElementById('taskTemplateSelect');
 var currentCustomerId = window._currentCustomerId || 0;
 
 if (customerSelect) {
@@ -436,6 +437,17 @@ if (customerSelect) {
     });
     // 编辑模式：自动加载
     if (currentCustomerId) { loadCustomerDevices(); }
+}
+
+// 任务模板切换：已选客户时按新模板重新加载检查项框架
+if (taskTemplateSelect) {
+    taskTemplateSelect.addEventListener('change', function() {
+        if (currentCustomerId) { loadCustomerDevices(); }
+    });
+}
+
+function _currentTaskTemplateId() {
+    return taskTemplateSelect && taskTemplateSelect.value ? taskTemplateSelect.value : '';
 }
 
 function loadCustomerDevices() {
@@ -451,7 +463,10 @@ function loadCustomerDevices() {
     hint.classList.add('d-none');
     if (loading) loading.classList.remove('d-none');
 
-    fetch('/api/customers/' + currentCustomerId + '/devices-with-templates')
+    var url = '/api/customers/' + currentCustomerId + '/devices-with-templates';
+    var ttId = _currentTaskTemplateId();
+    if (ttId) url += '?task_template_id=' + ttId;
+    fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             container.innerHTML = '';
@@ -508,18 +523,26 @@ function renderDeviceCard(d, container) {
         '</div>';
     container.appendChild(card);
 
-    // 加载模板检查项
-    if (d.matched_template_id) {
+    // 加载模板检查项：新端点直接带 items（新模板体系标准化 sub_items）则直接渲染；
+    // 老数据兼容路径才回退请求旧模板 API
+    if (d.items && d.items.length) {
+        var itemsDiv = document.getElementById('checkItems_' + d.device_id);
+        itemsDiv.innerHTML = '';
+        d.items.forEach(function(item, idx) {
+            if (item.enabled === false) return;
+            itemsDiv.appendChild(renderCheckItem(item, d.device_id, idx));
+        });
+    } else if (d.matched_template_id) {
         fetch('/api/inspection-templates')
             .then(function(r) { return r.json(); })
             .then(function(templates) {
                 var t = templates.find(function(x) { return x.id === d.matched_template_id; });
                 if (t && t.items) {
-                    var itemsDiv = document.getElementById('checkItems_' + d.device_id);
-                    itemsDiv.innerHTML = '';
+                    var itemsDiv2 = document.getElementById('checkItems_' + d.device_id);
+                    itemsDiv2.innerHTML = '';
                     t.items.forEach(function(item, idx) {
                         if (item.enabled === false) return;
-                        itemsDiv.appendChild(renderCheckItem(item, d.device_id, idx));
+                        itemsDiv2.appendChild(renderCheckItem(item, d.device_id, idx));
                     });
                 }
             });

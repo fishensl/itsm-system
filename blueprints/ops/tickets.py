@@ -38,14 +38,21 @@ def ticket_list():
 @require_permission('ticket:add')
 def ticket_add():
     if request.method == 'POST':
+        me = current_user.realname or current_user.username
         try:
-            t = create_ticket(request.form.to_dict(),
-                              current_user.realname or current_user.username)
+            t = create_ticket(request.form.to_dict(), me)
+            # 处置方式：self_accept = 工程师录单后直接自己接单处置（派单+接单一体完成）
+            if request.form.get('dispatch_mode') == 'self_accept':
+                assign_ticket(t.id, me, me, remark='录单时自行接单')
+                accept_ticket(t.id, me, remark='录单即开工')
         except Exception as e:
             db.session.rollback()
             flash(str(e) or '工单创建失败', 'danger')
             return redirect(url_for('ops.ticket_add'))
-        flash(f'工单 {t.number} 已创建', 'success')
+        if request.form.get('dispatch_mode') == 'self_accept':
+            flash(f'工单 {t.number} 已创建并由你接单，处置中', 'success')
+        else:
+            flash(f'工单 {t.number} 已创建', 'success')
         return redirect(url_for('ops.ticket_list'))
     return render_template('tickets/form.html', ticket=None,
                            customers=Customer.query.order_by(Customer.name).all(),
