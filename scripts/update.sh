@@ -68,7 +68,7 @@ ITSM_SECRET_KEY="$(grep -E '^ITSM_SECRET_KEY=' .env 2>/dev/null | cut -d= -f2-)"
 ITSM_DATABASE_URI="$(grep -E '^ITSM_DATABASE_URI=' .env 2>/dev/null | cut -d= -f2-)" \
 ITSM_ENV=production \
 FLASK_ENV=production \
-"${VENV}/bin/python" -c "from app import init_db; init_db(); print('[OK] schema + seed 已同步')"
+"${VENV}/bin/python" -c "from app import create_app, init_db; init_db(create_app()); print('[OK] schema + seed 已同步')"
 
 # ---- 6.5 重新安装 systemd service（路径自适配）----
 echo "[6.5/7] 重新安装 systemd service..."

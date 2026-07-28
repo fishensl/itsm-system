@@ -69,8 +69,9 @@ ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
 import sys, os
 app_dir, out_zip = sys.argv[1], sys.argv[2]
 os.chdir(app_dir)
-from app import app
+from app import create_app
 from utils.data_io import build_export_zip
+app = create_app()
 with app.app_context():
     tmp, size, manifest = build_export_zip(config_only=False)
     import shutil
@@ -151,8 +152,8 @@ ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
 import sys, os
 app_dir = sys.argv[1]
 os.chdir(app_dir)  # 确保能 import app（sudo 默认 cwd 是 /root，不 cd 会 ModuleNotFoundError）
-from app import app, init_db
-init_db()
+from app import create_app, init_db
+init_db(create_app())
 print('  [OK] PG schema 已建 + seed 完成')
 PYEOF
 
@@ -165,8 +166,9 @@ ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
 import sys, os
 app_dir, in_zip = sys.argv[1], sys.argv[2]
 os.chdir(app_dir)
-from app import app, db
+from app import create_app, db
 from utils.data_io import perform_import
+app = create_app()
 with app.app_context():
     try:
         result = perform_import(in_zip, restore_secret_key=True)
@@ -206,8 +208,9 @@ ITSM_SECRET_KEY="${SECRET_KEY_VAL}" ITSM_ENV=production FLASK_ENV=production \
 import sys, os
 app_dir = sys.argv[1]
 os.chdir(app_dir)
-from app import app, db
+from app import create_app, db
 from sqlalchemy import text
+app = create_app()
 with app.app_context():
     dialect = db.engine.dialect.name
     print(f"  当前 dialect: {dialect}")
