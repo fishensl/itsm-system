@@ -2,10 +2,11 @@
 """巡检记录：列表/增改/详情/审核/删除/导出"""
 import os
 from flask import (render_template, request, redirect, url_for,
-                   flash, send_from_directory, current_app)
+                   flash, send_from_directory, current_app, jsonify)
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
-from models import (Inspection, Inspector, db)
+from models import (Inspection, Inspector, Customer, Device,
+                    InspectionDeviceTemplate, InspectionTaskTemplate, db)
 from utils.pagination import paginate, paginate_render_args
 from utils.permission import require_permission
 from services.inspection_service import (create_inspection, update_inspection,
@@ -48,7 +49,11 @@ def inspection_add():
         flash('巡检记录已添加', 'success')
         return redirect(url_for('ops.inspection_list'))
     inspectors = Inspector.query.filter_by(is_active=True).order_by(Inspector.id).all()
+    task_templates = InspectionTaskTemplate.query.filter_by(is_active=True)\
+        .order_by(InspectionTaskTemplate.name).all()
     return render_template('inspections/form.html', inspection=None, inspectors=inspectors,
+                           task_templates=task_templates,
+                           customers=Customer.query.order_by(Customer.name).all(),
                            preselected_task_id=request.args.get('task_id', type=int),
                            preselected_customer_id=request.args.get('customer_id', type=int))
 
@@ -68,7 +73,11 @@ def inspection_edit(id):
         flash('巡检记录已更新', 'success')
         return redirect(url_for('ops.inspection_list'))
     inspectors = Inspector.query.filter_by(is_active=True).order_by(Inspector.id).all()
-    return render_template('inspections/form.html', inspection=i, inspectors=inspectors)
+    task_templates = InspectionTaskTemplate.query.filter_by(is_active=True)\
+        .order_by(InspectionTaskTemplate.name).all()
+    return render_template('inspections/form.html', inspection=i, inspectors=inspectors,
+                           task_templates=task_templates,
+                           customers=Customer.query.order_by(Customer.name).all())
 
 
 @ops_bp.route('/inspections/<int:id>')
@@ -121,6 +130,72 @@ def inspection_delete(id):
         return redirect(url_for('ops.inspection_list'))
     flash('已删除', 'success')
     return redirect(url_for('ops.inspection_list'))
+
+
+@ops_bp.route('/api/customers/<int:cid>/devices-with-templates')
+@login_required
+@require_permission('inspection:view')
+def api_devices_with_templates(cid):
+    """客户设备 + 匹配的检查模板检查项（新模板体系 InspectionDeviceTemplate 标准化检查项）。
+
+    - 默认模式：按 device_type 自动匹配同 device_category 的启用设备检查模板
+    - ?task_template_id=<id>：用该任务模板关联的设备检查模板（task_device_template_link
+      排序）驱动——新建巡检选择任务模板快速创建的支撑端点
+    响应 items 为 get_normalized_items()（含 sub_items），前端直接渲染，无需二次请求。
+    """
+    Customer.query.get_or_404(cid)
+    task_template_id = request.args.get('task_template_id', type=int)
+
+    devices = Device.query.filter_by(customer_id=cid, is_in_use=True)\
+        .order_by(Device.device_type, Device.id).all()
+
+    # 模板池
+    tt = None
+    if task_template_id:
+        tt = InspectionTaskTemplate.query.get(task_template_id)
+        pool = tt.get_ordered_device_templates() if tt else []
+    else:
+        pool = InspectionDeviceTemplate.query.filter_by(is_active=True)\
+            .order_by(InspectionDeviceTemplate.id).all()
+
+    def _match(dev):
+        """返回 (模板, match_type)；任务模板模式优先精确，再兜底'其他/通用'类模板"""
+        dtype = (dev.device_type or '').strip()
+        for t in pool:
+            if (t.device_category or '').strip() == dtype and dtype:
+                return t, 'task_template' if tt else 'device_type'
+        for t in pool:
+            if (t.device_category or '').strip() in ('其他', '通用'):
+                return t, 'fallback'
+        return None, 'none'
+
+    out = []
+    for d in devices:
+        tpl, mtype = _match(d)
+        items = tpl.get_normalized_items() if tpl else []
+        out.append({
+            'device_id': d.id,
+            'device_name': d.device_name,
+            'device_type': d.device_type or '',
+            'location': d.location or '',
+            'model': d.model or '',
+            'brand': d.brand or '',
+            'ip_address': d.ip_address or '',
+            'os_version': d.os_version or '',
+            'matched_template_id': tpl.id if tpl else None,
+            'matched_template_name': tpl.name if tpl else '未匹配',
+            'matched_template_category': (tpl.device_category or '其他') if tpl else '其他',
+            'match_type': mtype,
+            'items': items,
+        })
+
+    resp = {'devices': out, 'task_template': None}
+    if tt:
+        resp['task_template'] = {
+            'id': tt.id, 'name': tt.name, 'category': tt.category or '',
+            'sections_json': tt.sections_json or '{}',
+        }
+    return jsonify(resp)
 
 
 @ops_bp.route('/inspections/export')

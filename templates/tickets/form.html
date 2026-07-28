@@ -49,16 +49,30 @@
                         {% endfor %}
                     </select>
                 </div>
+                {% if not ticket %}
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">处置方式</label>
+                    <select name="dispatch_mode" class="form-select">
+                        <option value="pending">待派单（调度分配）</option>
+                        <option value="self_accept">我自己接单处置</option>
+                    </select>
+                </div>
+                {% endif %}
             </div>
 
             {# 第 2 行：故障分类 #}
             <div class="row">
                 <div class="col-md-3 mb-3">
                     <label class="form-label">故障类型</label>
-                    <select name="fault_category_id" class="form-select">
-                        <option value="">-- 不选 --</option>
-                        {% for ft in fault_types %}<option value="{{ ft.id }}" {% if ticket and ticket.fault_category_id==ft.id %}selected{% endif %}>{{ ft.name }}</option>{% endfor %}
-                    </select>
+                    <div class="input-group">
+                        <select name="fault_category_id" id="faultCategorySelect" class="form-select">
+                            <option value="">-- 不选 --</option>
+                            {% for ft in fault_types %}<option value="{{ ft.id }}" {% if ticket and ticket.fault_category_id==ft.id %}selected{% endif %}>{{ ft.name }}</option>{% endfor %}
+                        </select>
+                        {% if has_perm('fault:edit') %}
+                        <button type="button" class="btn btn-outline-secondary" title="新增故障类别" onclick="quickAddFaultType()"><i class="bi-plus-lg"></i></button>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="col-md-3 mb-3">
                     <label class="form-label">故障分类（一级）</label>
@@ -186,6 +200,26 @@ function updateFaultLevel2() {
             level2Select.innerHTML += '<option value="' + sub + '">' + sub + '</option>';
         });
     }
+}
+
+// 快速新增故障类别（JSON API，CSRF 头由 base.html fetch 包装器自动附加）
+function quickAddFaultType() {
+    var name = prompt('新增故障类别名称：');
+    if (!name || !name.trim()) return;
+    fetch('/api/fault-types/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name.trim()})
+    })
+    .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, d: d}; }); })
+    .then(function(res) {
+        if (!res.ok || !res.d.success) { showToast(res.d.error || '新增失败', 'danger'); return; }
+        var sel = document.getElementById('faultCategorySelect');
+        var opt = new Option(res.d.name, res.d.id, true, true);
+        sel.add(opt);
+        showToast('故障类别「' + res.d.name + '」已添加并选中', 'success');
+    })
+    .catch(function() { showToast('新增失败，请重试', 'danger'); });
 }
 
 function addSymptom() {
