@@ -373,7 +373,9 @@ function saveInspection() {
 
 document.addEventListener('DOMContentLoaded', function() {
     setReportDate();
-if (window._inspectionData) {
+    // 页面加载时如有预选任务模板，即时同步报告章节
+    _syncSectionsFromSelect();
+ if (window._inspectionData) {
     const data = JSON.parse(window._inspectionData);
     if (data && data.length > 0) {
         setTimeout(() => {
@@ -441,9 +443,10 @@ if (customerSelect) {
     if (currentCustomerId) { loadCustomerDevices(); }
 }
 
-// 任务模板切换：已选客户时按新模板重新加载检查项框架
+// 任务模板切换：即时同步报告章节（从 <option> data-sections 读取，不依赖客户选择）
 if (taskTemplateSelect) {
     taskTemplateSelect.addEventListener('change', function() {
+        _syncSectionsFromSelect();
         if (currentCustomerId) { loadCustomerDevices(); }
     });
 }
@@ -497,6 +500,18 @@ function loadCustomerDevices() {
 }
 
 // ===== 任务模板 → 报告章节同步 =====
+// 从 <option> data-sections 直接读取，选模板即时同步章节（不依赖客户/设备加载）
+function _syncSectionsFromSelect() {
+    var sel = document.getElementById('taskTemplateSelect');
+    if (!sel) return;
+    if (!sel.value) { _applyTaskTemplateSections(null); return; }
+    var opt = sel.options[sel.selectedIndex];
+    _applyTaskTemplateSections({
+        name: opt ? opt.dataset.name || opt.textContent : '',
+        sections_json: opt ? opt.getAttribute('data-sections') || '{}' : '{}'
+    });
+}
+
 // window._enabledSections: 当前生效的章节配置（随表单提交写入 sections.enabled_sections）
 function _applyTaskTemplateSections(tt) {
     var blocks = document.querySelectorAll('.tpl-section-block');
@@ -514,6 +529,13 @@ function _applyTaskTemplateSections(tt) {
     }
     var secs = [];
     try { secs = (JSON.parse(tt.sections_json || '{}').sections) || []; } catch (e) { secs = []; }
+    if (secs.length === 0) {
+        // 模板未配置章节（如迁移自动创建的模板）：全部默认，给提示
+        blocks.forEach(function(b) { b.classList.remove('d-none'); });
+        if (hint) hint.textContent = '（模板「' + tt.name + '」未配置报告章节，使用默认全部章节）';
+        window._enabledSections = null;
+        return;
+    }
     var byKey = {};
     secs.forEach(function(s) { byKey[s.key] = s; });
     blocks.forEach(function(b) {

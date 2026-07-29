@@ -15,7 +15,7 @@
                     <select id="taskTemplateSelect" class="form-select">
                         <option value="">-- 不使用模板（按设备类型自动匹配） --</option>
                         {% for t in task_templates %}
-                        <option value="{{ t.id }}">{{ t.name }}{% if t.category %}（{{ t.category }}）{% endif %}</option>
+                        <option value="{{ t.id }}" data-sections="{{ t.sections_json or '{}' }}" data-name="{{ t.name }}">{{ t.name }}{% if t.category %}（{{ t.category }}）{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
