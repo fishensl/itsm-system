@@ -48,3 +48,9 @@ def test_url_map_core_endpoints(app):
                'system_settings', 'customer_list', 'permission_list',
                'ai_config_page', 'download_template'):
         assert ep in endpoints, f'端点缺失: {ep}'
+
+
+def test_device_list_page_renders(admin_client):
+    """回归：设备列表页可渲染（曾因 export_fields 内嵌 {% if %} 致 Jinja 语法错误 500）"""
+    r = admin_client.get('/devices')
+    assert r.status_code == 200

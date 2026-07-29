@@ -386,7 +386,6 @@
                             ('ip_address', 'IP地址'),
                             ('port', '端口'),
                             ('username', '登录用户名'),
-                            {% if has_perm('device:reveal') %}('password', '登录密码（明文）'),{% endif %}
                             ('login_method', '登录方式'),
                             ('interface', '接口'),
                             ('os_version', '系统版本'),
@@ -397,6 +396,8 @@
                             ('license_remaining_days', '剩余天数'),
                             ('remark', '备注'),
                         ] %}
+                        {# 密码列仅 device:reveal 权限可见：Jinja 表达式内不能嵌控制块，故在 set 后追加 #}
+                        {% if has_perm('device:reveal') %}{% set export_fields = export_fields + [('password', '登录密码（明文）')] %}{% endif %}
                         {% for key, label in export_fields %}
                         <div class="col-md-4 mb-2">
                             <div class="form-check">
