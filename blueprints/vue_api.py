@@ -575,7 +575,103 @@ def _count_by(table, col, value):
         text(f'SELECT COUNT(*) FROM {table} WHERE {col} = :v'), {'v': value}).scalar() or 0
 
 
-# ==================== 工单管理 ====================
+# ==================== 任务看板（巡检任务） ====================
+_TASK_STATUS_TAG = {'待执行': 'danger', '执行中': 'warning', '已完成': 'success', '已取消': 'info'}
+
+
+def _task_payload(t, customer_map=None):
+    from datetime import date
+    today = date.today()
+    overdue = (t.status in ('待执行', '执行中') and t.planned_end and t.planned_end < today)
+    return {
+        'id': t.id,
+        'title': t.title,
+        'status': t.status,
+        'task_type': t.task_type or '',
+        'customer_id': t.customer_id,
+        'customer_name': (customer_map or {}).get(t.customer_id, ''),
+        'planned_start': t.planned_start.strftime('%m-%d') if t.planned_start else '',
+        'planned_end': t.planned_end.strftime('%m-%d') if t.planned_end else '',
+        'assigned_to_user_id': t.assigned_to_user_id,
+        'assigned_to_name': t.assignee_rel.realname or t.assignee_rel.username
+        if t.assignee_rel else '',
+        'estimated_effort': t.estimated_effort,
+        'actual_effort': t.actual_effort,
+        'overdue': overdue,
+        'priority': t.priority or '中',
+    }
+
+
+@vue_api_bp.route('/api/task-board', methods=['GET'])
+@login_required
+@require_permission('task:schedule')
+def api_task_board():
+    """任务看板：按状态分组；逾期任务标记；支持客户/负责人筛选"""
+    from models import InspectionTask as _IT, Customer as _C
+    from sqlalchemy.orm import joinedload as _jl
+
+    customer_id = request.args.get('customer_id', type=int)
+    assignee_id = request.args.get('assignee_id', type=int)
+    show_cancelled = request.args.get('show_cancelled') == '1'
+
+    q = _IT.query.options(
+        _jl(_IT.customer_rel), _jl(_IT.assignee_rel),
+    )
+    if customer_id:
+        q = q.filter(_IT.customer_id == customer_id)
+    if assignee_id:
+        q = q.filter(_IT.assigned_to_user_id == assignee_id)
+    if not show_cancelled:
+        q = q.filter(_IT.status != '已取消')
+    tasks = q.order_by(_IT.planned_start.asc().nullslast(), _IT.id.desc()).all()
+
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    groups = {}
+    for st in ('待执行', '执行中', '已完成'):
+        groups[st] = [_task_payload(t, customer_map) for t in tasks if t.status == st]
+
+    # 汇总
+    return ok({
+        'groups': groups,
+        'status_tag': _TASK_STATUS_TAG,
+        'total': len(tasks),
+        'pending': len(groups['待执行']),
+        'running': len(groups['执行中']),
+        'done': len(groups['已完成']),
+    })
+
+
+@vue_api_bp.route('/api/task-board/<int:task_id>/status', methods=['POST'])
+@login_required
+@require_permission('task:dispatch')
+def api_task_board_status(task_id):
+    """看板内状态流转（待执行/执行中/已完成）"""
+    from models import InspectionTask as _IT
+    data = request.get_json(silent=True) or {}
+    status = data.get('status', '')
+    if status not in ('待执行', '执行中', '已完成', '已取消'):
+        return fail(f'非法的状态: {status}', 400)
+    t = _IT.query.get_or_404(task_id)
+    t.status = status
+    from datetime import datetime as _dt
+    if status == '执行中' and not t.actual_start:
+        t.actual_start = _dt.utcnow()
+    if status == '已完成' and not t.actual_end:
+        t.actual_end = _dt.utcnow()
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/dicts/task-board', methods=['GET'])
+@login_required
+@require_permission('task:schedule')
+def api_task_board_dicts():
+    from models import Customer as _C, User as _U, InspectionTask as _IT
+    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    assignees = [{'id': u.id, 'name': u.realname or u.username}
+                 for u in _U.query.filter_by(is_active=True).order_by(_U.realname).all()
+                 if _IT.query.filter_by(assigned_to_user_id=u.id).first()]
+    return ok({'customers': customers, 'assignees': assignees})
 def _ticket_payload(t, customer_map=None):
     return {
         'id': t.id,
