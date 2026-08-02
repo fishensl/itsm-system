@@ -69,6 +69,36 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/inspections/index.vue'),
         meta: { title: '巡检记录', perm: 'inspection:view' },
       },
+      {
+        path: 'knowledge-base',
+        name: 'knowledge',
+        component: () => import('@/views/knowledge/index.vue'),
+        meta: { title: '知识库', perm: 'kb:view' },
+      },
+      {
+        path: 'faults',
+        name: 'faults',
+        component: () => import('@/views/faults/index.vue'),
+        meta: { title: '故障记录', perm: 'fault:view' },
+      },
+      {
+        path: 'reports',
+        name: 'reports',
+        component: () => import('@/views/reports/index.vue'),
+        meta: { title: '报告管理', perm: 'report:view' },
+      },
+      {
+        path: 'spare-parts',
+        name: 'spare',
+        component: () => import('@/views/spare/index.vue'),
+        meta: { title: '备件管理', perm: 'spare:view' },
+      },
+      {
+        path: 'sales',
+        name: 'sales',
+        component: () => import('@/views/sales/index.vue'),
+        meta: { title: '销售管理', perm: 'sales:view' },
+      },
     ],
   },
   // 未匹配 → 工作台（SPA 内无 404 页面时兜底）

@@ -17,6 +17,32 @@ from models import db, User  # noqa: E402
 TEST_PASSWORD = 'test123456'
 
 
+# ---- Flask-Login g._login_user 跨请求缓存兼容补丁（测试环境专用） ----
+# Flask 3.1 下 g 绑定 contextvar，test_client 在同一线程顺序发起多请求时，
+# g 可能跨请求残留（表现为 A client 的请求读到 B client 的用户身份）。
+# 生产环境每个请求独立线程不受影响。此处禁用 _get_user 的缓存短路：
+# 每个请求都强制走 login_manager._load_user()（按 session 重新加载用户）。
+import flask_login.utils as _fl_utils  # noqa: E402
+from flask import g as _fl_g  # noqa: E402
+from flask import has_request_context as _has_req_ctx  # noqa: E402
+
+
+def _get_user_no_cache():
+    if _has_req_ctx():
+        if '_login_user' not in _fl_g:
+            from flask import current_app
+            current_app.login_manager._load_user()
+        # 若 g 残留了旧用户（跨请求），强制按 session 重载
+        elif _fl_g.get('_login_user') is not None:
+            from flask import current_app
+            current_app.login_manager._load_user()
+        return _fl_g.get('_login_user')
+    return None
+
+
+_fl_utils._get_user = _get_user_no_cache
+
+
 @pytest.fixture(scope='module')
 def app():
     """模块级应用实例（建库成本高，每模块一次）；用例间由 _fresh_db 清库隔离"""

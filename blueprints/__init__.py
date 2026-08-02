@@ -17,6 +17,8 @@ from blueprints.rbac import rbac_bp
 from blueprints.backup import backup_bp
 from blueprints.task_schedule import task_schedule_bp
 from blueprints.vue_api import vue_api_bp
+from blueprints.vue_api_ops import vue_api_bp as _vb_ops  # noqa: F401 (注册路由副作用)
+from blueprints.vue_api_sales import vue_api_bp as _vb_sales  # noqa: F401
 
 
 def register_blueprints(app):
