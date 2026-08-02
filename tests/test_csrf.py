@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """W0-S6 CSRF 策略验证：取消蓝图级豁免后，JSON API 仍受 CSRF 保护。
 
 本模块使用独立 app 实例（WTF_CSRF_ENABLED=True），与全局 conftest 的默认关闭相反。
@@ -75,3 +75,22 @@ class TestCsrfProtection:
         c = csrf_app.test_client()
         r = c.post('/login', data={'username': 'op', 'password': 'test123456'})
         assert r.status_code == 302  # 未带 token 也能登录（登录页豁免）
+
+class TestLoginExemptDecoratorOrder:
+    def test_ssr_login_exempt_attribute_preserved(self, csrf_app):
+        """回归：@csrf.exempt 在最外层，Flask-Limiter 包装不吞豁免标记"""
+        from views import auth
+        from app import csrf
+        assert 'views.auth.login' in csrf._exempt_views
+
+    def test_vue_login_exempt_attribute_preserved(self, csrf_app):
+        from blueprints import vue_api
+        from app import csrf
+        assert 'blueprints.vue_api.api_login' in csrf._exempt_views
+
+    def test_vue_login_without_csrf_token_works(self, csrf_app):
+        """Vue 登录豁免：不带 CSRF token 也能登录"""
+        c = csrf_app.test_client()
+        r = c.post('/api/auth/login', json={'username': 'op', 'password': 'test123456'})
+        assert r.status_code == 200
+        assert r.get_json()['code'] == 0

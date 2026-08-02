@@ -81,8 +81,8 @@ def _map_icon(bi):
 
 # ==================== 认证 ====================
 @vue_api_bp.route('/api/auth/login', methods=['POST'])
+@csrf.exempt  # 必须最外层：Flask-Limiter 包装会吞豁免标记
 @limiter.limit('5 per minute;30 per hour', methods=['POST'])
-@csrf.exempt  # 登录页对未登录用户开放（与 SSR 登录一致）
 def api_login():
     data = request.get_json(silent=True) or request.form
     username = (data.get('username') or '').strip()
