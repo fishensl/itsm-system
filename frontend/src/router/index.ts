@@ -28,6 +28,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工作台' },
       },
       {
+        path: 'customers',
+        name: 'customers',
+        component: () => import('@/views/customers/index.vue'),
+        meta: { title: '客户管理', perm: 'customer:view' },
+      },
+      {
         path: 'devices',
         name: 'devices',
         component: () => import('@/views/devices/index.vue'),
@@ -50,6 +56,12 @@ const routes: RouteRecordRaw[] = [
         name: 'ticket-detail',
         component: () => import('@/views/tickets/index.vue'),
         meta: { title: '工单详情', perm: 'ticket:view' },
+      },
+      {
+        path: 'inspections',
+        name: 'inspections',
+        component: () => import('@/views/inspections/index.vue'),
+        meta: { title: '巡检记录', perm: 'inspection:view' },
       },
     ],
   },

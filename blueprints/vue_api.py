@@ -768,3 +768,349 @@ def api_device_dicts():
     customers = [{'id': c.id, 'name': c.name}
                  for c in _C.query.order_by(_C.name).all()]
     return ok({'brands': brands, 'device_types': types, 'customers': customers})
+
+
+# ==================== 客户管理 ====================
+def _serialize_extra_fields(raw):
+    """JSON 数组 [{name,value},...] → JSON 字符串（空则 ''），与 services 的 serialize_extra_fields 对齐"""
+    import json as _json
+    if not raw:
+        return ''
+    if isinstance(raw, str):
+        return raw
+    pairs = []
+    for item in raw:
+        if isinstance(item, dict) and str(item.get('name') or '').strip():
+            pairs.append({'name': str(item.get('name')).strip(),
+                          'value': str(item.get('value') or '').strip()})
+    return _json.dumps(pairs, ensure_ascii=False) if pairs else ''
+
+
+def _customer_payload(c, region_map=None, category_map=None):
+    from services.customer_service import parse_extra_fields
+    return {
+        'id': c.id,
+        'name': c.name,
+        'contact_person': c.contact_person or '',
+        'phone': c.phone or '',
+        'email': c.email or '',
+        'level': c.level or '常规',
+        'city': c.city or '',
+        'address': c.address or '',
+        'office': c.office or '',
+        'source': c.source or '',
+        'remark': c.remark or '',
+        'region_id': c.region_id,
+        'category_id': c.category_id,
+        'parent_id': c.parent_id,
+        'has_onsite': bool(c.has_onsite),
+        'has_onsite_label': '有' if c.has_onsite else '无',
+        'onsite_contact': c.onsite_contact or '',
+        'onsite_phone': c.onsite_phone or '',
+        'onsite_office': c.onsite_office or '',
+        'has_drill': bool(c.has_drill),
+        'inspection_frequency': c.inspection_frequency or '',
+        'device_count': c.device_count or 0,
+        'category_name': (category_map or {}).get(c.category_id, ''),
+        'region_name': (region_map or {}).get(c.region_id, ''),
+        'created_at': c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '',
+        'extra_fields': parse_extra_fields(c),
+    }
+
+
+@vue_api_bp.route('/api/customers', methods=['GET'])
+@login_required
+@require_permission('customer:view')
+def api_customer_list():
+    """客户分页列表（DataTable 数据源）"""
+    from models import Customer as _C, Region as _R, CustomerCategory as _CC
+
+    page = request.args.get('page', 1, type=int)
+    page_size = min(request.args.get('page_size', 20, type=int), 100)
+    search = (request.args.get('search') or '').strip()
+    level = (request.args.get('level') or '').strip()
+    category_id = request.args.get('category_id', type=int)
+    region_id = request.args.get('region_id', type=int)
+
+    q = _C.query
+    if search:
+        q = q.filter(_C.name.contains(search) |
+                     _C.contact_person.contains(search) |
+                     _C.phone.contains(search))
+    if level:
+        q = q.filter(_C.level == level)
+    if category_id:
+        q = q.filter(_C.category_id == category_id)
+    if region_id:
+        q = q.filter(_C.region_id == region_id)
+
+    total = q.count()
+    rows = q.order_by(_C.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    region_map = {r.id: r.name for r in _R.query.all()}
+    category_map = {cc.id: cc.name for cc in _CC.query.all()}
+    return ok({'items': [_customer_payload(c, region_map, category_map) for c in rows],
+               'total': total, 'page': page, 'page_size': page_size})
+
+
+@vue_api_bp.route('/api/customers/<int:customer_id>', methods=['GET'])
+@login_required
+@require_permission('customer:view')
+def api_customer_get(customer_id):
+    from models import Customer as _C, Region as _R, CustomerCategory as _CC
+    c = _C.query.get_or_404(customer_id)
+    region_map = {r.id: r.name for r in _R.query.all()}
+    category_map = {cc.id: cc.name for cc in _CC.query.all()}
+    payload = _customer_payload(c, region_map, category_map)
+    payload['inspection_count'] = _count_by('inspections', 'customer_id', c.id)
+    payload['ticket_count'] = _count_by('tickets', 'customer_id', c.id)
+    return ok(payload)
+
+
+@vue_api_bp.route('/api/customers', methods=['POST'])
+@login_required
+@require_permission('customer:add')
+def api_customer_create():
+    from services.customer_service import create_customer
+    data = request.get_json(silent=True) or {}
+    # checkbox 归一化：JSON boolean → service 期望 'on'
+    form = dict(data)
+    form['has_onsite'] = 'on' if data.get('has_onsite') else ''
+    form['has_drill'] = 'on' if data.get('has_drill') else ''
+    form['extra_fields'] = _serialize_extra_fields(data.get('extra_fields'))
+    try:
+        c = create_customer(form, device_count=0)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '客户创建失败', 400)
+    # 与 SSR 一致：按巡检频率自动生成本年度任务（失败不阻塞）
+    if c.inspection_frequency:
+        try:
+            from utils.customer_task_generator import generate_for_customer
+            generate_for_customer(c.id)
+        except Exception:
+            current_app.logger.exception('客户 %s 任务自动生成失败', c.id)
+    return ok({'id': c.id, 'level': c.level})
+
+
+@vue_api_bp.route('/api/customers/<int:customer_id>', methods=['PUT'])
+@login_required
+@require_permission('customer:edit')
+def api_customer_update(customer_id):
+    from services.customer_service import update_customer
+    data = request.get_json(silent=True) or {}
+    form = dict(data)
+    form['has_onsite'] = 'on' if data.get('has_onsite') else ''
+    form['has_drill'] = 'on' if data.get('has_drill') else ''
+    form['extra_fields'] = _serialize_extra_fields(data.get('extra_fields'))
+    try:
+        c = update_customer(customer_id, form)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '客户更新失败', 400)
+    # 与 SSR 一致：频率变更后幂等补打本年度任务
+    if c.inspection_frequency:
+        try:
+            from utils.customer_task_generator import generate_for_customer
+            generate_for_customer(c.id)
+        except Exception:
+            current_app.logger.exception('客户 %s 任务自动生成失败', c.id)
+    return ok({'id': c.id, 'level': c.level})
+
+
+@vue_api_bp.route('/api/customers/<int:customer_id>', methods=['DELETE'])
+@login_required
+@require_permission('customer:delete')
+def api_customer_delete(customer_id):
+    from models import Customer as _C
+    from services.customer_service import delete_customer
+    c = _C.query.get_or_404(customer_id)
+    current_app.logger.info(
+        '客户删除审计(Vue): 用户[%s] 删除客户[%s](id=%s), IP=%s',
+        current_user.username, c.name, c.id, request.remote_addr)
+    try:
+        delete_customer(customer_id)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '客户删除失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/dicts/customers', methods=['GET'])
+@login_required
+@require_permission('customer:view')
+def api_customer_dicts():
+    from models import CustomerCategory as _CC, Region as _R
+    categories = [{'id': cc.id, 'name': cc.name}
+                  for cc in _CC.query.order_by(_CC.sort_order, _CC.id).all()]
+    regions = [{'id': r.id, 'name': r.name, 'parent_id': r.parent_id}
+               for r in _R.query.order_by(_R.sort_order, _R.id).all()]
+    return ok({'customer_categories': categories, 'regions': regions,
+               'levels': ['核心', '重点', '常规']})
+
+
+# ==================== 巡检记录 ====================
+def _inspection_payload(i, customer_map=None, full=False):
+    """巡检序列化。注意 review_status 的 ''(草稿) 在 API 边界归一为 '草稿'（过滤时反向映射）"""
+    from utils.json_fields import parse_json
+    payload = {
+        'id': i.id,
+        'title': i.title,
+        'customer_id': i.customer_id,
+        'customer_name': (customer_map or {}).get(i.customer_id, ''),
+        'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
+        'overall_status': i.overall_status or '',
+        'review_status': i.review_status or '草稿',
+        'inspector_name': i.inspector_name or i.inspector or '',
+        'report_file': bool(i.report_file),
+        'report_label': '有' if i.report_file else '无',
+        'location': i.location or '',
+        'conclusion': i.conclusion or '',
+    }
+    if full:
+        payload['content_json'] = parse_json(i.content_json, [], 'inspection.content_json')
+        payload['field_values_json'] = parse_json(i.field_values_json, {}, 'inspection.field_values_json')
+        payload['sections_json'] = parse_json(i.sections_json, {}, 'inspection.sections_json')
+        payload['review_comment'] = i.review_comment or ''
+        payload['reviewed_at'] = i.reviewed_at.strftime('%Y-%m-%d %H:%M') if i.reviewed_at else ''
+        payload['created_at'] = i.created_at.strftime('%Y-%m-%d %H:%M') if i.created_at else ''
+    return payload
+
+
+@vue_api_bp.route('/api/inspections', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspection_list():
+    from models import Inspection as _I, Customer as _C
+    from sqlalchemy.orm import joinedload as _jl
+    page = request.args.get('page', 1, type=int)
+    page_size = min(request.args.get('page_size', 20, type=int), 100)
+    search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    review_status = (request.args.get('review_status') or '').strip()
+    customer_id = request.args.get('customer_id', type=int)
+
+    q = _I.query.options(_jl(_I.customer_rel))
+    if search:
+        q = q.filter(_I.title.contains(search))
+    if status:
+        q = q.filter(_I.overall_status == status)
+    if review_status:
+        q = q.filter(_I.review_status == ('' if review_status == '草稿' else review_status))
+    if customer_id:
+        q = q.filter(_I.customer_id == customer_id)
+    total = q.count()
+    rows = q.order_by(_I.inspection_date.desc(), _I.id.desc()) \
+        .offset((page - 1) * page_size).limit(page_size).all()
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    return ok({'items': [_inspection_payload(i, customer_map) for i in rows],
+               'total': total, 'page': page, 'page_size': page_size})
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspection_get(inspection_id):
+    from models import Inspection as _I
+    i = _I.query.get_or_404(inspection_id)
+    payload = _inspection_payload(i, {i.customer_id: i.customer_rel.name if i.customer_rel else ''}, full=True)
+    return ok(payload)
+
+
+@vue_api_bp.route('/api/inspections', methods=['POST'])
+@login_required
+@require_permission('inspection:add')
+def api_inspection_create():
+    from services.inspection_service import create_inspection
+    data = request.get_json(silent=True) or {}
+    try:
+        i = create_inspection(data, current_user.realname or current_user.username)
+        if data.get('conclusion'):
+            i.conclusion = data['conclusion']
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '巡检创建失败', 400)
+    return ok({'id': i.id})
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>', methods=['PUT'])
+@login_required
+@require_permission('inspection:edit')
+def api_inspection_update(inspection_id):
+    from services.inspection_service import update_inspection
+    data = request.get_json(silent=True) or {}
+    try:
+        i = update_inspection(inspection_id, data)
+        if 'conclusion' in data:
+            i.conclusion = data.get('conclusion') or ''
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '巡检更新失败', 400)
+    return ok({'id': i.id})
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>', methods=['DELETE'])
+@login_required
+@require_permission('inspection:delete')
+def api_inspection_delete(inspection_id):
+    from services.inspection_service import delete_inspection
+    from models import Inspection as _I
+    i = _I.query.get_or_404(inspection_id)
+    current_app.logger.info(
+        '巡检删除审计(Vue): 用户[%s] 删除巡检[%s](id=%s), IP=%s',
+        current_user.username, i.title, i.id, request.remote_addr)
+    try:
+        delete_inspection(inspection_id)
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '巡检删除失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>/submit', methods=['POST'])
+@login_required
+@require_permission('inspection:edit')
+def api_inspection_submit(inspection_id):
+    """提交审核：review_status → 待审核"""
+    from services.inspection_service import submit_for_review
+    try:
+        submit_for_review(inspection_id, current_user.realname or current_user.username)
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '提交审核失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>/review', methods=['POST'])
+@login_required
+@require_permission('inspection:review')
+def api_inspection_review(inspection_id):
+    """审核巡检：approved=True 通过（自动生成 Word 报告）/ False 退回"""
+    from services.inspection_service import review_inspection
+    data = request.get_json(silent=True) or {}
+    approved = bool(data.get('approved'))
+    remark = data.get('remark') or ''
+    try:
+        review_inspection(inspection_id, approved, current_user.realname or current_user.username, remark)
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '审核失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/dicts/inspections', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspection_dicts():
+    from models import Customer as _C, Inspector as _I
+    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    inspectors = [{'user_id': ins.user_id, 'name': ins.name}
+                  for ins in _I.query.filter_by(is_active=True).order_by(_I.id).all()]
+    overall_statuses = ['正常', '警告', '异常']
+    review_statuses = ['草稿', '待审核', '已通过', '已退回']
+    return ok({'customers': customers, 'inspectors': inspectors,
+               'overall_statuses': overall_statuses, 'review_statuses': review_statuses})
