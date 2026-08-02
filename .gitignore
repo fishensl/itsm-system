@@ -47,3 +47,8 @@ instance/*.db.*
 # OS
 .DS_Store
 Thumbs.db
+
+# Vue frontend build artifacts (CI builds & update.sh deploys)
+frontend/node_modules/
+frontend/dist/
+static/app/
