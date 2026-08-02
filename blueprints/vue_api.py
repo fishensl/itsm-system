@@ -575,6 +575,106 @@ def _count_by(table, col, value):
         text(f'SELECT COUNT(*) FROM {table} WHERE {col} = :v'), {'v': value}).scalar() or 0
 
 
+# ==================== 通知中心 ====================
+def notify(user_id, category, title, content='', link=''):
+    """写入站内通知（失败不阻断主流程）"""
+    from models import Notification
+    try:
+        db.session.add(Notification(
+            user_id=user_id, category=category, title=title,
+            content=content, link=link))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning('通知写入失败: user=%s %s', user_id, title)
+
+
+@vue_api_bp.route('/api/notifications', methods=['GET'])
+@login_required
+def api_notifications():
+    """通知列表：全部（按时间倒序，limit 50）"""
+    from models import Notification
+    rows = Notification.query.filter_by(user_id=current_user.id)\
+        .order_by(Notification.id.desc()).limit(50).all()
+    return ok({'items': [{
+        'id': n.id, 'category': n.category, 'title': n.title,
+        'content': n.content or '', 'link': n.link, 'is_read': bool(n.is_read),
+        'created_at': n.created_at.strftime('%m-%d %H:%M') if n.created_at else '',
+    } for n in rows]})
+
+
+@vue_api_bp.route('/api/notifications/unread-count', methods=['GET'])
+@login_required
+def api_notifications_unread():
+    from models import Notification
+    cnt = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+    return ok({'unread': cnt})
+
+
+@vue_api_bp.route('/api/notifications/read', methods=['POST'])
+@login_required
+def api_notifications_read():
+    """已读：传 ids 数组或全部已读（不传 ids）"""
+    from models import Notification
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids')
+    if ids:
+        Notification.query.filter(
+            Notification.id.in_(ids), Notification.user_id == current_user.id
+        ).update({'is_read': True}, synchronize_session=False)
+    else:
+        Notification.query.filter_by(user_id=current_user.id, is_read=False)\
+            .update({'is_read': True}, synchronize_session=False)
+    db.session.commit()
+    return ok(None)
+
+
+# ==================== 全局搜索 ====================
+@vue_api_bp.route('/api/search', methods=['GET'])
+@login_required
+def api_global_search():
+    """跨模块搜索：设备/客户/工单/知识库，各限 5 条，按权限过滤"""
+    q = (request.args.get('q') or '').strip()
+    if not q or len(q) < 2:
+        return ok({'devices': [], 'customers': [], 'tickets': [], 'knowledge': []})
+    result = {'devices': [], 'customers': [], 'tickets': [], 'knowledge': []}
+
+    if has_permission('device:view'):
+        from models import Device, Customer
+        cname_map = {c.id: c.name for c in Customer.query.all()}
+        rows = Device.query.filter(
+            Device.device_name.contains(q) | Device.ip_address.contains(q)
+        ).order_by(Device.id.desc()).limit(5).all()
+        result['devices'] = [{'id': d.id, 'title': d.device_name,
+                              'sub': f"{cname_map.get(d.customer_id, '')} · {d.ip_address or ''}"}
+                             for d in rows]
+
+    if has_permission('customer:view'):
+        from models import Customer
+        rows = Customer.query.filter(
+            Customer.name.contains(q) | Customer.contact_person.contains(q) |
+            Customer.phone.contains(q)
+        ).order_by(Customer.id.desc()).limit(5).all()
+        result['customers'] = [{'id': c.id, 'title': c.name,
+                                'sub': f"{c.contact_person or ''} · {c.phone or ''}"} for c in rows]
+
+    if has_permission('ticket:view'):
+        from models import Ticket
+        rows = Ticket.query.filter(Ticket.title.contains(q) | Ticket.number.contains(q))\
+            .order_by(Ticket.id.desc()).limit(5).all()
+        result['tickets'] = [{'id': t.id, 'title': t.title,
+                              'sub': f"{t.number} · {t.status}"} for t in rows]
+
+    if has_permission('kb:view'):
+        from models import KnowledgeBase
+        rows = KnowledgeBase.query.filter(KnowledgeBase.title.contains(q))\
+            .order_by(KnowledgeBase.id.desc()).limit(5).all()
+        result['knowledge'] = [{'id': k.id, 'title': k.title,
+                                'sub': k.category or ''} for k in rows]
+
+    return ok(result)
+
+
 # ==================== 任务看板（巡检任务） ====================
 _TASK_STATUS_TAG = {'待执行': 'danger', '执行中': 'warning', '已完成': 'success', '已取消': 'info'}
 
@@ -838,6 +938,27 @@ def api_ticket_action(ticket_id):
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '操作失败', 400)
+
+    # ---- 事件源：通知被指派/创建人（派单与审核结果） ----
+    try:
+        from models import Ticket as _T2, User as _U2
+        t = _T2.query.get(ticket_id)
+        target_name = None
+        if action == 'assign':
+            target_name = data.get('assignee')
+        elif action in ('audit', 'accept_check', 'close'):
+            target_name = t.created_by or (t.assigned_to if action == 'close' else None)
+        if target_name:
+            target = _U2.query.filter(
+                (_U2.username == target_name) | (_U2.realname == target_name)).first()
+            if target and target.id != current_user.id:
+                status_map = {'audit': '审核通过' if data.get('approved') else '审核退回',
+                              'accept_check': '验收通过' if data.get('approved') else '验收退回',
+                              'close': '已关闭', 'assign': '有新工单派给你'}
+                notify(target.id, 'ticket', f'工单 {t.number} {status_map.get(action, action)}',
+                       t.title, f'/app/tickets/{t.id}')
+    except Exception:
+        current_app.logger.warning('工单通知发送失败 ticket_id=%s', ticket_id)
     return ok(None)
 
 

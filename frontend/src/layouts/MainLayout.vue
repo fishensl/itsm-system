@@ -123,26 +123,10 @@
           {{ route.meta.title }}
         </div>
         <div class="topbar-right">
-          <!-- 全局搜索（P3 实现） -->
-          <el-input
-            v-model="searchText"
-            class="global-search"
-            placeholder="搜索设备/客户/工单/知识库..."
-            :prefix-icon="Search"
-            clearable
-          />
-          <!-- 通知铃铛（P3 实现） -->
-          <el-badge
-            :value="0"
-            :hidden="true"
-            class="notif-badge"
-          >
-            <el-button
-              text
-              :icon="Bell"
-              @click="notifOpen = true"
-            />
-          </el-badge>
+          <!-- 全局搜索 -->
+          <GlobalSearch class="global-search" />
+          <!-- 通知铃铛 -->
+          <NotificationBell class="notif-bell" />
           <!-- 用户菜单 -->
           <el-dropdown @command="onUserCommand">
             <span class="user-chip">
@@ -187,7 +171,7 @@
       </router-link>
       <div
         class="bottom-nav-item"
-        @click="notifOpen = true"
+        @click="mobileNotif = true"
       >
         <el-icon><Bell /></el-icon><span>消息</span>
       </div>
@@ -198,6 +182,11 @@
         <el-icon><Menu /></el-icon><span>菜单</span>
       </div>
     </nav>
+
+    <!-- 移动端通知抽屉 -->
+    <el-drawer v-model="mobileNotif" title="通知" size="85%">
+      <NotificationBell :inline="true" />
+    </el-drawer>
 
     <!-- Toast 容器 -->
     <div class="toast-wrap">
@@ -218,9 +207,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import {
-  Monitor, Expand, Fold, Menu, Search, Bell, ArrowDown, MoonNight, Sunny,
-  SwitchButton, HomeFilled,
+  Monitor, Expand, Fold, Menu, ArrowDown, MoonNight, Sunny,
+  SwitchButton, HomeFilled, Bell,
 } from '@element-plus/icons-vue'
+import GlobalSearch from '@/components/GlobalSearch.vue'
+import NotificationBell from '@/components/NotificationBell.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
@@ -229,8 +220,7 @@ const router = useRouter()
 const user = useUserStore()
 const ui = useUiStore()
 
-const searchText = ref('')
-const notifOpen = ref(false)
+const mobileNotif = ref(false)
 const openGroups = ref(new Set<string>())
 const theme = ref<'light' | 'dark'>(localStorage.getItem('appTheme') === 'dark' ? 'dark' : 'light')
 
