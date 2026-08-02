@@ -525,6 +525,10 @@ def api_device_update(device_id):
 @require_permission('device:delete')
 def api_device_delete(device_id):
     from services.device_service import delete_device
+    from models import Device as _D
+    d = _D.query.get_or_404(device_id)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:delete', 'device', device_id, f'删除设备「{d.device_name}」')
     try:
         delete_device(device_id)
         db.session.commit()
@@ -550,6 +554,9 @@ def api_device_reveal_password(device_id):
     current_app.logger.info(
         '密码查看审计(Vue): 用户[%s] 查看设备[%s](id=%s), IP=%s',
         current_user.username, d.device_name, d.id, request.remote_addr)
+    # 审计写表（供 admin 审计查询页）
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:reveal', 'device', d.id, f'查看设备「{d.device_name}」明文密码')
     return ok({'password': pwd})
 
 
@@ -896,6 +903,8 @@ def api_ticket_delete(ticket_id):
     current_app.logger.info(
         '工单删除审计(Vue): 用户[%s] 删除工单[%s](id=%s), IP=%s',
         current_user.username, t.number, t.id, request.remote_addr)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('ticket:delete', 'ticket', t.id, f'删除工单「{t.number}」')
     TicketLog.query.filter_by(ticket_id=ticket_id).delete()
     _T.query.filter_by(id=ticket_id).delete()
     db.session.commit()
@@ -1146,6 +1155,8 @@ def api_customer_delete(customer_id):
     current_app.logger.info(
         '客户删除审计(Vue): 用户[%s] 删除客户[%s](id=%s), IP=%s',
         current_user.username, c.name, c.id, request.remote_addr)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('customer:delete', 'customer', c.id, f'删除客户「{c.name}」')
     try:
         delete_customer(customer_id)
         db.session.commit()

@@ -21,3 +21,4 @@ from models.sales import Opportunity, Quotation, Contract, Project  # noqa: F401
 from models.misc import AIConfig, DeviceConfigBackup, Topology, DeviceCollectTask  # noqa: F401
 from models.rack import Rack, RackInstall  # noqa: F401
 from models.notification import Notification  # noqa: F401
+from models.audit import AuditLog  # noqa: F401

@@ -99,6 +99,42 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/sales/index.vue'),
         meta: { title: '销售管理', perm: 'sales:view' },
       },
+      {
+        path: 'rack',
+        name: 'rack',
+        component: () => import('@/views/rack/index.vue'),
+        meta: { title: '机柜管理', perm: 'device:view' },
+      },
+      {
+        path: 'topologies',
+        name: 'topologies',
+        component: () => import('@/views/topology/index.vue'),
+        meta: { title: '拓扑图', perm: 'topology:view' },
+      },
+      {
+        path: 'tools',
+        name: 'tools',
+        component: () => import('@/views/tools/index.vue'),
+        meta: { title: '网络工具' },
+      },
+      {
+        path: 'system/users',
+        name: 'sys-users',
+        component: () => import('@/views/system/users.vue'),
+        meta: { title: '用户与部门', perm: 'user:view' },
+      },
+      {
+        path: 'system/audit',
+        name: 'sys-audit',
+        component: () => import('@/views/system/audit.vue'),
+        meta: { title: '审计日志', perm: 'user:view' },
+      },
+      {
+        path: 'system/overview',
+        name: 'sys-overview',
+        component: () => import('@/views/system/overview.vue'),
+        meta: { title: '系统概览' },
+      },
     ],
   },
   // 未匹配 → 工作台（SPA 内无 404 页面时兜底）
