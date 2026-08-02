@@ -14,6 +14,12 @@
 app.py                  # 应用工厂 create_app() / 扩展实例 / register_routes / init_db（仅 ~325 行）
 wsgi.py                 # Gunicorn 入口：create_app() + init_db(app)
 config.py               # 配置、日志（RotatingFileHandler）、安全头
+frontend/               # Vue 3 SPA（/app/* 前缀，与 SSR 双轨并存；CI 构建发布）
+  src/api/              #   模块化 API 封装（axios，统一契约 {code,data,message}）
+  src/stores/           #   Pinia：user(权限) / ui(主题/侧栏/toast)
+  src/views/            #   页面（devices/tickets/inspections/customers/taskBoard/knowledge/
+                        #   faults/reports/spare/sales/rack/topology/tools/system/...）
+  src/components/       #   DataTable(桌面表格+移动端卡片) / GlobalSearch / NotificationBell
 views/                  # 主应用视图（app.register_routes 集中注册，端点名无蓝图前缀）
   dashboard.py          #   首页仪表盘 + 工作台偏好 API
   auth.py               #   登录/登出/自助改密
@@ -22,10 +28,15 @@ views/                  # 主应用视图（app.register_routes 集中注册，�
 models/                 # 模型包（base.py 持 db 单例；__init__ 全量 re-export）
   base.py               #   db = SQLAlchemy()
   user.py customer.py device.py inspection.py ticket.py knowledge.py
-  spare.py sales.py misc.py rack.py
+  spare.py sales.py misc.py rack.py notification.py audit.py
 blueprints/             # 业务蓝图（register_blueprints 统一注册）
   asset/                #   包：devices/dicts/firmwares/config_backups（蓝图名 asset）
   ops/                  #   包：inspections/tickets/faults/knowledge/templates/reports/...（蓝图名 ops）
+  vue_api.py            #   Vue SPA 核心 API（auth/sidebar/dashboard/设备/工单/看板/通知/搜索）
+  vue_api_ops.py        #   Vue API：知识库/故障/报告
+  vue_api_sales.py      #   Vue API：备件/销售
+  vue_api_asset.py      #   Vue API：机柜(/api/v2/rack/* 规避SSR遮蔽)/拓扑/工具
+  vue_api_sys.py        #   Vue API：用户/RBAC/部门/审计日志/系统概览（audit_log 写表辅助）
   customer.py sales.py spare.py rack.py topology.py rbac.py backup.py
   task_schedule.py task_dispatch.py(仅301/307兼容) contract_tasks.py drafts.py
   departments.py categories.py tools.py
@@ -38,10 +49,20 @@ utils/                  # 工具层
   crypto.py             #   Fernet 加解密（密钥在项目根 .secret.key）
   permission.py / pagination.py / upload.py / excel_export.py / report_generator.py ...
 migrations/             # Alembic 迁移（init_db 启动时自动 upgrade）
-tests/                  # pytest（111 用例；conftest 模块级 app + 用例级清库重播种）
+tests/                  # pytest（425+ 用例；conftest 模块级 app + 用例级清库重播种）
 scripts/                # 部署运维 + 数据脚本（faults_to_tickets.py / rotate_secret_key.py）
-templates/ static/      # Jinja2 模板 / 静态资源（drawio vendor ~21MB 勿动）
+templates/ static/      # SSR Jinja2 模板 / 静态资源（drawio vendor ~21MB 勿动；static/app=Vue产物）
 ```
+
+## Vue SPA（/app/*，v2.0 起与 SSR 双轨）
+
+- 技术栈：Vue 3.5 + TS + Element Plus + Pinia + Vite；开发 `cd frontend && npm run dev`（proxy → :5000）
+- **统一响应契约**：`{code:0,data,message}` / `{code:1,message}`；前端 `request()` 自动解包、401 跳登录
+- **API 命名空间**：与 SSR 同路径冲突时用 `/api/v2/*`（先例：reveal-password、rack）
+- **新模块流程**：`blueprints/vue_api_*.py` 追加路由（复用 vue_api_bp）→ `frontend/src/api/*.ts` → `frontend/src/views/*` → router 注册（meta.perm）→ `tests/test_vue_api_*.py`
+- **列表页**统一用 `DataTable` 组件（列配置驱动，移动端自动卡片化）
+- **审计**：敏感操作（设备密码/删除、工单删除、用户管理等）经 `vue_api_sys.audit_log()` 写 audit_logs 表，admin 在 `/app/system/audit` 查询
+- **部署**：CI 构建 dist → GitHub Release `vue-dist` → update.sh 拉取解压 `static/app/`（服务器免 Node；无 gh 时降级本地构建或 SSR）
 
 ## 常用命令
 
