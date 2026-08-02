@@ -8,8 +8,10 @@ from app import csrf, limiter
 
 
 # ---------- 登录 ----------
-@limiter.limit('5 per minute;30 per hour', methods=['POST'])
+# 注意：@csrf.exempt 必须是最外层装饰器——Flask-Limiter 4.1 的 limit() 返回 RouteLimit
+# 对象包装函数，若 exempt 在内层会因包装丢失豁免标记/身份，导致登录被 CSRF 拦截(400)。
 @csrf.exempt  # 登录页对未登录用户开放，不能强制 CSRF
+@limiter.limit('5 per minute;30 per hour', methods=['POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username', '')
