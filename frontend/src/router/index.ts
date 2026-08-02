@@ -1,6 +1,15 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
+// 扩展路由 meta 类型
+declare module 'vue-router' {
+  interface RouteMeta {
+    title?: string
+    perm?: string
+    public?: boolean
+  }
+}
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -17,6 +26,30 @@ const routes: RouteRecordRaw[] = [
         name: 'dashboard',
         component: () => import('@/views/dashboard/index.vue'),
         meta: { title: '工作台' },
+      },
+      {
+        path: 'devices',
+        name: 'devices',
+        component: () => import('@/views/devices/index.vue'),
+        meta: { title: '设备管理', perm: 'device:view' },
+      },
+      {
+        path: 'devices/:id(\\d+)',
+        name: 'device-detail',
+        component: () => import('@/views/devices/index.vue'),
+        meta: { title: '设备详情', perm: 'device:view' },
+      },
+      {
+        path: 'tickets',
+        name: 'tickets',
+        component: () => import('@/views/tickets/index.vue'),
+        meta: { title: '工单管理', perm: 'ticket:view' },
+      },
+      {
+        path: 'tickets/:id(\\d+)',
+        name: 'ticket-detail',
+        component: () => import('@/views/tickets/index.vue'),
+        meta: { title: '工单详情', perm: 'ticket:view' },
       },
     ],
   },
@@ -41,6 +74,11 @@ router.beforeEach(async (to) => {
   }
   if (!userStore.isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  // 页面级权限校验
+  const perm = to.meta.perm as string | undefined
+  if (perm && !userStore.hasPerm(perm)) {
+    return { path: '/' }
   }
   return true
 })

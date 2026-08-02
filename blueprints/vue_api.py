@@ -12,7 +12,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 import os
 
 from models import db, User
-from utils.permission import get_user_permissions, has_permission
+from utils.permission import get_user_permissions, has_permission, require_permission
 from utils.sidebar_config import get_user_sidebar_groups
 from app import csrf, limiter
 
@@ -365,3 +365,406 @@ def _count(table):
         return db.session.execute(text(f'SELECT COUNT(*) FROM {table}')).scalar() or 0
     except Exception:
         return 0
+
+
+# ==================== 设备管理 ====================
+class _FormAdapter:
+    """把 JSON dict 适配为表单风格（提供 getlist），复用 services 层现有逻辑"""
+
+    def __init__(self, data):
+        self._d = data or {}
+
+    def get(self, key, default=None):
+        return self._d.get(key, default)
+
+    def getlist(self, key):
+        v = self._d.get(key)
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        return [v]
+
+    def to_dict(self):
+        return self._d
+
+
+def _device_payload(d, customer_map=None):
+    import json as _json
+    iface = []
+    if d.interface:
+        try:
+            iface = _json.loads(d.interface) if isinstance(d.interface, str) else d.interface
+        except Exception:
+            iface = [d.interface]
+    return {
+        'id': d.id,
+        'customer_id': d.customer_id,
+        'customer_name': (customer_map or {}).get(d.customer_id, ''),
+        'device_name': d.device_name,
+        'device_type': d.device_type or '',
+        'brand': d.brand or '',
+        'model': d.model or '',
+        'serial_number': d.serial_number or '',
+        'ip_address': d.ip_address or '',
+        'port': d.port,
+        'username': d.username or '',
+        'has_password': bool(d.password_encrypted),
+        'login_method': d.login_method or '',
+        'location': d.location or '',
+        'interface': iface,
+        'os_version': d.os_version or '',
+        'rule_version': d.rule_version or '',
+        'is_maintenance': bool(d.is_maintenance),
+        'is_in_use': bool(d.is_in_use),
+        'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+        'license_start': d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
+        'license_remaining_days': (d.license_expiry - __import__('datetime').date.today()).days
+        if d.license_expiry else None,
+        'remark': d.remark or '',
+        'created_at': d.created_at.strftime('%Y-%m-%d %H:%M') if d.created_at else '',
+    }
+
+
+@vue_api_bp.route('/api/devices', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_list():
+    """设备分页列表（DataTable 数据源）"""
+    from models import Device as _Device, Customer as _Customer
+    from sqlalchemy.orm import joinedload as _jl
+
+    page = request.args.get('page', 1, type=int)
+    page_size = min(request.args.get('page_size', 20, type=int), 100)
+    search = (request.args.get('search') or '').strip()
+    brand = (request.args.get('brand') or '').strip()
+    model = (request.args.get('model') or '').strip()
+    device_type = (request.args.get('device_type') or '').strip()
+    customer_id = request.args.get('customer_id', type=int)
+    is_in_use = request.args.get('is_in_use', type=int)
+
+    q = _Device.query.options(
+        _jl(_Device.customer).joinedload(_Customer.region_rel)
+    )
+    if search:
+        q = q.filter(_Device.device_name.contains(search) |
+                     _Device.ip_address.contains(search) |
+                     _Device.brand.contains(search))
+    if brand:
+        q = q.filter(_Device.brand == brand)
+    if model:
+        q = q.filter(_Device.model == model)
+    if device_type:
+        q = q.filter(_Device.device_type == device_type)
+    if customer_id:
+        q = q.filter(_Device.customer_id == customer_id)
+    if is_in_use is not None:
+        q = q.filter(_Device.is_in_use == bool(is_in_use))
+
+    total = q.count()
+    rows = q.order_by(_Device.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    customer_map = {c.id: c.name for c in _Customer.query.all()}
+    return ok({
+        'items': [_device_payload(d, customer_map) for d in rows],
+        'total': total, 'page': page, 'page_size': page_size,
+    })
+
+
+@vue_api_bp.route('/api/devices/<int:device_id>', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_get(device_id):
+    from models import Device as _Device
+    d = _Device.query.get_or_404(device_id)
+    return ok(_device_payload(d, {d.customer_id: d.customer.name if d.customer else ''}))
+
+
+@vue_api_bp.route('/api/devices', methods=['POST'])
+@login_required
+@require_permission('device:add')
+def api_device_create():
+    from services.device_service import create_device_from_form
+    data = request.get_json(silent=True) or {}
+    # checkbox 归一化：JSON boolean → service 期望 'on'
+    form = dict(data)
+    form['is_maintenance'] = 'on' if data.get('is_maintenance') else ''
+    form['is_in_use'] = 'on' if data.get('is_in_use', True) else ''
+    try:
+        d = create_device_from_form(_FormAdapter(form))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '设备创建失败', 400)
+    _sync_device_count(d.customer_id)
+    return ok({'id': d.id})
+
+
+@vue_api_bp.route('/api/devices/<int:device_id>', methods=['PUT'])
+@login_required
+@require_permission('device:edit')
+def api_device_update(device_id):
+    from services.device_service import update_device_from_form
+    from flask_login import current_user as _cu
+    data = request.get_json(silent=True) or {}
+    form = dict(data)
+    form['is_maintenance'] = 'on' if data.get('is_maintenance') else ''
+    form['is_in_use'] = 'on' if data.get('is_in_use') else ''
+    form['changed_by_name'] = _cu.realname or _cu.username
+    try:
+        d = update_device_from_form(device_id, _FormAdapter(form))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '设备更新失败', 400)
+    _sync_device_count(d.customer_id)
+    return ok({'id': d.id})
+
+
+@vue_api_bp.route('/api/devices/<int:device_id>', methods=['DELETE'])
+@login_required
+@require_permission('device:delete')
+def api_device_delete(device_id):
+    from services.device_service import delete_device
+    try:
+        delete_device(device_id)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '设备删除失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/v2/devices/<int:device_id>/reveal-password', methods=['POST'])
+@login_required
+@require_permission('device:reveal')
+def api_device_reveal_password(device_id):
+    """查看设备明文密码（审计）。
+
+    注意：路径用 /api/v2 前缀——blueprints/asset 已有同路径 /api/devices/<id>/reveal-password
+    （SSR 前端在用），注册顺序上 asset 先注册，同 rule 会被遮蔽。
+    """
+    from utils.crypto import decrypt_password
+    from models import Device as _Device
+    d = _Device.query.get_or_404(device_id)
+    pwd = decrypt_password(d.password_encrypted) if d.password_encrypted else ''
+    current_app.logger.info(
+        '密码查看审计(Vue): 用户[%s] 查看设备[%s](id=%s), IP=%s',
+        current_user.username, d.device_name, d.id, request.remote_addr)
+    return ok({'password': pwd})
+
+
+def _sync_device_count(customer_id):
+    """同步客户 device_count 冗余字段（与 asset 蓝图一致）"""
+    if not customer_id:
+        return
+    from models import Customer as _C
+    from services.customer_service import _calculate_tier
+    cnt = _count_by('devices', 'customer_id', customer_id)
+    c = _C.query.get(customer_id)
+    if c:
+        c.device_count = cnt
+        auto_tier = _calculate_tier(cnt, c.has_onsite, c.has_drill)
+        if c.level not in ('核心', '重点', '常规') or not c.level:
+            c.level = auto_tier
+        db.session.commit()
+
+
+def _count_by(table, col, value):
+    from sqlalchemy import text
+    return db.session.execute(
+        text(f'SELECT COUNT(*) FROM {table} WHERE {col} = :v'), {'v': value}).scalar() or 0
+
+
+# ==================== 工单管理 ====================
+def _ticket_payload(t, customer_map=None):
+    return {
+        'id': t.id,
+        'number': t.number,
+        'title': t.title,
+        'status': t.status,
+        'priority': t.priority,
+        'customer_id': t.customer_id,
+        'customer_name': (customer_map or {}).get(t.customer_id, ''),
+        'assigned_to': t.assigned_to or '',
+        'created_by': t.created_by or '',
+        'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
+        'fault_category_id': t.fault_category_id,
+        'severity_level': t.severity_level or '',
+        'source_type': t.source_type or '',
+        'diagnosis': t.diagnosis or '',
+        'solution': t.solution or '',
+        'description': t.description or '',
+        'audit_status': t.audit_status or '',
+        'accept_status': t.accept_status or '',
+        'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
+        'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
+        'completed_at': t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '',
+    }
+
+
+def _ticket_logs(ticket_id):
+    from models import TicketLog
+    rows = TicketLog.query.filter_by(ticket_id=ticket_id)\
+        .order_by(TicketLog.id.desc()).limit(50).all()
+    return [{'action': x.action, 'operator': x.operator or '',
+             'comment': x.comment or '',
+             'created_at': x.created_at.strftime('%m-%d %H:%M') if x.created_at else ''}
+            for x in rows]
+
+
+@vue_api_bp.route('/api/tickets', methods=['GET'])
+@login_required
+@require_permission('ticket:view')
+def api_ticket_list():
+    from models import Ticket as _T, Customer as _C
+    page = request.args.get('page', 1, type=int)
+    page_size = min(request.args.get('page_size', 20, type=int), 100)
+    search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    priority = (request.args.get('priority') or '').strip()
+    customer_id = request.args.get('customer_id', type=int)
+    scope = (request.args.get('scope') or 'all').strip()
+
+    q = _T.query
+    if search:
+        q = q.filter(_T.title.contains(search) | _T.number.contains(search))
+    if status:
+        q = q.filter(_T.status == status)
+    if priority:
+        q = q.filter(_T.priority == priority)
+    if customer_id:
+        q = q.filter(_T.customer_id == customer_id)
+    if scope == 'mine':
+        me = current_user.realname or current_user.username
+        q = q.filter((_T.assigned_to == me) | (_T.created_by == me))
+    total = q.count()
+    rows = q.order_by(_T.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    return ok({'items': [_ticket_payload(t, customer_map) for t in rows],
+               'total': total, 'page': page, 'page_size': page_size})
+
+
+@vue_api_bp.route('/api/tickets/<int:ticket_id>', methods=['GET'])
+@login_required
+@require_permission('ticket:view')
+def api_ticket_get(ticket_id):
+    from models import Ticket as _T
+    t = _T.query.get_or_404(ticket_id)
+    payload = _ticket_payload(t)
+    payload['logs'] = _ticket_logs(t.id)
+    return ok(payload)
+
+
+@vue_api_bp.route('/api/tickets', methods=['POST'])
+@login_required
+@require_permission('ticket:add')
+def api_ticket_create():
+    from services.ticket_service import create_ticket, assign_ticket, accept_ticket
+    data = request.get_json(silent=True) or {}
+    me = current_user.realname or current_user.username
+    try:
+        t = create_ticket(data, me)
+        # 自接单：录单+派单+接单一体
+        if data.get('dispatch_mode') == 'self_accept':
+            assign_ticket(t.id, me, me, remark='录单时自行接单')
+            accept_ticket(t.id, me, remark='录单即开工')
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '工单创建失败', 400)
+    return ok({'id': t.id, 'number': t.number})
+
+
+@vue_api_bp.route('/api/tickets/<int:ticket_id>', methods=['PUT'])
+@login_required
+@require_permission('ticket:edit')
+def api_ticket_update(ticket_id):
+    from services.ticket_service import update_ticket
+    data = request.get_json(silent=True) or {}
+    me = current_user.realname or current_user.username
+    try:
+        update_ticket(ticket_id, data, me)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '工单更新失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/tickets/<int:ticket_id>', methods=['DELETE'])
+@login_required
+@require_permission('ticket:delete')
+def api_ticket_delete(ticket_id):
+    from models import Ticket as _T, TicketLog
+    t = _T.query.get_or_404(ticket_id)
+    current_app.logger.info(
+        '工单删除审计(Vue): 用户[%s] 删除工单[%s](id=%s), IP=%s',
+        current_user.username, t.number, t.id, request.remote_addr)
+    TicketLog.query.filter_by(ticket_id=ticket_id).delete()
+    _T.query.filter_by(id=ticket_id).delete()
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/tickets/<int:ticket_id>/action', methods=['POST'])
+@login_required
+@require_permission('ticket:edit')
+def api_ticket_action(ticket_id):
+    """工单状态机动作：assign/accept/submit/audit/accept_check/close"""
+    from services.ticket_service import (assign_ticket, accept_ticket, submit_ticket,
+                                         audit_ticket, accept_check_ticket, close_ticket)
+    data = request.get_json(silent=True) or {}
+    action = data.get('action', '')
+    me = current_user.realname or current_user.username
+    remark = data.get('remark', '')
+    try:
+        if action == 'assign':
+            if not data.get('assignee'):
+                return fail('请填写指派处理人', 400)
+            assign_ticket(ticket_id, data['assignee'], me, remark or f'派给 {data["assignee"]}')
+        elif action == 'accept':
+            accept_ticket(ticket_id, me, remark or '已接单，开始处理')
+        elif action == 'submit':
+            submit_ticket(ticket_id, me, remark or '提交审核',
+                          diagnosis=data.get('diagnosis'), solution=data.get('solution'))
+        elif action == 'audit':
+            approved = bool(data.get('approved'))
+            audit_ticket(ticket_id, approved, me, remark or ('审核通过' if approved else '审核不通过'))
+        elif action == 'accept_check':
+            approved = bool(data.get('approved'))
+            accept_check_ticket(ticket_id, me, remark or ('客户验收通过' if approved else '客户验收退回'),
+                                approved=approved)
+        elif action == 'close':
+            close_ticket(ticket_id, me, remark or '关闭工单')
+        else:
+            return fail(f'未知动作: {action}', 400)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '操作失败', 400)
+    return ok(None)
+
+
+@vue_api_bp.route('/api/dicts/tickets', methods=['GET'])
+@login_required
+@require_permission('ticket:view')
+def api_ticket_dicts():
+    from models import Customer as _C, FaultType as _FT
+    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    fault_types = [{'id': f.id, 'name': f.name}
+                   for f in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
+    statuses = ['待派单', '已派单', '已接单', '处理中', '待审核', '已验收', '已关闭']
+    priorities = ['紧急', '高', '中', '低']
+    return ok({'customers': customers, 'fault_types': fault_types,
+               'statuses': statuses, 'priorities': priorities})
+@vue_api_bp.route('/api/dicts/devices', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_dicts():
+    from models import Device as _Device, Customer as _C, DeviceType as _DT
+    brands = [r[0] for r in db.session.query(_Device.brand).distinct()
+              .filter(_Device.brand != '').order_by(_Device.brand).all()]
+    types = [{'name': t.name} for t in _DT.query.order_by(_DT.sort_order, _DT.id).all()]
+    customers = [{'id': c.id, 'name': c.name}
+                 for c in _C.query.order_by(_C.name).all()]
+    return ok({'brands': brands, 'device_types': types, 'customers': customers})
