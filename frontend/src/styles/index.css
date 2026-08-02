@@ -1,0 +1,65 @@
+/* 全局样式：与 SSR 版视觉语言一致（变量对齐 static/css/style.css 主色） */
+:root {
+  --itsm-primary: #2563eb;
+  --itsm-sidebar-width: 232px;
+  --itsm-sidebar-collapsed: 64px;
+  --itsm-bg: #f5f7fa;
+  --itsm-card-bg: #ffffff;
+  --itsm-text: #1f2937;
+  --itsm-text-muted: #6b7280;
+  --itsm-border: #e5e7eb;
+}
+
+[data-theme='dark'] {
+  --itsm-bg: #111827;
+  --itsm-card-bg: #1f2937;
+  --itsm-text: #e5e7eb;
+  --itsm-text-muted: #9ca3af;
+  --itsm-border: #374151;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: var(--itsm-bg);
+  color: var(--itsm-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* 通用页面容器 */
+.page-container {
+  padding: 16px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* 移动端底部导航占位 */
+.bottom-nav-spacer {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .page-container {
+    padding: 12px;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+  .bottom-nav-spacer {
+    display: block;
+    height: 64px;
+  }
+}

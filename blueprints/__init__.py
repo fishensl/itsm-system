@@ -16,6 +16,7 @@ from blueprints.topology import topology_bp
 from blueprints.rbac import rbac_bp
 from blueprints.backup import backup_bp
 from blueprints.task_schedule import task_schedule_bp
+from blueprints.vue_api import vue_api_bp
 
 
 def register_blueprints(app):
@@ -53,3 +54,5 @@ def register_blueprints(app):
     app.register_blueprint(backup_bp)
     # V16: 任务安排看板（Excel 导入 + 三视图）
     app.register_blueprint(task_schedule_bp)
+    # V2.0: Vue SPA API（统一响应契约，随迁随化）
+    app.register_blueprint(vue_api_bp)

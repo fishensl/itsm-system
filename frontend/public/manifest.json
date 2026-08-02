@@ -1,0 +1,11 @@
+{
+  "name": "IT运维综合管理系统",
+  "short_name": "ITSM",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/app/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

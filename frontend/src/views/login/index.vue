@@ -1,0 +1,138 @@
+<template>
+  <div class="login-page">
+    <div class="login-card">
+      <div class="login-brand">
+        <el-icon
+          :size="40"
+          color="#2563eb"
+        >
+          <Monitor />
+        </el-icon>
+        <h1>IT运维综合管理系统</h1>
+        <p>客户 · 设备 · 巡检 · 工单 · 知识库 一体化管理</p>
+      </div>
+
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        size="large"
+        @keyup.enter="submit"
+      >
+        <el-form-item prop="username">
+          <el-input
+            v-model="form.username"
+            placeholder="用户名"
+            :prefix-icon="User"
+          />
+        </el-form-item>
+        <el-form-item prop="password">
+          <el-input
+            v-model="form.password"
+            type="password"
+            placeholder="密码"
+            :prefix-icon="Lock"
+            show-password
+          />
+        </el-form-item>
+        <el-button
+          type="primary"
+          class="login-btn"
+          :loading="loading"
+          @click="submit"
+        >
+          登 录
+        </el-button>
+      </el-form>
+
+      <el-alert
+        v-if="errorMsg"
+        :title="errorMsg"
+        type="error"
+        :closable="false"
+        class="login-error"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { User, Lock } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+
+const router = useRouter()
+const route = useRoute()
+const userStore = useUserStore()
+
+const formRef = ref()
+const loading = ref(false)
+const errorMsg = ref('')
+
+const form = reactive({ username: '', password: '' })
+const rules = {
+  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+}
+
+async function submit() {
+  if (loading.value) return
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    await userStore.login(form.username, form.password)
+    const redirect = (route.query.redirect as string) || '/'
+    router.push(redirect)
+  } catch (e) {
+    errorMsg.value = (e as Error).message || '登录失败'
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<style scoped>
+.login-page {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb22, #7c3aed22);
+  padding: 16px;
+}
+.login-card {
+  width: 380px;
+  max-width: 100%;
+  background: var(--itsm-card-bg);
+  border: 1px solid var(--itsm-border);
+  border-radius: 12px;
+  padding: 32px 28px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+.login-brand {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.login-brand h1 {
+  font-size: 18px;
+  margin: 10px 0 4px;
+}
+.login-brand p {
+  font-size: 12px;
+  color: var(--itsm-text-muted);
+  margin: 0;
+}
+.login-btn {
+  width: 100%;
+  margin-top: 4px;
+}
+.login-error {
+  margin-top: 16px;
+}
+</style>
