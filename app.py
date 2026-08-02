@@ -94,8 +94,12 @@ def inject_csrf_token():
 
 # 注入侧栏配置到所有模板
 def inject_sidebar():
-    """每个请求渲染时，根据当前用户的偏好返回侧栏分组"""
+    """每个请求渲染时，根据当前用户的偏好返回侧栏分组。
+
+    vue 模式（界面版本切换）下，已迁移页面链接映射到 /app/*（未迁移保持 SSR）。
+    """
     from utils.sidebar_config import get_user_sidebar_groups
+    from utils.ui_version import sidebar_url
     try:
         from flask_login import current_user
         if current_user.is_authenticated:
@@ -126,6 +130,12 @@ def inject_sidebar():
             }
             for g in get_default_groups()
         ]
+    # vue 模式：侧栏链接前缀映射
+    for g in groups:
+        if g.get('single_link'):
+            g['single_link']['url'] = sidebar_url(g['single_link']['url'])
+        for c in g.get('children', []):
+            c['url'] = sidebar_url(c['url'])
     return {'sidebar_groups': groups, 'request_path': request.path}
 
 
@@ -162,6 +172,8 @@ def register_routes(app):
     app.add_url_rule('/me/change_password', 'me_change_password', auth.me_change_password,
                      methods=['GET', 'POST'])
     app.add_url_rule('/system', 'system_settings', system.system_settings)
+    app.add_url_rule('/system/ui-version', 'system_ui_version', system.system_ui_version,
+                     methods=['POST'])
     app.add_url_rule('/system/sidebar', 'system_sidebar', system.system_sidebar, methods=['GET', 'POST'])
     app.add_url_rule('/api/sidebar/reset', 'api_sidebar_reset', system.api_sidebar_reset, methods=['POST'])
     app.add_url_rule('/permissions', 'permission_list', admin_users.permission_list)

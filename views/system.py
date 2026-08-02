@@ -242,7 +242,27 @@ def system_settings():
                            sys_info=sys_info,
                            components=components,
                            db_info=db_info,
-                           resources=resources)
+                           resources=resources,
+                           ui_version=get_ui_version())
+
+
+def get_ui_version():
+    """当前界面版本（供系统概览页切换控件展示）"""
+    from utils.ui_version import get_ui_version as _gv
+    return _gv()
+
+
+@login_required
+@admin_required
+def system_ui_version():
+    """界面版本切换（SSR 系统概览页表单）"""
+    from utils.ui_version import set_ui_version
+    version = request.form.get('version')
+    if version in ('vue', 'ssr'):
+        set_ui_version(version)
+        current_app.logger.info('用户 [%s] 切换界面版本 → %s', current_user.username, version)
+        flash(f'界面已切换为 {"Vue" if version == "vue" else "SSR"}', 'success')
+    return redirect(url_for('system_settings'))
 
 
     # ==================== 侧栏自定义 ====================

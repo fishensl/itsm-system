@@ -253,6 +253,29 @@ def api_department_delete(dept_id):
     return ok(None)
 
 
+# ==================== 界面版本切换 ====================
+@vue_api_bp.route('/api/system/ui-version', methods=['GET'])
+@login_required
+def api_ui_version_get():
+    from utils.ui_version import get_ui_version, _VUE_URL_MAP
+    return ok({'version': get_ui_version(), 'vue_migrated_count': len(_VUE_URL_MAP)})
+
+
+@vue_api_bp.route('/api/system/ui-version', methods=['PUT'])
+@login_required
+def api_ui_version_set():
+    if current_user.role != 'admin':
+        return fail('需要管理员权限', 403)
+    from utils.ui_version import set_ui_version
+    data = request.get_json(silent=True) or {}
+    version = data.get('version')
+    if version not in ('vue', 'ssr'):
+        return fail('非法的界面版本', 400)
+    set_ui_version(version)
+    audit_log('system:ui_version', 'system', None, f'切换默认界面为 {version}')
+    return ok({'version': version})
+
+
 # ==================== 系统概览 ====================
 @vue_api_bp.route('/api/system/overview', methods=['GET'])
 @login_required

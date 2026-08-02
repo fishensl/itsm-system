@@ -2,7 +2,7 @@
 """首页仪表盘 + 工作台偏好 API"""
 import json
 from datetime import date, timedelta
-from flask import (render_template, request, jsonify)
+from flask import (render_template, request, jsonify, redirect)
 from flask_login import (login_required, current_user)
 from models import db, User, Customer, Device, Inspection, Fault, Inspector
 from models import Region, Ticket, KnowledgeBase, InspectionTask
@@ -16,6 +16,9 @@ from utils.decorators import api_view
 # ---------- 首页 ----------
 @login_required
 def index():
+    from utils.ui_version import redirect_home
+    if redirect_home():
+        return redirect('/app/')
     from sqlalchemy import func, or_
 
     # 强制刷新缓存，确保统计为最新

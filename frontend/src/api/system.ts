@@ -70,6 +70,21 @@ export function fetchSystemOverview() {
   return request<SystemOverview>({ url: '/api/system/overview', method: 'GET' })
 }
 
+export function fetchUiVersion() {
+  return request<{ version: 'vue' | 'ssr'; vue_migrated_count: number }>({
+    url: '/api/system/ui-version',
+    method: 'GET',
+  })
+}
+
+export function setUiVersion(version: 'vue' | 'ssr') {
+  return request<{ version: 'vue' | 'ssr' }>({
+    url: '/api/system/ui-version',
+    method: 'PUT',
+    data: { version },
+  })
+}
+
 export interface DepartmentItem {
   id: number
   name: string

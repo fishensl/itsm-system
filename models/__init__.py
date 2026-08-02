@@ -22,3 +22,4 @@ from models.misc import AIConfig, DeviceConfigBackup, Topology, DeviceCollectTas
 from models.rack import Rack, RackInstall  # noqa: F401
 from models.notification import Notification  # noqa: F401
 from models.audit import AuditLog  # noqa: F401
+from models.setting import SystemSetting  # noqa: F401
