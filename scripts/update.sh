@@ -59,6 +59,26 @@ if [ ! -f "${APP_DIR}/static/vendor/drawio/index.html" ]; then
     bash "${APP_DIR}/scripts/fetch-drawio.sh" || echo "  [WARN] drawio 拉取失败，可稍后重跑"
 fi
 
+# ---- 5.6 Vue 前端构建产物（CI 发布到 GitHub Release vue-dist，服务器免 Node）----
+echo "[5.6/6] 部署 Vue 前端构建产物..."
+VUE_DIST_DIR="${APP_DIR}/static/app"
+mkdir -p "${VUE_DIST_DIR}"
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if gh release download vue-dist --pattern 'itsm-vue-dist.zip' --dir /tmp/itsm_vue --clobber 2>/dev/null; then
+        rm -rf "${VUE_DIST_DIR}" && mkdir -p "${VUE_DIST_DIR}"
+        cd /tmp/itsm_vue && unzip -o -q itsm-vue-dist.zip -d "${VUE_DIST_DIR}" && rm -rf /tmp/itsm_vue
+        echo "  [OK] Vue 构建产物已部署（release vue-dist）"
+    else
+        echo "  [WARN] 拉取 vue-dist release 失败（首次发布前 Vue 不可用，SSR 保底）"
+    fi
+elif [ -d "${APP_DIR}/frontend" ] && command -v npm >/dev/null 2>&1; then
+    echo "  [WARN] 无 gh CLI，改用本地构建（服务器需 Node）..."
+    (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund 2>/dev/null && npm run build 2>/dev/null && \
+     cp -r dist/* "${VUE_DIST_DIR}/") && echo "  [OK] 本地构建完成" || echo "  [WARN] 本地构建失败，SSR 保底"
+else
+    echo "  [WARN] 无 gh 且无 Node，跳过 Vue 部署（SSR 保底）"
+fi
+
 # ---- 6. 数据库迁移 + schema 同步 ----
 # init_db() 内部幂等：跑 flask db upgrade（Alembic）同步 schema + seed_all() 写权限/角色。
 # SQLite/PG 通用；ITSM_DATABASE_URI 从 .env 读取以连对库。
