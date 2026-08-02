@@ -78,6 +78,20 @@
                     <tr><th>应用 PID</th><td><code>{{ resources.process_pid }}</code> · 启动 <small class="text-muted">{{ resources.process_start }}</small></td></tr>
                     <tr><th>应用内存</th><td><strong>{{ resources.process_memory_mb }}</strong> MB</td></tr>
                     {% endif %}
+                    <tr><th>界面版本</th>
+                        <td>
+                            <form method="post" action="/system/ui-version" class="d-inline">
+                                <input type="hidden" name="version" value="{{ 'ssr' if ui_version == 'vue' else 'vue' }}">
+                                <span class="badge bg-{{ 'success' if ui_version == 'vue' else 'info' }} me-2">
+                                    {{ 'Vue' if ui_version == 'vue' else 'SSR' }}
+                                </span>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                    {{ '切到 SSR' if ui_version == 'vue' else '切到 Vue' }}
+                                </button>
+                                <span class="text-muted small ms-1">切换后侧栏链接与首页入口跟随（可随时切回）</span>
+                            </form>
+                        </td>
+                    </tr>
                 </table>
             </div>
         </div>
