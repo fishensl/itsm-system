@@ -110,7 +110,7 @@
             <div class="task-title">{{ t.title }}</div>
             <div class="task-meta">
               <el-tag v-if="t.overdue" size="small" type="danger">逾期</el-tag>
-              <el-tag size="small">{{ t.status }}</el-tag>
+              <el-tag size="small" :type="statusType(t.status)" :effect="statusEffect(t.status)">{{ t.status }}</el-tag>
             </div>
             <div class="task-sub">{{ t.customer_name || '-' }} · {{ t.planned_end || '-' }}</div>
           </div>
@@ -260,8 +260,8 @@ const kpiCards = computed(() => {
   if (!k) return []
   return [
     { key: 'total', label: '总任务', value: k.total, cls: '' },
-    { key: 'pending', label: '待执行', value: k.pending, cls: 'danger' },
-    { key: 'running', label: '执行中', value: k.running, cls: 'warning' },
+    { key: 'pending', label: '待执行', value: k.pending, cls: 'warning' },
+    { key: 'running', label: '执行中', value: k.running, cls: 'primary' },
     { key: 'done', label: '已完成', value: k.done, cls: 'success' },
     { key: 'overdue', label: '逾期', value: k.overdue, cls: 'danger' },
     { key: 'est', label: '预估人天', value: k.est_effort, cls: '' },
@@ -271,6 +271,15 @@ const kpiCards = computed(() => {
 
 function priorityType(p: string) {
   return { 低: 'info', 中: '', 高: 'warning', 紧急: 'danger' }[p] || 'info'
+}
+
+// 任务状态配色：待执行=橙 / 执行中=深蓝 / 已完成=绿 / 已取消=灰；红色留给「逾期」
+function statusType(s: string) {
+  return { 待执行: 'warning', 执行中: 'primary', 已完成: 'success', 已取消: 'info' }[s] || 'info'
+}
+
+function statusEffect(s: string): 'dark' | 'light' {
+  return s === '执行中' ? 'dark' : 'light'
 }
 
 function reload() {
@@ -415,6 +424,7 @@ onMounted(reload)
 }
 .kpi-card.danger .kpi-value { color: var(--el-color-danger); }
 .kpi-card.warning .kpi-value { color: var(--el-color-warning); }
+.kpi-card.primary .kpi-value { color: var(--el-color-primary); }
 .kpi-card.success .kpi-value { color: var(--el-color-success); }
 .kpi-value { font-size: 20px; font-weight: 700; }
 .kpi-label { font-size: 12px; color: var(--itsm-text-muted); }
@@ -433,9 +443,9 @@ onMounted(reload)
 .col-head {
   padding: 8px 12px; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px;
 }
-.col-待执行 { border-bottom: 3px solid var(--el-color-danger); }
-.col-执行中 { border-bottom: 3px solid var(--el-color-warning); }
-.col-已完成 { border-bottom: 3px solid var(--el-color-success); }
+.col-待执行 { color: var(--el-color-warning); border-bottom: 3px solid var(--el-color-warning); }
+.col-执行中 { color: var(--el-color-primary); border-bottom: 3px solid var(--el-color-primary); }
+.col-已完成 { color: var(--el-color-success); border-bottom: 3px solid var(--el-color-success); }
 .col-engineer { border-bottom: 3px solid var(--el-color-info); }
 .col-count { font-size: 12px; color: var(--itsm-text-muted); }
 .col-check { margin: 6px 12px; }
