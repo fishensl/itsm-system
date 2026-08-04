@@ -52,6 +52,10 @@ echo "[5/6] 更新 Python 依赖..."
 if ! dpkg -s libcairo2 >/dev/null 2>&1; then
     apt-get install -y -qq libcairo2
 fi
+# unzip：Vue 构建产物解压依赖（部分最小化系统未预装）
+if ! dpkg -s unzip >/dev/null 2>&1; then
+    apt-get install -y -qq unzip
+fi
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
 # ---- 5.5 drawio webapp（V20 在线拓扑，gitignore 不入库，缺失则补拉）----
@@ -87,8 +91,17 @@ deploy_vue_dist() {
 }
 
 VUE_DEPLOYED=false
+# 0) 本地手动包优先（网络被墙时管理员 scp 上传到 backups/vue-dist-manual.zip）
+LOCAL_ZIP="${APP_DIR}/backups/vue-dist-manual.zip"
+if [ -f "${LOCAL_ZIP}" ]; then
+    echo "  [INFO] 发现本地手动包 backups/vue-dist-manual.zip，优先部署..."
+    if deploy_vue_dist "${LOCAL_ZIP}"; then
+        VUE_DEPLOYED=true
+        mv "${LOCAL_ZIP}" "${LOCAL_ZIP}.used.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || rm -f "${LOCAL_ZIP}"
+    fi
+fi
 # 1) gh CLI 拉取
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+if [ "${VUE_DEPLOYED}" != "true" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     if gh release download vue-dist --pattern 'itsm-vue-dist.zip' --dir /tmp/itsm_vue --clobber 2>/dev/null && \
        [ -f /tmp/itsm_vue/itsm-vue-dist.zip ]; then
         deploy_vue_dist /tmp/itsm_vue/itsm-vue-dist.zip && VUE_DEPLOYED=true || true
@@ -97,17 +110,23 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     fi
     rm -rf /tmp/itsm_vue
 fi
-# 2) curl 兜底（公共仓库免认证，无需 gh）
+# 2) curl 兜底（公共仓库免认证，无需 gh；直连失败走 ghproxy 镜像）
 if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
     REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
     if [ -n "${REPO_URL}" ]; then
-        echo "  [INFO] 改用 curl 拉取 vue-dist（${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip）..."
+        RELEASE_URL="${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
+        echo "  [INFO] 改用 curl 拉取 vue-dist（${RELEASE_URL}）..."
         rm -f /tmp/itsm-vue-dist.zip
-        if curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
-                "${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip" 2>/dev/null; then
+        if ! curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+                "${RELEASE_URL}" 2>/dev/null; then
+            echo "  [INFO] 直连失败，尝试 ghproxy 镜像..."
+            if ! curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+                    "https://ghproxy.com/${RELEASE_URL}" 2>/dev/null; then
+                echo "  [WARN] curl 拉取 vue-dist 失败（直连与 ghproxy 均不可达，可稍后重跑 update.sh）"
+            fi
+        fi
+        if [ -s /tmp/itsm-vue-dist.zip ]; then
             deploy_vue_dist /tmp/itsm-vue-dist.zip && VUE_DEPLOYED=true || true
-        else
-            echo "  [WARN] curl 拉取 vue-dist 失败（CI 未发布？可稍后重跑 update.sh）"
         fi
         rm -f /tmp/itsm-vue-dist.zip
     fi
