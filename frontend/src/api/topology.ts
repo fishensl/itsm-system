@@ -81,3 +81,21 @@ export function updateTopology(id: number, data: TopologyForm) {
 export function deleteTopology(id: number) {
   return request<null>({ url: `/api/topologies/${id}`, method: 'DELETE' })
 }
+
+export interface TopologyDicts {
+  customers: { id: number; name: string }[]
+  regions: { id: number; name: string }[]
+}
+
+export function fetchTopologyDicts() {
+  return request<TopologyDicts>({ url: '/api/topologies/dicts', method: 'GET' })
+}
+
+export function uploadTopology(formData: FormData) {
+  return request<{ id: number }>({
+    url: '/api/topologies/upload',
+    method: 'POST',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
