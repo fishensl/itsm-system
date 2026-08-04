@@ -4,6 +4,7 @@ import type { PageResult } from '@/types'
 export interface TopologyItem {
   id: number
   name: string
+  description: string
   customer_id: number | null
   customer_name: string
   type: string
@@ -12,6 +13,7 @@ export interface TopologyItem {
   source: string
   upload_by: string
   has_thumbnail: boolean
+  files: TopologyFile[]
   created_at: string
   updated_at: string
 }

@@ -384,6 +384,27 @@ def _topo_cust_name(t):
     return t.customer_rel.name if t.customer_rel else '未关联客户'
 
 
+def _topo_static_url(path):
+    return url_for('static', filename=path) if path else ''
+
+
+def _topo_file_payload(f):
+    """单个拓扑图文件（列表行与详情共用，保证两处结构一致）"""
+    return {
+        'id': f.id,
+        'file_type': f.file_type,
+        'source': f.source,
+        'file_path': f.file_path or '',
+        'url': _topo_static_url(f.file_path),
+        'thumbnail': _topo_static_url(f.thumbnail_path),
+        'pdf': _topo_static_url(f.pdf_path),
+        'vsdx': _topo_static_url(f.vsdx_path),
+        'svg': _topo_static_url(f.svg_path),
+        'upload_by': f.upload_by or '',
+        'created_at': f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else '',
+    }
+
+
 def _topo_group_payload(name, files):
     """相同 客户+名称 的多文件（image/pdf/visio/drawio）合并为一行"""
     files_sorted = sorted(files, key=lambda x: (_FILE_TYPE_ORDER.get(x.file_type, 9), x.id))
@@ -399,6 +420,7 @@ def _topo_group_payload(name, files):
         'source': first.source,
         'upload_by': first.upload_by or '',
         'has_thumbnail': bool(first.thumbnail_path),
+        'files': [_topo_file_payload(f) for f in files_sorted],
         'created_at': first.created_at.strftime('%Y-%m-%d %H:%M') if first.created_at else '',
         'updated_at': (first.updated_at or first.created_at)
         .strftime('%Y-%m-%d %H:%M') if (first.updated_at or first.created_at) else '',
@@ -428,10 +450,6 @@ def api_topology_list():
     return ok({'items': items, 'total': total, 'page': page, 'page_size': page_size})
 
 
-def _topo_static_url(path):
-    return url_for('static', filename=path) if path else ''
-
-
 @vue_api_bp.route('/api/topologies/<int:topo_id>', methods=['GET'])
 @login_required
 @require_permission('topology:view')
@@ -443,21 +461,8 @@ def api_topology_detail(topo_id):
     group = [x for x in _T.query.options(joinedload(_T.customer_rel))
              .filter(_T.name == t.name).all()
              if _topo_cust_name(x) == _topo_cust_name(t)]
-    files = []
-    for f in sorted(group, key=lambda x: (_FILE_TYPE_ORDER.get(x.file_type, 9), x.id)):
-        files.append({
-            'id': f.id,
-            'file_type': f.file_type,
-            'source': f.source,
-            'file_path': f.file_path or '',
-            'url': _topo_static_url(f.file_path),
-            'thumbnail': _topo_static_url(f.thumbnail_path),
-            'pdf': _topo_static_url(f.pdf_path),
-            'vsdx': _topo_static_url(f.vsdx_path),
-            'svg': _topo_static_url(f.svg_path),
-            'upload_by': f.upload_by or '',
-            'created_at': f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else '',
-        })
+    files = [_topo_file_payload(f) for f in sorted(
+        group, key=lambda x: (_FILE_TYPE_ORDER.get(x.file_type, 9), x.id))]
     draw = [f for f in files if f['source'] == 'draw']
     return ok({
         'id': t.id,
