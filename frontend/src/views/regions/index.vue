@@ -12,11 +12,14 @@
     <el-card shadow="never">
       <div v-loading="loading" class="region-tree">
         <div v-for="city in cities" :key="city.id" class="city-block">
-          <div class="city-row">
+          <div class="city-row" @click="toggleCity(city.id)">
+            <el-icon class="collapse-arrow" :class="{ expanded: isCityExpanded(city.id) }">
+              <ArrowRight />
+            </el-icon>
             <el-icon color="#2563eb"><OfficeBuilding /></el-icon>
             <span class="city-name">{{ city.name }}</span>
             <el-tag v-if="city.children?.length" size="small" type="info">{{ city.children.length }} 区县</el-tag>
-            <span class="row-actions">
+            <span class="row-actions" @click.stop>
               <el-button v-if="user.hasPerm('region:add')" size="small" link type="primary"
                 @click="openCreate(city)">+ 区县</el-button>
               <el-button v-if="user.hasPerm('region:edit')" size="small" link type="primary"
@@ -25,7 +28,7 @@
                 @click="onDelete(city)">删除</el-button>
             </span>
           </div>
-          <div v-if="city.children?.length" class="district-list">
+          <div v-if="city.children?.length" v-show="isCityExpanded(city.id)" class="district-list">
             <div v-for="d in city.children" :key="d.id" class="district-row">
               <el-icon><Location /></el-icon>
               <span class="district-name">{{ d.name }}</span>
@@ -68,7 +71,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Plus, OfficeBuilding, Location } from '@element-plus/icons-vue'
+import { Plus, OfficeBuilding, Location, ArrowRight } from '@element-plus/icons-vue'
 import { fetchRegions, createRegion, updateRegion, deleteRegion, type RegionItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -81,6 +84,20 @@ const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({ id: null, name: '', parent_id: null, sort_order: 0 })
+
+// 市级默认折叠，点击城市行展开/收起区县
+const expandedCityIds = ref<Set<number>>(new Set())
+
+function isCityExpanded(id: number) {
+  return expandedCityIds.value.has(id)
+}
+
+function toggleCity(id: number) {
+  const next = new Set(expandedCityIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedCityIds.value = next
+}
 
 function load() {
   loading.value = true
@@ -144,7 +161,11 @@ onMounted(load)
 .city-row {
   display: flex; align-items: center; gap: 8px; padding: 10px 12px;
   background: var(--el-fill-color-light); font-weight: 600;
+  cursor: pointer;
 }
+.city-row:hover { background: var(--el-fill-color); }
+.collapse-arrow { transition: transform 0.2s; font-size: 13px; color: var(--itsm-text-muted); }
+.collapse-arrow.expanded { transform: rotate(90deg); }
 .city-name { font-size: 14px; }
 .row-actions { margin-left: auto; display: flex; gap: 4px; }
 .district-list { padding: 4px 12px; }
