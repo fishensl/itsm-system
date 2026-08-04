@@ -800,3 +800,96 @@ def api_sales_dicts():
         'contracts': contracts,
         'templates': templates,
     })
+
+# ==================== 合同巡检配置 ====================
+@vue_api_bp.route('/api/contract-tasks', methods=['GET'])
+@login_required
+@require_permission('contract_auto:manage')
+def api_contract_tasks_list():
+    from models import Contract, InspectionTaskTemplate, Customer
+    contracts = Contract.query.filter(
+        Contract.inspection_frequency != '',
+        Contract.inspection_frequency.isnot(None),
+    ).order_by(Contract.id.desc()).all()
+    all_contracts = Contract.query.order_by(Contract.id.desc()).all()
+    templates = InspectionTaskTemplate.query.filter_by(is_active=True) \
+        .order_by(InspectionTaskTemplate.name).all()
+    customer_map = {c.id: c.name for c in Customer.query.all()}
+    return ok({
+        'contracts': [
+            {
+                'id': c.id,
+                'title': c.title,
+                'customer_name': customer_map.get(c.customer_id, '-'),
+                'inspection_frequency': c.inspection_frequency or '',
+                'auto_generate_tasks': bool(c.auto_generate_tasks),
+                'task_template_id': c.task_template_id,
+                'end_date': c.end_date.strftime('%Y-%m-%d') if c.end_date else '',
+            }
+            for c in contracts
+        ],
+        'all_contracts': [
+            {
+                'id': c.id,
+                'title': c.title,
+                'customer_name': customer_map.get(c.customer_id, '-'),
+                'inspection_frequency': c.inspection_frequency or '',
+            }
+            for c in all_contracts
+        ],
+        'templates': [{'id': t.id, 'name': t.name} for t in templates],
+    })
+
+
+@vue_api_bp.route('/api/contract-tasks/generate', methods=['POST'])
+@login_required
+@require_permission('contract_auto:manage')
+def api_contract_tasks_generate():
+    from utils.auto_task_generator import generate_contract_tasks
+    data = request.get_json(silent=True) or {}
+    contract_id = data.get('contract_id')
+    to_date_str = (data.get('to_date') or '').strip()
+    try:
+        if to_date_str:
+            from datetime import datetime
+            to_date = datetime.strptime(to_date_str, '%Y-%m-%d').date()
+        else:
+            from datetime import date
+            to_date = date.today()
+        generated = generate_contract_tasks(contract_id=contract_id, to_date=to_date)
+        return ok({'count': len(generated), 'tasks': generated})
+    except Exception as e:
+        current_app.logger.exception('生成合同任务失败: contract_id=%s', contract_id)
+        return fail(f'生成失败：{e}')
+
+
+@vue_api_bp.route('/api/contract-tasks/preview/<int:contract_id>', methods=['GET'])
+@login_required
+@require_permission('contract_auto:manage')
+def api_contract_tasks_preview(contract_id):
+    from utils.auto_task_generator import generate_contract_tasks
+    try:
+        generated = generate_contract_tasks(contract_id=contract_id, dry_run=True)
+        return ok({'count': len(generated), 'tasks': generated})
+    except Exception as e:
+        current_app.logger.exception('预览合同任务失败: contract_id=%s', contract_id)
+        return fail(f'预览失败：{e}')
+
+
+@vue_api_bp.route('/api/contract-tasks/generated/<int:contract_id>', methods=['GET'])
+@login_required
+@require_permission('contract_auto:manage')
+def api_contract_tasks_generated(contract_id):
+    from models import InspectionTask
+    tasks = InspectionTask.query.filter_by(
+        contract_id=contract_id,
+        source='合同自动生成',
+    ).order_by(InspectionTask.planned_start).all()
+    return ok([{
+        'id': t.id,
+        'title': t.title,
+        'status': t.status,
+        'planned_start': t.planned_start.strftime('%Y-%m-%d') if t.planned_start else '',
+        'planned_end': t.planned_end.strftime('%Y-%m-%d') if t.planned_end else '',
+        'assigned_to': t.assigned_to_user_id,
+    } for t in tasks])

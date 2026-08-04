@@ -10,7 +10,7 @@
   --itsm-border: #e5e7eb;
 }
 
-[data-theme='dark'] {
+html.dark {
   --itsm-bg: #111827;
   --itsm-card-bg: #1f2937;
   --itsm-text: #e5e7eb;

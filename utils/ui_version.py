@@ -14,23 +14,48 @@ _VUE_URL_MAP = {
     '/devices': '/app/devices',
     '/tickets': '/app/tickets',
     '/inspections': '/app/inspections',
+    '/inspectors': '/app/inspectors',
+    '/task-schedule/': '/app/task-schedule',
+    '/task-templates': '/app/task-templates',
+    '/device-check-templates': '/app/device-check-templates',
     '/customers': '/app/customers',
+    '/regions': '/app/regions',
+    '/customer-categories': '/app/customer-categories',
     '/knowledge-base': '/app/knowledge-base',
+    '/knowledge-base/add': '/app/knowledge-base',
     '/faults': '/app/faults',
     '/reports': '/app/reports',
     '/spare-parts': '/app/spare-parts',
-    '/opportunities': '/app/sales',
-    '/quotations': '/app/sales',
-    '/contracts': '/app/sales',
-    '/projects': '/app/sales',
+    '/spare-stocks': '/app/spare-parts?tab=stocks',
+    '/purchase-orders': '/app/spare-parts?tab=purchases',
+    '/sales-orders': '/app/spare-parts?tab=sales',
+    '/opportunities': '/app/sales?tab=opps',
+    '/quotations': '/app/sales?tab=quotations',
+    '/contracts': '/app/sales?tab=contracts',
+    '/projects': '/app/sales?tab=projects',
+    '/contract-tasks': '/app/contract-tasks',
     '/rack': '/app/rack',
     '/topologies': '/app/topologies',
+    '/device-types': '/app/device-dicts?tab=types',
+    '/device-brands': '/app/device-dicts?tab=brands',
+    '/device-network-types': '/app/device-dicts?tab=network-types',
+    '/device-custom-fields': '/app/device-dicts?tab=custom-fields',
+    '/device-firmwares': '/app/device-firmwares',
     '/tools': '/app/tools',
-    '/users': '/app/system/users',
+    '/tools/network': '/app/tools?tool=network',
+    '/tools/convert': '/app/tools?tool=convert',
+    '/tools/packet': '/app/tools?tool=packet',
+    '/system': '/app/system/overview',
+    '/system/sidebar': '/app/system/sidebar',
+    '/ai-config': '/app/ai-config',
+    '/permissions': '/app/permissions',
+    '/departments/': '/app/system/users?tab=departments',
+    '/system/backup': '/app/system/backup',
+    '/users': '/app/system/users?tab=users',
 }
 
-# 默认界面：环境变量 > 配置表（无配置表时）
-_DEFAULT = os.environ.get('ITSM_UI_VERSION', 'ssr')
+# 默认界面：环境变量 > 配置表（无配置表时）；默认 Vue（可在系统设置切回 SSR）
+_DEFAULT = os.environ.get('ITSM_UI_VERSION', 'vue')
 
 
 def get_ui_version():
@@ -56,15 +81,25 @@ def set_ui_version(version):
     db.session.commit()
 
 
-def sidebar_url(url):
-    """侧栏 URL 转换：vue 模式下已迁移页面映射到 /app/*"""
-    if get_ui_version() != 'vue':
+def sidebar_url(url, force=False):
+    """侧栏 URL 转换：vue 模式下已迁移页面映射到 /app/*
+
+    force=True：无条件映射（Vue SPA 专用 API 使用，与系统界面版本无关）。
+    """
+    if not force and get_ui_version() != 'vue':
         return url
     base = url.split('?')[0]
     if base in _VUE_URL_MAP:
         # 保留 query（如 /knowledge-base?category=故障处置 → /app/knowledge-base?category=...）
         q = url[len(base):] if base != '/' else (url[1:] if url.startswith('/?') else '')
-        return _VUE_URL_MAP[base] + (q or '')
+        target = _VUE_URL_MAP[base]
+        if q:
+            if '?' in target:
+                # 映射值自带 query（如 /app/spare-parts?tab=stocks）：用 & 拼接
+                target = target + '&' + q[1:]
+            else:
+                target = target + q
+        return target
     return url
 
 

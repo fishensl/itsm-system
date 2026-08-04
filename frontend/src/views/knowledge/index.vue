@@ -103,9 +103,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -117,6 +118,7 @@ import {
 
 const user = useUserStore()
 const ui = useUiStore()
+const route = useRoute()
 const dicts = ref<KnowledgeDicts | null>(null)
 
 const query = reactive<Record<string, unknown>>({ search: '', category: '', is_published: undefined })
@@ -219,6 +221,17 @@ async function save() {
 }
 
 function reload() { tableRef.value?.refresh() }
+
+// 侧栏分类链接（/app/knowledge-base?category=xxx）自动应用筛选
+watch(
+  () => route.query.category,
+  (cat) => {
+    if (cat) {
+      query.category = String(cat)
+      reload()
+    }
+  },
+)
 
 onMounted(() => {
   fetchKnowledgeDicts().then((d) => (dicts.value = d))

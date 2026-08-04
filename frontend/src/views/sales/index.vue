@@ -333,7 +333,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -357,6 +358,18 @@ const oppTableRef = ref()
 const quotTableRef = ref()
 const contractTableRef = ref()
 const projectTableRef = ref()
+
+// 侧栏入口（/app/sales?tab=opps 等）自动定位标签页
+const route = useRoute()
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (tab && ['opps', 'quotations', 'contracts', 'projects'].includes(String(tab))) {
+      activeTab.value = String(tab)
+    }
+  },
+  { immediate: true },
+)
 
 const oppQuery = reactive<Record<string, unknown>>({ search: '', stage: '' })
 const quotQuery = reactive<Record<string, unknown>>({ search: '', status: '' })

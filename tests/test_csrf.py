@@ -79,12 +79,10 @@ class TestCsrfProtection:
 class TestLoginExemptDecoratorOrder:
     def test_ssr_login_exempt_attribute_preserved(self, csrf_app):
         """回归：@csrf.exempt 在最外层，Flask-Limiter 包装不吞豁免标记"""
-        from views import auth
         from app import csrf
         assert 'views.auth.login' in csrf._exempt_views
 
     def test_vue_login_exempt_attribute_preserved(self, csrf_app):
-        from blueprints import vue_api
         from app import csrf
         assert 'blueprints.vue_api.api_login' in csrf._exempt_views
 

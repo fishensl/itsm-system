@@ -411,3 +411,586 @@ def api_reports():
             }
 
     return ok({'data_order': data_order, 'tab_stats': tab_stats})
+
+# ==================== 巡检人员 ====================
+@vue_api_bp.route('/api/inspectors', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspector_list():
+    from sqlalchemy import select
+    from models import Inspector, User
+    inspectors = Inspector.query.order_by(Inspector.id.desc()).all()
+    linked_uids = select(Inspector.user_id)
+    available = User.query.filter(
+        User.is_active == True,
+        User.role.in_(['operator', 'admin']),
+        ~User.id.in_(linked_uids),
+    ).order_by(User.realname).all()
+    return ok({
+        'inspectors': [
+            {
+                'id': i.id,
+                'user_id': i.user_id,
+                'name': i.name,
+                'username': i.linked_user.username if i.linked_user else '',
+                'role': i.linked_user.role if i.linked_user else '',
+                'department_id': i.linked_user.department_id if i.linked_user else None,
+                'phone': i.linked_user.phone if i.linked_user else '',
+                'email': i.linked_user.email if i.linked_user else '',
+                'is_active': bool(i.is_active),
+                'remark': i.remark or '',
+            }
+            for i in inspectors
+        ],
+        'available_users': [
+            {
+                'id': u.id,
+                'name': u.realname or u.username,
+                'username': u.username,
+                'role': u.role or '',
+                'department_id': u.department_id,
+            }
+            for u in available
+        ],
+    })
+
+
+@vue_api_bp.route('/api/inspectors', methods=['POST'])
+@login_required
+@require_permission('inspection:edit')
+def api_inspector_add():
+    from models import Inspector, User
+    data = request.get_json(silent=True) or {}
+    try:
+        user_id = int(data.get('user_id') or 0)
+    except (TypeError, ValueError):
+        user_id = 0
+    if not user_id:
+        return fail('请选择用户')
+    u = User.query.get(user_id)
+    if not u:
+        return fail('用户不存在')
+    if Inspector.query.filter_by(user_id=user_id).first():
+        return fail(f'用户 {u.realname or u.username} 已是巡检人员')
+    i = Inspector(user_id=user_id, remark=(data.get('remark') or '').strip(), is_active=True)
+    db.session.add(i)
+    db.session.commit()
+    current_app.logger.info(f'巡检人员添加: user={user_id}')
+    return ok({'id': i.id})
+
+
+@vue_api_bp.route('/api/inspectors/<int:insp_id>', methods=['PUT'])
+@login_required
+@require_permission('inspection:edit')
+def api_inspector_update(insp_id):
+    from models import Inspector
+    i = Inspector.query.get_or_404(insp_id)
+    data = request.get_json(silent=True) or {}
+    i.remark = (data.get('remark') or '').strip()
+    i.is_active = bool(data.get('is_active', i.is_active))
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/inspectors/<int:insp_id>', methods=['DELETE'])
+@login_required
+@require_permission('inspection:delete')
+def api_inspector_delete(insp_id):
+    from models import Inspector
+    i = Inspector.query.get_or_404(insp_id)
+    db.session.delete(i)
+    db.session.commit()
+    current_app.logger.info(f'巡检人员删除: id={insp_id}')
+    return ok(None)
+
+# ==================== 任务模板 ====================
+def _task_template_payload(t):
+    import json
+    try:
+        sections = json.loads(t.sections_json or '{}')
+    except Exception:
+        sections = {}
+    return {
+        'id': t.id,
+        'name': t.name,
+        'category': t.category or '',
+        'inspection_type': t.inspection_type or '',
+        'frequency': t.frequency or '',
+        'customer_tier': t.customer_tier or 'all',
+        'sections': sections.get('sections', []),
+        'is_active': bool(t.is_active),
+        'remark': t.remark or '',
+        'device_template_ids': [d.id for d in t.get_ordered_device_templates()],
+    }
+
+
+@vue_api_bp.route('/api/task-templates', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_task_template_list():
+    from models import InspectionTaskTemplate, InspectionDeviceTemplate, Customer
+    templates = InspectionTaskTemplate.query.order_by(InspectionTaskTemplate.id.desc()).all()
+    device_templates = InspectionDeviceTemplate.query.filter_by(is_active=True).order_by(
+        InspectionDeviceTemplate.device_category, InspectionDeviceTemplate.id).all()
+    customers = Customer.query.order_by(Customer.name).all()
+    return ok({
+        'templates': [_task_template_payload(t) for t in templates],
+        'device_templates': [
+            {'id': d.id, 'name': d.name, 'device_category': d.device_category or '',
+             'device_sub_type': d.device_sub_type or '', 'items_count': d.total_sub_items}
+            for d in device_templates
+        ],
+        'customers': [{'id': c.id, 'name': c.name} for c in customers],
+    })
+
+
+@vue_api_bp.route('/api/task-templates', methods=['POST'])
+@login_required
+@require_permission('inspection:edit')
+def api_task_template_add():
+    from models import InspectionTaskTemplate
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('名称不能为空')
+    import json
+    sections_json = json.dumps({'sections': data.get('sections') or []}, ensure_ascii=False)
+    t = InspectionTaskTemplate(
+        name=name,
+        category=(data.get('category') or '日常巡检').strip(),
+        inspection_type=(data.get('inspection_type') or '月度巡检').strip(),
+        frequency=(data.get('frequency') or '').strip(),
+        customer_tier=(data.get('customer_tier') or 'all').strip(),
+        sections_json=sections_json,
+        is_active=True,
+        remark=(data.get('remark') or '').strip(),
+    )
+    db.session.add(t)
+    db.session.flush()
+    _save_task_template_devices_vue(t, data.get('device_template_ids') or [])
+    db.session.commit()
+    return ok({'id': t.id})
+
+
+@vue_api_bp.route('/api/task-templates/<int:tid>', methods=['PUT'])
+@login_required
+@require_permission('inspection:edit')
+def api_task_template_update(tid):
+    from models import InspectionTaskTemplate
+    t = InspectionTaskTemplate.query.get_or_404(tid)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if name:
+        t.name = name
+    t.category = (data.get('category') or t.category).strip()
+    t.inspection_type = (data.get('inspection_type') or t.inspection_type).strip()
+    t.frequency = (data.get('frequency') or '').strip()
+    t.customer_tier = (data.get('customer_tier') or 'all').strip()
+    import json
+    t.sections_json = json.dumps({'sections': data.get('sections') or []}, ensure_ascii=False)
+    t.is_active = bool(data.get('is_active', t.is_active))
+    t.remark = (data.get('remark') or '').strip()
+    _save_task_template_devices_vue(t, data.get('device_template_ids') or [])
+    db.session.commit()
+    return ok(None)
+
+
+def _save_task_template_devices_vue(t, ids):
+    from models import task_device_template_link
+    cleaned = []
+    for x in ids:
+        try:
+            cleaned.append(int(x))
+        except (TypeError, ValueError):
+            pass
+    t.device_templates = []
+    db.session.flush()
+    for idx, dt_id in enumerate(cleaned):
+        db.session.execute(task_device_template_link.insert().values(
+            task_template_id=t.id, device_template_id=dt_id, sort_order=idx))
+
+
+@vue_api_bp.route('/api/task-templates/<int:tid>', methods=['DELETE'])
+@login_required
+@require_permission('inspection:delete')
+def api_task_template_delete(tid):
+    from models import InspectionTaskTemplate
+    t = InspectionTaskTemplate.query.get(tid)
+    if t:
+        t.device_templates = []
+        db.session.flush()
+        db.session.delete(t)
+        db.session.commit()
+    return ok(None)
+
+
+# ==================== 任务模板 — 自动匹配 ====================
+@vue_api_bp.route('/api/task-templates/match/<int:cid>', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_task_template_match(cid):
+    from collections import defaultdict
+    from models import Device, InspectionDeviceTemplate
+    devices = Device.query.filter_by(customer_id=cid, is_in_use=True).all()
+    by_cat = defaultdict(list)
+    for d in devices:
+        cat = (d.device_type or '其他').strip()
+        by_cat[cat].append({'id': d.id, 'name': d.device_name, 'brand': d.brand or '',
+                            'model': d.model or '', 'ip': d.ip_address or '',
+                            'os_version': d.os_version or ''})
+    all_templates = InspectionDeviceTemplate.query.filter_by(is_active=True).all()
+    tpl_by_cat = defaultdict(list)
+    for tpl in all_templates:
+        tpl_by_cat[tpl.device_category or '其他'].append(tpl)
+    out = []
+    for cat, dev_list in sorted(by_cat.items()):
+        candidates = []
+        for tpl in tpl_by_cat.get(cat, []):
+            candidates.append({'id': tpl.id, 'name': tpl.name, 'category': tpl.device_category or '',
+                               'sub_type': tpl.device_sub_type or '', 'items_count': tpl.total_sub_items,
+                               'match_score': 100})
+        for tpl in all_templates:
+            if (tpl.device_category or '') == cat:
+                continue
+            if cat in (tpl.name or '') or cat in (tpl.device_sub_type or ''):
+                candidates.append({'id': tpl.id, 'name': tpl.name, 'category': tpl.device_category or '',
+                                   'sub_type': tpl.device_sub_type or '', 'items_count': 0,
+                                   'match_score': 50})
+        candidates.sort(key=lambda x: -x['match_score'])
+        out.append({'device_category': cat, 'devices_count': len(dev_list),
+                    'devices': dev_list, 'matched_templates': candidates})
+    return ok({'groups': out, 'total_devices': len(devices)})
+
+
+# ==================== 设备检查模板 ====================
+DEVICE_CATEGORY_ORDER = ['服务器', '网络设备', '安全设备', '环控设备', '会议设备', '空调', 'UPS', '存储设备', '其他']
+
+
+def _device_template_payload(t):
+    import json
+    try:
+        items = json.loads(t.items_json or '[]')
+    except Exception:
+        items = []
+    return {
+        'id': t.id,
+        'name': t.name,
+        'device_category': t.device_category or '',
+        'device_sub_type': t.device_sub_type or '',
+        'items': items if isinstance(items, list) else [],
+        'is_active': bool(t.is_active),
+        'remark': t.remark or '',
+        'total_sub_items': t.total_sub_items,
+    }
+
+
+@vue_api_bp.route('/api/device-check-templates', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_device_check_template_list():
+    from models import InspectionDeviceTemplate
+    templates = InspectionDeviceTemplate.query.order_by(
+        InspectionDeviceTemplate.device_category, InspectionDeviceTemplate.id).all()
+    grouped = {}
+    for t in templates:
+        grouped.setdefault(t.device_category or '其他', []).append(_device_template_payload(t))
+    return ok({'groups': grouped, 'category_order': DEVICE_CATEGORY_ORDER})
+
+
+@vue_api_bp.route('/api/device-check-templates', methods=['POST'])
+@login_required
+@require_permission('inspection:edit')
+def api_device_check_template_add():
+    from models import InspectionDeviceTemplate
+    import json
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('模板名称不能为空')
+    items = data.get('items')
+    if not isinstance(items, list):
+        return fail('检查项格式错误')
+    t = InspectionDeviceTemplate(
+        name=name,
+        device_category=(data.get('device_category') or '网络设备').strip(),
+        device_sub_type=(data.get('device_sub_type') or '').strip(),
+        items_json=json.dumps(items, ensure_ascii=False),
+        is_active=bool(data.get('is_active', True)),
+        remark=(data.get('remark') or '').strip(),
+    )
+    db.session.add(t)
+    db.session.commit()
+    return ok({'id': t.id})
+
+
+@vue_api_bp.route('/api/device-check-templates/<int:tid>', methods=['PUT'])
+@login_required
+@require_permission('inspection:edit')
+def api_device_check_template_update(tid):
+    from models import InspectionDeviceTemplate
+    import json
+    t = InspectionDeviceTemplate.query.get_or_404(tid)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('模板名称不能为空')
+    items = data.get('items')
+    if not isinstance(items, list):
+        return fail('检查项格式错误')
+    t.name = name
+    t.device_category = (data.get('device_category') or t.device_category).strip()
+    t.device_sub_type = (data.get('device_sub_type') or '').strip()
+    t.items_json = json.dumps(items, ensure_ascii=False)
+    t.is_active = bool(data.get('is_active', t.is_active))
+    t.remark = (data.get('remark') or '').strip()
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/device-check-templates/<int:tid>', methods=['DELETE'])
+@login_required
+@require_permission('inspection:delete')
+def api_device_check_template_delete(tid):
+    from models import InspectionDeviceTemplate
+    InspectionDeviceTemplate.query.filter_by(id=tid).delete()
+    db.session.commit()
+    return ok(None)
+
+# ==================== 任务安排（Vue 看板） ====================
+@vue_api_bp.route('/api/task-schedule', methods=['GET'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_board():
+    """任务安排：按状态/按工程师视图 + KPI + 期间/客户/负责人筛选（对齐 SSR 看板口径）"""
+    from blueprints.task_schedule import (_base_query, _apply_filters, _effective_request_args,
+                                          _engineers_with_tasks, is_overdue)
+    from models import InspectionTask as _IT, Customer as _C, User as _U
+
+    args = _effective_request_args(request.args)[0]
+    query = _apply_filters(_base_query(), args)
+    view = (request.args.get('view') or 'status').strip()
+    tasks = query.order_by(_IT.planned_end.asc().nullslast(), _IT.id.desc()).all()
+
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    user_map = {u.id: u for u in _U.query.all()}
+    today = __import__('datetime').date.today()
+
+    def payload(t):
+        u = user_map.get(t.assigned_to_user_id)
+        return {
+            'id': t.id,
+            'title': t.title,
+            'status': t.status,
+            'priority': t.priority or '',
+            'task_type': t.task_type or '',
+            'customer_id': t.customer_id,
+            'customer_name': customer_map.get(t.customer_id, ''),
+            'assignee_id': t.assigned_to_user_id,
+            'assignee_name': (u.realname or u.username) if u else '',
+            'planned_start': t.planned_start.isoformat() if t.planned_start else '',
+            'planned_end': t.planned_end.isoformat() if t.planned_end else '',
+            'estimated_effort': t.estimated_effort,
+            'actual_effort': t.actual_effort,
+            'overdue': is_overdue(t, today),
+            'source': t.source or '',
+            'remark': t.remark or '',
+        }
+
+    items = [payload(t) for t in tasks]
+    engineers = [{'id': u.id, 'name': u.realname or u.username} for u in _engineers_with_tasks()]
+
+    kpi = {
+        'total': len(items),
+        'pending': sum(1 for t in items if t['status'] == '待执行'),
+        'running': sum(1 for t in items if t['status'] == '执行中'),
+        'done': sum(1 for t in items if t['status'] == '已完成'),
+        'overdue': sum(1 for t in items if t['overdue']),
+        'est_effort': round(sum(t['estimated_effort'] or 0 for t in items), 2),
+        'act_effort': round(sum(t['actual_effort'] or 0 for t in items), 2),
+    }
+
+    if view == 'engineer':
+        groups = {}
+        for eng in engineers:
+            groups[str(eng['id'])] = [t for t in items if t['assignee_id'] == eng['id']]
+        groups['__unassigned__'] = [t for t in items if not t['assignee_id']]
+        data = {'engineer_groups': groups, 'engineers': engineers, 'view': 'engineer'}
+    else:
+        groups = {st: [t for t in items if t['status'] == st] for st in ('待执行', '执行中', '已完成')}
+        data = {'status_groups': groups, 'engineers': engineers, 'view': 'status'}
+    data['tasks'] = items
+    data['kpi'] = kpi
+    data['customers'] = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    return ok(data)
+
+
+@vue_api_bp.route('/api/task-schedule', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_quick_add():
+    from models import InspectionTask as _IT
+    from blueprints.task_schedule import local_now
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or '').strip()
+    customer_id = data.get('customer_id')
+    if not title:
+        return fail('任务描述不能为空')
+    if not customer_id:
+        return fail('请选择客户')
+    from datetime import date as _date
+    planned_start = _date.fromisoformat(data['planned_start']) if data.get('planned_start') else None
+    planned_end = _date.fromisoformat(data['planned_end']) if data.get('planned_end') else None
+    t = _IT(
+        title=title,
+        task_type=(data.get('task_type') or '计划').strip() or '计划',
+        status='待执行',
+        customer_id=customer_id,
+        planned_start=planned_start,
+        planned_end=planned_end,
+        priority=(data.get('priority') or '中').strip() or '中',
+        estimated_effort=float(data['estimated_effort']) if data.get('estimated_effort') is not None else None,
+        assigned_to_user_id=data.get('assignee_id') or None,
+        dispatched_by=current_user.id,
+        dispatched_at=local_now(),
+        source='手动',
+        template_category=(data.get('template_category') or '巡检').strip() or '巡检',
+        remark=(data.get('remark') or '').strip(),
+        created_by=(current_user.realname or current_user.username),
+    )
+    db.session.add(t)
+    db.session.commit()
+    return ok({'id': t.id})
+
+
+@vue_api_bp.route('/api/task-schedule/<int:task_id>', methods=['PUT'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_update(task_id):
+    from models import InspectionTask as _IT
+    from datetime import date as _date
+    from blueprints.task_schedule import local_now
+    t = _IT.query.get_or_404(task_id)
+    data = request.get_json(silent=True) or {}
+    if data.get('title') is not None:
+        t.title = (data['title'] or '').strip() or t.title
+    if data.get('status') is not None:
+        new_status = data['status']
+        if new_status not in ('待执行', '执行中', '已完成', '已取消'):
+            return fail(f'非法的状态: {new_status}', 400)
+        if new_status == '执行中' and not t.actual_start:
+            t.actual_start = local_now()
+        if new_status == '已完成' and not t.actual_end:
+            t.actual_end = local_now()
+        t.status = new_status
+    if data.get('assignee_id') is not None:
+        t.assigned_to_user_id = data['assignee_id'] or None
+        t.dispatched_by = t.dispatched_by or current_user.id
+        t.dispatched_at = t.dispatched_at or local_now()
+    if data.get('planned_start') is not None:
+        t.planned_start = _date.fromisoformat(data['planned_start']) if data['planned_start'] else None
+    if data.get('planned_end') is not None:
+        t.planned_end = _date.fromisoformat(data['planned_end']) if data['planned_end'] else None
+    if data.get('estimated_effort') is not None:
+        t.estimated_effort = float(data['estimated_effort']) if data['estimated_effort'] not in (None, '') else None
+    if data.get('actual_effort') is not None:
+        t.actual_effort = float(data['actual_effort']) if data['actual_effort'] not in (None, '') else None
+    if data.get('priority') is not None:
+        t.priority = (data['priority'] or '中').strip() or '中'
+    if data.get('remark') is not None:
+        t.remark = (data['remark'] or '').strip()
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/task-schedule/<int:task_id>', methods=['DELETE'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_delete(task_id):
+    from models import InspectionTask as _IT
+    t = _IT.query.get_or_404(task_id)
+    db.session.delete(t)
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/task-schedule/batch', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_batch():
+    from models import InspectionTask as _IT
+    from blueprints.task_schedule import local_now
+    data = request.get_json(silent=True) or {}
+    ids = [int(x) for x in (data.get('ids') or []) if str(x).isdigit()]
+    action = (data.get('action') or '').strip()
+    value = data.get('value')
+    if not ids:
+        return fail('请先选择任务')
+    tasks = _IT.query.filter(_IT.id.in_(ids)).all()
+    if action == 'status':
+        if value not in ('待执行', '执行中', '已完成', '已取消'):
+            return fail('非法的状态', 400)
+        for t in tasks:
+            if value == '执行中' and not t.actual_start:
+                t.actual_start = local_now()
+            if value == '已完成' and not t.actual_end:
+                t.actual_end = local_now()
+            t.status = value
+    elif action == 'assign':
+        for t in tasks:
+            t.assigned_to_user_id = value or None
+            t.dispatched_by = t.dispatched_by or current_user.id
+            t.dispatched_at = t.dispatched_at or local_now()
+    elif action == 'delete':
+        for t in tasks:
+            db.session.delete(t)
+    else:
+        return fail(f'未知操作: {action}', 400)
+    db.session.commit()
+    return ok({'count': len(tasks)})
+
+
+@vue_api_bp.route('/api/task-schedule/import-template', methods=['GET'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_import_template():
+    """下载导入模板（xlsx，base64 返回）"""
+    import base64
+    from utils.excel_export import export_xlsx
+    from blueprints.task_schedule import EXCEL_HEADERS
+    rows = [['示例客户A', '示例客户A2026年二季度巡检', '中', '2026-04-01', '2026-06-30', '已完成',
+             '张三', '2026-06-15', '1', '1.5']]
+    tmp_path, download_name = export_xlsx(EXCEL_HEADERS, rows, filename='任务安排导入模板.xlsx',
+                                          sheet_name='成员分工安排表')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
+@vue_api_bp.route('/api/task-schedule/import', methods=['POST'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_import():
+    """批量导入 Excel（复用 SSR 导入逻辑：从 blueprints.task_schedule.import_excel 抽取为公共函数）"""
+    from services.task_schedule_service import import_task_excel
+    f = request.files.get('importFile')
+    if not f:
+        return fail('请选择 Excel 文件')
+    try:
+        result = import_task_excel(f, current_user)
+    except ValueError as e:
+        db.session.rollback()
+        return fail(str(e))
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('任务安排导入失败(Vue)')
+        return fail(f'导入失败：{e}')
+    msg_parts = [f'新增 {result["created"]}', f'更新 {result["updated"]}']
+    if result['new_customer_names']:
+        msg_parts.append(f'自动创建客户 {len(result["new_customer_names"])} 个')
+    if result['skipped']:
+        msg_parts.append(f'跳过 {result["skipped"]} 行（' + '；'.join(result['skip_reasons'][:5]) + '）')
+    return ok({'message': '导入完成：' + '；'.join(msg_parts)})

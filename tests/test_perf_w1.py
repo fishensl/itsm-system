@@ -8,6 +8,13 @@ from models import (db, Customer, Device, DeviceFirmware, Rack, RackInstall,
                     Inspection, Ticket, InspectionTask, Inspector, User)
 
 
+def _use_ssr(app):
+    """这些用例断言 SSR 首页内容：显式切回 SSR（默认 Vue 模式）"""
+    from utils.ui_version import set_ui_version
+    with app.app_context():
+        set_ui_version('ssr')
+
+
 @pytest.fixture()
 def seed(app):
     with app.app_context():
@@ -41,12 +48,14 @@ def seed(app):
 class TestIndexByRole:
     @pytest.mark.parametrize('role_client', ['admin_client', 'op_client',
                                              'sales_client', 'viewer_client'])
-    def test_index_200(self, role_client, seed, request):
+    def test_index_200(self, role_client, seed, request, app):
+        _use_ssr(app)
         client = request.getfixturevalue(role_client)
         assert client.get('/').status_code == 200
 
-    def test_index_shows_assigned_ticket(self, op_client, seed):
+    def test_index_shows_assigned_ticket(self, op_client, seed, app):
         """operator 首页待办包含派给他的工单（assigned_to 匹配 realname/username）"""
+        _use_ssr(app)
         r = op_client.get('/')
         assert '断网'.encode() in r.data
 
@@ -54,6 +63,7 @@ class TestIndexByRole:
 class TestInspectorTaskSqlMatch:
     def test_comma_wrapped_match_no_false_positive(self, op_client, app, seed):
         """inspector_ids 逗号包裹匹配：id=2 不应命中 '12'"""
+        _use_ssr(app)
         with app.app_context():
             op = User.query.filter_by(username='op').first()
             insp_person = Inspector(user_id=op.id, is_active=True)

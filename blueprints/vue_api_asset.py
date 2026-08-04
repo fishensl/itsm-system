@@ -607,3 +607,253 @@ def api_tools_mac_format():
         'dash': '-'.join(pairs),
         'dot': '.'.join(quads),
     })
+
+# ==================== 设备字典（类型/品牌/网络类型/自定义字段） ====================
+def _dict_payload(obj, with_type=False):
+    item = {'id': obj.id, 'name': obj.name, 'sort_order': obj.sort_order or 0}
+    if with_type:
+        item['field_type'] = obj.field_type or 'text'
+    return item
+
+
+def _register_device_dict(resource, model, with_type=False):
+    """注册一组设备字典 Vue CRUD 端点（/api/device-dicts/<resource>）"""
+
+    @login_required
+    @require_permission('device:view')
+    def _list():
+        items = model.query.order_by(model.sort_order, model.id).all()
+        return ok([_dict_payload(i, with_type) for i in items])
+
+    @login_required
+    @require_permission('device:edit')
+    def _add():
+        data = request.get_json(silent=True) or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return fail('请输入名称')
+        obj = model(name=name, sort_order=int(data.get('sort_order') or 0))
+        if with_type:
+            obj.field_type = (data.get('field_type') or 'text').strip() or 'text'
+        db.session.add(obj)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return fail('名称已存在')
+        return ok({'id': obj.id})
+
+    @login_required
+    @require_permission('device:edit')
+    def _update(id):
+        obj = model.query.get_or_404(id)
+        data = request.get_json(silent=True) or {}
+        name = (data.get('name') or '').strip()
+        if name:
+            obj.name = name
+        obj.sort_order = int(data.get('sort_order') or 0)
+        if with_type and data.get('field_type'):
+            obj.field_type = data['field_type'].strip() or 'text'
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return fail('名称已存在')
+        return ok(None)
+
+    @login_required
+    @require_permission('device:delete')
+    def _delete(id):
+        model.query.filter_by(id=id).delete()
+        db.session.commit()
+        return ok(None)
+
+    vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}', f'device_dict_{resource}_list', _list, methods=['GET'])
+    vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}', f'device_dict_{resource}_add', _add, methods=['POST'])
+    vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}/<int:id>', f'device_dict_{resource}_update', _update,
+                            methods=['PUT'])
+    vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}/<int:id>', f'device_dict_{resource}_delete', _delete,
+                            methods=['DELETE'])
+
+
+from models import DeviceType, Brand, NetworkType, CustomField  # noqa: E402
+_register_device_dict('types', DeviceType)
+_register_device_dict('brands', Brand)
+_register_device_dict('network-types', NetworkType)
+_register_device_dict('custom-fields', CustomField, with_type=True)
+
+# ==================== 固件版本库 ====================
+@vue_api_bp.route('/api/firmwares', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_firmware_list():
+    from models import DeviceFirmware, Device
+    brand = (request.args.get('brand') or '').strip()
+    model = (request.args.get('model') or '').strip()
+    ftype = (request.args.get('firmware_type') or '').strip()
+    q = DeviceFirmware.query
+    if brand:
+        q = q.filter(DeviceFirmware.brand == brand)
+    if model:
+        q = q.filter(DeviceFirmware.model == model)
+    if ftype:
+        q = q.filter(DeviceFirmware.firmware_type == ftype)
+    firmwares = q.order_by(
+        DeviceFirmware.brand, DeviceFirmware.model,
+        DeviceFirmware.firmware_type, DeviceFirmware.is_latest.desc(),
+        DeviceFirmware.release_date.desc(),
+    ).all()
+
+    from collections import OrderedDict
+    grouped = OrderedDict()
+    for fw in firmwares:
+        key = (fw.brand or '未分类', fw.model or '未分类型号')
+        grouped.setdefault(key, OrderedDict()).setdefault(fw.firmware_type or '其他', []).append({
+            'id': fw.id,
+            'brand': fw.brand,
+            'model': fw.model,
+            'firmware_type': fw.firmware_type,
+            'version': fw.version,
+            'release_date': fw.release_date.isoformat() if fw.release_date else '',
+            'changelog': fw.changelog or '',
+            'download_url': fw.download_url or '',
+            'file_size_mb': fw.file_size_mb or 0,
+            'md5_checksum': fw.md5_checksum or '',
+            'is_latest': bool(fw.is_latest),
+            'min_compatible_hardware': fw.min_compatible_hardware or '',
+            'upgrade_guide': fw.upgrade_guide or '',
+            'remark': fw.remark or '',
+        })
+
+    # 每组挂同 brand+model 设备清单（版本对比用）
+    group_devices = {k: [] for k in grouped.keys()}
+    if grouped:
+        from sqlalchemy import and_, or_
+        pair_conds = []
+        for gbrand, gmodel in grouped.keys():
+            b_cond = Device.brand == (gbrand if gbrand != '未分类' else '')
+            m_cond = Device.model == (gmodel if gmodel != '未分类型号' else '')
+            if gbrand == '未分类':
+                b_cond = or_(Device.brand == '', Device.brand.is_(None))
+            if gmodel == '未分类型号':
+                m_cond = or_(Device.model == '', Device.model.is_(None))
+            pair_conds.append(and_(b_cond, m_cond))
+        for dev in Device.query.filter(or_(*pair_conds)).all():
+            key = (dev.brand or '未分类', dev.model or '未分类型号')
+            if key in group_devices:
+                group_devices[key].append({
+                    'id': dev.id, 'name': dev.device_name,
+                    'os_version': dev.os_version or '', 'rule_version': dev.rule_version or '',
+                })
+
+    all_brands = sorted(set(b for b, _ in grouped.keys() if b))
+    all_models = sorted(set(m for _, m in grouped.keys() if m))
+    out = []
+    for (gbrand, gmodel), type_map in grouped.items():
+        out.append({
+            'brand': gbrand, 'model': gmodel,
+            'types': [
+                {'firmware_type': t, 'items': items} for t, items in type_map.items()
+            ],
+            'devices': group_devices[(gbrand, gmodel)],
+        })
+    return ok({'groups': out, 'all_brands': all_brands, 'all_models': all_models,
+               'all_types': ['系统固件', '规则库', 'BIOS', '其他']})
+
+
+def _fw_payload_from(data):
+    return {
+        'brand': (data.get('brand') or '').strip(),
+        'model': (data.get('model') or '').strip(),
+        'firmware_type': (data.get('firmware_type') or '系统固件').strip() or '系统固件',
+        'version': (data.get('version') or '').strip(),
+        'release_date': (data.get('release_date') or '').strip() or None,
+        'changelog': (data.get('changelog') or '').strip(),
+        'download_url': (data.get('download_url') or '').strip(),
+        'file_size_mb': float(data.get('file_size_mb') or 0) or 0,
+        'md5_checksum': (data.get('md5_checksum') or '').strip(),
+        'is_latest': bool(data.get('is_latest')),
+        'min_compatible_hardware': (data.get('min_compatible_hardware') or '').strip(),
+        'upgrade_guide': (data.get('upgrade_guide') or '').strip(),
+        'remark': (data.get('remark') or '').strip(),
+    }
+
+
+@vue_api_bp.route('/api/firmwares', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def api_firmware_add():
+    from models import DeviceFirmware
+    from datetime import date
+    data = request.get_json(silent=True) or {}
+    p = _fw_payload_from(data)
+    if not p['brand'] or not p['model'] or not p['version']:
+        return fail('品牌/型号/版本号为必填项')
+    if p['release_date']:
+        try:
+            p['release_date'] = date.fromisoformat(p['release_date'])
+        except ValueError:
+            return fail('发布日期格式错误（YYYY-MM-DD）')
+    else:
+        p['release_date'] = None
+    if p['is_latest']:
+        DeviceFirmware.query.filter_by(brand=p['brand'], model=p['model'],
+                                       firmware_type=p['firmware_type']).update({'is_latest': False})
+    fw = DeviceFirmware(**p)
+    db.session.add(fw)
+    db.session.commit()
+    return ok({'id': fw.id})
+
+
+@vue_api_bp.route('/api/firmwares/<int:fw_id>', methods=['PUT'])
+@login_required
+@require_permission('device:edit')
+def api_firmware_update(fw_id):
+    from models import DeviceFirmware
+    from datetime import date
+    fw = DeviceFirmware.query.get_or_404(fw_id)
+    data = request.get_json(silent=True) or {}
+    p = _fw_payload_from(data)
+    if p['brand']:
+        fw.brand = p['brand']
+    if p['model']:
+        fw.model = p['model']
+    if p['version']:
+        fw.version = p['version']
+    fw.firmware_type = p['firmware_type']
+    if p['release_date']:
+        try:
+            fw.release_date = date.fromisoformat(p['release_date'])
+        except ValueError:
+            return fail('发布日期格式错误（YYYY-MM-DD）')
+    else:
+        fw.release_date = None
+    fw.changelog = p['changelog']
+    fw.download_url = p['download_url']
+    fw.file_size_mb = p['file_size_mb']
+    fw.md5_checksum = p['md5_checksum']
+    fw.min_compatible_hardware = p['min_compatible_hardware']
+    fw.upgrade_guide = p['upgrade_guide']
+    fw.remark = p['remark']
+    if p['is_latest'] and not fw.is_latest:
+        DeviceFirmware.query.filter(
+            DeviceFirmware.brand == fw.brand,
+            DeviceFirmware.model == fw.model,
+            DeviceFirmware.firmware_type == fw.firmware_type,
+            DeviceFirmware.id != fw.id,
+        ).update({'is_latest': False})
+    fw.is_latest = p['is_latest']
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/firmwares/<int:fw_id>', methods=['DELETE'])
+@login_required
+@require_permission('device:delete')
+def api_firmware_delete(fw_id):
+    from models import DeviceFirmware
+    fw = DeviceFirmware.query.get(fw_id)
+    if fw:
+        db.session.delete(fw)
+        db.session.commit()
+    return ok(None)

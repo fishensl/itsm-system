@@ -499,171 +499,33 @@ def import_template():
 @login_required
 @require_permission('task:schedule')
 def import_excel():
-    """批量导入"成员分工安排表"
-
-    流程（upsert by (title, customer_id)）：
-      1. 客户名 = 标题去掉 yyyy年... 后缀；找不到 Customer → 自动创建（仅 name）
-      2. 负责人 = User.realname 精确匹配；找不到则记为 skipped
-      3. 同 (title, customer_id) 已存在 → 更新 status/dates/assignee；否则新建
-    """
-    from utils.upload import (validate_upload, save_temp_upload,
-                              open_excel, cleanup_temp_file, ALLOWED_EXCEL_EXT)
-
+    """批量导入"成员分工安排表"（复用 services.task_schedule_service 公共服务）"""
+    from services.task_schedule_service import import_task_excel
     f = request.files.get('importFile')
     if not f:
         flash('请选择 Excel 文件', 'danger')
         return redirect(url_for('task_schedule.index'))
-
-    ok, err, _ = validate_upload(f, ALLOWED_EXCEL_EXT, max_size_mb=5)
-    if not ok:
-        flash(err, 'danger')
-        return redirect(url_for('task_schedule.index'))
-
-    tmp = save_temp_upload(f, suffix='.xlsx')
     try:
-        wb, ws, err = open_excel(tmp, app=current_app)
-        if err:
-            flash(err[0], err[1] if len(err) > 1 else 'danger')
-            return redirect(url_for('task_schedule.index'))
-
-        # 列名映射（按表头第一行）
-        header = [c.value for c in ws[1]]
-        col = {}
-        for i, h in enumerate(header):
-            if h:
-                col[str(h).strip()] = i
-
-        required = ['任务描述', '负责人']
-        miss = [h for h in required if h not in col]
-        if miss:
-            flash('Excel 缺少必需列：' + '、'.join(miss), 'danger')
-            return redirect(url_for('task_schedule.index'))
-
-        created = 0
-        updated = 0
-        skipped = 0
-        skip_reasons = []
-        new_customer_names = []
-
-        # 预取所有用户/客户，省 N+1
-        user_by_name = {}
-        for u in User.query.filter(User.is_active == True).all():  # noqa: E712
-            key = (u.realname or '').strip() or u.username
-            if key:
-                user_by_name[key] = u
-
-        for r in range(2, ws.max_row + 1):
-            def cell(name):
-                idx = col.get(name)
-                if idx is None:
-                    return None
-                return ws.cell(r, idx + 1).value
-
-            title = str(cell('任务描述') or '').strip()
-            if not title:
-                continue
-
-            owner_name = str(cell('负责人') or '').strip()
-            if not owner_name:
-                skipped += 1
-                skip_reasons.append(f'第{r}行：负责人为空')
-                continue
-            user = user_by_name.get(owner_name)
-            if not user:
-                skipped += 1
-                skip_reasons.append(f'第{r}行：找不到负责人 "{owner_name}"')
-                continue
-
-            # 解析客户：优先取 Excel 里的 '客户名称' 列；为空则从标题抽（老格式兼容）
-            customer_name = str(cell('客户名称') or '').strip() or extract_customer_name(title)
-            if not customer_name:
-                skipped += 1
-                skip_reasons.append(f'第{r}行：无法从「客户名称」列或标题中识别客户')
-                continue
-            customer = Customer.query.filter_by(name=customer_name).first()
-            if not customer:
-                customer = Customer(name=customer_name)
-                db.session.add(customer)
-                db.session.flush()  # 拿 id
-                new_customer_names.append(customer_name)
-
-            # 状态映射
-            raw_status = str(cell('完成状态') or '').strip()
-            status = STATUS_FROM_EXCEL.get(raw_status, '待执行')
-
-            # 优先级：未填或非法值回退 '中'
-            raw_priority = str(cell('优先级') or '').strip()
-            priority = raw_priority if raw_priority in PRIORITY_VALUES else '中'
-
-            planned_start = parse_excel_date(cell('开始日期'))
-            planned_end = parse_excel_date(cell('完成日期'))
-            actual_end = parse_excel_datetime(cell('完成时间'))
-
-            # 预估工作量（人天）：允许 "1"/"1.5"/"3天"，非法/空 → None
-            effort = _parse_effort(cell('预估工作量'))
-            # 实际工作量（人天）：同上，通常只有已完成任务才有
-            actual_effort = _parse_effort(cell('实际工作量'))
-
-            # upsert：(title, customer_id) 唯一
-            existing = (InspectionTask.query
-                        .filter_by(title=title, customer_id=customer.id)
-                        .first())
-            if existing:
-                existing.status = status
-                existing.priority = priority
-                existing.assigned_to_user_id = user.id
-                existing.planned_start = planned_start or existing.planned_start
-                existing.planned_end = planned_end or existing.planned_end
-                if actual_end:
-                    existing.actual_end = actual_end
-                if status == '已完成' and not existing.actual_end:
-                    existing.actual_end = local_now()
-                if effort is not None:
-                    existing.estimated_effort = effort
-                if actual_effort is not None:
-                    existing.actual_effort = actual_effort
-                existing.dispatched_by = existing.dispatched_by or current_user.id
-                existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
-                updated += 1
-            else:
-                task = InspectionTask(
-                    title=title,
-                    task_type='计划',
-                    status=status,
-                    priority=priority,
-                    customer_id=customer.id,
-                    planned_start=planned_start,
-                    planned_end=planned_end,
-                    actual_end=actual_end,
-                    estimated_effort=effort,
-                    actual_effort=actual_effort,
-                    assigned_to_user_id=user.id,
-                    dispatched_by=current_user.id,
-                    dispatched_at=datetime.utcnow(),
-                    source='Excel导入',
-                    template_category='巡检',
-                    created_by=(current_user.realname or current_user.username),
-                )
-                db.session.add(task)
-                created += 1
-
-        db.session.commit()
-
-        msg_parts = [f'新增 {created}', f'更新 {updated}']
-        if new_customer_names:
-            msg_parts.append(f'自动创建客户 {len(new_customer_names)} 个：'
-                             + '、'.join(new_customer_names[:8])
-                             + ('...' if len(new_customer_names) > 8 else ''))
-        if skipped:
-            msg_parts.append(f'跳过 {skipped} 行（' + '；'.join(skip_reasons[:5])
-                             + ('...' if len(skip_reasons) > 5 else '') + '）')
-        flash('导入完成：' + '；'.join(msg_parts), 'success' if not skipped else 'warning')
+        result = import_task_excel(f, current_user)
+    except ValueError as e:
+        db.session.rollback()
+        flash(str(e), 'danger')
+        return redirect(url_for('task_schedule.index'))
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception('任务安排导入失败')
         flash(f'导入失败：{e}', 'danger')
-    finally:
-        cleanup_temp_file(tmp)
+        return redirect(url_for('task_schedule.index'))
+    msg_parts = [f'新增 {result["created"]}', f'更新 {result["updated"]}']
+    if result['new_customer_names']:
+        msg_parts.append(f'自动创建客户 {len(result["new_customer_names"])} 个：'
+                         + '、'.join(result['new_customer_names'][:8])
+                         + ('...' if len(result['new_customer_names']) > 8 else ''))
+    if result['skipped']:
+        msg_parts.append(f'跳过 {result["skipped"]} 行（' + '；'.join(result['skip_reasons'][:5])
+                         + ('...' if len(result['skip_reasons']) > 5 else '') + '）')
+    flash('导入完成：' + '；'.join(msg_parts), 'success' if not result['skipped'] else 'warning')
+    return redirect(url_for('task_schedule.index'))
 
     return redirect(url_for('task_schedule.index'))
 

@@ -34,6 +34,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '客户管理', perm: 'customer:view' },
       },
       {
+        path: 'regions',
+        name: 'regions',
+        component: () => import('@/views/regions/index.vue'),
+        meta: { title: '地区管理', perm: 'region:view' },
+      },
+      {
+        path: 'customer-categories',
+        name: 'customer-categories',
+        component: () => import('@/views/customerCategories/index.vue'),
+        meta: { title: '单位类别', perm: 'category:view' },
+      },
+      {
         path: 'devices',
         name: 'devices',
         component: () => import('@/views/devices/index.vue'),
@@ -44,6 +56,18 @@ const routes: RouteRecordRaw[] = [
         name: 'device-detail',
         component: () => import('@/views/devices/index.vue'),
         meta: { title: '设备详情', perm: 'device:view' },
+      },
+      {
+        path: 'device-dicts',
+        name: 'device-dicts',
+        component: () => import('@/views/devices/dicts.vue'),
+        meta: { title: '设备字典', perm: 'device:view' },
+      },
+      {
+        path: 'device-firmwares',
+        name: 'device-firmwares',
+        component: () => import('@/views/firmwares/index.vue'),
+        meta: { title: '固件版本库', perm: 'device:view' },
       },
       {
         path: 'tickets',
@@ -64,10 +88,34 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '任务看板', perm: 'task:schedule' },
       },
       {
+        path: 'task-schedule',
+        name: 'task-schedule',
+        component: () => import('@/views/taskSchedule/index.vue'),
+        meta: { title: '任务安排', perm: 'task:schedule' },
+      },
+      {
         path: 'inspections',
         name: 'inspections',
         component: () => import('@/views/inspections/index.vue'),
         meta: { title: '巡检记录', perm: 'inspection:view' },
+      },
+      {
+        path: 'inspectors',
+        name: 'inspectors',
+        component: () => import('@/views/inspectors/index.vue'),
+        meta: { title: '巡检人员', perm: 'inspection:view' },
+      },
+      {
+        path: 'task-templates',
+        name: 'task-templates',
+        component: () => import('@/views/taskTemplates/index.vue'),
+        meta: { title: '任务模板', perm: 'inspection:view' },
+      },
+      {
+        path: 'device-check-templates',
+        name: 'device-check-templates',
+        component: () => import('@/views/deviceCheckTemplates/index.vue'),
+        meta: { title: '设备模板', perm: 'inspection:view' },
       },
       {
         path: 'knowledge-base',
@@ -98,6 +146,12 @@ const routes: RouteRecordRaw[] = [
         name: 'sales',
         component: () => import('@/views/sales/index.vue'),
         meta: { title: '销售管理', perm: 'sales:view' },
+      },
+      {
+        path: 'contract-tasks',
+        name: 'contract-tasks',
+        component: () => import('@/views/contractTasks/index.vue'),
+        meta: { title: '合同巡检配置', perm: 'contract_auto:manage' },
       },
       {
         path: 'rack',
@@ -134,6 +188,30 @@ const routes: RouteRecordRaw[] = [
         name: 'sys-overview',
         component: () => import('@/views/system/overview.vue'),
         meta: { title: '系统概览' },
+      },
+      {
+        path: 'system/sidebar',
+        name: 'sys-sidebar',
+        component: () => import('@/views/system/sidebar.vue'),
+        meta: { title: '侧栏自定义' },
+      },
+      {
+        path: 'ai-config',
+        name: 'ai-config',
+        component: () => import('@/views/system/aiConfig.vue'),
+        meta: { title: 'AI 对接', perm: 'ai:view' },
+      },
+      {
+        path: 'permissions',
+        name: 'permissions',
+        component: () => import('@/views/system/permissions.vue'),
+        meta: { title: '权限管理', perm: 'permission:view' },
+      },
+      {
+        path: 'system/backup',
+        name: 'sys-backup',
+        component: () => import('@/views/system/backup.vue'),
+        meta: { title: '数据备份' },
       },
     ],
   },

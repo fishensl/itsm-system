@@ -119,7 +119,7 @@ def drawio_diag():
 @login_required
 def system_settings():
     """系统概览页：业务统计 + 部署系统信息（CPU/内存/磁盘/版本）"""
-    import platform as _plat
+    from utils.system_info import collect_deployment_info
     stats = {
         'user_count': UserM.query.filter_by(is_active=True).count(),
         'user_total': UserM.query.count(),
@@ -134,116 +134,13 @@ def system_settings():
     recent_users = UserM.query.options(joinedload(UserM.department_rel))\
         .order_by(UserM.id.desc()).limit(5).all()
 
-    # ==================== V6.1.2 部署系统信息 ====================
-    sys_info = {
-        # 系统版本
-        'os_name': _plat.system(),
-        'os_release': _plat.release(),
-        'os_version': _plat.version(),
-        'os_platform': _plat.platform(),
-        'machine': _plat.machine(),
-        'hostname': _plat.node(),
-        # Python / Flask
-        'python_version': _plat.python_version(),
-        'python_impl': _plat.python_implementation(),
-    }
-    # 主要组件版本
-    components = {}
-    for name, mod in [
-        ('Flask', 'flask'), ('Flask-Login', 'flask_login'),
-        ('Flask-SQLAlchemy', 'flask_sqlalchemy'), ('Flask-WTF', 'flask_wtf'),
-        ('Flask-Limiter', 'flask_limiter'), ('SQLAlchemy', 'sqlalchemy'),
-        ('Werkzeug', 'werkzeug'), ('Jinja2', 'jinja2'),
-        ('python-docx', 'docx'), ('openpyxl', 'openpyxl'),
-        ('cryptography', 'cryptography'), ('psutil', 'psutil'),
-    ]:
-        try:
-            m = __import__(mod)
-            components[name] = getattr(m, '__version__', '-')
-        except Exception:
-            components[name] = '未安装'
-
-    # 数据库版本
-    db_info = {'engine': '-', 'version': '-', 'path': '-'}
-    try:
-        uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
-        if uri.startswith('sqlite:///'):
-            import sqlite3 as _sqlite3
-            db_info['engine'] = 'SQLite'
-            db_info['version'] = _sqlite3.sqlite_version
-            db_path = uri.replace('sqlite:///', '')
-            db_info['path'] = db_path
-            # 数据库文件大小
-            if os.path.isfile(db_path):
-                db_info['size_mb'] = round(os.path.getsize(db_path) / (1024 * 1024), 2)
-        elif 'mysql' in uri:
-            db_info['engine'] = 'MySQL'
-            try:
-                with db.engine.connect() as conn:
-                    r = conn.execute(db.text('SELECT VERSION()')).scalar()
-                    db_info['version'] = str(r)
-            except Exception:
-                pass
-        elif 'postgresql' in uri:
-            db_info['engine'] = 'PostgreSQL'
-            try:
-                with db.engine.connect() as conn:
-                    r = conn.execute(db.text('SHOW server_version')).scalar()
-                    db_info['version'] = str(r)
-            except Exception:
-                pass
-    except Exception as _e:
-        current_app.logger.warning(f'数据库信息获取失败: {_e}')
-
-    # 资源占用（CPU/内存/磁盘）
-    resources = {}
-    try:
-        import psutil as _ps
-        cpu_pct = _ps.cpu_percent(interval=0.5)
-        cpu_count = _ps.cpu_count(logical=True)
-        cpu_count_phy = _ps.cpu_count(logical=False) or cpu_count
-        mem = _ps.virtual_memory()
-        disk_root = _ps.disk_usage(os.path.abspath(os.sep))
-        # 进程信息
-        proc = _ps.Process(os.getpid())
-        proc_mem = proc.memory_info()
-        # 启动时间（系统）
-        boot_ts = _ps.boot_time()
-        from datetime import datetime as _dt
-        boot_str = _dt.fromtimestamp(boot_ts).strftime('%Y-%m-%d %H:%M:%S')
-        # 启动时间（应用进程）
-        proc_start = _dt.fromtimestamp(proc.create_time()).strftime('%Y-%m-%d %H:%M:%S')
-
-        resources = {
-            'cpu_percent': cpu_pct,
-            'cpu_count': cpu_count,
-            'cpu_count_physical': cpu_count_phy,
-            'memory_percent': mem.percent,
-            'memory_total_gb': round(mem.total / (1024**3), 2),
-            'memory_used_gb': round(mem.used / (1024**3), 2),
-            'memory_available_gb': round(mem.available / (1024**3), 2),
-            'disk_percent': disk_root.percent,
-            'disk_total_gb': round(disk_root.total / (1024**3), 2),
-            'disk_used_gb': round(disk_root.used / (1024**3), 2),
-            'disk_free_gb': round(disk_root.free / (1024**3), 2),
-            'process_memory_mb': round(proc_mem.rss / (1024**2), 2),
-            'process_pid': proc.pid,
-            'boot_time': boot_str,
-            'process_start': proc_start,
-            'available': True,
-        }
-    except Exception as _e:
-        current_app.logger.warning(f'资源占用获取失败: {_e}')
-        resources = {'available': False, 'error': str(_e)}
+    deploy = collect_deployment_info()
 
     return render_template('system/index.html',
                            stats=stats,
                            recent_users=recent_users,
-                           sys_info=sys_info,
-                           components=components,
-                           db_info=db_info,
-                           resources=resources,
-                           ui_version=get_ui_version())
+                           ui_version=get_ui_version(),
+                           **deploy)
 
 
 def get_ui_version():
