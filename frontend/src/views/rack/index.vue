@@ -22,15 +22,49 @@
       </div>
     </el-card>
 
-    <!-- 列表 -->
-    <DataTable
-      ref="tableRef"
-      :columns="columns"
-      :fetch-data="fetchRacks"
-      :query="query"
-      row-key="id"
-      @row-click="openDetail"
-    />
+    <!-- 左侧：地市 → 客户 → 机柜 树 + 右侧列表 -->
+    <el-row :gutter="12" class="rack-body">
+      <el-col :xs="24" :md="6">
+        <el-card shadow="never" class="tree-card">
+          <div class="tree-header">
+            <span><i class="tree-title">机柜（按地市）</i></span>
+            <el-button size="small" text :icon="Refresh" @click="loadTree" />
+          </div>
+          <el-tree
+            :data="treeData"
+            node-key="id"
+            :props="{ label: 'label', children: 'children' }"
+            :expand-on-click-node="false"
+            :highlight-current="true"
+            :current-node-key="currentNodeKey"
+            :default-expanded-keys="expandedKeys"
+            class="rack-tree"
+            @node-click="onTreeClick"
+          >
+            <template #default="{ data }">
+              <span class="tree-node">
+                <span v-if="data.color" class="tree-color-dot" :style="{ background: data.color }"></span>
+                <span v-else-if="data.type === 'rack'" class="tree-color-dot rack-dot"></span>
+                <span class="tree-label">{{ data.label }}</span>
+                <span v-if="data.type === 'rack'" class="tree-count">{{ data.install_count ?? '' }}</span>
+              </span>
+            </template>
+          </el-tree>
+          <div v-if="!treeData.length" class="tree-empty">暂无机柜</div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :md="18">
+        <!-- 列表 -->
+        <DataTable
+          ref="tableRef"
+          :columns="columns"
+          :fetch-data="fetchRacks"
+          :query="query"
+          row-key="id"
+          @row-click="openDetail"
+        />
+      </el-col>
+    </el-row>
 
     <!-- 机柜详情抽屉（U 位可视化） -->
     <el-drawer v-model="detailVisible" title="" class="rack-drawer" destroy-on-close>
@@ -202,20 +236,76 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Refresh } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchRacks, fetchRack, createRack, updateRack, deleteRack,
   fetchRackDevices, createInstall, updateInstall, deleteInstall, fetchRackDicts,
-  USAGE_LEVEL_TAG,
+  fetchRackTree, USAGE_LEVEL_TAG,
   type RackDetail, type RackInstall, type RackDevice, type RackDicts,
 } from '@/api/rack'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<RackDicts | null>(null)
+
+// ==================== 地市 → 客户 → 机柜 树 ====================
+interface TreeNode {
+  id: string
+  label: string
+  type: 'all' | 'city' | 'customer' | 'rack'
+  color?: string
+  install_count?: number
+  children?: TreeNode[]
+}
+
+const treeData = ref<TreeNode[]>([])
+const expandedKeys = ref<string[]>([])
+const currentNodeKey = ref<string>('all')
+
+async function loadTree() {
+  try {
+    const cities = await fetchRackTree()
+    const nodes: TreeNode[] = [{ id: 'all', label: '全部机柜', type: 'all' }]
+    for (const city of cities) {
+      const custNodes: TreeNode[] = city.customers.map((c) => ({
+        id: `cust-${c.id}`,
+        label: `${c.name}（${c.racks.length}）`,
+        type: 'customer',
+        children: c.racks.map((r) => ({
+          id: `rack-${r.id}`,
+          label: `${r.name} · ${r.total_u}U`,
+          type: 'rack',
+          color: r.color,
+          install_count: r.install_count,
+        })),
+      }))
+      nodes.push({
+        id: `city-${city.city}`,
+        label: `${city.city}（${custNodes.length}）`,
+        type: 'city',
+        children: custNodes,
+      })
+    }
+    treeData.value = nodes
+    expandedKeys.value = nodes.filter((n) => n.type === 'city').map((n) => n.id)
+  } catch { /* toast */ }
+}
+
+function onTreeClick(node: TreeNode) {
+  if (node.type === 'all') {
+    currentNodeKey.value = 'all'
+    if (query.customer_id !== undefined) {
+      query.customer_id = undefined
+      reload()
+    }
+  } else if (node.type === 'rack') {
+    currentNodeKey.value = node.id
+    openDetail({ id: Number(node.id.split('-')[1]) })
+  }
+}
 
 const query = reactive<Record<string, unknown>>({ search: '', customer_id: undefined })
 const tableRef = ref()
@@ -341,6 +431,7 @@ async function saveInstall() {
     installVisible.value = false
     if (detail.value) detail.value = await fetchRack(detail.value.id)
     tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -357,6 +448,7 @@ async function onUninstall(inst: RackInstall) {
     ui.toast('已下架', 'success')
     if (detail.value) detail.value = await fetchRack(detail.value.id)
     tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
@@ -407,6 +499,7 @@ async function saveRack() {
     ui.toast('保存成功', 'success')
     rackFormVisible.value = false
     tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -425,6 +518,7 @@ async function onDeleteRack(row: Record<string, unknown>) {
     ui.toast('已删除', 'success')
     if (detail.value?.id === row.id) detailVisible.value = false
     tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
@@ -434,6 +528,7 @@ function reload() { tableRef.value?.refresh() }
 
 onMounted(() => {
   fetchRackDicts().then((d) => (dicts.value = d))
+  loadTree()
 })
 </script>
 
@@ -443,6 +538,20 @@ onMounted(() => {
 .filter-search { width: 200px; max-width: 100%; }
 .filter-item { width: 160px; max-width: 100%; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.rack-body { margin-top: 12px; }
+.tree-card { height: 100%; }
+.tree-header { display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px; }
+.tree-title { font-size: 13px; font-weight: 600; }
+.rack-tree { max-height: 640px; overflow-y: auto; }
+.tree-node { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-count { color: var(--itsm-text-muted); font-size: 12px; }
+.tree-empty { color: var(--itsm-text-muted); text-align: center; padding: 20px 0;
+  font-size: 13px; }
+.tree-color-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block;
+  flex-shrink: 0; }
+.rack-dot { background: var(--el-border-color); }
 .w-full { width: 100%; }
 .text-muted { color: var(--itsm-text-muted); font-size: 12px; margin-left: 8px; }
 .drawer-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 16px; }

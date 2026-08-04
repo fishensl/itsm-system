@@ -4,6 +4,9 @@
 机柜路径使用 /api/v2 前缀：SSR rack 蓝图先注册并占用 /api/rack/*（模板在用），
 同 rule 会被遮蔽——与 /api/v2/devices/<id>/reveal-password 的处理一致。
 """
+import io
+import os
+
 import pytest
 
 from models import db, Customer, Device, Rack, RackInstall, Topology
@@ -249,6 +252,33 @@ class TestRackDicts:
         assert '机柜API客户B' in names
 
 
+class TestRackTree:
+    def test_group_by_city_customer(self, op_client, seed):
+        r = op_client.get('/api/v2/rack/tree')
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['code'] == 0
+        data = body['data']
+        # 客户均未配置地区 → 全部归入「未分配地市」
+        assert len(data) == 1
+        city = data[0]
+        assert city['city'] == '未分配地市'
+        by_id = {c['id']: c for c in city['customers']}
+        assert set(by_id) == {seed['c1'], seed['c2']}
+        a01 = next(r for r in by_id[seed['c1']]['racks'] if r['name'] == 'A-01')
+        assert a01['total_u'] == 42
+        assert a01['color'] == '#0d6efd'
+        assert a01['install_count'] == 2
+        b02 = next(r for r in by_id[seed['c2']]['racks'] if r['name'] == 'B-02')
+        assert b02['install_count'] == 0
+
+    def test_requires_permission(self, sales_client, seed):
+        assert sales_client.get('/api/v2/rack/tree').status_code == 403
+
+    def test_requires_login(self, client, seed):
+        assert client.get('/api/v2/rack/tree').status_code == 401
+
+
 # ==================== 拓扑 ====================
 class TestTopologyList:
     def test_grouped_list(self, op_client, seed):
@@ -352,6 +382,79 @@ class TestTopologyCrud:
         assert r.status_code == 403
         # operator 无 topology:delete
         r = op_client.delete(f"/api/topologies/{seed['t3']}")
+        assert r.status_code == 403
+
+
+class TestTopologyDicts:
+    def test_customers_and_regions(self, op_client, seed):
+        r = op_client.get('/api/topologies/dicts')
+        assert r.status_code == 200
+        data = r.get_json()['data']
+        names = [c['name'] for c in data['customers']]
+        assert '机柜API客户A' in names
+        assert isinstance(data['regions'], list)
+
+    def test_requires_permission(self, sales_client, seed):
+        assert sales_client.get('/api/topologies/dicts').status_code == 403
+
+
+class TestTopologyUpload:
+    def _remove_uploaded(self, app, tid):
+        with app.app_context():
+            t = Topology.query.get(tid)
+            assert t is not None
+            full = os.path.join(app.root_path, 'static', t.file_path)
+            if os.path.exists(full):
+                os.remove(full)
+            return t
+
+    def test_upload_image_auto_name(self, admin_client, seed, app):
+        r = admin_client.post('/api/topologies/upload',
+                              data={'topo_file': (io.BytesIO(b'pngdata'), 'net.png'),
+                                    'topo_type': '网络拓扑图',
+                                    'customer_id': str(seed['c1'])},
+                              content_type='multipart/form-data')
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['code'] == 0
+        t = self._remove_uploaded(app, body['data']['id'])
+        assert t.file_type == 'image'
+        assert t.customer_id == seed['c1']
+        assert t.file_path.startswith('uploads/topologies/')
+        assert t.file_path.endswith('.png')
+        # 自动命名：客户名 + 类型 + 日期
+        from datetime import date
+        assert t.name == f"机柜API客户A网络拓扑图{date.today().strftime('%Y%m%d')}"
+
+    def test_upload_drawio_type(self, admin_client, seed, app):
+        r = admin_client.post('/api/topologies/upload',
+                              data={'topo_file': (io.BytesIO(b'<mxfile/>'), 'topo.drawio')},
+                              content_type='multipart/form-data')
+        assert r.status_code == 200
+        t = self._remove_uploaded(app, r.get_json()['data']['id'])
+        assert t.file_type == 'drawio'
+
+    def test_upload_custom_name_pdf(self, admin_client, seed, app):
+        r = admin_client.post('/api/topologies/upload',
+                              data={'topo_file': (io.BytesIO(b'%PDF'), 'a.pdf'),
+                                    'name': '自定义名', 'description': '备注'},
+                              content_type='multipart/form-data')
+        assert r.status_code == 200
+        t = self._remove_uploaded(app, r.get_json()['data']['id'])
+        assert t.name == '自定义名'
+        assert t.description == '备注'
+        assert t.file_type == 'pdf'
+
+    def test_upload_missing_file(self, admin_client, seed):
+        r = admin_client.post('/api/topologies/upload', data={'topo_type': '网络拓扑图'})
+        assert r.status_code == 400
+        assert r.get_json()['code'] == 1
+        assert '文件' in r.get_json()['message']
+
+    def test_upload_requires_permission(self, viewer_client, seed):
+        r = viewer_client.post('/api/topologies/upload',
+                               data={'topo_file': (io.BytesIO(b'x'), 'a.png')},
+                               content_type='multipart/form-data')
         assert r.status_code == 403
 
 

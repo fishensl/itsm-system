@@ -118,3 +118,18 @@ export function deleteInstall(id: number) {
 export function fetchRackDicts() {
   return request<RackDicts>({ url: '/api/dicts/rack', method: 'GET' })
 }
+
+export interface RackTreeCustomer {
+  id: number | null
+  name: string
+  racks: { id: number; name: string; total_u: number; color: string; install_count: number }[]
+}
+
+export interface RackTreeCity {
+  city: string
+  customers: RackTreeCustomer[]
+}
+
+export function fetchRackTree() {
+  return request<RackTreeCity[]>({ url: '/api/v2/rack/tree', method: 'GET' })
+}

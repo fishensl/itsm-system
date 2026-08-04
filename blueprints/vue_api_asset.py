@@ -9,14 +9,19 @@ templates/rack/index.html 仍在使用 /api/rack/cabinets 等原路径（返回�
 /api/v2/devices/<id>/reveal-password 的处理一致。
 """
 import ipaddress
+import os
+import time
+from datetime import date
 
-from flask import request, url_for
+from flask import request, url_for, current_app
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload, selectinload
+from werkzeug.utils import secure_filename
 
 from blueprints.vue_api import vue_api_bp, ok, fail
 from models import db
 from utils.permission import require_permission
+from utils.upload import ALLOWED_IMAGE_EXT
 
 # ==================== 机柜管理 ====================
 _U_OCCUPY_LEVEL = ((1.0, '已满', 'danger'), (0.8, '高', 'warning'),
@@ -330,6 +335,47 @@ def api_rack_dicts():
     return ok({'customers': customers})
 
 
+@vue_api_bp.route('/api/v2/rack/tree', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_rack_tree():
+    """机柜分组树：地市 → 客户 → 机柜（分组逻辑同 SSR rack_index 三段式）"""
+    from models import Rack as _R, Customer as _C, Region as _Region
+    racks = _R.query.options(selectinload(_R.installs)).order_by(_R.id.desc()).all()
+    by_customer = {}
+    for r in racks:
+        by_customer.setdefault(r.customer_id, []).append(r)
+    cust_ids = [cid for cid in by_customer.keys() if cid is not None]
+    cust_map = {}
+    if cust_ids:
+        for c in _C.query.options(
+            joinedload(_C.region_rel).joinedload(_Region.parent)
+        ).filter(_C.id.in_(cust_ids)).all():
+            cust_map[c.id] = c
+    city_data = {}
+    for cid, rack_list in by_customer.items():
+        c = cust_map.get(cid)
+        if c:
+            if c.region_rel and c.region_rel.parent:
+                city = c.region_rel.parent.name
+            elif c.region_rel:
+                city = c.region_rel.name
+            else:
+                city = c.city or '未分配地市'
+        else:
+            city = '未分配客户'
+        city_data.setdefault(city, []).append({
+            'id': c.id if c else None,
+            'name': c.name if c else '未分配客户',
+            'racks': [{'id': r.id, 'name': r.name, 'total_u': r.total_u,
+                       'color': r.color or '#0d6efd',
+                       'install_count': len(r.installs)}
+                      for r in rack_list],
+        })
+    return ok([{'city': city, 'customers': customers}
+               for city, customers in city_data.items()])
+
+
 # ==================== 拓扑图 ====================
 _FILE_TYPE_ORDER = {'image': 0, 'pdf': 1, 'visio': 2, 'drawio': 3, 'other': 4}
 
@@ -449,6 +495,83 @@ def api_topology_create():
            file_type=data.get('file_type') or 'image',
            source=source,
            upload_by=current_user.realname or current_user.username)
+    db.session.add(t)
+    db.session.commit()
+    return ok({'id': t.id})
+
+
+@vue_api_bp.route('/api/topologies/dicts', methods=['GET'])
+@login_required
+@require_permission('topology:view')
+def api_topology_dicts():
+    """拓扑图下拉字典：客户 / 地区（仅需 topology:view，同 SSR 列表页）"""
+    from models import Customer as _C, Region as _R
+    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    regions = [{'id': r.id, 'name': r.name} for r in _R.query.order_by(_R.name).all()]
+    return ok({'customers': customers, 'regions': regions})
+
+
+@vue_api_bp.route('/api/topologies/upload', methods=['POST'])
+@login_required
+@require_permission('topology:add')
+def api_topology_upload():
+    """拓扑图文件上传（multipart；类型识别 + 自动命名，逻辑同 SSR topology_upload）"""
+    from models import Topology as _T, Customer as _C
+    f = request.files.get('topo_file')
+    if not f or not f.filename:
+        return fail('请选择文件', 400)
+
+    name_lower = f.filename.lower()
+    if name_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+        file_type = 'image'
+        allowed = ALLOWED_IMAGE_EXT
+    elif name_lower.endswith('.pdf'):
+        file_type = 'pdf'
+        allowed = {'.pdf'}
+    elif name_lower.endswith(('.vsd', '.vsdx')):
+        file_type = 'visio'
+        allowed = {'.vsd', '.vsdx'}
+    elif name_lower.endswith(('.drawio', '.xml')) and not name_lower.endswith('.vsdx'):
+        file_type = 'drawio'
+        allowed = {'.drawio', '.xml'}
+    else:
+        file_type = 'other'
+        allowed = set()
+
+    ext = os.path.splitext(name_lower)[1]
+    if allowed and ext not in allowed:
+        return fail(f'不支持的文件类型 {ext}', 400)
+
+    upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = secure_filename(f.filename) or ('topology' + ext)
+    base, e = os.path.splitext(safe_name)
+    safe_name = f"{base}_{int(time.time())}{e}"
+    full_path = os.path.join(upload_dir, safe_name)
+    f.save(full_path)
+
+    customer_id = request.form.get('customer_id', type=int)
+    region_id = request.form.get('region_id', type=int)
+    topo_type = request.form.get('topo_type') or '网络拓扑图'
+    user_name = (request.form.get('name') or '').strip()
+    if not user_name:
+        cust_name = ''
+        if customer_id:
+            c = _C.query.get(customer_id)
+            if c:
+                cust_name = c.name
+        today_str = date.today().strftime('%Y%m%d')
+        user_name = f"{cust_name}{topo_type}{today_str}" if cust_name else f"{topo_type}{today_str}"
+
+    t = _T(
+        name=user_name,
+        description=request.form.get('description', ''),
+        customer_id=customer_id,
+        region_id=region_id,
+        file_path=f'uploads/topologies/{safe_name}',
+        file_type=file_type,
+        upload_by=current_user.username,
+    )
     db.session.add(t)
     db.session.commit()
     return ok({'id': t.id})
