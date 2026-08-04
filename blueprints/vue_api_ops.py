@@ -764,16 +764,26 @@ def api_task_schedule_board():
     """任务安排：按状态/按工程师视图 + KPI + 期间/客户/负责人筛选（对齐 SSR 看板口径）"""
     from blueprints.task_schedule import (_base_query, _apply_filters, _effective_request_args,
                                           _engineers_with_tasks, is_overdue)
-    from models import InspectionTask as _IT, Customer as _C, User as _U
+    from models import Customer as _C, User as _U
 
     args = _effective_request_args(request.args)[0]
     query = _apply_filters(_base_query(), args)
-    view = (request.args.get('view') or 'status').strip()
-    tasks = query.order_by(_IT.planned_end.asc().nullslast(), _IT.id.desc()).all()
+    view = (request.args.get('view') or 'engineer').strip()
+    tasks = query.all()
+    today = __import__('datetime').date.today()
+
+    # 看板排序：逾期最前 → 执行中 → 待执行 → 已完成 → 已取消；同级按截止时间升序，最后 id 降序
+    from datetime import date as _date
+    from utils.constants import TASK_SORT_PRIORITY
+    tasks = sorted(tasks, key=lambda t: (
+        0 if is_overdue(t, today) else 1,
+        TASK_SORT_PRIORITY.get(t.status, 9),
+        t.planned_end or _date.max,
+        -t.id,
+    ))
 
     customer_map = {c.id: c.name for c in _C.query.all()}
     user_map = {u.id: u for u in _U.query.all()}
-    today = __import__('datetime').date.today()
 
     def payload(t):
         u = user_map.get(t.assigned_to_user_id)
