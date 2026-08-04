@@ -36,7 +36,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
-import { fetchAuditLogs, fetchAuditDicts, type AuditItem } from '@/api/system'
+import { fetchAuditLogs, fetchAuditDicts } from '@/api/system'
 
 const dicts = ref<{ actions: string[]; target_types: string[] } | null>(null)
 const dateRange = ref<[string, string] | null>(null)

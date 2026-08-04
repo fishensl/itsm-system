@@ -191,7 +191,7 @@ async function load() {
   allUsers.value = deptData.users
 }
 
-const loadUsers = async (params: Record<string, any>): Promise<{ items: Record<string, any>[]; total: number; page: number; page_size: number }> => ({
+const loadUsers = async (): Promise<{ items: Record<string, any>[]; total: number; page: number; page_size: number }> => ({
   items: users.value as unknown as Record<string, any>[],
   total: users.value.length,
   page: 1,

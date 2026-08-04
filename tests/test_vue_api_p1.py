@@ -1,5 +1,15 @@
 # -*- coding: utf-8 -*-
 """P1 Vue 后端 API 契约：认证 / 侧栏 / Dashboard / SPA 静态服务"""
+import os
+import pytest
+
+# static/app 是构建产物（gitignore 不入库）：CI 不构建前端，产物缺失时跳过 SPA 静态用例
+_VUE_DIST_INDEX = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'app', 'index.html')
+
+
+def _vue_dist_available():
+    return os.path.isfile(_VUE_DIST_INDEX)
 
 
 
@@ -105,11 +115,13 @@ class TestVueDashboardApi:
 
 
 class TestVueSpaStatic:
+    @pytest.mark.skipif(not _vue_dist_available(), reason='Vue 构建产物未部署（CI 不构建前端，static/app 为空）')
     def test_index_html(self, admin_client):
         r = admin_client.get('/app/')
         assert r.status_code == 200
         assert 'id="app"' in r.data.decode('utf-8', 'ignore')
 
+    @pytest.mark.skipif(not _vue_dist_available(), reason='Vue 构建产物未部署（CI 不构建前端，static/app 为空）')
     def test_deep_route_fallback(self, admin_client):
         """history 路由回退 index.html"""
         r = admin_client.get('/app/devices/123')
