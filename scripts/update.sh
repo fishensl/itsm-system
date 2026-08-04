@@ -117,7 +117,7 @@ if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
         RELEASE_URL="${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
         echo "  [INFO] 改用 curl 拉取 vue-dist（${RELEASE_URL}）..."
         rm -f /tmp/itsm-vue-dist.zip
-        if ! curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+        if ! curl -fL --connect-timeout 15 --max-time 40 -o /tmp/itsm-vue-dist.zip \
                 "${RELEASE_URL}" 2>/dev/null; then
             echo "  [INFO] 直连失败，尝试 ghproxy 镜像..."
             if ! curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
