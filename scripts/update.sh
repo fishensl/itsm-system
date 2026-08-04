@@ -64,20 +64,67 @@ fi
 echo "[5.6/6] 部署 Vue 前端构建产物..."
 VUE_DIST_DIR="${APP_DIR}/static/app"
 mkdir -p "${VUE_DIST_DIR}"
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if gh release download vue-dist --pattern 'itsm-vue-dist.zip' --dir /tmp/itsm_vue --clobber 2>/dev/null; then
-        rm -rf "${VUE_DIST_DIR}" && mkdir -p "${VUE_DIST_DIR}"
-        cd /tmp/itsm_vue && unzip -o -q itsm-vue-dist.zip -d "${VUE_DIST_DIR}" && rm -rf /tmp/itsm_vue
-        echo "  [OK] Vue 构建产物已部署（release vue-dist）"
-    else
-        echo "  [WARN] 拉取 vue-dist release 失败（首次发布前 Vue 不可用，SSR 保底）"
+
+# 部署 zip：校验完整性 + index.html 存在后，临时目录 → 原子替换
+deploy_vue_dist() {
+    local zip_file="$1" tmp_dir
+    if [ ! -f "${zip_file}" ] || ! unzip -t -q "${zip_file}" >/dev/null 2>&1; then
+        echo "  [WARN] vue-dist zip 缺失或校验失败: ${zip_file}"
+        return 1
     fi
-elif [ -d "${APP_DIR}/frontend" ] && command -v npm >/dev/null 2>&1; then
-    echo "  [WARN] 无 gh CLI，改用本地构建（服务器需 Node）..."
+    tmp_dir="${VUE_DIST_DIR}.new"
+    rm -rf "${tmp_dir}" && mkdir -p "${tmp_dir}"
+    unzip -o -q "${zip_file}" -d "${tmp_dir}"
+    rm -f "${zip_file}"
+    if [ ! -f "${tmp_dir}/index.html" ]; then
+        echo "  [WARN] vue-dist 缺少 index.html，取消部署"
+        rm -rf "${tmp_dir}"
+        return 1
+    fi
+    rm -rf "${VUE_DIST_DIR}" && mv "${tmp_dir}" "${VUE_DIST_DIR}"
+    echo "  [OK] Vue 构建产物已部署（vue-dist）"
+    return 0
+}
+
+VUE_DEPLOYED=false
+# 1) gh CLI 拉取
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if gh release download vue-dist --pattern 'itsm-vue-dist.zip' --dir /tmp/itsm_vue --clobber 2>/dev/null && \
+       [ -f /tmp/itsm_vue/itsm-vue-dist.zip ]; then
+        deploy_vue_dist /tmp/itsm_vue/itsm-vue-dist.zip && VUE_DEPLOYED=true || true
+    else
+        echo "  [WARN] gh 拉取 vue-dist 失败"
+    fi
+    rm -rf /tmp/itsm_vue
+fi
+# 2) curl 兜底（公共仓库免认证，无需 gh）
+if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
+    REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
+    if [ -n "${REPO_URL}" ]; then
+        echo "  [INFO] 改用 curl 拉取 vue-dist（${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip）..."
+        rm -f /tmp/itsm-vue-dist.zip
+        if curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+                "${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip" 2>/dev/null; then
+            deploy_vue_dist /tmp/itsm-vue-dist.zip && VUE_DEPLOYED=true || true
+        else
+            echo "  [WARN] curl 拉取 vue-dist 失败（CI 未发布？可稍后重跑 update.sh）"
+        fi
+        rm -f /tmp/itsm-vue-dist.zip
+    fi
+fi
+# 3) 本地构建（服务器需 Node）
+if [ "${VUE_DEPLOYED}" != "true" ] && [ -d "${APP_DIR}/frontend" ] && command -v npm >/dev/null 2>&1; then
+    echo "  [WARN] 拉取失败，改用本地构建（服务器需 Node）..."
     (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund 2>/dev/null && npm run build 2>/dev/null && \
-     cp -r dist/* "${VUE_DIST_DIR}/") && echo "  [OK] 本地构建完成" || echo "  [WARN] 本地构建失败，SSR 保底"
-else
-    echo "  [WARN] 无 gh 且无 Node，跳过 Vue 部署（SSR 保底）"
+     cp -r dist/* "${VUE_DIST_DIR}/") && VUE_DEPLOYED=true && echo "  [OK] 本地构建完成" || echo "  [WARN] 本地构建失败"
+fi
+# 4) 最终检查：Vue 产物缺失时明确告警（默认界面为 Vue 时 /app/* 会 404）
+if [ "${VUE_DEPLOYED}" != "true" ]; then
+    echo "  [WARN] Vue 产物部署失败（无 gh/curl/Node 或 vue-dist 未发布），SSR 保底"
+    if [ ! -f "${VUE_DIST_DIR}/index.html" ]; then
+        echo "  [FATAL] static/app 无 Vue 产物：默认界面为 Vue 时 /app/* 将 404！"
+        echo "         请先确认 CI 完成并发布 vue-dist（GitHub Actions frontend job），再重跑本脚本"
+    fi
 fi
 
 # ---- 6. 数据库迁移 + schema 同步 ----
