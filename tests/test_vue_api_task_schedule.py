@@ -27,15 +27,54 @@ def _seed(app):
 
 class TestTaskScheduleApi:
     def test_board_default_quarter(self, admin_client, app):
-        _seed(app)
+        _, op_id = _seed(app)
         r = admin_client.get('/api/task-schedule')
         assert r.get_json()['code'] == 0
         d = r.get_json()['data']
-        assert d['view'] == 'status'
+        # 默认工程师视角
+        assert d['view'] == 'engineer'
         assert d['kpi']['total'] == 2
-        assert d['status_groups']['待执行'] and d['status_groups']['执行中']
+        assert len(d['engineer_groups'][str(op_id)]) == 2
         assert d['kpi']['overdue'] == 1
         assert len(d['engineers']) == 1
+
+    def test_status_view(self, admin_client, app):
+        _seed(app)
+        r = admin_client.get('/api/task-schedule?view=status')
+        d = r.get_json()['data']
+        assert d['view'] == 'status'
+        assert d['status_groups']['待执行'] and d['status_groups']['执行中']
+
+    def test_board_sort_order(self, admin_client, app):
+        """看板排序：逾期最前 → 执行中 → 待执行 → 已完成（同级按截止时间升序）"""
+        cid, op_id = _seed(app)
+        with app.app_context():
+            t_overdue_running = InspectionTask(
+                title='逾期执行中', customer_id=cid, status='执行中',
+                assigned_to_user_id=op_id,
+                planned_start=date.today() - timedelta(days=8),
+                planned_end=date.today() - timedelta(days=1))
+            t_done = InspectionTask(
+                title='已完成', customer_id=cid, status='已完成',
+                assigned_to_user_id=op_id,
+                planned_start=date.today(), planned_end=date.today() + timedelta(days=5))
+            t_pending_future = InspectionTask(
+                title='未来待执行', customer_id=cid, status='待执行',
+                assigned_to_user_id=op_id,
+                planned_start=date.today() + timedelta(days=3),
+                planned_end=date.today() + timedelta(days=10))
+            db.session.add_all([t_overdue_running, t_done, t_pending_future])
+            db.session.commit()
+        r = admin_client.get('/api/task-schedule')
+        d = r.get_json()['data']
+        titles = [t['title'] for t in d['tasks']]
+        # 逾期执行中 → 逾期待执行（seed 任务1） → 执行中（seed 任务2） → 未来待执行 → 已完成
+        assert titles == ['逾期执行中', '2026年二季度巡检', '2026年三季度巡检',
+                          '未来待执行', '已完成']
+        # 工程师视角组内顺序一致
+        r = admin_client.get('/api/task-schedule?view=engineer')
+        d = r.get_json()['data']
+        assert [t['title'] for t in d['engineer_groups'][str(op_id)]] == titles
 
     def test_engineer_view(self, admin_client, app):
         _, op_id = _seed(app)

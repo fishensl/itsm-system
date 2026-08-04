@@ -24,6 +24,8 @@ TASK_RUNNING = '执行中'
 TASK_DONE = '已完成'
 TASK_CANCELLED = '已取消'
 TASK_STATUSES = frozenset({TASK_PENDING, TASK_RUNNING, TASK_DONE, TASK_CANCELLED})
+# 看板排序优先级：逾期最前 → 执行中 → 待执行 → 已完成 → 已取消（值越小越靠前）
+TASK_SORT_PRIORITY = {TASK_RUNNING: 1, TASK_PENDING: 2, TASK_DONE: 3, TASK_CANCELLED: 4}
 
 # ==================== 巡检记录审核状态 ====================
 REVIEW_DRAFT = ''           # 草稿（未提交）
