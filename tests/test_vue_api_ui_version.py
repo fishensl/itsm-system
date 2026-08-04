@@ -5,9 +5,9 @@ from utils.ui_version import set_ui_version, get_ui_version, sidebar_url
 
 
 class TestUiVersionCore:
-    def test_default_ssr(self, app):
+    def test_default_vue(self, app):
         with app.app_context():
-            assert get_ui_version() == 'ssr'
+            assert get_ui_version() == 'vue'
 
     def test_set_and_get(self, app):
         with app.app_context():
@@ -24,11 +24,44 @@ class TestUiVersionCore:
             assert sidebar_url('/') == '/app/'
             # query 保留
             assert sidebar_url('/knowledge-base?category=故障处置') == '/app/knowledge-base?category=故障处置'
+            # 备件三入口映射到 spare-parts 标签页
+            assert sidebar_url('/spare-stocks') == '/app/spare-parts?tab=stocks'
+            assert sidebar_url('/purchase-orders') == '/app/spare-parts?tab=purchases'
+            assert sidebar_url('/sales-orders') == '/app/spare-parts?tab=sales'
+            # 销售四入口映射到 sales 标签页
+            assert sidebar_url('/opportunities') == '/app/sales?tab=opps'
+            assert sidebar_url('/quotations') == '/app/sales?tab=quotations'
+            assert sidebar_url('/contracts') == '/app/sales?tab=contracts'
+            assert sidebar_url('/projects') == '/app/sales?tab=projects'
+            # 系统概览 / 新增知识 / 工具入口（工具按 tool 区分）
+            assert sidebar_url('/system') == '/app/system/overview'
+            assert sidebar_url('/knowledge-base/add') == '/app/knowledge-base'
+            assert sidebar_url('/tools/network') == '/app/tools?tool=network'
+            assert sidebar_url('/tools/convert') == '/app/tools?tool=convert'
+            assert sidebar_url('/tools/packet') == '/app/tools?tool=packet'
+            # 用户/部门入口映射到 system/users 标签页
+            assert sidebar_url('/users') == '/app/system/users?tab=users'
+            assert sidebar_url('/departments/') == '/app/system/users?tab=departments'
+            # 映射值自带 query 时原始 query 用 & 拼接
+            assert sidebar_url('/spare-stocks?search=x') == '/app/spare-parts?tab=stocks&search=x'
             # 未迁移保持原样
             assert sidebar_url('/inspection-templates') == '/inspection-templates'
-            assert sidebar_url('/ai-config') == '/ai-config'
+            assert sidebar_url('/no-such-page') == '/no-such-page'
+            # 阶段 1-3 新迁移入口
+            assert sidebar_url('/ai-config') == '/app/ai-config'
+            assert sidebar_url('/inspectors') == '/app/inspectors'
+            assert sidebar_url('/task-schedule/') == '/app/task-schedule'
             set_ui_version('ssr')
             assert sidebar_url('/devices') == '/devices'
+
+    def test_sidebar_url_force(self, app):
+        """force=True：与系统界面版本无关，无条件映射（Vue SPA 专用 API）"""
+        with app.app_context():
+            set_ui_version('ssr')
+            assert sidebar_url('/devices', force=True) == '/app/devices'
+            assert sidebar_url('/spare-stocks', force=True) == '/app/spare-parts?tab=stocks'
+            assert sidebar_url('/ai-config', force=True) == '/app/ai-config'
+            assert sidebar_url('/inspection-templates', force=True) == '/inspection-templates'
 
 
 class TestUiVersionApi:
@@ -79,3 +112,24 @@ class TestSsrSidebarIntegration:
         body = r.data.decode('utf-8')
         assert '/app/devices' not in body
         assert 'href="/devices"' in body
+
+    def test_ssr_render_does_not_mutate_sidebar_api(self, admin_client, app):
+        """vue 模式渲染 SSR 页面后，/api/auth/sidebar-groups 仍一致（共享配置不被污染）"""
+        with app.app_context():
+            set_ui_version('vue')
+        assert admin_client.get('/').status_code == 302
+        assert admin_client.get('/devices').status_code == 200
+        r = admin_client.get('/api/auth/sidebar-groups')
+        body = r.get_json()
+        assert body['code'] == 0
+        urls = []
+        for g in body['data']:
+            if g.get('single_link'):
+                urls.append(g['single_link']['url'])
+            for c in g.get('children', []):
+                urls.append(c['url'])
+        # 已迁移页面稳定返回 /app 前缀；未迁移保持原样（不随 SSR 渲染漂移）
+        assert '/app/devices' in urls
+        assert '/devices' not in urls
+        assert '/app/inspectors' in urls
+        assert '/app/task-schedule' in urls

@@ -328,7 +328,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -355,6 +356,18 @@ const partTableRef = ref()
 const stockTableRef = ref()
 const purchaseTableRef = ref()
 const salesTableRef = ref()
+
+// 侧栏入口（/app/spare-parts?tab=stocks 等）自动定位标签页
+const route = useRoute()
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (tab && ['stocks', 'purchases', 'sales'].includes(String(tab))) {
+      activeTab.value = String(tab)
+    }
+  },
+  { immediate: true },
+)
 
 const partQuery = reactive<Record<string, unknown>>({ search: '', category: '' })
 const stockQuery = reactive<Record<string, unknown>>({ search: '' })

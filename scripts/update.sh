@@ -39,7 +39,8 @@ git stash push --include-untracked -m "auto-stash-${TIMESTAMP}" 2>/dev/null || t
 
 # ---- 3. 拉取最新代码 ----
 echo "[3/6] 拉取最新代码..."
-git pull origin main 2>/dev/null || git pull origin master
+# 统一生产分支为 master：CI 仅 master 发布 vue-dist，必须同源拉取（避免 main/master 错位）
+git pull origin master
 
 # ---- 4. 恢复本地修改 ----
 echo "[4/6] 恢复本地修改..."

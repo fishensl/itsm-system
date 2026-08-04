@@ -135,6 +135,7 @@ def _user_payload(user):
 @vue_api_bp.route('/api/auth/sidebar-groups', methods=['GET'])
 @login_required
 def api_sidebar_groups():
+    from utils.ui_version import sidebar_url
     groups = get_user_sidebar_groups(current_user)
     out = []
     for g in groups:
@@ -150,7 +151,8 @@ def api_sidebar_groups():
             sl = g['single_link']
             item['single_link'] = {
                 'name': sl.get('name', g['title']),
-                'url': sl.get('url', '/'),
+                # Vue SPA 专属：无条件映射已迁移页面到 /app/*（与系统界面版本无关）
+                'url': sidebar_url(sl.get('url', '/'), force=True),
                 'icon': _map_icon(sl.get('icon') or g.get('icon')),
             }
         else:
@@ -161,7 +163,7 @@ def api_sidebar_groups():
                     continue
                 children.append({
                     'name': c['name'],
-                    'url': c['url'],
+                    'url': sidebar_url(c['url'], force=True),
                     'icon': _map_icon(c.get('icon')),
                     'perm': perm,
                 })
@@ -1342,3 +1344,131 @@ def api_inspection_dicts():
     review_statuses = ['草稿', '待审核', '已通过', '已退回']
     return ok({'customers': customers, 'inspectors': inspectors,
                'overall_statuses': overall_statuses, 'review_statuses': review_statuses})
+
+# ==================== 地区管理 ====================
+def _region_payload(r):
+    return {'id': r.id, 'name': r.name, 'parent_id': r.parent_id, 'sort_order': r.sort_order or 0}
+
+
+@vue_api_bp.route('/api/regions', methods=['GET'])
+@login_required
+@require_permission('region:view')
+def api_region_list():
+    from sqlalchemy.orm import joinedload
+    from models import Region
+    cities = Region.query.options(joinedload(Region.children)) \
+        .filter_by(parent_id=None).order_by(Region.sort_order, Region.id).all()
+    out = []
+    for c in cities:
+        kids = sorted(c.children, key=lambda d: (d.sort_order or 0, d.id))
+        out.append({**_region_payload(c), 'children': [_region_payload(k) for k in kids]})
+    return ok(out)
+
+
+@vue_api_bp.route('/api/regions', methods=['POST'])
+@login_required
+@require_permission('region:add')
+def api_region_add():
+    from models import Region
+    from sqlalchemy import func
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('地区名称不能为空')
+    parent_id = data.get('parent_id') or None
+    if Region.query.filter_by(name=name, parent_id=parent_id).first():
+        return fail(f'同级已存在同名地区 "{name}"')
+    max_so = db.session.query(func.max(Region.sort_order)).filter_by(parent_id=parent_id).scalar() or 0
+    r = Region(name=name, parent_id=parent_id, sort_order=max_so + 1)
+    db.session.add(r)
+    db.session.commit()
+    return ok({'id': r.id})
+
+
+@vue_api_bp.route('/api/regions/<int:rid>', methods=['PUT'])
+@login_required
+@require_permission('region:edit')
+def api_region_update(rid):
+    from models import Region
+    r = Region.query.get_or_404(rid)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('地区名称不能为空')
+    parent_id = data.get('parent_id') or None
+    if parent_id == rid:
+        return fail('不能将地区挂到自身')
+    r.name = name
+    r.parent_id = parent_id
+    r.sort_order = int(data.get('sort_order') or 0)
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/regions/<int:rid>', methods=['DELETE'])
+@login_required
+@require_permission('region:delete')
+def api_region_delete(rid):
+    from models import Region
+    r = Region.query.get_or_404(rid)
+    if Region.query.filter_by(parent_id=rid).count() > 0:
+        return fail('该地区下还有子地区，请先删除子地区')
+    db.session.delete(r)
+    db.session.commit()
+    return ok(None)
+
+
+# ==================== 单位类别 ====================
+@vue_api_bp.route('/api/customer-categories', methods=['GET'])
+@login_required
+@require_permission('category:view')
+def api_category_list():
+    from models import CustomerCategory
+    cats = CustomerCategory.query.order_by(CustomerCategory.sort_order, CustomerCategory.id).all()
+    return ok([{'id': c.id, 'name': c.name, 'sort_order': c.sort_order or 0} for c in cats])
+
+
+@vue_api_bp.route('/api/customer-categories', methods=['POST'])
+@login_required
+@require_permission('category:edit')
+def api_category_add():
+    from models import CustomerCategory
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('类别名称不能为空')
+    if CustomerCategory.query.filter_by(name=name).first():
+        return fail('类别名称已存在')
+    cat = CustomerCategory(name=name, sort_order=int(data.get('sort_order') or 0))
+    db.session.add(cat)
+    db.session.commit()
+    return ok({'id': cat.id})
+
+
+@vue_api_bp.route('/api/customer-categories/<int:cid>', methods=['PUT'])
+@login_required
+@require_permission('category:edit')
+def api_category_update(cid):
+    from models import CustomerCategory
+    cat = CustomerCategory.query.get_or_404(cid)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if name:
+        cat.name = name
+    cat.sort_order = int(data.get('sort_order', cat.sort_order or 0))
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/customer-categories/<int:cid>', methods=['DELETE'])
+@login_required
+@require_permission('category:edit')
+def api_category_delete(cid):
+    from models import CustomerCategory, Customer
+    cat = CustomerCategory.query.get_or_404(cid)
+    count = Customer.query.filter_by(category_id=cid).count()
+    if count > 0:
+        return fail(f'类别「{cat.name}」下有 {count} 个客户，无法删除')
+    db.session.delete(cat)
+    db.session.commit()
+    return ok(None)

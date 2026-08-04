@@ -8,7 +8,7 @@
     </div>
 
     <!-- 用户列表 -->
-    <el-card shadow="never" class="section-card">
+    <el-card id="section-users" shadow="never" class="section-card">
       <template #header><span class="card-title">用户</span></template>
       <DataTable
         ref="tableRef"
@@ -19,7 +19,7 @@
     </el-card>
 
     <!-- 部门列表 -->
-    <el-card shadow="never" class="section-card">
+    <el-card id="section-depts" shadow="never" class="section-card">
       <template #header>
         <div class="dept-header">
           <span class="card-title">部门</span>
@@ -134,7 +134,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -159,6 +161,20 @@ const depts = ref<DeptRow[]>([])
 const allUsers = ref<{ id: number; name: string }[]>([])
 const roles = ref<string[]>([])
 const tableRef = ref()
+
+// 侧栏入口（/app/system/users?tab=departments 等）滚动定位对应区块
+const route = useRoute()
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (tab && ['users', 'departments'].includes(String(tab))) {
+      nextTick(() => {
+        document.getElementById(`section-${tab}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+  },
+  { immediate: true },
+)
 
 const deptTree = computed(() => depts.value.filter((d) => !d.parent_id))
 

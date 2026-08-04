@@ -122,5 +122,27 @@ class TestSystemOverview:
         body = r.get_json()
         assert body['code'] == 0
         data = body['data']
-        assert data['stats']['user'] >= 4
+        assert data['stats']['user_active'] >= 4
+        assert data['stats']['user_total'] >= data['stats']['user_active']
         assert data['version']  # VERSION 文件
+        # 最近用户（SSR 同模块结构）
+        assert 0 < len(data['recent_users']) <= 5
+        assert set(data['recent_users'][0]) == {'name', 'username', 'role'}
+
+    def test_overview_deploy_info(self, admin_client):
+        """部署信息：系统/组件/数据库/资源占用（与 SSR 系统概览共用采集）"""
+        r = admin_client.get('/api/system/overview')
+        data = r.get_json()['data']
+        deploy = data['deploy']
+        assert set(deploy) == {'sys_info', 'components', 'db_info', 'resources'}
+        assert deploy['sys_info']['os_name']
+        assert deploy['sys_info']['python_version']
+        assert deploy['components']['Flask']
+        assert deploy['components']['psutil']
+        assert deploy['db_info']['engine']
+        res = deploy['resources']
+        assert res['available'] is True
+        assert isinstance(res['cpu_percent'], (int, float))
+        assert res['memory_total_gb'] > 0
+        assert res['disk_total_gb'] > 0
+        assert res['process_pid'] > 0

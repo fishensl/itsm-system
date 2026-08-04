@@ -10,7 +10,10 @@ def test_login_page(client):
 def test_login_logout_flow(client):
     r = login(client, 'admin')
     assert r.status_code == 302
-    assert client.get('/').status_code == 200
+    # 默认 Vue 模式：首页重定向到 /app/
+    r = client.get('/')
+    assert r.status_code == 302
+    assert r.headers.get('Location', '').endswith('/app/')
     client.get('/logout')
     assert client.get('/').status_code == 302
 
@@ -34,7 +37,10 @@ def test_page_unauthorized_redirects_to_login(client):
 
 
 def test_index_ok_for_admin(admin_client):
-    assert admin_client.get('/').status_code == 200
+    """默认 Vue 模式：已登录首页 302 → /app/"""
+    r = admin_client.get('/')
+    assert r.status_code == 302
+    assert r.headers.get('Location', '').endswith('/app/')
 
 
 def test_404_page(admin_client):

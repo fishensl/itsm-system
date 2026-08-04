@@ -10,13 +10,13 @@
   children: 子项 [{name, url, icon, perm}, ...] （用于显示在系统管理页的预览/编辑）
 
 默认顺序（最新要求）：
-  工作台 → 运维管理 → 资产管理 → 销售管理 → 客户管理 → 备件管理 → 系统管理
+  工作台 → 运维管理 → 资产管理 → 客户管理 → 知识库 → 常用工具 → 备件管理 → 销售管理 → 系统管理
 """
 import json
 from models import db, UserDashboardPreference
 
 
-# 完整侧栏分组（默认含 7 个）
+# 完整侧栏分组（默认含 9 个）
 SIDEBAR_GROUPS = [
     {
         'key': 'workbench',
@@ -51,7 +51,7 @@ SIDEBAR_GROUPS = [
         'key': 'kb',
         'title': '知识库',
         'icon': 'bi-book',
-        'default_order': 25,  # 介于运维管理和资产管理之间
+        'default_order': 50,  # 介于客户管理和常用工具之间
         'children': [
             # 入口
             {'name': '全部知识', 'url': '/knowledge-base', 'icon': 'bi-journal-text', 'perm': 'kb:view'},
@@ -60,8 +60,6 @@ SIDEBAR_GROUPS = [
             {'name': '技术手册', 'url': '/knowledge-base?category=技术手册', 'icon': 'bi-book-half', 'perm': 'kb:view'},
             {'name': '项目经验', 'url': '/knowledge-base?category=项目经验', 'icon': 'bi-folder-check', 'perm': 'kb:view'},
             {'name': '业务经验', 'url': '/knowledge-base?category=业务经验', 'icon': 'bi-briefcase', 'perm': 'kb:view'},
-            # 操作放最后
-            {'name': '新增知识', 'url': '/knowledge-base/add', 'icon': 'bi-plus-circle', 'perm': 'kb:add'},
         ],
     },
     {
@@ -89,7 +87,7 @@ SIDEBAR_GROUPS = [
         'key': 'sales',
         'title': '销售管理',
         'icon': 'bi-graph-up',
-        'default_order': 40,
+        'default_order': 70,
         'children': [
             # 销售链路：线索 → 报价 → 合同 → 项目
             {'name': '商机跟进', 'url': '/opportunities', 'icon': 'bi-lightbulb', 'perm': 'sales:view'},
@@ -104,7 +102,7 @@ SIDEBAR_GROUPS = [
         'key': 'customer',
         'title': '客户管理',
         'icon': 'bi-people',
-        'default_order': 50,  # 在销售管理下、备件管理上
+        'default_order': 40,  # 在资产管理下、知识库上
         'children': [
             # 核心
             {'name': '客户列表', 'url': '/customers', 'icon': 'bi-person-lines-fill', 'perm': 'customer:view'},
@@ -117,7 +115,7 @@ SIDEBAR_GROUPS = [
         'key': 'spare',
         'title': '备件管理',
         'icon': 'bi-boxes',
-        'default_order': 60,  # 在客户管理下、系统管理上
+        'default_order': 65,  # 在常用工具下、销售管理上
         'children': [
             # 核心
             {'name': '备件档案', 'url': '/spare-parts', 'icon': 'bi-archive', 'perm': 'spare:view'},
@@ -133,7 +131,7 @@ SIDEBAR_GROUPS = [
         'key': 'tools',
         'title': '常用工具',
         'icon': 'bi-tools',
-        'default_order': 65,  # 在备件管理和系统管理之间
+        'default_order': 60,  # 在知识库下、备件管理上
         'children': [
             {'name': '网络计算工具', 'url': '/tools/network', 'icon': 'bi-hdd-network', 'perm': None},
             {'name': '通用换算工具', 'url': '/tools/convert', 'icon': 'bi-123', 'perm': None},
@@ -144,7 +142,7 @@ SIDEBAR_GROUPS = [
         'key': 'sys',
         'title': '系统管理',
         'icon': 'bi-gear',
-        'default_order': 70,
+        'default_order': 80,  # 最后
         'children': [
             # 入口
             {'name': '系统概览', 'url': '/system', 'icon': 'bi-speedometer', 'perm': 'dashboard:view'},
@@ -163,9 +161,18 @@ SIDEBAR_GROUPS = [
 ]
 
 
+def _copy_group(g):
+    """返回分组独立副本（防调用方就地修改 URL 等字段污染共享配置 SIDEBAR_GROUPS）"""
+    out = dict(g)
+    out['children'] = [dict(c) for c in g.get('children', [])]
+    if g.get('single_link'):
+        out['single_link'] = dict(g['single_link'])
+    return out
+
+
 def get_default_groups():
-    """返回默认顺序的分组（用于未自定义用户）"""
-    return sorted(SIDEBAR_GROUPS, key=lambda g: g['default_order'])
+    """返回默认顺序的分组副本（用于未自定义用户）"""
+    return [_copy_group(g) for g in sorted(SIDEBAR_GROUPS, key=lambda g: g['default_order'])]
 
 
 def get_user_sidebar_groups(user):
@@ -220,8 +227,8 @@ def get_user_sidebar_groups(user):
             'title': cfg['title'],
             'icon': cfg['icon'],
             'enabled': enabled,
-            'single_link': cfg.get('single_link'),
-            'children': cfg.get('children', []),
+            'single_link': dict(cfg['single_link']) if cfg.get('single_link') else None,
+            'children': [dict(c) for c in cfg.get('children', [])],
         })
     return groups_out
 

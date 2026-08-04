@@ -1,8 +1,5 @@
 <template>
-  <div
-    class="layout"
-    :data-theme="theme"
-  >
+  <div class="layout">
     <!-- 移动端抽屉遮罩 -->
     <div
       v-if="ui.mobileSidebarOpen"
@@ -74,16 +71,28 @@
                   v-show="openGroups.has(grp.key)"
                   class="sidebar-children"
                 >
-                  <router-link
-                    v-for="c in grp.children.filter((x) => user.hasPerm(x.perm))"
+                  <template
+                    v-for="c in childrenFor(grp)"
                     :key="c.url"
-                    :to="toAppPath(c.url)"
-                    class="sidebar-link"
-                    :class="{ active: isActive(c.url) }"
                   >
-                    <el-icon><component :is="c.icon" /></el-icon>
-                    <span v-show="!ui.sidebarCollapsed">{{ c.name }}</span>
-                  </router-link>
+                    <router-link
+                      v-if="c.target.mode === 'spa'"
+                      :to="c.target.path + c.target.query"
+                      class="sidebar-link"
+                      :class="{ active: isActive(c.url) }"
+                    >
+                      <el-icon><component :is="c.icon" /></el-icon>
+                      <span v-show="!ui.sidebarCollapsed">{{ c.name }}</span>
+                    </router-link>
+                    <a
+                      v-else
+                      :href="c.url"
+                      class="sidebar-link"
+                    >
+                      <el-icon><component :is="c.icon" /></el-icon>
+                      <span v-show="!ui.sidebarCollapsed">{{ c.name }}</span>
+                    </a>
+                  </template>
                 </div>
               </div>
             </template>
@@ -212,6 +221,9 @@ import {
 } from '@element-plus/icons-vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
+import { sidebarTarget, isRouteActive } from '@/utils/sidebarNav'
+import { loadOpenGroups, saveOpenGroups, clearOpenGroups } from '@/utils/sidebarState'
+import type { SidebarGroup } from '@/types'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
@@ -221,7 +233,8 @@ const user = useUserStore()
 const ui = useUiStore()
 
 const mobileNotif = ref(false)
-const openGroups = ref(new Set<string>())
+// 展开分组：从 sessionStorage 恢复（SSR 侧栏共用键），SSR 子菜单整页跳转后不折叠
+const openGroups = ref<Set<string>>(new Set(loadOpenGroups()))
 const theme = ref<'light' | 'dark'>(localStorage.getItem('appTheme') === 'dark' ? 'dark' : 'light')
 
 const avatarText = computed(() => {
@@ -229,28 +242,30 @@ const avatarText = computed(() => {
   return name.slice(0, 1).toUpperCase()
 })
 
-const isActive = (url: string) => {
-  const path = url.split('?')[0].replace('/app', '')
-  return route.path === path
-}
+const isActive = (url: string) => isRouteActive(route.path, route.query, url)
 
-const toAppPath = (url: string) => {
-  // 已迁移到 /app 的页面直接跳 /app；未迁移的（P1 阶段仅工作台）跳 SSR 原路径
-  const migrated = ['/'].includes(url)
-  return migrated ? url.replace('/app', '') : url
-}
+/** 侧栏链接目标：已迁移 → SPA 跳转；未迁移 → SSR 整页加载 */
+const childrenFor = (grp: SidebarGroup) =>
+  grp.children
+    .filter((x) => user.hasPerm(x.perm))
+    .map((c) => ({ ...c, target: sidebarTarget(c.url) }))
 
 const toggleGroup = (key: string) => {
   const next = new Set(openGroups.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
   openGroups.value = next
+  saveOpenGroups([...next])
+}
+
+const applyTheme = (t: 'light' | 'dark') => {
+  document.documentElement.classList.toggle('dark', t === 'dark')
 }
 
 const toggleTheme = () => {
   theme.value = theme.value === 'light' ? 'dark' : 'light'
   localStorage.setItem('appTheme', theme.value)
-  document.documentElement.setAttribute('data-theme', theme.value)
+  applyTheme(theme.value)
 }
 
 const handleLogout = async () => {
@@ -259,6 +274,7 @@ const handleLogout = async () => {
   } catch {
     return
   }
+  clearOpenGroups()
   await user.logout()
   router.push('/login')
 }
@@ -268,8 +284,29 @@ const onUserCommand = (cmd: string) => {
   else if (cmd === 'password') window.location.href = '/me/change_password'
 }
 
+/** 当前路由所在分组（用于首次进入自动展开） */
+const activeGroupKey = computed(() => {
+  for (const grp of user.sidebarGroups) {
+    const urls = grp.single_link ? [grp.single_link.url] : grp.children.map((c) => c.url)
+    const hit = urls.some((u) => {
+      const p = (u.split('?')[0].replace(/^\/app/, '').replace(/\/+$/, '')) || '/'
+      return p === route.path
+    })
+    if (hit) return grp.key
+  }
+  return null
+})
+
 onMounted(() => {
-  document.documentElement.setAttribute('data-theme', theme.value)
+  applyTheme(theme.value)
+  // 首次进入：自动展开当前路由所在分组（防直接访问子页面时全折叠）
+  const key = activeGroupKey.value
+  if (key && !openGroups.value.has(key)) {
+    const next = new Set(openGroups.value)
+    next.add(key)
+    openGroups.value = next
+    saveOpenGroups([...next])
+  }
 })
 </script>
 

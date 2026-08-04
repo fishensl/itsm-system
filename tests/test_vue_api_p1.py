@@ -62,7 +62,9 @@ class TestVueSidebarApi:
             for c in g.get('children', []):
                 all_urls.append(c['url'])
         assert '/users' not in all_urls
-        assert '/devices' in all_urls  # viewer 有 device:view
+        # 已迁移页面映射为 /app 前缀（Vue SPA 专属映射）
+        assert '/app/devices' in all_urls  # viewer 有 device:view
+        assert '/devices' not in all_urls
 
     def test_admin_sees_all_groups(self, admin_client):
         r = admin_client.get('/api/auth/sidebar-groups')

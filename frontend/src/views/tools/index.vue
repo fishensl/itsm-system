@@ -7,7 +7,7 @@
     <el-row :gutter="12">
       <!-- IP 计算 -->
       <el-col :xs="24" :sm="12">
-        <el-card shadow="never" class="tool-card">
+        <el-card shadow="never" class="tool-card" :class="{ 'tool-active': highlightTool === 'network' }">
           <template #header>
             <div class="tool-header"><el-icon><Monitor /></el-icon> IP 地址计算</div>
           </template>
@@ -44,7 +44,7 @@
 
       <!-- 进制转换 -->
       <el-col :xs="24" :sm="12">
-        <el-card shadow="never" class="tool-card">
+        <el-card shadow="never" class="tool-card" :class="{ 'tool-active': highlightTool === 'convert' }">
           <template #header>
             <div class="tool-header"><el-icon><DataAnalysis /></el-icon> 进制转换</div>
           </template>
@@ -98,18 +98,38 @@
           </el-descriptions>
         </el-card>
       </el-col>
+
+      <!-- 报文分析 -->
+      <el-col :span="24" :class="{ 'tool-active': highlightTool === 'packet' }">
+        <PacketAnalyzer />
+      </el-col>
     </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Monitor, DataAnalysis, Link, Right } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
 import { ipCalc, convertBase, formatMac, type IpCalcResult, type ConvertResult, type MacFormatResult } from '@/api/tools'
+import PacketAnalyzer from './PacketAnalyzer.vue'
 
 const ui = useUiStore()
 const BASES = [2, 8, 10, 16]
+
+// 侧栏入口（/app/tools?tool=network 等）高亮对应工具卡片
+const route = useRoute()
+const highlightTool = ref<'network' | 'convert' | 'packet' | ''>('')
+watch(
+  () => route.query.tool,
+  (tool) => {
+    highlightTool.value = (['network', 'convert', 'packet'].includes(String(tool))
+      ? String(tool)
+      : '') as typeof highlightTool.value
+  },
+  { immediate: true },
+)
 
 // IP 计算
 const ipMode = ref<'ipmask' | 'cidr'>('ipmask')
@@ -169,6 +189,11 @@ async function runMac() {
 
 <style scoped>
 .tool-card { margin-bottom: 12px; }
+.tool-card.tool-active,
+.tool-active :deep(.tool-card) {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary);
+}
 .tool-header { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .ip-mode { margin-bottom: 10px; }
 .tool-field { margin-bottom: 10px; }
