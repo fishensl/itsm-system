@@ -210,7 +210,7 @@ import {
   fetchRacks, fetchRack, createRack, updateRack, deleteRack,
   fetchRackDevices, createInstall, updateInstall, deleteInstall, fetchRackDicts,
   USAGE_LEVEL_TAG,
-  type RackItem, type RackDetail, type RackInstall, type RackDevice, type RackDicts,
+  type RackDetail, type RackInstall, type RackDevice, type RackDicts,
 } from '@/api/rack'
 
 const user = useUserStore()
@@ -265,17 +265,6 @@ async function openDetail(row: Record<string, unknown>) {
     detail.value = await fetchRack(row.id as number)
     detailVisible.value = true
   } catch { /* toast */ }
-}
-
-function lowestFreeU(): number {
-  const d = detail.value
-  if (!d) return 1
-  const busy = new Set<number>()
-  for (const inst of d.installs) {
-    for (let u = inst.start_u; u < inst.start_u + inst.occupy_u; u++) busy.add(u)
-  }
-  for (let u = 1; u <= d.total_u; u++) if (!busy.has(u)) return u
-  return d.total_u
 }
 
 // ==================== 上架 / 调整 ====================

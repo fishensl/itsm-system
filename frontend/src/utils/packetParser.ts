@@ -37,7 +37,7 @@ export interface Session {
 }
 
 export function parseHexBytes(s: string): Uint8Array {
-  const clean = s.replace(/[\s:.\-]+/g, '').replace(/0x/gi, '')
+  const clean = s.replace(/[\s:.-]+/g, '').replace(/0x/gi, '')
   if (!/^[0-9a-fA-F]*$/.test(clean) || clean.length % 2) throw new Error('无效 HEX 字符串')
   const bytes = new Uint8Array(clean.length / 2)
   for (let i = 0; i < clean.length; i += 2) bytes[i / 2] = parseInt(clean.substr(i, 2), 16)
@@ -105,7 +105,7 @@ export function parsePcapngAllFrames(bytes: Uint8Array): { frames: RawFrame[]; i
   const littleEndian = dv.getUint32(8, false) === 0x4d3c2b1a
   const frames: RawFrame[] = []
   let off = dv.getUint32(4, littleEndian)
-  let tsResolution = 1e6
+  const tsResolution = 1e6
   while (off + 8 <= bytes.length && frames.length < 5000) {
     const blockType = dv.getUint32(off, littleEndian)
     const blockLen = dv.getUint32(off + 4, littleEndian)
@@ -246,7 +246,7 @@ export function buildRecord(bytes: Uint8Array, idx: number, ts: number, tsBase: 
   rec.src.mac = fmtMac(bytes, 6)
   rec.dst.mac = fmtMac(bytes, 0)
   const etherType = (bytes[12] << 8) | bytes[13]
-  let off = 14
+  const off = 14
   const payload = rec as unknown as { _payloadOff?: number }
   if (etherType === 0x0806) {
     rec.l3 = 'ARP'

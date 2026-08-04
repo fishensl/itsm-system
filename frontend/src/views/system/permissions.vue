@@ -130,10 +130,9 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, CircleCheck } from '@element-plus/icons-vue'
 import {
-  fetchRoles, createRole, updateRole, deleteRole, saveRolePermissions,
+  fetchRoles, createRole, updateRole, saveRolePermissions,
   fetchUserPermissions, saveUserPermissions, fetchUsers,
   type RoleListData, type RoleItem, type UserPermissionOverride,
 } from '@/api/system'
