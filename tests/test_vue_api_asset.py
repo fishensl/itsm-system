@@ -297,6 +297,20 @@ class TestTopologyList:
         assert item['source'] == 'upload'
         assert 'updated_at' in item
 
+    def test_list_files_detail(self, op_client, seed):
+        """列表行 files 明细与详情接口逐项一致（前端图标矩阵依赖）"""
+        r = op_client.get('/api/topologies')
+        item = next(x for x in r.get_json()['data']['items'] if x['name'] == '核心网络')
+        assert len(item['files']) == 2
+        types = [f['file_type'] for f in item['files']]
+        assert types == ['image', 'pdf']
+        for f in item['files']:
+            assert set(f) == {'id', 'file_type', 'source', 'file_path', 'url',
+                              'thumbnail', 'pdf', 'vsdx', 'svg', 'upload_by',
+                              'created_at'}
+        detail = op_client.get(f"/api/topologies/{seed['t1']}").get_json()['data']
+        assert detail['files'] == item['files']
+
     def test_search(self, op_client, seed):
         r = op_client.get('/api/topologies', query_string={'search': '在线'})
         data = r.get_json()['data']

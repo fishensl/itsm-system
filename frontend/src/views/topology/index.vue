@@ -9,6 +9,7 @@
         <el-button v-if="user.hasPerm('topology:add')" type="primary" :icon="EditPen" @click="newDraw">
           在线绘制
         </el-button>
+        <el-button :icon="Fold" @click="activeNames = []">收起全部</el-button>
       </div>
     </div>
 
@@ -16,85 +17,67 @@
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <el-input v-model="query.search" placeholder="搜索名称 / 描述" clearable class="filter-search"
-          @keyup.enter="reload" @clear="reload" />
-        <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
+          @keyup.enter="loadAll" @clear="loadAll" />
+        <el-button type="primary" plain :icon="Search" :loading="loading" @click="loadAll">查询</el-button>
       </div>
     </el-card>
 
-    <!-- 列表 -->
-    <DataTable
-      ref="tableRef"
-      :columns="columns"
-      :fetch-data="fetchTopologies"
-      :query="query"
-      row-key="id"
-      @row-click="openDetail"
-    />
-
-    <!-- 详情弹窗 -->
-    <el-dialog v-model="detailVisible" :title="detail?.name || '拓扑图详情'" width="640px" top="6vh"
-      destroy-on-close>
-      <div v-if="detail">
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="客户">{{ detail.customer_name }}</el-descriptions-item>
-          <el-descriptions-item label="地区">{{ detail.region_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="来源">
-            <el-tag size="small" :type="detail.source === 'draw' ? 'primary' : 'info'">
-              {{ detail.source === 'draw' ? '在线绘制' : '文件上传' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="文件数">{{ detail.file_count }}</el-descriptions-item>
-        </el-descriptions>
-        <p v-if="detail.description" class="detail-text">{{ detail.description }}</p>
-
-        <el-divider content-position="left">关联文件</el-divider>
-        <div v-for="f in detail.files" :key="f.id" class="file-item">
-          <el-tag size="small" :type="TOPOLOGY_TYPE_TAG[f.file_type] || 'info'" class="file-tag">
-            {{ f.file_type }}
-          </el-tag>
-          <span class="file-name">{{ f.file_path || `#${f.id}（在线图）` }}</span>
-          <span v-if="f.upload_by" class="text-muted">上传：{{ f.upload_by }}</span>
-          <div class="file-actions">
-            <el-button v-if="f.url" size="small" type="primary" link :href="f.url" target="_blank">
-              打开
-            </el-button>
-            <el-button v-if="f.pdf" size="small" type="primary" link :href="f.pdf" target="_blank">
-              PDF
-            </el-button>
-            <el-button v-if="f.vsdx" size="small" type="primary" link :href="f.vsdx" target="_blank">
-              VSDX
-            </el-button>
-            <el-button v-if="f.svg" size="small" type="primary" link :href="f.svg" target="_blank">
-              SVG
-            </el-button>
-            <el-button v-if="f.file_type === 'drawio'" size="small" type="primary" link
-              :href="`/topologies/download/drawio/${f.id}`" target="_blank">
-              drawio
-            </el-button>
-            <el-button v-if="isImportable(f)" size="small" type="success" link @click="importEdit(f)">
-              导入后编辑
-            </el-button>
-            <el-button v-if="user.hasPerm('topology:delete')" size="small" type="danger" link
-              @click="onDeleteFile(f)">
-              删除
-            </el-button>
-          </div>
-        </div>
-        <el-empty v-if="!detail.files.length" description="暂无文件" :image-size="50" />
-
-        <el-divider content-position="left">在线编辑</el-divider>
-        <div class="editor-row">
-          <template v-if="detail.has_editor">
-            <el-button type="primary" :icon="EditPen" @click="openEditor">打开编辑器</el-button>
-            <span v-if="detail.source !== 'draw'" class="text-muted">
-              该拓扑图为上传文件导入生成的在线图
-            </span>
+    <!-- 客户分组手风琴 -->
+    <el-card shadow="never" v-loading="loading">
+      <el-collapse v-model="activeNames" accordion>
+        <el-collapse-item v-for="g in groups" :key="g.customer" :name="g.customer">
+          <template #title>
+            <span class="grp-title">{{ g.customer }}</span>
+            <el-tag size="small" type="info" class="grp-badge">{{ g.rows.length }}</el-tag>
           </template>
-          <el-alert v-else type="info" :closable="false"
-            title="该拓扑图暂无在线图；可通过上方「导入后编辑」或「在线绘制」创建。" />
-        </div>
-      </div>
-    </el-dialog>
+          <el-table :data="g.rows" size="small" border stripe>
+            <el-table-column label="名称" min-width="260">
+              <template #default="{ row }">
+                <div class="topo-name-row">
+                  <b class="topo-name">{{ row.name }}</b>
+                  <span class="topo-icons">
+                    <template v-for="f in row.files" :key="f.id">
+                      <template v-for="a in fileActions(row, f)" :key="a.key">
+                        <el-tooltip :content="a.tip" placement="top">
+                          <a v-if="a.href" :href="a.href" :download="a.download ? '' : undefined"
+                            target="_blank" class="ficon-link">
+                            <el-icon :class="['ficon', a.cls]"><component :is="a.icon" /></el-icon>
+                          </a>
+                          <span v-else class="ficon-link" @click="a.onClick">
+                            <el-icon :class="['ficon', a.cls]"><component :is="a.icon" /></el-icon>
+                          </span>
+                        </el-tooltip>
+                      </template>
+                    </template>
+                  </span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="描述" min-width="160">
+              <template #default="{ row }">{{ row.description || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="上传人" width="100">
+              <template #default="{ row }">{{ row.upload_by || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="上传时间" width="140">
+              <template #default="{ row }">{{ row.created_at || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="130" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="user.hasPerm('topology:edit')" size="small" type="warning" link
+                  @click="openEdit(row)">编辑</el-button>
+                <el-button v-if="user.hasPerm('topology:delete')" size="small" type="danger" link
+                  @click="onDeleteGroup(row)">删除</el-button>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <el-empty description="暂无可显示行" :image-size="50" />
+            </template>
+          </el-table>
+        </el-collapse-item>
+      </el-collapse>
+      <el-empty v-if="!loading && !groups.length" description="暂无拓扑图" :image-size="70" />
+    </el-card>
 
     <!-- 上传弹窗 -->
     <el-dialog v-model="uploadVisible" title="上传拓扑图" width="520px" top="8vh" destroy-on-close>
@@ -163,65 +146,74 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted, type Component } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Search, EditPen, Plus } from '@element-plus/icons-vue'
-import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { Search, EditPen, Plus, Fold, Picture, Document, Files } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchTopologies, fetchTopology, updateTopology, deleteTopology,
-  fetchTopologyDicts, uploadTopology, TOPOLOGY_TYPE_TAG,
-  type TopologyDetail, type TopologyFile, type TopologyDicts,
+  fetchTopologyDicts, uploadTopology,
+  type TopologyItem, type TopologyFile, type TopologyDicts,
 } from '@/api/topology'
 
 const user = useUserStore()
 const ui = useUiStore()
 
 const TOPO_TYPES = ['网络拓扑图', '会议室拓扑图', '业务拓扑图', '机房拓扑图', '存储拓扑图', '安全拓扑图']
-const IMPORTABLE_TYPES = ['image', 'visio', 'drawio']
+
+interface TopoGroup {
+  customer: string
+  rows: TopologyItem[]
+}
+
+interface FileAction {
+  key: string
+  icon: Component
+  cls: string
+  tip: string
+  href?: string
+  download?: boolean
+  onClick?: () => void
+}
 
 const query = reactive<Record<string, unknown>>({ search: '' })
-const tableRef = ref()
-const dicts = ref<TopologyDicts | null>(null)
+const groups = ref<TopoGroup[]>([])
+const activeNames = ref<string[]>([])
+const loading = ref(false)
 
-const columns = computed<DataColumn[]>(() => [
-  { key: 'name', label: '名称', minWidth: 180, asTitle: true },
-  { key: 'customer_name', label: '客户', minWidth: 120 },
-  { key: 'type', label: '类型', width: 90, type: 'tag', asTag: true,
-    tagMap: TOPOLOGY_TYPE_TAG },
-  { key: 'file_count', label: '文件数', width: 80, align: 'center' },
-  { key: 'source', label: '来源', width: 90,
-    cellClass: (r) => (r.source === 'draw' ? 'source-draw' : '') },
-  { key: 'updated_at', label: '更新时间', width: 140 },
-  { key: 'actions', label: '操作', width: 160, type: 'action', fixed: 'right',
-    actions: [
-      { label: '详情', type: 'primary', link: true, perm: 'topology:view', icon: 'View',
-        onClick: (row) => openDetail(row) },
-      { label: '编辑', type: 'warning', link: true, perm: 'topology:edit', icon: 'Edit',
-        onClick: (row) => openEdit(row) },
-      { label: '删除', type: 'danger', link: true, perm: 'topology:delete', icon: 'Delete',
-        onClick: (row) => onDeleteGroup(row) },
-    ] },
-])
-
-const detailVisible = ref(false)
-const detail = ref<TopologyDetail | null>(null)
-
-async function openDetail(row: Record<string, unknown>) {
+async function loadAll() {
+  loading.value = true
   try {
-    detail.value = await fetchTopology(row.id as number)
-    detailVisible.value = true
-  } catch { /* toast */ }
+    const all: TopologyItem[] = []
+    const pageSize = 100
+    let page = 1
+    for (;;) {
+      const res = await fetchTopologies({ search: query.search, page, page_size: pageSize })
+      all.push(...res.items)
+      if (all.length >= res.total) break
+      page++
+    }
+    const map = new Map<string, TopologyItem[]>()
+    for (const item of all) {
+      const key = item.customer_name
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(item)
+    }
+    const names = [...map.keys()].sort(
+      (a, b) => (a === '未关联客户' ? 1 : b === '未关联客户' ? -1 : a.localeCompare(b, 'zh')))
+    groups.value = names.map((n) => ({ customer: n, rows: map.get(n)! }))
+    if (names.length && !activeNames.value.length) activeNames.value = [names[0]]
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    loading.value = false
+  }
 }
 
-function isImportable(f: TopologyFile) {
-  return f.source !== 'draw' && IMPORTABLE_TYPES.includes(f.file_type)
-}
-
-function openEditor() {
-  if (!detail.value) return
-  window.open(`/topologies/editor/${detail.value.editor_id}`, '_blank')
+// ==================== 文件图标行为矩阵（对齐 SSR 列表） ====================
+function openEditor(id: number) {
+  window.open(`/topologies/editor/${id}`, '_blank')
 }
 
 function newDraw() {
@@ -230,6 +222,48 @@ function newDraw() {
 
 function importEdit(f: TopologyFile) {
   window.open(`/topologies/editor/0?import=${f.id}`, '_blank')
+}
+
+function fileActions(row: TopologyItem, f: TopologyFile): FileAction[] {
+  const acts: FileAction[] = []
+  if (f.source === 'draw') {
+    acts.push({ key: 'edit', icon: EditPen, cls: 'fi-edit',
+      tip: '在线拓扑图 — 点击编辑', onClick: () => openEditor(f.id) })
+    if (f.thumbnail) acts.push({ key: 'png', icon: Picture, cls: 'fi-png',
+      tip: 'PNG 缩略图 — 点击预览', href: f.thumbnail })
+    if (f.svg) acts.push({ key: 'svg', icon: Document, cls: 'fi-svg',
+      tip: 'SVG 矢量图 — 点击预览', href: f.svg })
+    acts.push({ key: 'drawio', icon: Files, cls: 'fi-drawio',
+      tip: 'drawio 格式 — 新版 Visio 可直接打开',
+      href: `/topologies/download/drawio/${f.id}`, download: true })
+    if (f.pdf) acts.push({ key: 'pdf', icon: Document, cls: 'fi-pdf',
+      tip: 'PDF（自动生成）— 点击预览', href: f.pdf })
+    if (f.vsdx) acts.push({ key: 'vsdx', icon: Files, cls: 'fi-vsdx',
+      tip: 'Visio（自动生成）— 点击下载', href: f.vsdx, download: true })
+  } else if (f.file_type === 'pdf') {
+    acts.push({ key: 'pdf', icon: Document, cls: 'fi-pdf',
+      tip: '点击预览 PDF', href: f.url })
+  } else if (f.file_type === 'visio') {
+    acts.push({ key: 'visio', icon: Files, cls: 'fi-visio',
+      tip: '点击下载 Visio 文件', href: f.url, download: true })
+    if (user.hasPerm('topology:add')) acts.push({ key: 'import', icon: EditPen, cls: 'fi-import',
+      tip: '导入此 Visio 文件在线编辑（Visio 导入较慢，建议先转为 .drawio 格式）',
+      onClick: () => importEdit(f) })
+  } else if (f.file_type === 'drawio') {
+    acts.push({ key: 'drawio', icon: Files, cls: 'fi-drawio',
+      tip: '点击下载 drawio 文件', href: f.url, download: true })
+    if (user.hasPerm('topology:add')) acts.push({ key: 'import', icon: EditPen, cls: 'fi-import',
+      tip: '导入此 drawio 文件在线编辑（另存为新在线图）', onClick: () => importEdit(f) })
+  } else if (f.file_type === 'image') {
+    acts.push({ key: 'image', icon: Picture, cls: 'fi-image',
+      tip: '点击预览图片', href: f.url })
+    if (user.hasPerm('topology:add')) acts.push({ key: 'import', icon: EditPen, cls: 'fi-import',
+      tip: '以此图为底图在线绘制（另存为新在线图）', onClick: () => importEdit(f) })
+  } else {
+    acts.push({ key: 'other', icon: Document, cls: 'fi-other',
+      tip: '点击下载', href: f.url, download: true })
+  }
+  return acts
 }
 
 // ==================== 上传 ====================
@@ -290,7 +324,7 @@ async function saveUpload() {
     await uploadTopology(fd)
     ui.toast('上传成功', 'success')
     uploadVisible.value = false
-    reload()
+    loadAll()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -310,9 +344,9 @@ const editFormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
 }
 
-async function openEdit(row: Record<string, unknown>) {
+async function openEdit(row: TopologyItem) {
   try {
-    const d = await fetchTopology(row.id as number)
+    const d = await fetchTopology(row.id)
     Object.assign(editForm, {
       id: d.id, name: d.name, description: d.description,
       customer_id: d.customer_id, region_id: d.region_id,
@@ -335,8 +369,7 @@ async function saveEdit() {
     })
     ui.toast('保存成功', 'success')
     editVisible.value = false
-    if (detail.value?.id === editForm.id) detail.value = await fetchTopology(editForm.id)
-    reload()
+    loadAll()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -344,50 +377,29 @@ async function saveEdit() {
   }
 }
 
-async function deleteTopoIds(ids: number[], name: string) {
+async function onDeleteGroup(row: TopologyItem) {
+  const ids = row.files.map((f) => f.id)
   const msg = ids.length === 1
-    ? `确定删除拓扑图「${name}」？`
-    : `拓扑图「${name}」共 ${ids.length} 个文件，确定全部删除？`
+    ? `确定删除拓扑图「${row.name}」？`
+    : `拓扑图「${row.name}」共 ${ids.length} 个文件，确定全部删除？`
   try {
     await ElMessageBox.confirm(msg, '删除确认', { type: 'warning' })
   } catch { return }
   try {
     for (const id of ids) await deleteTopology(id)
     ui.toast('已删除', 'success')
-    if (detail.value && ids.includes(detail.value.id)) detailVisible.value = false
-    reload()
+    loadAll()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
 
-async function onDeleteGroup(row: Record<string, unknown>) {
-  try {
-    const d = await fetchTopology(row.id as number)
-    await deleteTopoIds(d.files.map((f) => f.id), d.name)
-  } catch (e) {
-    ui.toast((e as Error).message, 'error')
-  }
-}
-
-async function onDeleteFile(f: TopologyFile) {
-  try {
-    await ElMessageBox.confirm(`确定删除该文件（#${f.id}）？`, '删除确认', { type: 'warning' })
-  } catch { return }
-  try {
-    await deleteTopology(f.id)
-    ui.toast('已删除', 'success')
-    if (detail.value) detail.value = await fetchTopology(detail.value.id)
-    reload()
-  } catch (e) {
-    ui.toast((e as Error).message, 'error')
-  }
-}
-
-function reload() { tableRef.value?.refresh() }
+// ==================== 字典 ====================
+const dicts = ref<TopologyDicts | null>(null)
 
 onMounted(() => {
   fetchTopologyDicts().then((d) => (dicts.value = d)).catch(() => { /* toast */ })
+  loadAll()
 })
 </script>
 
@@ -397,16 +409,23 @@ onMounted(() => {
 .filter-search { width: 240px; max-width: 100%; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
-.detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px;
-  margin: 10px 0 0; }
 .text-muted { color: var(--itsm-text-muted); font-size: 12px; }
-.source-draw { color: var(--el-color-primary); font-weight: 500; }
-.file-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 10px; border: 1px solid var(--itsm-border); border-radius: 8px; margin-bottom: 8px; }
-.file-tag { flex-shrink: 0; text-transform: uppercase; }
-.file-name { font-family: var(--font-mono, monospace); font-size: 12px;
-  word-break: break-all; min-width: 0; }
-.file-actions { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
-.editor-row { display: flex; align-items: center; gap: 10px; }
 .file-input { padding: 4px 8px; height: auto; }
+.grp-title { font-weight: 600; font-size: 14px; }
+.grp-badge { margin-left: 8px; }
+.topo-name-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topo-name { flex-shrink: 0; }
+.topo-icons { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ficon-link { display: inline-flex; align-items: center; cursor: pointer;
+  line-height: 1; }
+.ficon { font-size: 15px; }
+.fi-edit { color: var(--el-color-primary); }
+.fi-png, .fi-image { color: var(--el-color-success); }
+.fi-svg { color: var(--el-color-info); }
+.fi-drawio { color: var(--el-color-warning); }
+.fi-pdf { color: var(--el-color-danger); }
+.fi-vsdx { color: var(--el-color-primary); }
+.fi-visio { color: var(--el-color-primary); }
+.fi-other { color: var(--el-color-info); }
+.fi-import { color: var(--el-color-info); }
 </style>

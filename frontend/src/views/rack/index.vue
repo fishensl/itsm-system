@@ -9,25 +9,12 @@
       </div>
     </div>
 
-    <!-- 筛选 -->
-    <el-card shadow="never" class="filter-card">
-      <div class="filter-row">
-        <el-input v-model="query.search" placeholder="搜索机柜名称" clearable class="filter-search"
-          @keyup.enter="reload" @clear="reload" />
-        <el-select v-model="query.customer_id" placeholder="客户" clearable filterable class="filter-item"
-          @change="reload">
-          <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-        <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
-      </div>
-    </el-card>
-
-    <!-- 左侧：地市 → 客户 → 机柜 树 + 右侧列表 -->
+    <!-- 左侧：地市 → 客户 → 机柜 树 + 右侧：内联详情 -->
     <el-row :gutter="12" class="rack-body">
       <el-col :xs="24" :md="6">
         <el-card shadow="never" class="tree-card">
           <div class="tree-header">
-            <span><i class="tree-title">机柜（按地市）</i></span>
+            <span class="tree-title">机柜（按地市）</span>
             <el-button size="small" text :icon="Refresh" @click="loadTree" />
           </div>
           <el-tree
@@ -50,85 +37,105 @@
               </span>
             </template>
           </el-tree>
-          <div v-if="!treeData.length" class="tree-empty">暂无机柜</div>
+          <div v-if="!treeData.length" class="tree-empty">暂无机柜，点上方「新增机柜」</div>
         </el-card>
       </el-col>
+
       <el-col :xs="24" :md="18">
-        <!-- 列表 -->
-        <DataTable
-          ref="tableRef"
-          :columns="columns"
-          :fetch-data="fetchRacks"
-          :query="query"
-          row-key="id"
-          @row-click="openDetail"
-        />
-      </el-col>
-    </el-row>
+        <el-card shadow="never" class="detail-card">
+          <!-- 未选中 -->
+          <div v-if="!detail" class="detail-empty">
+            <el-icon :size="52" class="empty-icon"><Collection /></el-icon>
+            <p class="text-muted">请从左侧选择机柜查看详情</p>
+          </div>
 
-    <!-- 机柜详情抽屉（U 位可视化） -->
-    <el-drawer v-model="detailVisible" title="" class="rack-drawer" destroy-on-close>
-      <div v-if="detail">
-        <div class="drawer-title">
-          <span class="color-dot" :style="{ background: detail.color }"></span>
-          <b>{{ detail.name }}</b>
-          <span class="text-muted">{{ detail.customer_name }}</span>
-        </div>
+          <div v-else>
+            <!-- 标题 + 操作 -->
+            <div class="rack-title-row">
+              <span class="color-dot" :style="{ background: detail.color }"></span>
+              <b class="rack-name">{{ detail.name }}</b>
+              <span class="text-muted">{{ detail.customer_name }}</span>
+              <div class="rack-actions">
+                <el-button v-if="user.hasPerm('device:edit')" size="small" type="success"
+                  :icon="Plus" @click="openInstall()">设备上架</el-button>
+                <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary"
+                  plain :icon="Edit" @click="openRackForm(detail)">编辑</el-button>
+                <el-button v-if="user.hasPerm('device:delete')" size="small" type="danger"
+                  plain :icon="Delete" @click="onDeleteRack">删除</el-button>
+              </div>
+            </div>
 
-        <!-- 统计 -->
-        <el-row :gutter="8" class="stat-row">
-          <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.total_u }}U</div><div class="stat-label">总U位</div></div></el-col>
-          <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_label }}</div><div class="stat-label">已占用</div></div></el-col>
-          <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_pct }}%</div><div class="stat-label">占用率</div></div></el-col>
-          <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.install_count }}</div><div class="stat-label">安装数</div></div></el-col>
-          <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_w }}W</div><div class="stat-label">当前功耗</div></div></el-col>
-          <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_total_w }}W</div><div class="stat-label">PDU额定</div></div></el-col>
-        </el-row>
+            <!-- 统计 -->
+            <el-row :gutter="8" class="stat-row">
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.total_u }}U</div><div class="stat-label">总U位</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_label }}</div><div class="stat-label">已占用</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_pct }}%</div><div class="stat-label">占用率</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.install_count }}</div><div class="stat-label">安装数</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_w }}W</div><div class="stat-label">当前功耗</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_total_w }}W</div><div class="stat-label">PDU额定</div></div></el-col>
+            </el-row>
 
-        <el-divider content-position="left">U 位布局（点击空位上架 / 点击设备调整）</el-divider>
-        <div class="rack-frame">
-          <div class="rack-frame-header" :style="{ background: detail.color }">{{ detail.name }}</div>
-          <div class="rack-u">
-            <div v-for="row in uRows" :key="row.u" class="u-row"
-              :class="{ empty: !row.install, installed: !!row.install }"
-              :style="row.install ? { background: detail.color } : {}"
-              :title="row.install ? `${row.install.name} (${row.install.start_u}-${row.install.start_u + row.install.occupy_u - 1}U)` : ''"
-              @click="row.install ? openAdjust(row.install) : openInstall(row.u)">
-              <span class="u-label">{{ row.u }}U</span>
-              <span class="u-content">
-                <template v-if="row.install && row.isBlockTop">
-                  <b>{{ row.install.name }}</b>
-                  <span class="u-sub">{{ row.install.brand }} {{ row.install.model }} {{ row.install.ip }}</span>
-                </template>
-                <span v-else-if="!row.install">空</span>
-              </span>
+            <!-- U 位图 + 设备表（左右布局） -->
+            <div class="rack-visual">
+              <div class="rack-frame">
+                <div class="rack-frame-header" :style="{ background: detail.color }">{{ detail.name }}</div>
+                <div class="rack-u">
+                  <div v-for="row in uRows" :key="row.u" class="u-row"
+                    :class="{ empty: !row.install, installed: !!row.install }"
+                    :style="row.install ? { background: detail.color } : {}"
+                    :title="row.install ? `${row.install.name} (${row.install.start_u}-${row.install.start_u + row.install.occupy_u - 1}U)` : ''"
+                    @click="row.install ? openAdjust(row.install) : openInstall(row.u)">
+                    <span class="u-label">{{ row.u }}U</span>
+                    <span class="u-content">
+                      <template v-if="row.install && row.isBlockTop">
+                        <b>{{ row.install.name }}</b>
+                        <span class="u-sub">{{ row.install.brand }} {{ row.install.model }} {{ row.install.ip }}</span>
+                      </template>
+                      <span v-else-if="!row.install">空</span>
+                    </span>
+                  </div>
+                </div>
+                <div class="rack-frame-hint text-muted">点击空位上架 / 点击设备调整</div>
+              </div>
+
+              <div class="install-table-wrap">
+                <el-table :data="detail.installs" size="small" border stripe>
+                  <el-table-column label="U位" width="90" align="center">
+                    <template #default="{ row }">{{ row.start_u }}-{{ row.start_u + row.occupy_u - 1 }}U</template>
+                  </el-table-column>
+                  <el-table-column label="名称" min-width="140" prop="name" show-overflow-tooltip />
+                  <el-table-column label="品牌型号" min-width="120">
+                    <template #default="{ row }">
+                      {{ [row.brand, row.model].filter(Boolean).join(' ') || '-' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="IP" min-width="110" prop="ip" show-overflow-tooltip />
+                  <el-table-column label="来源" width="70" align="center">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.kind === '托管' ? 'primary' : 'warning'">
+                        {{ row.kind }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="功耗" width="70" align="right" prop="rated_w" />
+                  <el-table-column label="操作" width="110" fixed="right">
+                    <template #default="{ row }">
+                      <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary" link
+                        @click="openAdjust(row)">调整</el-button>
+                      <el-button v-if="user.hasPerm('device:delete')" size="small" type="danger" link
+                        @click="onUninstall(row)">下架</el-button>
+                    </template>
+                  </el-table-column>
+                  <template #empty>
+                    <el-empty description="暂无上架设备" :image-size="50" />
+                  </template>
+                </el-table>
+              </div>
             </div>
           </div>
-        </div>
-
-        <!-- 已上架设备列表 -->
-        <el-divider content-position="left">已上架设备</el-divider>
-        <el-empty v-if="!detail.installs.length" description="暂无上架设备" :image-size="50" />
-        <div v-for="inst in detail.installs" :key="inst.id" class="install-item">
-          <div class="install-info">
-            <el-tag size="small" :type="inst.kind === '托管' ? 'primary' : 'warning'" class="install-kind">
-              {{ inst.kind }}
-            </el-tag>
-            <b>{{ inst.name }}</b>
-            <span class="text-muted">{{ inst.start_u }}-{{ inst.start_u + inst.occupy_u - 1 }}U · {{ inst.rated_w }}W</span>
-            <span v-if="inst.ip" class="text-muted">{{ inst.ip }}</span>
-          </div>
-          <div class="install-actions">
-            <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary" link @click="openAdjust(inst)">
-              调整
-            </el-button>
-            <el-button v-if="user.hasPerm('device:delete')" size="small" type="danger" link @click="onUninstall(inst)">
-              下架
-            </el-button>
-          </div>
-        </div>
-      </div>
-    </el-drawer>
+        </el-card>
+      </el-col>
+    </el-row>
 
     <!-- 新增/编辑机柜 -->
     <el-dialog v-model="rackFormVisible" :title="rackForm.id ? '编辑机柜' : '新增机柜'" width="520px" top="8vh"
@@ -236,14 +243,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh } from '@element-plus/icons-vue'
-import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { Plus, Refresh, Edit, Delete, Collection } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
-  fetchRacks, fetchRack, createRack, updateRack, deleteRack,
+  fetchRack, createRack, updateRack, deleteRack,
   fetchRackDevices, createInstall, updateInstall, deleteInstall, fetchRackDicts,
-  fetchRackTree, USAGE_LEVEL_TAG,
+  fetchRackTree,
   type RackDetail, type RackInstall, type RackDevice, type RackDicts,
 } from '@/api/rack'
 
@@ -255,7 +261,7 @@ const dicts = ref<RackDicts | null>(null)
 interface TreeNode {
   id: string
   label: string
-  type: 'all' | 'city' | 'customer' | 'rack'
+  type: 'city' | 'customer' | 'rack'
   color?: string
   install_count?: number
   children?: TreeNode[]
@@ -263,12 +269,12 @@ interface TreeNode {
 
 const treeData = ref<TreeNode[]>([])
 const expandedKeys = ref<string[]>([])
-const currentNodeKey = ref<string>('all')
+const currentNodeKey = ref<string>('')
 
 async function loadTree() {
   try {
     const cities = await fetchRackTree()
-    const nodes: TreeNode[] = [{ id: 'all', label: '全部机柜', type: 'all' }]
+    const nodes: TreeNode[] = []
     for (const city of cities) {
       const custNodes: TreeNode[] = city.customers.map((c) => ({
         id: `cust-${c.id}`,
@@ -295,43 +301,22 @@ async function loadTree() {
 }
 
 function onTreeClick(node: TreeNode) {
-  if (node.type === 'all') {
-    currentNodeKey.value = 'all'
-    if (query.customer_id !== undefined) {
-      query.customer_id = undefined
-      reload()
-    }
-  } else if (node.type === 'rack') {
-    currentNodeKey.value = node.id
-    openDetail({ id: Number(node.id.split('-')[1]) })
+  if (node.type === 'rack') {
+    selectRack(Number(node.id.split('-')[1]))
   }
 }
 
-const query = reactive<Record<string, unknown>>({ search: '', customer_id: undefined })
-const tableRef = ref()
-
-const columns = computed<DataColumn[]>(() => [
-  { key: 'name', label: '名称', minWidth: 140, asTitle: true, align: 'left' },
-  { key: 'customer_name', label: '客户', minWidth: 110 },
-  { key: 'used_label', label: 'U位占用', width: 90, align: 'center' },
-  { key: 'usage_level', label: '占用率', width: 90, type: 'tag', asTag: true,
-    tagMap: USAGE_LEVEL_TAG },
-  { key: 'used_w', label: '功率(W)', width: 90, align: 'right' },
-  { key: 'install_count', label: '安装数', width: 80, align: 'center' },
-  { key: 'actions', label: '操作', width: 130, type: 'action', fixed: 'right',
-    actions: [
-      { label: '详情', type: 'primary', link: true, perm: 'device:view', icon: 'View',
-        onClick: (row) => openDetail(row) },
-      { label: '编辑', type: 'warning', link: true, perm: 'device:edit', icon: 'Edit',
-        onClick: (row) => openRackForm(row) },
-      { label: '删除', type: 'danger', link: true, perm: 'device:delete', icon: 'Delete',
-        onClick: (row) => onDeleteRack(row) },
-    ] },
-])
-
-// ==================== 详情抽屉 + U 位可视化 ====================
-const detailVisible = ref(false)
+// ==================== 内联详情 + U 位可视化 ====================
 const detail = ref<RackDetail | null>(null)
+
+async function selectRack(id: number) {
+  try {
+    detail.value = await fetchRack(id)
+    currentNodeKey.value = `rack-${id}`
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
 
 interface URow { u: number; install: RackInstall | null; isBlockTop: boolean }
 
@@ -349,13 +334,6 @@ const uRows = computed<URow[]>(() => {
   }
   return rows
 })
-
-async function openDetail(row: Record<string, unknown>) {
-  try {
-    detail.value = await fetchRack(row.id as number)
-    detailVisible.value = true
-  } catch { /* toast */ }
-}
 
 // ==================== 上架 / 调整 ====================
 const installVisible = ref(false)
@@ -376,7 +354,7 @@ const installFormRules = {
   occupy_u: [{ required: true, message: '请输入占用U数', trigger: 'change' }],
 }
 
-async function openInstall(startU: number) {
+async function openInstall(startU = 1) {
   if (!detail.value) return
   Object.assign(installForm, {
     id: null, rack_id: detail.value.id, device_id: null,
@@ -430,7 +408,6 @@ async function saveInstall() {
     ui.toast('保存成功', 'success')
     installVisible.value = false
     if (detail.value) detail.value = await fetchRack(detail.value.id)
-    tableRef.value?.refresh()
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -447,7 +424,6 @@ async function onUninstall(inst: RackInstall) {
     await deleteInstall(inst.id)
     ui.toast('已下架', 'success')
     if (detail.value) detail.value = await fetchRack(detail.value.id)
-    tableRef.value?.refresh()
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -466,7 +442,7 @@ const rackFormRules = {
   customer_id: [{ required: true, message: '请选择所属客户', trigger: 'change' }],
 }
 
-function openRackForm(row?: Record<string, unknown>) {
+function openRackForm(row?: RackDetail) {
   Object.assign(rackForm, {
     id: row?.id ?? null,
     name: row?.name ?? '',
@@ -498,7 +474,9 @@ async function saveRack() {
     }
     ui.toast('保存成功', 'success')
     rackFormVisible.value = false
-    tableRef.value?.refresh()
+    if (detail.value && detail.value.id === rackForm.id) {
+      detail.value = await fetchRack(detail.value.id)
+    }
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -507,24 +485,23 @@ async function saveRack() {
   }
 }
 
-async function onDeleteRack(row: Record<string, unknown>) {
+async function onDeleteRack() {
+  if (!detail.value) return
   try {
-    await ElMessageBox.confirm(`确定删除机柜「${row.name}」吗？机柜内已上架设备将一并下架。`, '删除确认', {
-      type: 'warning',
-    })
+    await ElMessageBox.confirm(
+      `确定删除机柜「${detail.value.name}」吗？机柜内已上架设备将一并下架。`,
+      '删除确认', { type: 'warning' })
   } catch { return }
   try {
-    await deleteRack(row.id as number)
+    await deleteRack(detail.value.id)
     ui.toast('已删除', 'success')
-    if (detail.value?.id === row.id) detailVisible.value = false
-    tableRef.value?.refresh()
+    detail.value = null
+    currentNodeKey.value = ''
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
-
-function reload() { tableRef.value?.refresh() }
 
 onMounted(() => {
   fetchRackDicts().then((d) => (dicts.value = d))
@@ -533,10 +510,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.filter-card { margin-bottom: 12px; }
-.filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.filter-search { width: 200px; max-width: 100%; }
-.filter-item { width: 160px; max-width: 100%; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .rack-body { margin-top: 12px; }
 .tree-card { height: 100%; }
@@ -554,7 +527,14 @@ onMounted(() => {
 .rack-dot { background: var(--el-border-color); }
 .w-full { width: 100%; }
 .text-muted { color: var(--itsm-text-muted); font-size: 12px; margin-left: 8px; }
-.drawer-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 16px; }
+.detail-card { min-height: 640px; }
+.detail-empty { display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 560px; gap: 8px; }
+.empty-icon { color: var(--el-border-color); }
+.rack-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  flex-wrap: wrap; }
+.rack-name { font-size: 16px; }
+.rack-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .color-dot { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
 .stat-row { margin-bottom: 4px; }
 .stat-card { background: var(--itsm-card-bg); border: 1px solid var(--itsm-border);
@@ -562,8 +542,10 @@ onMounted(() => {
 .stat-num { font-size: 15px; font-weight: 600; }
 .stat-label { color: var(--itsm-text-muted); font-size: 12px; }
 
-/* U 位可视化 */
-.rack-frame { max-width: 340px; border: 1px solid var(--itsm-border); border-radius: 8px; padding: 8px; }
+/* U 位图 + 设备表左右布局 */
+.rack-visual { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.rack-frame { width: 280px; flex-shrink: 0; border: 1px solid var(--itsm-border);
+  border-radius: 8px; padding: 8px; }
 .rack-frame-header { color: #fff; text-align: center; font-size: 13px; padding: 4px 0;
   border-radius: 4px 4px 0 0; }
 .rack-u { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
@@ -576,11 +558,6 @@ onMounted(() => {
 .u-row .u-label { width: 34px; flex-shrink: 0; opacity: 0.75; font-family: var(--font-mono, monospace); }
 .u-row .u-content { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .u-sub { margin-left: 6px; opacity: 0.85; }
-
-/* 上架设备列表 */
-.install-item { display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  padding: 8px 10px; border: 1px solid var(--itsm-border); border-radius: 8px; margin-bottom: 8px; }
-.install-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.install-kind { flex-shrink: 0; }
-.install-actions { display: flex; flex-shrink: 0; }
+.rack-frame-hint { text-align: center; font-size: 12px; padding-top: 4px; }
+.install-table-wrap { flex: 1; min-width: 420px; overflow-x: auto; }
 </style>
