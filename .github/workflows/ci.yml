@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+# vue-dist Release 发布需要 contents: write（GITHUB_TOKEN 默认只读）
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
