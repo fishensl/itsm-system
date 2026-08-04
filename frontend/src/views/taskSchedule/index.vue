@@ -81,9 +81,9 @@
               @click.stop @change="(v: boolean | string | number | undefined) => toggleSelect(t.id, !!v)" />
             <div class="task-title">{{ t.title }}</div>
             <div class="task-meta">
-              <el-tag v-if="t.overdue" size="small" type="danger">逾期</el-tag>
-              <el-tag size="small" :type="priorityType(t.priority)">{{ t.priority }}</el-tag>
-              <el-tag v-if="t.task_type === '突发'" size="small" type="warning">突发</el-tag>
+              <el-tag v-if="t.overdue" size="small" type="danger" effect="dark">逾期</el-tag>
+              <el-tag size="small" :type="priorityType(t.priority)" effect="dark">{{ t.priority }}</el-tag>
+              <el-tag v-if="t.task_type === '突发'" size="small" type="warning" effect="dark">突发</el-tag>
             </div>
             <div class="task-sub">{{ t.customer_name || '-' }}</div>
             <div class="task-sub">
@@ -109,8 +109,8 @@
             :class="{ overdue: t.overdue }" @click="openDetail(t)">
             <div class="task-title">{{ t.title }}</div>
             <div class="task-meta">
-              <el-tag v-if="t.overdue" size="small" type="danger">逾期</el-tag>
-              <el-tag size="small" :type="statusType(t.status)" :effect="statusEffect(t.status)">{{ t.status }}</el-tag>
+              <el-tag v-if="t.overdue" size="small" type="danger" effect="dark">逾期</el-tag>
+              <el-tag size="small" :type="statusType(t.status)" effect="dark">{{ t.status }}</el-tag>
             </div>
             <div class="task-sub">{{ t.customer_name || '-' }} · {{ t.planned_end || '-' }}</div>
           </div>
@@ -274,12 +274,9 @@ function priorityType(p: string) {
 }
 
 // 任务状态配色：待执行=橙 / 执行中=深蓝 / 已完成=绿 / 已取消=灰；红色留给「逾期」
+// 统一 effect="dark"（深底白字）：浅色模式下对比度也足够，深浅模式表现一致
 function statusType(s: string) {
   return { 待执行: 'warning', 执行中: 'primary', 已完成: 'success', 已取消: 'info' }[s] || 'info'
-}
-
-function statusEffect(s: string): 'dark' | 'light' {
-  return s === '执行中' ? 'dark' : 'light'
 }
 
 function reload() {
