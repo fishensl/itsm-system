@@ -49,8 +49,8 @@
         <el-form-item label="模型名称">
           <el-input v-model="form.model_name" placeholder="如 gpt-4" />
         </el-form-item>
-        <el-form-item :label="form.has_api_key ? 'API Key（留空不修改）' : 'API Key'">
-          <el-input v-model="form.api_key" type="password" show-password placeholder="API Key" />
+        <el-form-item :label="form.has_api_key ? 'API 密钥（留空不修改）' : 'API 密钥'">
+          <el-input v-model="form.api_key" type="password" show-password placeholder="API 密钥" />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">

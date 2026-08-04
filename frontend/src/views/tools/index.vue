@@ -4,112 +4,123 @@
       <h2 class="page-title">网络工具</h2>
     </div>
 
-    <el-row :gutter="12">
-      <!-- IP 计算 -->
-      <el-col :xs="24" :sm="12">
-        <el-card shadow="never" class="tool-card" :class="{ 'tool-active': highlightTool === 'network' }">
-          <template #header>
-            <div class="tool-header"><el-icon><Monitor /></el-icon> IP 地址计算</div>
-          </template>
-          <el-radio-group v-model="ipMode" class="ip-mode">
-            <el-radio-button value="ipmask">IP + 掩码</el-radio-button>
-            <el-radio-button value="cidr">CIDR</el-radio-button>
-          </el-radio-group>
-          <template v-if="ipMode === 'ipmask'">
-            <div class="tool-field">
-              <el-input v-model="ipForm.ip" placeholder="IP 地址，如 192.168.1.10" clearable
+    <!-- 模块切换：侧栏子菜单（?tool=network|convert|packet）驱动，tab 切换同步 URL -->
+    <el-card shadow="never" class="tools-tabs">
+      <el-tabs v-model="activeTool" @tab-change="onTabChange">
+        <el-tab-pane label="全部" name="all" />
+        <el-tab-pane label="IP 地址计算" name="network" />
+        <el-tab-pane label="进制转换" name="convert" />
+        <el-tab-pane label="MAC 格式化" name="mac" />
+        <el-tab-pane label="报文分析" name="packet" />
+      </el-tabs>
+    </el-card>
+
+    <el-row :gutter="12" class="tool-row">
+        <!-- IP 计算 -->
+        <el-col v-show="showModule('network')" :xs="24" :sm="12">
+          <el-card shadow="never" class="tool-card">
+            <template #header>
+              <div class="tool-header"><el-icon><Monitor /></el-icon> IP 地址计算</div>
+            </template>
+            <el-radio-group v-model="ipMode" class="ip-mode">
+              <el-radio-button value="ipmask">IP + 掩码</el-radio-button>
+              <el-radio-button value="cidr">CIDR</el-radio-button>
+            </el-radio-group>
+            <template v-if="ipMode === 'ipmask'">
+              <div class="tool-field">
+                <el-input v-model="ipForm.ip" placeholder="IP 地址，如 192.168.1.10" clearable
+                  @keyup.enter="runIpCalc" />
+              </div>
+              <div class="tool-field">
+                <el-input v-model="ipForm.mask" placeholder="子网掩码，如 255.255.255.0 或 24" clearable
+                  @keyup.enter="runIpCalc" />
+              </div>
+            </template>
+            <div v-else class="tool-field">
+              <el-input v-model="ipForm.cidr" placeholder="CIDR，如 10.0.0.0/8" clearable
                 @keyup.enter="runIpCalc" />
             </div>
-            <div class="tool-field">
-              <el-input v-model="ipForm.mask" placeholder="子网掩码，如 255.255.255.0 或 24" clearable
-                @keyup.enter="runIpCalc" />
-            </div>
-          </template>
-          <div v-else class="tool-field">
-            <el-input v-model="ipForm.cidr" placeholder="CIDR，如 10.0.0.0/8" clearable
-              @keyup.enter="runIpCalc" />
-          </div>
-          <el-button type="primary" :loading="ipLoading" @click="runIpCalc">计算</el-button>
+            <el-button type="primary" :loading="ipLoading" @click="runIpCalc">计算</el-button>
 
-          <el-descriptions v-if="ipResult" :column="2" border size="small" class="tool-result">
-            <el-descriptions-item label="网络地址">{{ ipResult.network }}</el-descriptions-item>
-            <el-descriptions-item label="广播地址">{{ ipResult.broadcast }}</el-descriptions-item>
-            <el-descriptions-item label="可用起始">{{ ipResult.first }}</el-descriptions-item>
-            <el-descriptions-item label="可用结束">{{ ipResult.last }}</el-descriptions-item>
-            <el-descriptions-item label="可用主机数">{{ ipResult.hosts }}</el-descriptions-item>
-            <el-descriptions-item label="子网掩码">{{ ipResult.mask }}（/{{ ipResult.mask_bits }}）</el-descriptions-item>
-          </el-descriptions>
-        </el-card>
-      </el-col>
-
-      <!-- 进制转换 -->
-      <el-col :xs="24" :sm="12">
-        <el-card shadow="never" class="tool-card" :class="{ 'tool-active': highlightTool === 'convert' }">
-          <template #header>
-            <div class="tool-header"><el-icon><DataAnalysis /></el-icon> 进制转换</div>
-          </template>
-          <div class="tool-field">
-            <el-input v-model="convertForm.value" placeholder="输入数值，如 FF / 255 / 1010" clearable
-              @keyup.enter="runConvert" />
-          </div>
-          <div class="tool-field convert-row">
-            <el-select v-model="convertForm.from_base" class="convert-base">
-              <el-option v-for="b in BASES" :key="b" :label="`${b} 进制`" :value="b" />
-            </el-select>
-            <el-icon class="convert-arrow"><Right /></el-icon>
-            <el-select v-model="convertForm.to_base" class="convert-base">
-              <el-option v-for="b in BASES" :key="b" :label="`${b} 进制`" :value="b" />
-            </el-select>
-          </div>
-          <el-button type="primary" :loading="convertLoading" @click="runConvert">转换</el-button>
-
-          <div v-if="convertResult" class="tool-result">
-            <div class="convert-result-line">
-              <span class="convert-label">结果（{{ convertResult.to_base }} 进制）</span>
-              <code class="convert-value">{{ convertResult.result }}</code>
-            </div>
-            <el-descriptions :column="2" border size="small">
-              <el-descriptions-item label="二进制">{{ convertResult.binary }}</el-descriptions-item>
-              <el-descriptions-item label="八进制">{{ convertResult.octal }}</el-descriptions-item>
-              <el-descriptions-item label="十进制">{{ convertResult.decimal }}</el-descriptions-item>
-              <el-descriptions-item label="十六进制">{{ convertResult.hex }}</el-descriptions-item>
+            <el-descriptions v-if="ipResult" :column="2" border size="small" class="tool-result">
+              <el-descriptions-item label="网络地址">{{ ipResult.network }}</el-descriptions-item>
+              <el-descriptions-item label="广播地址">{{ ipResult.broadcast }}</el-descriptions-item>
+              <el-descriptions-item label="可用起始">{{ ipResult.first }}</el-descriptions-item>
+              <el-descriptions-item label="可用结束">{{ ipResult.last }}</el-descriptions-item>
+              <el-descriptions-item label="可用主机数">{{ ipResult.hosts }}</el-descriptions-item>
+              <el-descriptions-item label="子网掩码">{{ ipResult.mask }}（/{{ ipResult.mask_bits }}）</el-descriptions-item>
             </el-descriptions>
-          </div>
-        </el-card>
-      </el-col>
+          </el-card>
+        </el-col>
 
-      <!-- MAC 格式化 -->
-      <el-col :xs="24" :sm="12">
-        <el-card shadow="never" class="tool-card">
-          <template #header>
-            <div class="tool-header"><el-icon><Link /></el-icon> MAC 地址格式化</div>
-          </template>
-          <div class="tool-field">
-            <el-input v-model="macForm.mac" placeholder="如 AA-BB-CC-DD-EE-FF 或 aabb.ccdd.eeff" clearable
-              @keyup.enter="runMac" />
-          </div>
-          <el-button type="primary" :loading="macLoading" @click="runMac">格式化</el-button>
+        <!-- 进制转换 -->
+        <el-col v-show="showModule('convert')" :xs="24" :sm="12">
+          <el-card shadow="never" class="tool-card">
+            <template #header>
+              <div class="tool-header"><el-icon><DataAnalysis /></el-icon> 进制转换</div>
+            </template>
+            <div class="tool-field">
+              <el-input v-model="convertForm.value" placeholder="输入数值，如 FF / 255 / 1010" clearable
+                @keyup.enter="runConvert" />
+            </div>
+            <div class="tool-field convert-row">
+              <el-select v-model="convertForm.from_base" class="convert-base">
+                <el-option v-for="b in BASES" :key="b" :label="`${b} 进制`" :value="b" />
+              </el-select>
+              <el-icon class="convert-arrow"><Right /></el-icon>
+              <el-select v-model="convertForm.to_base" class="convert-base">
+                <el-option v-for="b in BASES" :key="b" :label="`${b} 进制`" :value="b" />
+              </el-select>
+            </div>
+            <el-button type="primary" :loading="convertLoading" @click="runConvert">转换</el-button>
 
-          <el-descriptions v-if="macResult" :column="2" border size="small" class="tool-result">
-            <el-descriptions-item label="标准格式（推荐）">{{ macResult.result }}</el-descriptions-item>
-            <el-descriptions-item label="连字符">{{ macResult.dash }}</el-descriptions-item>
-            <el-descriptions-item label="点分格式">{{ macResult.dot }}</el-descriptions-item>
-            <el-descriptions-item label="无分隔符">{{ macResult.plain }}</el-descriptions-item>
-          </el-descriptions>
-        </el-card>
-      </el-col>
+            <div v-if="convertResult" class="tool-result">
+              <div class="convert-result-line">
+                <span class="convert-label">结果（{{ convertResult.to_base }} 进制）</span>
+                <code class="convert-value">{{ convertResult.result }}</code>
+              </div>
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="二进制">{{ convertResult.binary }}</el-descriptions-item>
+                <el-descriptions-item label="八进制">{{ convertResult.octal }}</el-descriptions-item>
+                <el-descriptions-item label="十进制">{{ convertResult.decimal }}</el-descriptions-item>
+                <el-descriptions-item label="十六进制">{{ convertResult.hex }}</el-descriptions-item>
+              </el-descriptions>
+            </div>
+          </el-card>
+        </el-col>
 
-      <!-- 报文分析 -->
-      <el-col :span="24" :class="{ 'tool-active': highlightTool === 'packet' }">
-        <PacketAnalyzer />
-      </el-col>
-    </el-row>
+        <!-- MAC 格式化 -->
+        <el-col v-show="showModule('mac')" :xs="24" :sm="12">
+          <el-card shadow="never" class="tool-card">
+            <template #header>
+              <div class="tool-header"><el-icon><Link /></el-icon> MAC 地址格式化</div>
+            </template>
+            <div class="tool-field">
+              <el-input v-model="macForm.mac" placeholder="如 AA-BB-CC-DD-EE-FF 或 aabb.ccdd.eeff" clearable
+                @keyup.enter="runMac" />
+            </div>
+            <el-button type="primary" :loading="macLoading" @click="runMac">格式化</el-button>
+
+            <el-descriptions v-if="macResult" :column="2" border size="small" class="tool-result">
+              <el-descriptions-item label="标准格式（推荐）">{{ macResult.result }}</el-descriptions-item>
+              <el-descriptions-item label="连字符">{{ macResult.dash }}</el-descriptions-item>
+              <el-descriptions-item label="点分格式">{{ macResult.dot }}</el-descriptions-item>
+              <el-descriptions-item label="无分隔符">{{ macResult.plain }}</el-descriptions-item>
+            </el-descriptions>
+          </el-card>
+        </el-col>
+
+        <!-- 报文分析 -->
+        <el-col v-show="showModule('packet')" :span="24">
+          <PacketAnalyzer />
+        </el-col>
+      </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Monitor, DataAnalysis, Link, Right } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
 import { ipCalc, convertBase, formatMac, type IpCalcResult, type ConvertResult, type MacFormatResult } from '@/api/tools'
@@ -118,18 +129,30 @@ import PacketAnalyzer from './PacketAnalyzer.vue'
 const ui = useUiStore()
 const BASES = [2, 8, 10, 16]
 
-// 侧栏入口（/app/tools?tool=network 等）高亮对应工具卡片
+type ToolModule = 'all' | 'network' | 'convert' | 'mac' | 'packet'
+const MODULES: ToolModule[] = ['network', 'convert', 'mac', 'packet']
+
+// ?tool= 参数驱动（侧栏子菜单 /tools/network|convert|packet → /app/tools?tool=...）
 const route = useRoute()
-const highlightTool = ref<'network' | 'convert' | 'packet' | ''>('')
-watch(
-  () => route.query.tool,
-  (tool) => {
-    highlightTool.value = (['network', 'convert', 'packet'].includes(String(tool))
-      ? String(tool)
-      : '') as typeof highlightTool.value
-  },
-  { immediate: true },
-)
+const router = useRouter()
+const activeTool = ref<ToolModule>('all')
+
+function toolFromQuery(q: unknown): ToolModule {
+  const s = String(q ?? '')
+  return (MODULES as string[]).includes(s) ? (s as ToolModule) : 'all'
+}
+
+watch(() => route.query.tool, (t) => { activeTool.value = toolFromQuery(t) }, { immediate: true })
+
+function onTabChange(name: string | number) {
+  const t = String(name) as ToolModule
+  router.replace({ query: t === 'all' ? {} : { tool: t } })
+}
+
+// 当前模块是否可见：全部模式显示所有，子菜单模式只显示对应模块
+function showModule(m: ToolModule) {
+  return activeTool.value === 'all' || activeTool.value === m
+}
 
 // IP 计算
 const ipMode = ref<'ipmask' | 'cidr'>('ipmask')
@@ -188,12 +211,9 @@ async function runMac() {
 </script>
 
 <style scoped>
+.tools-tabs { margin-bottom: 12px; }
+.tool-row { margin-top: 0; }
 .tool-card { margin-bottom: 12px; }
-.tool-card.tool-active,
-.tool-active :deep(.tool-card) {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 1px var(--el-color-primary);
-}
 .tool-header { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .ip-mode { margin-bottom: 10px; }
 .tool-field { margin-bottom: 10px; }

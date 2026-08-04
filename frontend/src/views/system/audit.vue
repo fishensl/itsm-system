@@ -10,11 +10,13 @@
           @keyup.enter="reload" @clear="reload" />
         <el-select v-model="query.action" placeholder="操作" clearable filterable class="filter-item"
           @change="reload">
-          <el-option v-for="a in dicts?.actions || []" :key="a" :label="a" :value="a" />
+          <el-option v-for="a in dicts?.actions || []" :key="a"
+            :label="AUDIT_ACTION_LABELS[a] || a" :value="a" />
         </el-select>
         <el-select v-model="query.target_type" placeholder="对象类型" clearable class="filter-item"
           @change="reload">
-          <el-option v-for="t in dicts?.target_types || []" :key="t" :label="t" :value="t" />
+          <el-option v-for="t in dicts?.target_types || []" :key="t"
+            :label="AUDIT_TARGET_LABELS[t] || t" :value="t" />
         </el-select>
         <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD"
           start-placeholder="开始日期" end-placeholder="结束日期" class="filter-date" @change="reload" />
@@ -37,6 +39,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { fetchAuditLogs, fetchAuditDicts } from '@/api/system'
+import { AUDIT_ACTION_LABELS, AUDIT_TARGET_LABELS } from '@/utils/labels'
 
 const dicts = ref<{ actions: string[]; target_types: string[] } | null>(null)
 const dateRange = ref<[string, string] | null>(null)
@@ -56,8 +59,8 @@ const fetchLogs = (params: Record<string, unknown>) =>
 const columns = computed<DataColumn[]>(() => [
   { key: 'created_at', label: '时间', width: 150 },
   { key: 'username', label: '操作人', width: 100, asTitle: true },
-  { key: 'action', label: '操作', width: 130, type: 'tag' },
-  { key: 'target_type', label: '对象', width: 90 },
+  { key: 'action', label: '操作', width: 130, type: 'tag', valueMap: AUDIT_ACTION_LABELS },
+  { key: 'target_type', label: '对象', width: 90, valueMap: AUDIT_TARGET_LABELS },
   { key: 'detail', label: '详情', minWidth: 220 },
   { key: 'ip', label: 'IP', width: 130 },
 ])

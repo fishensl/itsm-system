@@ -227,4 +227,4 @@ class TestCustomerDicts:
         assert city['parent_id'] is None
         dist = next(x for x in data['regions'] if x['name'] == '西湖区')
         assert dist['parent_id'] == city['id']
-        assert data['levels'] == ['核心', '重点', '常规']
+        assert data['levels'] == ['auto', '核心', '重点', '常规']

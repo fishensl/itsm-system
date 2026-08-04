@@ -138,6 +138,7 @@ import {
 } from '@/api/system'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { PERM_DOMAIN_LABELS } from '@/utils/labels'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -158,7 +159,10 @@ const groupedPerms = computed(() => {
     }
     g.items.push(p)
   }
-  return groups
+  return groups.map((g) => ({
+    name: PERM_DOMAIN_LABELS[g.name] || g.name,
+    items: g.items,
+  }))
 })
 
 const roleFormVisible = ref(false)

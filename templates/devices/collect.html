@@ -59,8 +59,8 @@ display interface brief</textarea>
                     {% for t in tasks %}
                     <tr><td>{{ t.started_at.strftime('%Y-%m-%d %H:%M') if t.started_at else '-' }}</td>
                     <td><span class="badge bg-secondary">{{ t.protocol }}</span></td>
-                    <td><span class="badge bg-{{ 'success' if t.status=='success' else 'danger' if t.status=='failed' else 'warning' }}">{{ t.status }}</span></td>
-                    <td><small>{{ t.error_message or 'OK' }}</small></td></tr>
+                    <td><span class="badge bg-{{ 'success' if t.status=='success' else 'danger' if t.status=='failed' else 'warning' }}">{{ '成功' if t.status=='success' else '失败' if t.status=='failed' else ('进行中' if t.status=='running' else '排队') }}</span></td>
+                    <td><small>{{ t.error_message or '正常' }}</small></td></tr>
                     {% endfor %}
                     </tbody>
                 </table>

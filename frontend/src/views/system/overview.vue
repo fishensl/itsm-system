@@ -132,6 +132,7 @@ import { ref, computed, onMounted } from 'vue'
 import { Odometer, DataAnalysis, Box } from '@element-plus/icons-vue'
 import { fetchSystemOverview, fetchUiVersion, setUiVersion, type SystemOverview } from '@/api/system'
 import { useUiStore } from '@/stores/ui'
+import { ROLE_LABELS } from '@/utils/labels'
 
 const ui = useUiStore()
 const overview = ref<SystemOverview | null>(null)
@@ -173,9 +174,8 @@ const componentRows = computed(() =>
 const ROLE_TAG: Record<string, 'danger' | 'primary' | 'warning' | 'info'> = {
   admin: 'danger', operator: 'primary', sales: 'warning', viewer: 'info',
 }
-
 function roleLabel(role: string) {
-  return { admin: '管理员', operator: '运维', sales: '销售', viewer: '查看' }[role] || role
+  return ROLE_LABELS[role] || role
 }
 
 function roleTag(role: string) {
