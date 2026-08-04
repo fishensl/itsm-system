@@ -62,7 +62,7 @@
           <el-col :xs="24" :sm="12">
             <el-form-item label="角色">
               <el-select v-model="form.role" class="w-full">
-                <el-option v-for="r in roles" :key="r" :label="r" :value="r" />
+                <el-option v-for="r in roles" :key="r" :label="ROLE_LABELS[r] || r" :value="r" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -141,6 +141,7 @@ import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUiStore } from '@/stores/ui'
+import { ROLE_LABELS, ROLE_TAG, ACTIVE_LABELS } from '@/utils/labels'
 import {
   fetchUsers, createUser, updateUser, deleteUser,
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -201,11 +202,11 @@ const loadUsers = async (): Promise<{ items: Record<string, any>[]; total: numbe
 const userColumns = computed(() => [
   { key: 'username', label: '用户名', minWidth: 110, asTitle: true },
   { key: 'realname', label: '姓名', width: 90 },
-  { key: 'role', label: '角色', width: 90, type: 'tag',
-    tagMap: { admin: 'danger', operator: 'primary', sales: 'warning', viewer: 'info' } },
+  { key: 'role', label: '角色', width: 100, type: 'tag',
+    tagMap: ROLE_TAG, valueMap: ROLE_LABELS },
   { key: 'department_name', label: '部门', minWidth: 100 },
   { key: 'is_active', label: '状态', width: 80, type: 'tag', asTag: true,
-    tagMap: { true: 'success', false: 'info' } },
+    tagMap: { true: 'success', false: 'info' }, valueMap: ACTIVE_LABELS },
   { key: 'phone', label: '电话', minWidth: 110 },
   { key: 'created_at', label: '创建时间', width: 100 },
   { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right',

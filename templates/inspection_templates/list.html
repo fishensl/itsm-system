@@ -30,7 +30,7 @@
                     {% for item in items %}
                     <span class="badge {% if item.enabled == false %}bg-secondary text-white{% else %}surface-muted{% endif %} me-1 mb-1" {% if item.enabled == false %}title="已禁用"{% endif %}>
                         {{ item.name }}
-                        <small class="text-muted ms-1">{{ item.field_type if item.field_type else 'text' }}</small>
+                        <small class="text-muted ms-1">{{ {'text':'单行文本','multiline_text':'多行文本','dropdown':'下拉选择','image':'图片上传','number':'数字','date':'日期'}.get(item.field_type, item.field_type or '单行文本') }}</small>
                         {% if item.required and item.enabled != false %}<i class="bi-asterisk text-danger" style="font-size:8px"></i>{% endif %}
                     </span>
                     {% endfor %}

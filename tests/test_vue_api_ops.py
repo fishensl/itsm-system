@@ -54,6 +54,22 @@ class TestKbList:
         assert data['total'] == 1
         assert data['items'][0]['is_published'] is False
 
+    def test_null_published_treated_as_published(self, op_client, app):
+        """存量 is_published 为 NULL：视为已发布，且筛选已发布可命中"""
+        with app.app_context():
+            k = KnowledgeBase(title='存量无发布字段', category='内部规范',
+                              content='x', is_published=None, created_by='admin')
+            db.session.add(k)
+            db.session.commit()
+            kid = k.id
+        r = op_client.get(f'/api/knowledge-base/{kid}')
+        d = r.get_json()['data']
+        assert d['is_published'] is True
+        assert d['published_label'] == '已发布'
+        r = op_client.get('/api/knowledge-base', query_string={'is_published': '1'})
+        titles = [i['title'] for i in r.get_json()['data']['items']]
+        assert '存量无发布字段' in titles
+
 
 class TestKbDetailAndViewCount:
     def test_detail_includes_content(self, op_client, kb_seed):

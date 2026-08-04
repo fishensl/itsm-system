@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from flask import request, current_app
 from flask_login import login_required, current_user
-from sqlalchemy import text as sa_text
+from sqlalchemy import text as sa_text, or_
 from sqlalchemy.orm import joinedload
 
 from blueprints.vue_api import vue_api_bp, ok, fail
@@ -22,6 +22,8 @@ KB_CATEGORIES = ['故障案例', '设备手册', '内部规范', '巡检经验']
 
 
 def _kb_payload(k):
+    # is_published 存量可能为 NULL：NULL 按「已发布」处理（与模型 default=True 语义一致）
+    published = k.is_published is not False
     return {
         'id': k.id,
         'title': k.title,
@@ -29,8 +31,8 @@ def _kb_payload(k):
         'created_by': k.created_by or '',
         'view_count': k.view_count or 0,
         'helpful_count': k.helpful_count or 0,
-        'is_published': bool(k.is_published),
-        'published_label': '已发布' if k.is_published else '未发布',
+        'is_published': published,
+        'published_label': '已发布' if published else '未发布',
         'tags': k.tags or '',
         'created_at': k.created_at.strftime('%Y-%m-%d %H:%M') if k.created_at else '',
     }
@@ -54,7 +56,11 @@ def api_kb_list():
     if category:
         q = q.filter(_KB.category == category)
     if is_published is not None:
-        q = q.filter(_KB.is_published == bool(is_published))
+        # 存量 NULL 视为已发布：筛选「已发布」时需同时命中 NULL 记录
+        if is_published:
+            q = q.filter(or_(_KB.is_published == True, _KB.is_published.is_(None)))
+        else:
+            q = q.filter(_KB.is_published == False)
     total = q.count()
     rows = q.order_by(_KB.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return ok({'items': [_kb_payload(k) for k in rows],

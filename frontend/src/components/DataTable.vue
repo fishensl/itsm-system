@@ -24,11 +24,11 @@
           <template #default="{ row }">
             <!-- 状态徽章 -->
             <el-tag v-if="col.type === 'tag'" size="small" :type="tagType(row, col)">
-              {{ col.tagMap?.[row[col.key]] ?? row[col.key] ?? '-' }}
+              {{ displayValue(row, col) ?? '-' }}
             </el-tag>
             <!-- 链接 -->
             <router-link v-else-if="col.type === 'link'" :to="col.link?.(row) ?? '#'" class="row-link">
-              {{ row[col.key] ?? '-' }}
+              {{ displayValue(row, col) ?? '-' }}
             </router-link>
             <!-- 操作按钮组 -->
             <div v-else-if="col.type === 'action'" class="row-actions" @click.stop>
@@ -49,9 +49,9 @@
             <!-- 金额 -->
             <span v-else-if="col.type === 'money'">{{ fmtMoney(row[col.key]) }}</span>
             <!-- 日期 -->
-            <span v-else-if="col.type === 'date'">{{ row[col.key] || '-' }}</span>
+            <span v-else-if="col.type === 'date'">{{ displayValue(row, col) ?? '-' }}</span>
             <!-- 文本（支持高亮） -->
-            <span v-else :class="col.cellClass?.(row)">{{ row[col.key] ?? '-' }}</span>
+            <span v-else :class="col.cellClass?.(row)">{{ displayValue(row, col) ?? '-' }}</span>
           </template>
         </el-table-column>
         <template #empty>
@@ -87,13 +87,13 @@
                 :type="tagType(row, tagCol)"
                 class="card-tag"
               >
-                {{ tagCol.tagMap?.[row[tagCol.key]] ?? row[tagCol.key] ?? '-' }}
+                {{ displayValue(row, tagCol) ?? '-' }}
               </el-tag>
             </div>
             <div class="card-fields">
               <span v-for="col in bodyCols" :key="col.key" class="card-field">
                 <span class="card-field-label">{{ col.label }}：</span>
-                <span class="card-field-value">{{ row[col.key] ?? '-' }}</span>
+                <span class="card-field-value">{{ displayValue(row, col) ?? '-' }}</span>
               </span>
             </div>
           </div>
@@ -157,6 +157,8 @@ export interface DataColumn<T = Record<string, any>> {
   ellipsis?: boolean
   /** tag 类型的颜色映射：值 → el-tag type */
   tagMap?: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'>
+  /** 显示文本映射：值 → 中文文本（布尔/枚举英文值显示层翻译，tag/text/link 列通用） */
+  valueMap?: Record<string, string>
   link?: (row: T) => string
   cellClass?: (row: T) => string
   actions?: DataAction<T>[]
@@ -201,8 +203,18 @@ const bodyCols = computed(() =>
 )
 
 function tagType(row: Record<string, any>, col: DataColumn) {
-  const v = row[col.key] as string
-  return col.tagMap?.[v] ?? 'info'
+  const v = row[col.key]
+  if (v === null || v === undefined) return 'info'
+  return col.tagMap?.[String(v)] ?? 'info'
+}
+
+/** 单元格显示文本：valueMap 翻译（布尔/数字先 String 化），无映射回退原值 */
+function displayValue(row: Record<string, any>, col: DataColumn) {
+  const v = row[col.key]
+  if (v === null || v === undefined) return undefined
+  const mapped = col.valueMap?.[String(v)]
+  if (mapped !== undefined) return mapped
+  return typeof v === 'string' ? v : String(v)
 }
 
 function visibleActions(row: Record<string, any>, col: DataColumn) {

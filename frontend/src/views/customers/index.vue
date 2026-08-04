@@ -15,7 +15,7 @@
         <el-input v-model="query.search" placeholder="搜索名称 / 联系人 / 电话" clearable class="filter-search"
           @keyup.enter="reload" @clear="reload" />
         <el-select v-model="query.level" placeholder="等级" clearable class="filter-item" @change="reload">
-          <el-option v-for="l in levels" :key="l" :label="l" :value="l" />
+          <el-option v-for="l in levels" :key="l" :label="CUSTOMER_LEVEL_LABELS[l] || l" :value="l" />
         </el-select>
         <el-select v-model="query.category_id" placeholder="单位类别" clearable class="filter-item" @change="reload">
           <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
@@ -40,7 +40,9 @@
         <el-divider content-position="left">基本信息</el-divider>
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="等级">
-            <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">{{ detail.level }}</el-tag>
+            <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
+              {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="单位类别">{{ detail.category_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="所属地区">{{ detail.region_name || '-' }}</el-descriptions-item>
@@ -193,7 +195,7 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
-  fetchCustomerDicts, CUSTOMER_LEVEL_TAG,
+  fetchCustomerDicts, CUSTOMER_LEVEL_TAG, CUSTOMER_LEVEL_LABELS,
   type Customer, type CustomerDicts, type CustomerForm, type RegionItem,
 } from '@/api/customers'
 
@@ -230,7 +232,8 @@ const columns = computed<DataColumn[]>(() => [
     link: (r) => `/app/customers/${r.id}` },
   { key: 'contact_person', label: '联系人', width: 100 },
   { key: 'phone', label: '电话', minWidth: 120 },
-  { key: 'level', label: '等级', width: 80, type: 'tag', asTag: true, tagMap: CUSTOMER_LEVEL_TAG },
+  { key: 'level', label: '等级', width: 80, type: 'tag', asTag: true,
+    tagMap: CUSTOMER_LEVEL_TAG, valueMap: CUSTOMER_LEVEL_LABELS },
   { key: 'city', label: '城市', minWidth: 100 },
   { key: 'device_count', label: '设备数', width: 80 },
   { key: 'has_onsite_label', label: '驻场', width: 70 },

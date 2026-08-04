@@ -74,7 +74,7 @@
             />
           </el-select>
           <div v-if="!data?.available_users?.length" class="form-tip">
-            暂无可用用户（需 active 且角色为操作员/管理员且未关联）
+            暂无可用用户（需启用状态且角色为操作员/管理员且未关联）
           </div>
         </el-form-item>
         <el-form-item v-if="form.id" label="用户">

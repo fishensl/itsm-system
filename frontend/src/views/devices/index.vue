@@ -216,6 +216,7 @@ import { Plus, Search, View } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { IN_USE_LABELS } from '@/utils/labels'
 import {
   fetchDevices, fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
   type Device, type DeviceForm,
@@ -242,7 +243,7 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'ip_address', label: 'IP:端口', minWidth: 130 },
   { key: 'os_version', label: '系统版本', minWidth: 110 },
   { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
-    tagMap: { 'true': 'success', 'false': 'info' } },
+    tagMap: { 'true': 'success', 'false': 'info' }, valueMap: IN_USE_LABELS },
   { key: 'license_remaining_days', label: '授权', minWidth: 110,
     cellClass: (r) => {
       const d = r.license_remaining_days as number | null

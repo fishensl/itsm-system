@@ -11,7 +11,7 @@
       <el-table-column v-if="showType" prop="field_type" label="字段类型" width="120">
         <template #default="{ row }">
           <el-tag size="small" :type="row.field_type === 'date' ? 'warning' : 'info'">
-            {{ row.field_type === 'date' ? '日期' : '文本' }}
+            {{ FIELD_TYPE_LABELS[row.field_type] || FIELD_TYPE_LABELS.text }}
           </el-tag>
         </template>
       </el-table-column>
@@ -34,8 +34,8 @@
         </el-form-item>
         <el-form-item v-if="showType" label="字段类型">
           <el-select v-model="form.field_type" style="width: 100%">
-            <el-option label="文本" value="text" />
-            <el-option label="日期" value="date" />
+            <el-option v-for="(label, value) in FIELD_TYPE_OPTIONS" :key="value"
+              :label="label" :value="value" />
           </el-select>
         </el-form-item>
         <el-form-item label="排序">
@@ -61,6 +61,17 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
 const props = defineProps<{ resource: 'types' | 'brands' | 'network-types' | 'custom-fields'; showType: boolean }>()
+
+/** 自定义字段类型（对齐后端 utils/permission.py FIELD_TYPE_CHOICES） */
+const FIELD_TYPE_OPTIONS: Record<string, string> = {
+  text: '单行文本',
+  multiline_text: '多行文本',
+  dropdown: '下拉选择',
+  number: '数字',
+  image: '图片上传',
+  date: '日期',
+}
+const FIELD_TYPE_LABELS = FIELD_TYPE_OPTIONS
 
 const user = useUserStore()
 const ui = useUiStore()

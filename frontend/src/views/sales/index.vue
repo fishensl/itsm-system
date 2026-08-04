@@ -340,6 +340,7 @@ import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { BOOL_LABELS } from '@/utils/labels'
 import {
   fetchOpportunities, createOpportunity, updateOpportunity, deleteOpportunity,
   fetchQuotations, createQuotation, updateQuotation, deleteQuotation,
@@ -562,7 +563,9 @@ const contractColumns = computed<DataColumn[]>(() => [
   { key: 'status', label: '状态', width: 90, type: 'tag', asTag: true, tagMap: CONTRACT_STATUS_TAG },
   { key: 'start_date', label: '开始', width: 100, type: 'date' },
   { key: 'end_date', label: '结束', width: 100, type: 'date' },
-  { key: 'auto_generate_tasks', label: '自动巡检', width: 90, cellClass: (r) => (r.auto_generate_tasks ? 'gen-on' : '') },
+  { key: 'auto_generate_tasks', label: '自动巡检', width: 90, type: 'tag',
+    tagMap: { true: 'success', false: 'info' }, valueMap: BOOL_LABELS,
+    cellClass: (r) => (r.auto_generate_tasks ? 'gen-on' : '') },
   { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right',
     actions: [
       { label: '编辑', type: 'primary', link: true, perm: 'sales:edit', icon: 'Edit',

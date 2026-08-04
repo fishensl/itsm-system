@@ -19,7 +19,9 @@
         <el-table-column prop="frequency" label="推荐频率" width="90">
           <template #default="{ row }">{{ row.frequency || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="customer_tier" label="适用级别" width="100" />
+        <el-table-column label="适用级别" width="100">
+          <template #default="{ row }">{{ row.customer_tier === 'all' ? '全部' : (row.customer_tier || '-') }}</template>
+        </el-table-column>
         <el-table-column label="关联设备模板" min-width="160">
           <template #default="{ row }">
             <el-tag v-for="dt in deviceTemplateNames(row.device_template_ids)" :key="dt.id" size="small"

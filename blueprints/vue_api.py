@@ -1178,7 +1178,7 @@ def api_customer_dicts():
     regions = [{'id': r.id, 'name': r.name, 'parent_id': r.parent_id}
                for r in _R.query.order_by(_R.sort_order, _R.id).all()]
     return ok({'customer_categories': categories, 'regions': regions,
-               'levels': ['核心', '重点', '常规']})
+               'levels': ['auto', '核心', '重点', '常规']})
 
 
 # ==================== 巡检记录 ====================

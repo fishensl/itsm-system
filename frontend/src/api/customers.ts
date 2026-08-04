@@ -62,6 +62,12 @@ export const CUSTOMER_LEVEL_TAG: Record<string, 'primary' | 'success' | 'warning
   核心: 'danger',
   重点: 'warning',
   常规: 'info',
+  auto: 'info',
+}
+
+/** 等级值 → 中文显示文本（auto 为「自动（智能定级）」） */
+export const CUSTOMER_LEVEL_LABELS: Record<string, string> = {
+  auto: '自动',
 }
 
 export function fetchCustomers(params: CustomerQuery) {
