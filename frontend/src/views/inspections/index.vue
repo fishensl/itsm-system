@@ -116,7 +116,7 @@
     </el-drawer>
 
     <!-- 审核弹窗（双栏：报告在线预览 + 检查项清单勾选） -->
-    <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="980px"
+    <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="1080px"
       top="4vh" destroy-on-close>
       <div class="review-layout">
         <!-- 左栏：报告预览 -->
@@ -140,9 +140,9 @@
           </div>
         </div>
 
-        <!-- 右栏：检查项 + 审核表单 -->
+        <!-- 右栏：检查项 + 审核表单（label 置顶避免窄栏重叠） -->
         <div class="review-panel">
-          <el-form label-width="0px">
+          <el-form label-position="top">
             <div class="checklist-title">审核检查项<span class="checklist-hint">逐项核对，全程留痕</span></div>
             <div v-for="item in checklistItems" :key="item.name" class="check-item">
               <span class="check-name">{{ item.name }}</span>
@@ -538,15 +538,18 @@ onMounted(() => {
 .action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .task-status-tag { margin-left: 6px; }
 .text-muted { color: var(--itsm-text-muted); }
-.review-layout { display: flex; gap: 12px; }
+.review-layout { display: flex; gap: 14px; }
 .review-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.review-panel { width: 340px; flex-shrink: 0; }
+.review-panel { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; }
+.review-panel .el-form {
+  max-height: 62vh; overflow-y: auto; padding-right: 4px;
+}
 .preview-tabs { flex-shrink: 0; }
 .preview-body { flex: 1; min-height: 380px; max-height: 62vh; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; padding: 8px; }
-.checklist-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.checklist-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 .checklist-hint { font-weight: 400; font-size: 12px; color: var(--itsm-text-muted); margin-left: 6px; }
-.check-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
-.check-name { font-size: 13px; }
+.check-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
+.check-name { font-size: 13px; flex-shrink: 0; }
 .check-item .el-radio-button__inner { padding: 4px 8px; font-size: 12px; }
-.review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; flex-shrink: 0; }
 </style>
