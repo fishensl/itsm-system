@@ -1,34 +1,162 @@
 #!/usr/bin/env bash
 # ============================================================
-# 工作机一键部署：scp 发布包 → 远程执行 update.sh（全自动，零手动步骤）
-# 前置：已配置 ssh 免密（一次性：type ~/.ssh/id_rsa_test.pub | ssh root@<服务器> "cat >> ~/.ssh/authorized_keys"）
-# 用法: bash scripts/deploy.sh [root@服务器IP] [远程应用目录]
-# 默认: root@172.16.123.124 /home/itsm-system_20260614
+# ITSM 首次部署脚本 — Ubuntu 24
+# 用法: sudo bash deploy.sh
 # ============================================================
 set -euo pipefail
 
-SERVER="${1:-root@172.16.123.124}"
-REMOTE_DIR="${2:-/home/itsm-system_20260614}"
-APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# ---- 配置 ----
+APP_DIR="${1:-/opt/itsm}"
+REPO_URL="${ITSM_REPO_URL:-}"
+VENV="${APP_DIR}/venv"
 
 echo "============================================"
-echo "  ITSM 一键部署  → ${SERVER}"
+echo "  ITSM 系统部署脚本"
+echo "  目标: Ubuntu 24 / ${APP_DIR}"
 echo "============================================"
 
-# 1. 确认发布包存在
-if [ ! -f "${APP_DIR}/backups/itsm-update.bundle" ] || [ ! -f "${APP_DIR}/backups/vue-dist-manual.zip" ]; then
-    echo "[FATAL] 发布包缺失，请先执行 bash scripts/make-release.sh"
+# ---- 0. 检查 ----
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[FATAL] 请用 sudo 运行此脚本"
     exit 1
 fi
 
-# 2. 传输发布包（scp，内网秒级）
-echo "[1/2] 传输发布包..."
-scp -o ConnectTimeout=10 "${APP_DIR}/backups/itsm-update.bundle" "${APP_DIR}/backups/vue-dist-manual.zip" \
-    "${SERVER}:${REMOTE_DIR}/backups/"
+if [ -z "${REPO_URL}" ]; then
+    echo "[FATAL] 请设置 ITSM_REPO_URL 环境变量为 GitHub 仓库地址"
+    echo "  示例: export ITSM_REPO_URL=https://github.com/YOUR_ORG/itsm-system.git"
+    exit 1
+fi
 
-# 3. 远程执行更新（bundle 应用 + 前端部署 + 迁移 + 重启，全程本地文件零网络）
-echo "[2/2] 远程执行 update.sh ..."
-ssh -o ConnectTimeout=10 "${SERVER}" "sudo bash ${REMOTE_DIR}/scripts/update.sh ${REMOTE_DIR}"
+# ---- 1. 系统依赖 ----
+echo "[1/8] 安装系统依赖..."
+apt-get update -qq
+apt-get install -y -qq python3 python3-venv python3-pip git curl unzip libcairo2
+
+# ---- 2. 克隆仓库 ----
+echo "[2/8] 克隆仓库..."
+if [ -d "${APP_DIR}" ]; then
+    echo "  目录已存在，跳过 clone"
+else
+    git clone "${REPO_URL}" "${APP_DIR}"
+fi
+
+# ---- 3. 创建运行时目录 ----
+echo "[3/8] 创建运行时目录..."
+mkdir -p "${APP_DIR}/instance"
+mkdir -p "${APP_DIR}/logs"
+mkdir -p "${APP_DIR}/reports"
+mkdir -p "${APP_DIR}/uploads"
+mkdir -p "${APP_DIR}/backups"
+mkdir -p "${APP_DIR}/static/uploads/knowledge"
+mkdir -p "${APP_DIR}/static/uploads/spare_parts"
+mkdir -p "${APP_DIR}/static/uploads/topologies"
+
+# ---- 3.5 拉取 drawio webapp（V20 在线拓扑，gitignore 不入库）----
+echo "[3.5/8] 拉取 drawio webapp..."
+if [ ! -f "${APP_DIR}/static/vendor/drawio/index.html" ]; then
+    bash "${APP_DIR}/scripts/fetch-drawio.sh" || echo "  [WARN] drawio 拉取失败，在线拓扑编辑器不可用（可稍后重跑 scripts/fetch-drawio.sh）"
+else
+    echo "  drawio 已存在，跳过"
+fi
+
+# ---- 4. Python 虚拟环境 ----
+echo "[4/8] 创建 Python 虚拟环境..."
+python3 -m venv "${VENV}"
+"${VENV}/bin/pip" install --upgrade pip -q
+"${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
+
+# ---- 5. 生成密钥 ----
+echo "[5/8] 生成密钥..."
+
+if [ ! -f "${APP_DIR}/.env" ]; then
+    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    cat > "${APP_DIR}/.env" <<EOF
+ITSM_SECRET_KEY=${SECRET_KEY}
+ITSM_ENV=production
+FLASK_ENV=production
+EOF
+    chmod 600 "${APP_DIR}/.env"
+    echo "  .env 已创建"
+else
+    echo "  .env 已存在，跳过"
+fi
+
+if [ ! -f "${APP_DIR}/.secret.key" ]; then
+    "${VENV}/bin/python" -c "
+from cryptography.fernet import Fernet
+with open('${APP_DIR}/.secret.key', 'wb') as f:
+    f.write(Fernet.generate_key())
+"
+    chmod 600 "${APP_DIR}/.secret.key"
+    echo "  .secret.key 已创建"
+else
+    echo "  .secret.key 已存在，跳过"
+fi
+
+# ---- 5.5 PostgreSQL（可选，设 ITSM_USE_PG=1 启用）----
+echo ""
+echo "[5.5/8] PostgreSQL（可选）..."
+if [ "${ITSM_USE_PG:-0}" = "1" ]; then
+    apt-get install -y -qq postgresql postgresql-client
+    systemctl enable --now postgresql >/dev/null 2>&1 || true
+    PG_DB="${ITSM_PG_DB:-itsm}"
+    PG_USER="${ITSM_PG_USER:-itsm}"
+    PG_PASSWORD=$(python3 -c "import secrets; print(secrets.token_hex(16))")
+    sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL || { echo "[FATAL] PG 库/用户创建失败"; exit 1; }
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${PG_USER}') THEN
+    CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASSWORD}';
+  ELSE
+    ALTER USER ${PG_USER} WITH PASSWORD '${PG_PASSWORD}';
+  END IF;
+END \$\$;
+SQL
+sudo -u postgres createdb -O "${PG_USER}" -E UTF8 -T template0 --lc-collate=C --lc-ctype=C "${PG_DB}" 2>/dev/null || echo "  PG 库 ${PG_DB} 已存在，沿用"
+sudo -u postgres psql -d "${PG_DB}" -c "GRANT ALL ON SCHEMA public TO ${PG_USER};" >/dev/null
+echo "ITSM_DATABASE_URI=postgresql://${PG_USER}:${PG_PASSWORD}@localhost:5432/${PG_DB}" >> "${APP_DIR}/.env"
+echo "  PostgreSQL 已就绪: ${PG_DB} / ${PG_USER}，URI 已写入 .env"
+else
+    echo "  未启用（默认 SQLite）。全新部署想用 PG：sudo ITSM_USE_PG=1 bash deploy.sh"
+    echo "  已有 SQLite 部署想迁 PG：sudo bash ${APP_DIR}/scripts/pg-migrate.sh"
+fi
+
+# ---- 6. 初始化数据库 ----
+echo "[6/8] 初始化数据库..."
+cd "${APP_DIR}"
+"${VENV}/bin/python" -c "from app import create_app, init_db; init_db(create_app()); print('数据库初始化完成')"
+
+# ---- 7. 创建系统用户 ----
+echo "[7/8] 创建系统用户..."
+if ! id -u itsm &>/dev/null; then
+    useradd -r -s /bin/false itsm
+    echo "  用户 itsm 已创建"
+else
+    echo "  用户 itsm 已存在"
+fi
+chown -R itsm:itsm "${APP_DIR}"
+
+# ---- 8. 安装 systemd 服务 ----
+echo "[8/8] 安装 systemd 服务..."
+# shellcheck disable=SC1091
+source "${APP_DIR}/scripts/lib-install.sh"
+install_service "${APP_DIR}"
+systemctl enable itsm
+systemctl start itsm
 
 echo ""
-echo "部署完成！浏览器硬刷新（Ctrl+Shift+R）后验证：巡检审核清单 / 巡检记录 500"
+echo "============================================"
+echo "  部署完成！"
+echo "============================================"
+echo ""
+echo "服务状态:"
+systemctl status itsm --no-pager -l || true
+echo ""
+echo "访问地址: http://<服务器IP>:5000"
+echo "默认登录: admin / admin123"
+echo ""
+echo "常用命令:"
+echo "  管理控制台: sudo bash ${APP_DIR}/scripts/itsm-admin.sh  (菜单：部署/更新/备份/迁移/改密码/改端口)"
+echo "  状态:  sudo systemctl status itsm"
+echo "  日志:  sudo journalctl -u itsm -f"
+echo "  更新:  sudo bash ${APP_DIR}/scripts/update.sh"
+echo "  备份:  sudo bash ${APP_DIR}/scripts/backup.sh"
