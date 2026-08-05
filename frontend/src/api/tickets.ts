@@ -64,6 +64,8 @@ export interface TicketActionPayload {
   approved?: boolean
   diagnosis?: string
   solution?: string
+  requirements?: string
+  note?: string
 }
 
 export const TICKET_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {

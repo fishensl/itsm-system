@@ -200,7 +200,7 @@ def _revert_task_to_running(i):
 
 @transaction
 def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
-                           current_user_name, submit_review=True, force=False):
+                           current_user_name, submit_review=True, force=False, remark=''):
     """工程师从任务上传现场报告 → 自动生成/复用巡检记录并提交审核。
 
     规则：
@@ -246,7 +246,7 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     version = add_version(
         'inspection', inspection.id,
         report_file=report_path,
-        content={'conclusion': conclusion or ''},
+        content={'conclusion': conclusion or '', 'remark': remark or ''},
         submitted_by_user_id=current_user_id,
         review_status=REVIEW_PENDING if submit_review else '',
     )
@@ -276,16 +276,17 @@ def submit_for_review(inspection_id, current_user_name):
 
 
 @transaction
-def review_inspection(inspection_id, approved, current_user_name, remark=''):
-    """审核巡检 — V21: 审核结果/意见写回最新待审核版本 + 任务联动。
+def review_inspection(inspection_id, approved, current_user_name, remark='', requirements=''):
+    """审核巡检 — V21: 审核结果/意见/修改要求写回最新待审核版本 + 任务联动。
 
     审核通过 (approved=True):
         - review_status = '已通过'，overall_status = '正常'
         - 自动生成正式 Word 报告
         - 关联任务「待审核 → 已完成」（写 actual_end）
-    审核退回 (approved=False):
-        - review_status = '已退回'，overall_status = '异常'（审核意见挂版本）
-        - 关联任务「待审核 → 执行中」，工程师可修改后重新上传
+    审核退回修改 (approved=False):
+        - review_status = '已退回'，overall_status = '异常'
+        - 退回原因 remark + 需要修改的内容 requirements 写回版本
+        - 关联任务「待审核 → 执行中」，工程师按修改要求重传
     """
     from models import User as _User
     i = Inspection.query.get_or_404(inspection_id)
@@ -297,7 +298,8 @@ def review_inspection(inspection_id, approved, current_user_name, remark=''):
     pending = latest_pending_version('inspection', i.id)
     if pending:
         review_version(pending.id, approved,
-                       reviewer_user_id=reviewer.id if reviewer else None, comment=remark)
+                       reviewer_user_id=reviewer.id if reviewer else None,
+                       comment=remark, requirements=requirements)
 
     i.review_status = REVIEW_APPROVED if approved else REVIEW_REJECTED
     i.overall_status = '正常' if approved else '异常'

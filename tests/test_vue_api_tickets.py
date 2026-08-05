@@ -143,6 +143,7 @@ class TestTicketVersionedSubmit:
         self._to_processing(op_client, seed['t'])
         r = op_client.post(f"/api/tickets/{seed['t']}/action", data={
             'action': 'submit', 'diagnosis': '光模块故障', 'solution': '更换光模块',
+            'note': '客户要求工作时段外上门，已协调',
             'report_file': (io.BytesIO(b'fake report'), 'handle.docx'),
         }, content_type='multipart/form-data')
         assert r.status_code == 200, r.get_json()
@@ -155,21 +156,23 @@ class TestTicketVersionedSubmit:
             assert v.version_no == 1
             assert v.review_status == '待审核'
             assert '光模块故障' in (v.content_json or '')
+            assert '工作时段外' in (v.content_json or '')  # 提交备注随版本留档
 
     def test_audit_comment_written_to_version_and_reject_resubmit(self, op_client, seed, app):
-        """退回（意见挂版本）→ 重新提交（版本递增），每轮意见留档"""
+        """退回修改（意见+修改要求挂版本）→ 重新提交（版本递增），每轮意见留档"""
         self._to_processing(op_client, seed['t'])
         r = op_client.post(f"/api/tickets/{seed['t']}/action", json={
             'action': 'submit', 'diagnosis': 'd1', 'solution': 's1'})
         assert r.status_code == 200
         r = op_client.post(f"/api/tickets/{seed['t']}/action", json={
-            'action': 'audit', 'approved': False, 'remark': '缺少变更记录，退回'})
+            'action': 'audit', 'approved': False, 'remark': '缺少变更记录',
+            'requirements': '请补充变更窗口与回退方案后重新提交'})
         assert r.status_code == 200
         with app.app_context():
             t = Ticket.query.get(seed['t'])
             assert t.status == '处理中'
             assert t.audit_status == '拒绝'
-            assert t.audit_comment == '缺少变更记录，退回'
+            assert t.audit_comment == '缺少变更记录'
         # 重新提交 v2
         r = op_client.post(f"/api/tickets/{seed['t']}/action", data={
             'action': 'submit', 'diagnosis': 'd2', 'solution': 's2',
@@ -182,14 +185,16 @@ class TestTicketVersionedSubmit:
                 .order_by(SubmissionVersion.version_no.asc()).all()
             assert [v.version_no for v in versions] == [1, 2]
             assert versions[0].review_status == '已退回'
-            assert versions[0].review_comment == '缺少变更记录，退回'
+            assert versions[0].review_comment == '缺少变更记录'
+            assert versions[0].revision_requirements == '请补充变更窗口与回退方案后重新提交'
             assert versions[1].review_status == '待审核'
-        # 版本列表 API 含审核人/意见
+        # 版本列表 API 含审核人/意见/修改要求
         r = op_client.get(f"/api/tickets/{seed['t']}/versions")
         body = r.get_json()['data']
         assert len(body) == 2
         assert body[0]['review_status'] == '已退回'
-        assert body[0]['review_comment'] == '缺少变更记录，退回'
+        assert body[0]['review_comment'] == '缺少变更记录'
+        assert body[0]['revision_requirements'] == '请补充变更窗口与回退方案后重新提交'
         assert body[0]['submitted_by_name'] == 'op'
         assert body[1]['version_no'] == 2
 

@@ -34,8 +34,8 @@ def add_version(entity_type, entity_id, report_file='', content=None,
     return v
 
 
-def review_version(version_id, approved, reviewer_user_id=None, comment=''):
-    """审核指定版本：写回审核结果/审核人/时间/意见。返回该版本实例。"""
+def review_version(version_id, approved, reviewer_user_id=None, comment='', requirements=''):
+    """审核指定版本：写回审核结果/审核人/时间/意见/修改要求。返回该版本实例。"""
     from utils.constants import REVIEW_APPROVED, REVIEW_REJECTED
     v = SubmissionVersion.query.get_or_404(version_id)
     v.review_status = REVIEW_APPROVED if approved else REVIEW_REJECTED
@@ -43,6 +43,8 @@ def review_version(version_id, approved, reviewer_user_id=None, comment=''):
     v.reviewed_at = datetime.utcnow()
     if comment:
         v.review_comment = comment
+    if requirements:
+        v.revision_requirements = requirements
     return v
 
 
@@ -77,4 +79,5 @@ def _version_payload(v):
         'reviewed_by_name': (reviewer.realname or reviewer.username) if reviewer else '',
         'reviewed_at': v.reviewed_at.strftime('%Y-%m-%d %H:%M') if v.reviewed_at else '',
         'review_comment': v.review_comment or '',
+        'revision_requirements': v.revision_requirements or '',
     }

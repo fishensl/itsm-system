@@ -111,6 +111,7 @@ class SubmissionVersion(db.Model):
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_comment = db.Column(db.Text, default='')          # 本轮审核意见（退回原因）
+    revision_requirements = db.Column(db.Text, default='')   # 退回修改：需要修改的内容（与原因分行保存）
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (
