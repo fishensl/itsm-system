@@ -157,6 +157,13 @@ git_pull_with_fallback() {
     return 1
 }
 
+# ---- 发布包完整性校验（离线包两个文件必须成对，缺一即中断） ----
+if [ -f "${APP_DIR}/backups/itsm-update.bundle" ] && [ ! -f "${APP_DIR}/backups/vue-dist-manual.zip" ]; then
+    echo "[FATAL] 发布包不完整：已上传代码包 backups/itsm-update.bundle，但缺少前端包 backups/vue-dist-manual.zip"
+    echo "        请用 scripts/make-release.sh 生成发布包，并同时上传两个文件到 backups/ 后重跑本脚本"
+    exit 1
+fi
+
 # ---- 3. 拉取最新代码 ----
 echo "[3/6] 拉取最新代码..."
 # 统一生产分支为 master：CI 仅 master 发布 vue-dist，必须同源拉取（避免 main/master 错位）
@@ -211,6 +218,12 @@ deploy_vue_dist() {
         return 1
     fi
     rm -rf "${VUE_DIST_DIR}" && mv "${tmp_dir}" "${VUE_DIST_DIR}"
+    # 部署验证闭环：入口 asset + 关键 chunk（巡检审核清单）存在
+    local entry rc
+    entry=$(grep -o 'assets/index-[^"]*\.js' "${VUE_DIST_DIR}/index.html" 2>/dev/null | head -1)
+    rc=$(ls "${VUE_DIST_DIR}/assets/" 2>/dev/null | grep -c "ReviewChecklist" || true)
+    echo "  [INFO] 前端入口: ${entry:-未知}"
+    echo "  [INFO] 巡检审核清单 chunk: ${rc} 个"
     echo "  [OK] Vue 构建产物已部署（vue-dist）"
     return 0
 }
@@ -277,13 +290,12 @@ if [ "${VUE_DEPLOYED}" != "true" ] && [ -d "${APP_DIR}/frontend" ] && command -v
     (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund 2>/dev/null && npm run build 2>/dev/null && \
      cp -r dist/* "${VUE_DIST_DIR}/") && VUE_DEPLOYED=true && echo "  [OK] 本地构建完成" || echo "  [WARN] 本地构建失败"
 fi
-# 4) 最终检查：Vue 产物缺失时明确告警（默认界面为 Vue 时 /app/* 会 404）
+# 4) 最终检查：前端产物缺失 → 更新失败（明确报错退出，不再"SSR 保底"糊弄"更新完成"）
 if [ "${VUE_DEPLOYED}" != "true" ]; then
-    echo "  [WARN] Vue 产物部署失败（无 gh/curl/Node 或 vue-dist 未发布），SSR 保底"
-    if [ ! -f "${VUE_DIST_DIR}/index.html" ]; then
-        echo "  [FATAL] static/app 无 Vue 产物：默认界面为 Vue 时 /app/* 将 404！"
-        echo "         请先确认 CI 完成并发布 vue-dist（GitHub Actions frontend job），再重跑本脚本"
-    fi
+    echo "  [FATAL] 前端产物部署失败（无手动包且网络多通道均不可达）"
+    echo "         请用 scripts/make-release.sh 生成发布包（itsm-update.bundle + vue-dist-manual.zip），"
+    echo "         同时上传到 backups/ 后重跑本脚本"
+    FRONTEND_FAILED=true
 fi
 
 # ---- 6. 数据库迁移 + schema 同步 ----
@@ -324,5 +336,14 @@ echo ""
 echo "[最后] 重启服务..."
 systemctl restart itsm
 systemctl --no-pager -l status itsm || true
+
+if [ "${FRONTEND_FAILED:-false}" = "true" ]; then
+    echo ""
+    echo "============================================"
+    echo "  更新失败：前端产物未部署！"
+    echo "  请用 scripts/make-release.sh 生成发布包并上传 backups/ 后重跑"
+    echo "============================================"
+    exit 1
+fi
 
 echo "更新完成！"
