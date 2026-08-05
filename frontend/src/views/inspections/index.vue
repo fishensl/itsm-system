@@ -103,9 +103,9 @@
           </template>
           <template v-else-if="detail.review_status === '待审核'">
             <el-button v-if="user.hasPerm('inspection:review')" size="small" type="success"
-              @click="onReview(true)">审核通过</el-button>
+              @click="openReview(true)">审核通过</el-button>
             <el-button v-if="user.hasPerm('inspection:review')" size="small" type="danger"
-              @click="onReview(false)">退回</el-button>
+              @click="openReview(false)">退回修改</el-button>
           </template>
           <el-button v-if="user.hasPerm('inspection:edit')" size="small" type="primary" plain
             @click="openEdit(detail)">编辑</el-button>
@@ -114,6 +114,34 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 审核弹窗（退回修改：原因 + 修改要求） -->
+    <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="520px"
+      destroy-on-close>
+      <el-form label-width="90px">
+        <template v-if="reviewApproved">
+          <el-form-item label="审核意见">
+            <el-input v-model="reviewRemark" type="textarea" :rows="3" placeholder="审核意见（可选）" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="退回原因" required>
+            <el-input v-model="reviewRemark" type="textarea" :rows="2"
+              placeholder="如：报告缺少现场照片、数据有误" />
+          </el-form-item>
+          <el-form-item label="需要修改" required>
+            <el-input v-model="reviewRequirements" type="textarea" :rows="3"
+              placeholder="填写需要修改的内容，工程师将按此要求修改后重新提交审核" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="reviewVisible = false">取消</el-button>
+        <el-button type="primary" :loading="reviewing" @click="doReview">
+          {{ reviewApproved ? '审核通过' : '退回修改' }}
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 新建/编辑巡检 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑巡检' : '新建巡检'" width="600px" top="5vh"
@@ -227,6 +255,13 @@ const detailVisible = ref(false)
 const detail = ref<Inspection | null>(null)
 const versions = ref<SubmissionVersion[]>([])
 
+// 审核弹窗
+const reviewVisible = ref(false)
+const reviewApproved = ref(true)
+const reviewRemark = ref('')
+const reviewRequirements = ref('')
+const reviewing = ref(false)
+
 async function openDetail(row: Record<string, unknown>) {
   try {
     detail.value = await fetchInspection(row.id as number)
@@ -270,24 +305,39 @@ async function onSubmit() {
   }
 }
 
-function onReview(approved: boolean) {
+function openReview(approved: boolean) {
   if (!detail.value) return
-  const action = approved ? '审核通过' : '退回'
-  ElMessageBox.prompt(`${action}该巡检？可填写审核意见`, action, {
-    inputType: 'textarea',
-    inputPlaceholder: approved ? '审核意见（可选）' : '退回原因（必填，工程师将据此修改重传）',
-    confirmButtonText: action,
-  }).then(async ({ value }) => {
-    if (!detail.value) return
-    try {
-      await reviewInspection(detail.value.id, approved, (value || '').trim())
-      ui.toast(`${action}成功`, 'success')
-      await refreshDetail()
-      tableRef.value?.refresh()
-    } catch (e) {
-      ui.toast((e as Error).message, 'error')
+  reviewApproved.value = approved
+  reviewRemark.value = ''
+  reviewRequirements.value = ''
+  reviewVisible.value = true
+}
+
+async function doReview() {
+  if (!detail.value) return
+  if (!reviewApproved.value) {
+    if (!reviewRemark.value.trim()) {
+      ui.toast('请填写退回原因', 'warning')
+      return
     }
-  }).catch(() => {})
+    if (!reviewRequirements.value.trim()) {
+      ui.toast('请填写需要修改的内容（修改要求）', 'warning')
+      return
+    }
+  }
+  reviewing.value = true
+  try {
+    await reviewInspection(detail.value.id, reviewApproved.value,
+      reviewRemark.value.trim(), reviewRequirements.value.trim())
+    ui.toast(`${reviewApproved.value ? '审核通过' : '退回修改'}成功`, 'success')
+    reviewVisible.value = false
+    await refreshDetail()
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    reviewing.value = false
+  }
 }
 
 async function onDelete(i: Inspection) {

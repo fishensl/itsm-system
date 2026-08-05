@@ -13,6 +13,7 @@ export interface SubmissionVersion {
   reviewed_by_name: string
   reviewed_at: string
   review_comment: string
+  revision_requirements: string
 }
 
 export interface Inspection {
@@ -94,8 +95,12 @@ export function submitInspection(id: number) {
   return request<null>({ url: `/api/inspections/${id}/submit`, method: 'POST' })
 }
 
-export function reviewInspection(id: number, approved: boolean, remark?: string) {
-  return request<null>({ url: `/api/inspections/${id}/review`, method: 'POST', data: { approved, remark } })
+export function reviewInspection(id: number, approved: boolean, remark?: string, requirements?: string) {
+  return request<null>({
+    url: `/api/inspections/${id}/review`,
+    method: 'POST',
+    data: { approved, remark, requirements },
+  })
 }
 
 /** 从任务上传巡检报告（multipart：report_file + conclusion）→ 自动建记录/版本并提交审核 */

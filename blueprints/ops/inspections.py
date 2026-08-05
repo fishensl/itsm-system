@@ -115,8 +115,10 @@ def inspection_submit(id):
 def inspection_review(id):
     approved = request.form.get('approved') == '1'
     remark = request.form.get('remark', '')
+    requirements = request.form.get('requirements', '')
     try:
-        review_inspection(id, approved, current_user.realname or current_user.username, remark)
+        review_inspection(id, approved, current_user.realname or current_user.username,
+                          remark, requirements)
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("更新失败：%s", repr(e))

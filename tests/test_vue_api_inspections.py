@@ -170,7 +170,8 @@ class TestInspectionUploadReportFlow:
             tid = t3.id
         r = op_client.post(f'/api/inspections/task/{tid}/report',
                            data={'report_file': _dummy_file(),
-                                 'conclusion': '现场巡检完成，设备运行正常'},
+                                 'conclusion': '现场巡检完成，设备运行正常',
+                                 'remark': '客户口头反馈下季度扩容计划'},
                            content_type='multipart/form-data')
         assert r.status_code == 200, r.get_json()
         body = r.get_json()['data']
@@ -188,6 +189,7 @@ class TestInspectionUploadReportFlow:
             assert v.review_status == '待审核'
             assert v.report_file == i.submitted_report
             assert '现场巡检完成' in (v.content_json or '')
+            assert '扩容计划' in (v.content_json or '')  # 提交备注随版本留档
 
     def test_upload_requires_running_task(self, op_client, app, seed):
         with app.app_context():
@@ -286,15 +288,15 @@ class TestInspectionUploadReportFlow:
         assert '待审核' in r.get_json()['message']
 
     def test_versions_after_multi_round(self, op_client, seed, app):
-        """退回 → 再上传 → 版本递增，每轮审核意见/文件留档"""
+        """退回修改（带修改要求）→ 再上传 → 版本递增，每轮审核意见/修改要求/文件留档"""
         # v1 上传
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
         assert r.status_code == 200
-        # 退回 v1
+        # 退回修改 v1：原因 + 修改要求
         r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
-            'approved': False, 'remark': '请补充照片'})
+            'approved': False, 'remark': '报告缺照片', 'requirements': '请补充每台设备的现场照片并重新上传'})
         assert r.status_code == 200
         # v2 重传
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
@@ -308,15 +310,17 @@ class TestInspectionUploadReportFlow:
                 .order_by(SubmissionVersion.version_no.asc()).all()
             assert [v.version_no for v in versions] == [1, 2]
             assert versions[0].review_status == '已退回'
-            assert versions[0].review_comment == '请补充照片'
+            assert versions[0].review_comment == '报告缺照片'
+            assert versions[0].revision_requirements == '请补充每台设备的现场照片并重新上传'
             assert versions[1].review_status == '待审核'
-        # 版本列表 API
+        # 版本列表 API 含修改要求
         r = op_client.get(f"/api/inspections/{seed['i1']}/versions")
         body = r.get_json()['data']
         assert len(body) == 2
         assert body[0]['version_no'] == 1
         assert body[0]['review_status'] == '已退回'
-        assert body[0]['review_comment'] == '请补充照片'
+        assert body[0]['review_comment'] == '报告缺照片'
+        assert body[0]['revision_requirements'] == '请补充每台设备的现场照片并重新上传'
         assert body[1]['version_no'] == 2
         assert body[1]['reviewed_by_name'] == ''  # 未审核
 

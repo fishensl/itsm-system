@@ -179,7 +179,8 @@ def ticket_audit(id):
     approved = request.form.get('action') == '通过'
     try:
         audit_ticket(id, approved, current_user.realname or current_user.username,
-                     request.form.get('comment', ''))
+                     request.form.get('comment', ''),
+                     requirements=request.form.get('requirements', ''))
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("更新失败：%s", repr(e))

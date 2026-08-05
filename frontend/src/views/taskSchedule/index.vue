@@ -261,6 +261,10 @@
           <el-input v-model="uploadConclusion" type="textarea" :rows="3"
             placeholder="本次巡检结论（可选），如：设备运行正常，无异常" />
         </el-form-item>
+        <el-form-item label="提交备注">
+          <el-input v-model="uploadRemark" type="textarea" :rows="2"
+            placeholder="不便写入报告的实际情况（可选），将随本次提交留档" />
+        </el-form-item>
         <el-form-item v-if="uploadHint" label="提示">
           <span class="upload-hint">{{ uploadHint }}</span>
         </el-form-item>
@@ -319,6 +323,7 @@ const uploading = ref(false)
 const uploadRef = ref()
 const uploadFile = ref<File | null>(null)
 const uploadConclusion = ref('')
+const uploadRemark = ref('')
 const uploadHint = computed(() => {
   const st = detail.value?.status
   if (st === '待审核') return '任务正在审核中，请等待审核结果后再上传'
@@ -461,6 +466,7 @@ async function loadRecord() {
 function openUpload() {
   uploadFile.value = null
   uploadConclusion.value = ''
+  uploadRemark.value = ''
   uploadRef.value?.clearFiles?.()
   uploadVisible.value = true
 }
@@ -486,6 +492,7 @@ async function doUpload() {
     const fd = new FormData()
     fd.append('report_file', uploadFile.value)
     fd.append('conclusion', uploadConclusion.value)
+    fd.append('remark', uploadRemark.value)
     const r = await uploadTaskReport(detail.value.id, fd)
     ui.toast(`已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`, 'success')
     uploadVisible.value = false

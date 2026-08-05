@@ -64,10 +64,18 @@ def upgrade():
     if 'submitted_report' not in cols:
         with op.batch_alter_table('inspections', schema=None) as batch_op:
             batch_op.add_column(sa.Column('submitted_report', sa.String(length=256), nullable=True))
+    sv_cols = _existing_columns(bind, 'submission_versions')
+    if 'revision_requirements' not in sv_cols:
+        with op.batch_alter_table('submission_versions', schema=None) as batch_op:
+            batch_op.add_column(sa.Column('revision_requirements', sa.Text(), nullable=True))
 
 
 def downgrade():
     bind = op.get_bind()
+    sv_cols = _existing_columns(bind, 'submission_versions')
+    if 'revision_requirements' in sv_cols:
+        with op.batch_alter_table('submission_versions', schema=None) as batch_op:
+            batch_op.drop_column('revision_requirements')
     cols = _existing_columns(bind, 'inspections')
     if 'submitted_report' in cols:
         with op.batch_alter_table('inspections', schema=None) as batch_op:

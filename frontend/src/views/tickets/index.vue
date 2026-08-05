@@ -127,7 +127,7 @@
               审核通过
             </el-button>
             <el-button v-if="user.hasPerm('ticket:review')" size="small" type="danger" @click="openAudit(false)">
-              退回
+              退回修改
             </el-button>
           </template>
           <template v-else-if="detail.status === '已验收'">
@@ -161,7 +161,7 @@
       </div>
     </el-drawer>
 
-    <!-- 提交审核（处理报告 + 诊断/方案） -->
+    <!-- 提交审核（处理报告 + 诊断/方案 + 提交备注） -->
     <el-dialog v-model="submitVisible" title="提交审核" width="560px" destroy-on-close>
       <el-form label-width="90px">
         <el-form-item label="处理报告" required>
@@ -178,10 +178,42 @@
         <el-form-item label="解决方案">
           <el-input v-model="submitForm.solution" type="textarea" :rows="3" placeholder="处置方案（可选）" />
         </el-form-item>
+        <el-form-item label="提交备注">
+          <el-input v-model="submitForm.note" type="textarea" :rows="2"
+            placeholder="不便写入报告的实际情况（可选），将随本次提交留档" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="submitVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="doSubmit">提交审核</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 审核弹窗（退回修改：原因 + 修改要求） -->
+    <el-dialog v-model="auditVisible" :title="auditApproved ? '审核通过' : '退回修改'" width="520px"
+      destroy-on-close>
+      <el-form label-width="90px">
+        <template v-if="auditApproved">
+          <el-form-item label="审核意见">
+            <el-input v-model="auditRemark" type="textarea" :rows="3" placeholder="审核意见（可选）" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="退回原因" required>
+            <el-input v-model="auditRemark" type="textarea" :rows="2"
+              placeholder="如：缺少变更记录、处理方案不完整" />
+          </el-form-item>
+          <el-form-item label="需要修改" required>
+            <el-input v-model="auditRequirements" type="textarea" :rows="3"
+              placeholder="填写需要修改的内容，工程师将按此要求修改后重新提交审核" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="auditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="auditing" @click="doAudit">
+          {{ auditApproved ? '审核通过' : '退回修改' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -338,37 +370,62 @@ async function doAction(action: string, approved?: boolean) {
 
 function openAudit(approved: boolean) {
   if (!detail.value) return
-  const action = approved ? '审核通过' : '退回'
-  ElMessageBox.prompt(`${action}该工单？可填写审核意见`, action, {
-    inputType: 'textarea',
-    inputPlaceholder: approved ? '审核意见（可选）' : '退回原因（必填，处理人将据此修改重交）',
-    confirmButtonText: action,
-  }).then(async ({ value }) => {
-    if (!detail.value) return
-    try {
-      await ticketAction(detail.value.id, {
-        action: 'audit', approved, remark: (value || '').trim(),
-      })
-      ui.toast(`${action}成功`, 'success')
-      await refreshDetail()
-      tableRef.value?.refresh()
-    } catch (e) {
-      ui.toast((e as Error).message, 'error')
-    }
-  }).catch(() => {})
+  auditApproved.value = approved
+  auditRemark.value = ''
+  auditRequirements.value = ''
+  auditVisible.value = true
 }
 
-// 提交审核（处理报告 + 诊断/方案）
+async function doAudit() {
+  if (!detail.value) return
+  if (!auditApproved.value) {
+    if (!auditRemark.value.trim()) {
+      ui.toast('请填写退回原因', 'warning')
+      return
+    }
+    if (!auditRequirements.value.trim()) {
+      ui.toast('请填写需要修改的内容（修改要求）', 'warning')
+      return
+    }
+  }
+  auditing.value = true
+  try {
+    await ticketAction(detail.value.id, {
+      action: 'audit',
+      approved: auditApproved.value,
+      remark: auditRemark.value.trim(),
+      requirements: auditRequirements.value.trim(),
+    })
+    ui.toast(`${auditApproved.value ? '审核通过' : '退回修改'}成功`, 'success')
+    auditVisible.value = false
+    await refreshDetail()
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    auditing.value = false
+  }
+}
+
+// 提交审核（处理报告 + 诊断/方案 + 提交备注）
 const submitVisible = ref(false)
 const submitting = ref(false)
 const submitUploadRef = ref()
 const submitFile = ref<File | null>(null)
-const submitForm = reactive({ diagnosis: '', solution: '' })
+const submitForm = reactive({ diagnosis: '', solution: '', note: '' })
+
+// 审核弹窗
+const auditVisible = ref(false)
+const auditApproved = ref(true)
+const auditRemark = ref('')
+const auditRequirements = ref('')
+const auditing = ref(false)
 
 function openSubmit() {
   submitFile.value = null
   submitForm.diagnosis = ''
   submitForm.solution = ''
+  submitForm.note = ''
   submitUploadRef.value?.clearFiles?.()
   submitVisible.value = true
 }
@@ -390,6 +447,7 @@ async function doSubmit() {
     fd.append('report_file', submitFile.value)
     fd.append('diagnosis', submitForm.diagnosis)
     fd.append('solution', submitForm.solution)
+    fd.append('note', submitForm.note)
     await ticketActionSubmit(detail.value.id, fd)
     ui.toast('已提交审核（生成提交记录）', 'success')
     submitVisible.value = false

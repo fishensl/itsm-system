@@ -140,11 +140,12 @@ def accept_ticket(ticket_id, current_user_name, remark=''):
 
 @transaction
 def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solution=None,
-                  report_path='', submitter_user_id=None):
+                  report_path='', submitter_user_id=None, note=''):
     """提交处理结果（待审核），同时保存诊断分析与解决方案。
 
-    V21：每次提交追加一条 SubmissionVersion（含诊断/方案快照 + 处理报告文件），
+    V21：每次提交追加一条 SubmissionVersion（含诊断/方案/提交备注快照 + 处理报告文件），
     Ticket.report_file 指向最新提交的报告；退回后修改可再次提交，历史版本全部保留。
+    note 为工程师提交备注（不便写入报告的实际说明）。
     """
     t = Ticket.query.get_or_404(ticket_id)
     if t.status != '处理中':
@@ -158,7 +159,7 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
     add_version(
         'ticket', t.id,
         report_file=report_path or '',
-        content={'diagnosis': diagnosis or '', 'solution': solution or ''},
+        content={'diagnosis': diagnosis or '', 'solution': solution or '', 'remark': note or ''},
         submitted_by_user_id=submitter_user_id,
         review_status=REVIEW_PENDING,
     )
@@ -168,10 +169,10 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
 
 
 @transaction
-def audit_ticket(ticket_id, approved, current_user_name, remark=''):
-    """审核工单：approved=True 转 已验收，False 回退 处理中。
+def audit_ticket(ticket_id, approved, current_user_name, remark='', requirements=''):
+    """审核工单：approved=True 转 已验收，False 退回修改转 处理中。
 
-    V21：审核结果/意见写回最新待审核版本（完整审核历史），
+    V21：审核结果/意见/修改要求写回最新待审核版本（完整审核历史），
     Ticket.audit_* 保留最新一轮快捷值（兼容老逻辑）。
     """
     t = Ticket.query.get_or_404(ticket_id)
@@ -187,7 +188,8 @@ def audit_ticket(ticket_id, approved, current_user_name, remark=''):
     pending = latest_pending_version('ticket', t.id)
     if pending:
         review_version(pending.id, approved,
-                       reviewer_user_id=reviewer.id if reviewer else None, comment=remark)
+                       reviewer_user_id=reviewer.id if reviewer else None,
+                       comment=remark, requirements=requirements)
     _transition(t, target, current_user_name, remark or ('审核通过' if approved else '审核不通过'))
     return t
 

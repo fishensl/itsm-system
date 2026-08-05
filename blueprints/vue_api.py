@@ -981,10 +981,12 @@ def api_ticket_action(ticket_id):
         elif action == 'submit':
             submit_ticket(ticket_id, me, remark or '提交审核',
                           diagnosis=data.get('diagnosis'), solution=data.get('solution'),
-                          report_path=report_path, submitter_user_id=current_user.id)
+                          report_path=report_path, submitter_user_id=current_user.id,
+                          note=data.get('note') or '')
         elif action == 'audit':
             approved = bool(data.get('approved'))
-            audit_ticket(ticket_id, approved, me, remark or ('审核通过' if approved else '审核不通过'))
+            audit_ticket(ticket_id, approved, me, remark or ('审核通过' if approved else '退回修改'),
+                         requirements=data.get('requirements') or '')
         elif action == 'accept_check':
             approved = bool(data.get('approved'))
             accept_check_ticket(ticket_id, me, remark or ('客户验收通过' if approved else '客户验收退回'),
@@ -1423,13 +1425,16 @@ def api_inspection_submit(inspection_id):
 @login_required
 @require_permission('inspection:review')
 def api_inspection_review(inspection_id):
-    """审核巡检：approved=True 通过（自动生成 Word 报告）/ False 退回"""
+    """审核巡检：approved=True 通过（自动生成 Word 报告）/ False 退回修改。
+    remark=退回原因/审核意见，requirements=需要修改的内容（退回时填写）。"""
     from services.inspection_service import review_inspection
     data = request.get_json(silent=True) or {}
     approved = bool(data.get('approved'))
     remark = data.get('remark') or ''
+    requirements = data.get('requirements') or ''
     try:
-        review_inspection(inspection_id, approved, current_user.realname or current_user.username, remark)
+        review_inspection(inspection_id, approved, current_user.realname or current_user.username,
+                          remark, requirements)
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '审核失败', 400)
@@ -1465,6 +1470,7 @@ def api_inspection_upload_report(task_id):
     f.save(os.path.join('static', rel_path))
 
     conclusion = (request.form.get('conclusion') or '').strip()
+    remark = (request.form.get('remark') or '').strip()
     me = current_user
     try:
         inspection, version = upload_report_for_task(
@@ -1472,6 +1478,7 @@ def api_inspection_upload_report(task_id):
             current_user_id=me.id,
             current_user_name=me.realname or me.username,
             force=(me.role == 'admin'),
+            remark=remark,
         )
     except Exception as e:
         db.session.rollback()
