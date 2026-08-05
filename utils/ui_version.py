@@ -51,6 +51,7 @@ _VUE_URL_MAP = {
     '/permissions': '/app/permissions',
     '/departments/': '/app/system/users?tab=departments',
     '/system/backup': '/app/system/backup',
+    '/system/review-checklist': '/app/system/review-checklist',
     '/users': '/app/system/users?tab=users',
 }
 

@@ -42,6 +42,8 @@ class TestUiVersionCore:
             # 用户/部门入口映射到 system/users 标签页
             assert sidebar_url('/users') == '/app/system/users?tab=users'
             assert sidebar_url('/departments/') == '/app/system/users?tab=departments'
+            # 巡检审核清单入口（V23 新增页面必须映射，否则侧栏点击 404）
+            assert sidebar_url('/system/review-checklist') == '/app/system/review-checklist'
             # 映射值自带 query 时原始 query 用 & 拼接
             assert sidebar_url('/spare-stocks?search=x') == '/app/spare-parts?tab=stocks&search=x'
             # 未迁移保持原样
@@ -62,6 +64,7 @@ class TestUiVersionCore:
             assert sidebar_url('/spare-stocks', force=True) == '/app/spare-parts?tab=stocks'
             assert sidebar_url('/ai-config', force=True) == '/app/ai-config'
             assert sidebar_url('/inspection-templates', force=True) == '/inspection-templates'
+            assert sidebar_url('/system/review-checklist', force=True) == '/app/system/review-checklist'
 
 
 class TestUiVersionApi:
