@@ -1,17 +1,38 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types'
 
+export interface SubmissionVersion {
+  id: number
+  version_no: number
+  report_file: boolean
+  report_name: string
+  content: Record<string, unknown>
+  submitted_by_name: string
+  submitted_at: string
+  review_status: string
+  reviewed_by_name: string
+  reviewed_at: string
+  review_comment: string
+}
+
 export interface Inspection {
   id: number
   title: string
   customer_id: number | null
   customer_name: string
+  task_id: number | null
+  task_title: string
   inspection_date: string
   overall_status: string
   review_status: string
   inspector_name: string
   report_file: boolean
   report_label: string
+  report_file_name: string
+  submitted_report: boolean
+  submitted_report_name: string
+  complete: boolean
+  missing_fields: string[]
   location: string
   conclusion: string
   content_json: unknown[]
@@ -29,6 +50,10 @@ export interface InspectionQuery {
   status?: string
   review_status?: string
   customer_id?: number
+  task_id?: number
+  date_from?: string
+  date_to?: string
+  incomplete_only?: number
 }
 
 export const OVERALL_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
@@ -73,13 +98,65 @@ export function reviewInspection(id: number, approved: boolean, remark?: string)
   return request<null>({ url: `/api/inspections/${id}/review`, method: 'POST', data: { approved, remark } })
 }
 
+/** 从任务上传巡检报告（multipart：report_file + conclusion）→ 自动建记录/版本并提交审核 */
+export function uploadTaskReport(taskId: number, formData: FormData) {
+  return request<{ inspection_id: number; version_no: number; task_status: string }>({
+    url: `/api/inspections/task/${taskId}/report`,
+    method: 'POST',
+    data: formData,
+  })
+}
+
+export function fetchInspectionVersions(id: number) {
+  return request<SubmissionVersion[]>({ url: `/api/inspections/${id}/versions`, method: 'GET' })
+}
+
+/** 版本报告下载地址（GET） */
+export function versionReportUrl(entityType: 'inspection' | 'ticket', versionId: number) {
+  return entityType === 'inspection'
+    ? `/api/inspections/report/${versionId}`
+    : `/api/tickets/report/${versionId}`
+}
+
+/** 正式 Word 报告下载地址（审核通过自动生成，存 reports/） */
+export function formalReportUrl(filename: string) {
+  return `/reports/${encodeURIComponent(filename)}`
+}
+
+export interface InspectionTaskOption {
+  id: number
+  title: string
+  status: string
+  customer_id: number
+  customer_name: string
+  assignee_id: number | null
+}
+
 export interface InspectionDicts {
   customers: { id: number; name: string }[]
   inspectors: { user_id: number; name: string }[]
+  tasks: InspectionTaskOption[]
   overall_statuses: string[]
   review_statuses: string[]
 }
 
 export function fetchInspectionDicts() {
   return request<InspectionDicts>({ url: '/api/dicts/inspections', method: 'GET' })
+}
+
+/** 巡检记录导出 URL（SSR，带筛选参数） */
+export function inspectionExportUrl(params: Record<string, unknown>) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+  })
+  return `/inspections/export?${q.toString()}`
+}
+
+export function inspectionReportsZipUrl(params: Record<string, unknown>) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+  })
+  return `/inspections/reports-zip?${q.toString()}`
 }

@@ -1,5 +1,8 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types'
+import type { SubmissionVersion } from './inspections'
+
+export { versionReportUrl } from './inspections'
 
 export interface Ticket {
   id: number
@@ -19,7 +22,15 @@ export interface Ticket {
   solution: string
   description: string
   audit_status: string
+  audit_by: string
+  audit_at: string
+  audit_comment: string
   accept_status: string
+  accept_comment: string
+  report_file: boolean
+  report_name: string
+  complete: boolean
+  missing_fields: string[]
   assigned_at: string
   accepted_at: string
   completed_at: string
@@ -41,6 +52,9 @@ export interface TicketQuery {
   priority?: string
   customer_id?: number
   scope?: string
+  date_from?: string
+  date_to?: string
+  incomplete_only?: number
 }
 
 export interface TicketActionPayload {
@@ -86,6 +100,15 @@ export function ticketAction(id: number, payload: TicketActionPayload) {
   return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: payload })
 }
 
+/** 提交处理结果 + 上传处理报告（multipart：action + report_file + diagnosis + solution + remark） */
+export function ticketActionSubmit(id: number, formData: FormData) {
+  return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: formData })
+}
+
+export function fetchTicketVersions(id: number) {
+  return request<SubmissionVersion[]>({ url: `/api/tickets/${id}/versions`, method: 'GET' })
+}
+
 export interface TicketDicts {
   customers: { id: number; name: string }[]
   fault_types: { id: number; name: string }[]
@@ -95,4 +118,21 @@ export interface TicketDicts {
 
 export function fetchTicketDicts() {
   return request<TicketDicts>({ url: '/api/dicts/tickets', method: 'GET' })
+}
+
+/** 工单记录导出 URL（SSR，带筛选参数） */
+export function ticketExportUrl(params: Record<string, unknown>) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+  })
+  return `/tickets/export?${q.toString()}`
+}
+
+export function ticketReportsZipUrl(params: Record<string, unknown>) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+  })
+  return `/tickets/reports-zip?${q.toString()}`
 }

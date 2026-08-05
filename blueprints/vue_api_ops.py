@@ -819,6 +819,7 @@ def api_task_schedule_board():
         'total': len(items),
         'pending': sum(1 for t in items if t['status'] == '待执行'),
         'running': sum(1 for t in items if t['status'] == '执行中'),
+        'reviewing': sum(1 for t in items if t['status'] == '待审核'),
         'done': sum(1 for t in items if t['status'] == '已完成'),
         'overdue': sum(1 for t in items if t['overdue']),
         'est_effort': round(sum(t['estimated_effort'] or 0 for t in items), 2),
@@ -832,7 +833,7 @@ def api_task_schedule_board():
         groups['__unassigned__'] = [t for t in items if not t['assignee_id']]
         data = {'engineer_groups': groups, 'engineers': engineers, 'view': 'engineer'}
     else:
-        groups = {st: [t for t in items if t['status'] == st] for st in ('待执行', '执行中', '已完成')}
+        groups = {st: [t for t in items if t['status'] == st] for st in ('待执行', '执行中', '待审核', '已完成')}
         data = {'status_groups': groups, 'engineers': engineers, 'view': 'status'}
     data['tasks'] = items
     data['kpi'] = kpi
@@ -890,14 +891,12 @@ def api_task_schedule_update(task_id):
     if data.get('title') is not None:
         t.title = (data['title'] or '').strip() or t.title
     if data.get('status') is not None:
-        new_status = data['status']
-        if new_status not in ('待执行', '执行中', '已完成', '已取消'):
-            return fail(f'非法的状态: {new_status}', 400)
-        if new_status == '执行中' and not t.actual_start:
-            t.actual_start = local_now()
-        if new_status == '已完成' and not t.actual_end:
-            t.actual_end = local_now()
-        t.status = new_status
+        from services.task_schedule_service import apply_task_status
+        try:
+            apply_task_status(t, data['status'])
+        except ValueError as e:
+            db.session.rollback()
+            return fail(str(e), 400)
     if data.get('assignee_id') is not None:
         t.assigned_to_user_id = data['assignee_id'] or None
         t.dispatched_by = t.dispatched_by or current_user.id
@@ -943,14 +942,15 @@ def api_task_schedule_batch():
         return fail('请先选择任务')
     tasks = _IT.query.filter(_IT.id.in_(ids)).all()
     if action == 'status':
-        if value not in ('待执行', '执行中', '已完成', '已取消'):
+        from services.task_schedule_service import apply_task_status
+        if value not in ('待执行', '执行中', '待审核', '已完成', '已取消'):
             return fail('非法的状态', 400)
         for t in tasks:
-            if value == '执行中' and not t.actual_start:
-                t.actual_start = local_now()
-            if value == '已完成' and not t.actual_end:
-                t.actual_end = local_now()
-            t.status = value
+            try:
+                apply_task_status(t, value)
+            except ValueError as e:
+                db.session.rollback()
+                return fail(str(e), 400)
     elif action == 'assign':
         for t in tasks:
             t.assigned_to_user_id = value or None

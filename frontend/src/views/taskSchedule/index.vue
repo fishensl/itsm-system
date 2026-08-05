@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">任务安排</h2>
@@ -63,7 +63,7 @@
 
     <!-- 按状态视图 -->
     <div v-if="data?.view === 'status'" class="board-cols">
-      <div v-for="st in ['待执行', '执行中', '已完成']" :key="st" class="board-col">
+      <div v-for="st in ['待执行', '执行中', '待审核', '已完成']" :key="st" class="board-col">
         <div class="col-head" :class="`col-${st}`">
           {{ st }}
           <span class="col-count">{{ data.status_groups?.[st]?.length || 0 }}</span>
@@ -177,14 +177,15 @@
     </el-dialog>
 
     <!-- 详情 -->
-    <el-drawer v-model="detailVisible" :title="detail ? detail.title : ''" size="480px">
+    <el-drawer v-model="detailVisible" :title="detail ? detail.title : ''" size="520px">
       <template v-if="detail">
         <el-form label-width="90px">
           <el-form-item label="状态">
-            <el-select :model-value="detail.status" size="small" style="width: 160px"
+            <el-select v-if="detail.status !== '待审核'" :model-value="detail.status" size="small" style="width: 160px"
               @change="(v: string) => quickUpdate({ status: v })">
               <el-option v-for="s in ['待执行', '执行中', '已完成', '已取消']" :key="s" :label="s" :value="s" />
             </el-select>
+            <el-tag v-else size="small" type="warning">待审核（报告审核中，不可手工改状态）</el-tag>
           </el-form-item>
           <el-form-item label="负责人">
             <el-select :model-value="detail.assignee_id" clearable filterable size="small" style="width: 160px"
@@ -214,21 +215,76 @@
               @blur="(e: FocusEvent) => quickUpdate({ remark: (e.target as HTMLInputElement).value })" />
           </el-form-item>
         </el-form>
-        <el-button type="danger" plain :loading="deleting" @click="onDelete(detail)">删除任务</el-button>
+
+        <!-- 关联巡检记录（V21 闭环） -->
+        <el-divider content-position="left">巡检记录</el-divider>
+        <div v-if="record" class="record-block">
+          <el-descriptions :column="2" size="small" border>
+            <el-descriptions-item label="审核状态">
+              <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">{{ record.review_status }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="巡检员">{{ record.inspector_name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="巡检日期">{{ record.inspection_date || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="现场报告">
+              <el-link v-if="record.submitted_report_name" type="primary" :underline="false"
+                @click="downloadLatestReport">下载</el-link>
+              <span v-else>-</span>
+            </el-descriptions-item>
+          </el-descriptions>
+          <div class="record-conclusion" v-if="record.conclusion">结论：{{ record.conclusion }}</div>
+          <VersionTimeline v-if="versions.length" :versions="versions" entity-type="inspection" />
+          <el-button v-if="canUpload" type="primary" size="small" :icon="Document" class="mt-2" @click="openUpload">
+            {{ record ? '重新上传报告（退回后修改重传）' : '上传巡检报告并提交审核' }}
+          </el-button>
+        </div>
+        <el-empty v-else description="尚无巡检记录" :image-size="50">
+          <el-button v-if="canUpload" type="primary" size="small" :icon="Document" @click="openUpload">
+            上传巡检报告
+          </el-button>
+        </el-empty>
+
+        <el-button type="danger" plain :loading="deleting" @click="onDelete(detail)" class="mt-2">删除任务</el-button>
       </template>
     </el-drawer>
+
+    <!-- 上传巡检报告 -->
+    <el-dialog v-model="uploadVisible" title="上传巡检报告并提交审核" width="520px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="报告文件" required>
+          <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+            :on-change="onUploadChange" :on-remove="() => uploadFile = null">
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖拽或点击选择巡检报告文件（Word/PDF/Excel/图片）</div>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="结论">
+          <el-input v-model="uploadConclusion" type="textarea" :rows="3"
+            placeholder="本次巡检结论（可选），如：设备运行正常，无异常" />
+        </el-form-item>
+        <el-form-item v-if="uploadHint" label="提示">
+          <span class="upload-hint">{{ uploadHint }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="uploadVisible = false">取消</el-button>
+        <el-button type="primary" :loading="uploading" @click="doUpload">上传并提交审核</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
+import { ElMessageBox, type UploadFile } from 'element-plus'
+import { Plus, Search, Download, Upload, UploadFilled, Document } from '@element-plus/icons-vue'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
   type TaskScheduleData, type TaskScheduleItem,
 } from '@/api/taskSchedule'
+import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
+  versionReportUrl, type Inspection, type SubmissionVersion } from '@/api/inspections'
+import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
@@ -255,6 +311,33 @@ const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
 
+// V21: 关联巡检记录 + 上传报告
+const record = ref<Inspection | null>(null)
+const versions = ref<SubmissionVersion[]>([])
+const uploadVisible = ref(false)
+const uploading = ref(false)
+const uploadRef = ref()
+const uploadFile = ref<File | null>(null)
+const uploadConclusion = ref('')
+const uploadHint = computed(() => {
+  const st = detail.value?.status
+  if (st === '待审核') return '任务正在审核中，请等待审核结果后再上传'
+  if (st === '已完成') return '任务已完成，如需补充请先改回执行中'
+  if (st === '已取消') return '任务已取消，不可上传'
+  if (record.value?.review_status === '待审核') return '已有报告在审核中，请等待审核结果'
+  return ''
+})
+const canUpload = computed(() =>
+  user.hasPerm('inspection:edit') && !!detail.value &&
+  ['待执行', '执行中', '待审核'].includes(detail.value.status),
+)
+const REVIEW_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
+  草稿: 'info',
+  待审核: 'warning',
+  已通过: 'success',
+  已退回: 'danger',
+}
+
 const kpiCards = computed(() => {
   const k = data.value?.kpi
   if (!k) return []
@@ -262,6 +345,7 @@ const kpiCards = computed(() => {
     { key: 'total', label: '总任务', value: k.total, cls: '' },
     { key: 'pending', label: '待执行', value: k.pending, cls: 'warning' },
     { key: 'running', label: '执行中', value: k.running, cls: 'primary' },
+    { key: 'reviewing', label: '待审核', value: k.reviewing, cls: 'info' },
     { key: 'done', label: '已完成', value: k.done, cls: 'success' },
     { key: 'overdue', label: '逾期', value: k.overdue, cls: 'danger' },
     { key: 'est', label: '预估人天', value: k.est_effort, cls: '' },
@@ -273,10 +357,10 @@ function priorityType(p: string) {
   return { 低: 'info', 中: '', 高: 'warning', 紧急: 'danger' }[p] || 'info'
 }
 
-// 任务状态配色：待执行=橙 / 执行中=深蓝 / 已完成=绿 / 已取消=灰；红色留给「逾期」
+// 任务状态配色：待执行=橙 / 执行中=深蓝 / 待审核=青 / 已完成=绿 / 已取消=灰；红色留给「逾期」
 // 统一 effect="dark"（深底白字）：浅色模式下对比度也足够，深浅模式表现一致
 function statusType(s: string) {
-  return { 待执行: 'warning', 执行中: 'primary', 已完成: 'success', 已取消: 'info' }[s] || 'info'
+  return { 待执行: 'warning', 执行中: 'primary', 待审核: 'info', 已完成: 'success', 已取消: 'info' }[s] || 'info'
 }
 
 function reload() {
@@ -353,6 +437,65 @@ async function doCreate() {
 function openDetail(t: TaskScheduleItem) {
   detail.value = t
   detailVisible.value = true
+  loadRecord()
+}
+
+async function loadRecord() {
+  record.value = null
+  versions.value = []
+  if (!detail.value) return
+  try {
+    const page = await fetchInspections({ task_id: detail.value.id, page_size: 1 })
+    const row = page.items?.[0]
+    if (row) {
+      const [full, vers] = await Promise.all([
+        fetchInspection(row.id),
+        fetchInspectionVersions(row.id),
+      ])
+      record.value = full
+      versions.value = vers
+    }
+  } catch { /* toast */ }
+}
+
+function openUpload() {
+  uploadFile.value = null
+  uploadConclusion.value = ''
+  uploadRef.value?.clearFiles?.()
+  uploadVisible.value = true
+}
+
+function onUploadChange(f: UploadFile) {
+  uploadFile.value = f.raw ?? null
+}
+
+function downloadLatestReport() {
+  const latest = versions.value.slice().reverse().find((v) => v.report_file)
+  const rid = latest?.id ?? 0
+  if (rid) window.open(versionReportUrl('inspection', rid), '_blank')
+}
+
+async function doUpload() {
+  if (!detail.value) return
+  if (!uploadFile.value) {
+    ui.toast('请选择要上传的巡检报告文件', 'warning')
+    return
+  }
+  uploading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('report_file', uploadFile.value)
+    fd.append('conclusion', uploadConclusion.value)
+    const r = await uploadTaskReport(detail.value.id, fd)
+    ui.toast(`已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`, 'success')
+    uploadVisible.value = false
+    await loadRecord()
+    reload()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    uploading.value = false
+  }
 }
 
 async function quickUpdate(patch: Record<string, unknown>) {
@@ -442,11 +585,16 @@ onMounted(reload)
 }
 .col-待执行 { color: var(--el-color-warning); border-bottom: 3px solid var(--el-color-warning); }
 .col-执行中 { color: var(--el-color-primary); border-bottom: 3px solid var(--el-color-primary); }
+.col-待审核 { color: var(--el-color-info); border-bottom: 3px solid var(--el-color-info); }
 .col-已完成 { color: var(--el-color-success); border-bottom: 3px solid var(--el-color-success); }
 .col-engineer { border-bottom: 3px solid var(--el-color-info); }
 .col-count { font-size: 12px; color: var(--itsm-text-muted); }
 .col-check { margin: 6px 12px; }
 .col-body { padding: 6px 10px 12px; min-height: 80px; }
+.record-block { margin-bottom: 10px; }
+.record-conclusion { font-size: 13px; margin: 8px 0; white-space: pre-wrap; }
+.upload-hint { color: var(--el-color-warning); font-size: 12px; }
+.mt-2 { margin-top: 8px; }
 .task-card {
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
   cursor: pointer; transition: border-color 0.15s;

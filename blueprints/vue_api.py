@@ -200,7 +200,7 @@ def api_dashboard_overview():
     }
 
     # ---- 我的待办（工单/巡检/故障 或 商机/合同） ----
-    from models import (Ticket, InspectionTask, Inspector, Fault,
+    from models import (Ticket, InspectionTask, Fault,
                         Opportunity, Contract, Customer, Device, Inspection)
     customer_map = {c.id: c.name for c in Customer.query.all()}
     my_tasks = []
@@ -218,24 +218,21 @@ def api_dashboard_overview():
                 'url': f'/tickets/{t.id}',
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
             })
-        insp = Inspector.query.filter_by(user_id=me.id).first()
-        if insp:
-            my_iid = str(insp.id)
-            from sqlalchemy import literal
-            haystack = literal(',') + func.coalesce(InspectionTask.inspector_ids, '') + literal(',')
-            my_insp = InspectionTask.query.filter(
-                haystack.like(f'%,{my_iid},%'),
-                InspectionTask.status.in_(['待执行', '执行中'])
-            ).order_by(InspectionTask.id.desc()).limit(5).all()
-            for t in my_insp:
-                my_tasks.append({
-                    'type_label': '巡检', 'type_color': 'primary',
-                    'title': t.title,
-                    'sub': f"{customer_map.get(t.customer_id, '-')} · {t.status} · {t.task_type}",
-                    'url': f'/task-schedule/{t.id}',
-                    'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' +
-                            (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
-                })
+        # V21: 巡检待办按 assigned_to_user_id 匹配（弃用旧 inspector_ids 双轨）；
+        # 状态含待审核（上传报告后待管理员审核的任务也出现在工程师待办）
+        my_insp = InspectionTask.query.filter(
+            InspectionTask.assigned_to_user_id == me.id,
+            InspectionTask.status.in_(['待执行', '执行中', '待审核'])
+        ).order_by(InspectionTask.id.desc()).limit(5).all()
+        for t in my_insp:
+            my_tasks.append({
+                'type_label': '巡检', 'type_color': 'primary',
+                'title': t.title,
+                'sub': f"{customer_map.get(t.customer_id, '-')} · {t.status} · {t.task_type}",
+                'url': f'/task-schedule/{t.id}',
+                'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' +
+                        (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
+            })
         my_faults = Fault.query.filter(Fault.result != '已解决').order_by(Fault.fault_time.desc()).limit(5).all()
         for f in my_faults:
             my_tasks.append({
@@ -782,6 +779,8 @@ def api_task_board_dicts():
                  if _IT.query.filter_by(assigned_to_user_id=u.id).first()]
     return ok({'customers': customers, 'assignees': assignees})
 def _ticket_payload(t, customer_map=None):
+    from services.ticket_service import ticket_completeness
+    complete, missing = ticket_completeness(t)
     return {
         'id': t.id,
         'number': t.number,
@@ -800,7 +799,15 @@ def _ticket_payload(t, customer_map=None):
         'solution': t.solution or '',
         'description': t.description or '',
         'audit_status': t.audit_status or '',
+        'audit_by': t.audit_by or '',
+        'audit_at': t.audit_at.strftime('%Y-%m-%d %H:%M') if t.audit_at else '',
+        'audit_comment': t.audit_comment or '',
         'accept_status': t.accept_status or '',
+        'accept_comment': t.accept_comment or '',
+        'report_file': bool(t.report_file),
+        'report_name': (t.report_file or '').split('/')[-1] or '',
+        'complete': complete,
+        'missing_fields': missing,
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
         'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
         'completed_at': t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '',
@@ -822,6 +829,7 @@ def _ticket_logs(ticket_id):
 @require_permission('ticket:view')
 def api_ticket_list():
     from models import Ticket as _T, Customer as _C
+    from datetime import date as _date
     page = request.args.get('page', 1, type=int)
     page_size = min(request.args.get('page_size', 20, type=int), 100)
     search = (request.args.get('search') or '').strip()
@@ -829,6 +837,9 @@ def api_ticket_list():
     priority = (request.args.get('priority') or '').strip()
     customer_id = request.args.get('customer_id', type=int)
     scope = (request.args.get('scope') or 'all').strip()
+    date_from = request.args.get('date_from') or ''
+    date_to = request.args.get('date_to') or ''
+    incomplete_only = request.args.get('incomplete_only', type=int) == 1
 
     q = _T.query
     if search:
@@ -842,8 +853,22 @@ def api_ticket_list():
     if scope == 'mine':
         me = current_user.realname or current_user.username
         q = q.filter((_T.assigned_to == me) | (_T.created_by == me))
-    total = q.count()
-    rows = q.order_by(_T.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    if date_from:
+        try:
+            q = q.filter(_T.created_at >= _date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            q = q.filter(_T.created_at <= _date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    rows_all = q.order_by(_T.id.desc()).all()
+    if incomplete_only:
+        from services.ticket_service import ticket_completeness
+        rows_all = [t for t in rows_all if not ticket_completeness(t)[0]]
+    total = len(rows_all)
+    rows = rows_all[(page - 1) * page_size: page * page_size]
     customer_map = {c.id: c.name for c in _C.query.all()}
     return ok({'items': [_ticket_payload(t, customer_map) for t in rows],
                'total': total, 'page': page, 'page_size': page_size})
@@ -917,14 +942,36 @@ def api_ticket_delete(ticket_id):
 @login_required
 @require_permission('ticket:edit')
 def api_ticket_action(ticket_id):
-    """工单状态机动作：assign/accept/submit/audit/accept_check/close"""
+    """工单状态机动作：assign/accept/submit/audit/accept_check/close
+
+    submit 支持 multipart 表单（report_file 处理报告 + diagnosis + solution + remark），
+    JSON 请求也可带 diagnosis/solution（无文件）。
+    """
     from services.ticket_service import (assign_ticket, accept_ticket, submit_ticket,
                                          audit_ticket, accept_check_ticket, close_ticket)
     data = request.get_json(silent=True) or {}
+    if request.form:
+        for k, v in request.form.items():
+            data[k] = v
     action = data.get('action', '')
     me = current_user.realname or current_user.username
     remark = data.get('remark', '')
+    report_path = ''
     try:
+        if action == 'submit' and request.files.get('report_file'):
+            from utils.upload import validate_upload
+            from models import Ticket as _T3
+            ALLOWED_REPORT_EXT = {'.doc', '.docx', '.pdf', '.xlsx', '.xls',
+                                  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.zip'}
+            f = request.files['report_file']
+            ok_flag, err, safe_name = validate_upload(f, ALLOWED_REPORT_EXT, max_size_mb=50)
+            if not ok_flag:
+                return fail(err or '文件校验失败')
+            t3 = _T3.query.get_or_404(ticket_id)
+            os.makedirs(os.path.join('static', 'uploads', 'ticket_reports', str(t3.id)), exist_ok=True)
+            report_path = '/'.join(('uploads', 'ticket_reports', str(t3.id), safe_name))
+            f.save(os.path.join('static', report_path))
+
         if action == 'assign':
             if not data.get('assignee'):
                 return fail('请填写指派处理人', 400)
@@ -933,7 +980,8 @@ def api_ticket_action(ticket_id):
             accept_ticket(ticket_id, me, remark or '已接单，开始处理')
         elif action == 'submit':
             submit_ticket(ticket_id, me, remark or '提交审核',
-                          diagnosis=data.get('diagnosis'), solution=data.get('solution'))
+                          diagnosis=data.get('diagnosis'), solution=data.get('solution'),
+                          report_path=report_path, submitter_user_id=current_user.id)
         elif action == 'audit':
             approved = bool(data.get('approved'))
             audit_ticket(ticket_id, approved, me, remark or ('审核通过' if approved else '审核不通过'))
@@ -971,6 +1019,30 @@ def api_ticket_action(ticket_id):
     except Exception:
         current_app.logger.warning('工单通知发送失败 ticket_id=%s', ticket_id)
     return ok(None)
+
+
+@vue_api_bp.route('/api/tickets/<int:ticket_id>/versions', methods=['GET'])
+@login_required
+@require_permission('ticket:view')
+def api_ticket_versions(ticket_id):
+    """工单提交版本历史（每次提交处理结果 + 每轮审核意见）"""
+    from services.submission_version_service import list_versions
+    return ok(list_versions('ticket', ticket_id))
+
+
+@vue_api_bp.route('/api/tickets/report/latest/<int:ticket_id>', methods=['GET'])
+@login_required
+@require_permission('ticket:view')
+def api_ticket_report_latest(ticket_id):
+    """下载工单最新版处理报告（SSR 模板链接用）"""
+    from models import SubmissionVersion as _SV
+    v = _SV.query \
+        .filter_by(entity_type='ticket', entity_id=ticket_id) \
+        .filter(_SV.report_file != '') \
+        .order_by(_SV.version_no.desc()).first()
+    if not v:
+        return fail('报告不存在', 404)
+    return _send_report_file(v.report_file)
 
 
 @vue_api_bp.route('/api/dicts/tickets', methods=['GET'])
@@ -1182,20 +1254,30 @@ def api_customer_dicts():
 
 
 # ==================== 巡检记录 ====================
-def _inspection_payload(i, customer_map=None, full=False):
+def _inspection_payload(i, customer_map=None, full=False, task_map=None):
     """巡检序列化。注意 review_status 的 ''(草稿) 在 API 边界归一为 '草稿'（过滤时反向映射）"""
     from utils.json_fields import parse_json
+    from services.inspection_service import inspection_completeness
+    complete, missing = inspection_completeness(i)
     payload = {
         'id': i.id,
         'title': i.title,
         'customer_id': i.customer_id,
         'customer_name': (customer_map or {}).get(i.customer_id, ''),
+        'task_id': i.task_id,
+        'task_title': (task_map or {}).get(i.task_id)
+                      or (i.task_rel.title if i.task_rel else '') or '',
         'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
         'overall_status': i.overall_status or '',
         'review_status': i.review_status or '草稿',
         'inspector_name': i.inspector_name or i.inspector or '',
         'report_file': bool(i.report_file),
         'report_label': '有' if i.report_file else '无',
+        'report_file_name': (i.report_file or '').split('/')[-1] or '',
+        'submitted_report': bool(i.submitted_report),
+        'submitted_report_name': (i.submitted_report or '').split('/')[-1] or '',
+        'complete': complete,
+        'missing_fields': missing,
         'location': i.location or '',
         'conclusion': i.conclusion or '',
     }
@@ -1213,14 +1295,19 @@ def _inspection_payload(i, customer_map=None, full=False):
 @login_required
 @require_permission('inspection:view')
 def api_inspection_list():
-    from models import Inspection as _I, Customer as _C
+    from models import Inspection as _I, Customer as _C, InspectionTask as _IT
     from sqlalchemy.orm import joinedload as _jl
+    from datetime import date as _date
     page = request.args.get('page', 1, type=int)
     page_size = min(request.args.get('page_size', 20, type=int), 100)
     search = (request.args.get('search') or '').strip()
     status = (request.args.get('status') or '').strip()
     review_status = (request.args.get('review_status') or '').strip()
     customer_id = request.args.get('customer_id', type=int)
+    task_id = request.args.get('task_id', type=int)
+    date_from = request.args.get('date_from') or ''
+    date_to = request.args.get('date_to') or ''
+    incomplete_only = request.args.get('incomplete_only', type=int) == 1
 
     q = _I.query.options(_jl(_I.customer_rel))
     if search:
@@ -1231,11 +1318,28 @@ def api_inspection_list():
         q = q.filter(_I.review_status == ('' if review_status == '草稿' else review_status))
     if customer_id:
         q = q.filter(_I.customer_id == customer_id)
-    total = q.count()
-    rows = q.order_by(_I.inspection_date.desc(), _I.id.desc()) \
-        .offset((page - 1) * page_size).limit(page_size).all()
+    if task_id:
+        q = q.filter(_I.task_id == task_id)
+    if date_from:
+        try:
+            q = q.filter(_I.inspection_date >= _date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            q = q.filter(_I.inspection_date <= _date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    rows_all = q.order_by(_I.inspection_date.desc(), _I.id.desc()).all()
+    if incomplete_only:
+        from services.inspection_service import inspection_completeness
+        rows_all = [i for i in rows_all if not inspection_completeness(i)[0]]
+    total = len(rows_all)
+    rows = rows_all[(page - 1) * page_size: page * page_size]
     customer_map = {c.id: c.name for c in _C.query.all()}
-    return ok({'items': [_inspection_payload(i, customer_map) for i in rows],
+    task_ids = {i.task_id for i in rows if i.task_id}
+    task_map = {t.id: t.title for t in _IT.query.filter(_IT.id.in_(task_ids)).all()} if task_ids else {}
+    return ok({'items': [_inspection_payload(i, customer_map, task_map=task_map) for i in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -1332,17 +1436,123 @@ def api_inspection_review(inspection_id):
     return ok(None)
 
 
+@vue_api_bp.route('/api/inspections/task/<int:task_id>/report', methods=['POST'])
+@login_required
+@require_permission('inspection:edit')
+def api_inspection_upload_report(task_id):
+    """工程师从任务上传现场报告 → 自动创建/复用巡检记录 + 建版本 + 任务「执行中→待审核」。
+
+    multipart 字段：report_file(必填) + conclusion(可选)。非任务指派者由服务层拒绝（管理员除外——
+    管理员上传走 create_inspection 表单流程，本端点校验指派者归属）。
+    """
+    from services.inspection_service import upload_report_for_task
+    from utils.upload import validate_upload
+    from models import InspectionTask as _IT
+
+    ALLOWED_REPORT_EXT = {'.doc', '.docx', '.pdf', '.xlsx', '.xls',
+                          '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.zip'}
+    f = request.files.get('report_file')
+    if not f:
+        return fail('请选择要上传的巡检报告文件')
+    ok_flag, err, safe_name = validate_upload(f, ALLOWED_REPORT_EXT, max_size_mb=50)
+    if not ok_flag:
+        return fail(err or '文件校验失败')
+
+    task = _IT.query.get_or_404(task_id)
+    base_dir = os.path.join('static', 'uploads', 'inspection_reports', str(task.id))
+    os.makedirs(base_dir, exist_ok=True)
+    rel_path = '/'.join(('uploads', 'inspection_reports', str(task.id), safe_name))
+    f.save(os.path.join('static', rel_path))
+
+    conclusion = (request.form.get('conclusion') or '').strip()
+    me = current_user
+    try:
+        inspection, version = upload_report_for_task(
+            task.id, rel_path, conclusion,
+            current_user_id=me.id,
+            current_user_name=me.realname or me.username,
+            force=(me.role == 'admin'),
+        )
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '上传失败', 400)
+    return ok({'inspection_id': inspection.id, 'version_no': version.version_no,
+               'task_status': task.status})
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>/versions', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspection_versions(inspection_id):
+    """巡检记录提交版本历史（每次上传报告 + 每轮审核意见）"""
+    from services.submission_version_service import list_versions
+    return ok(list_versions('inspection', inspection_id))
+
+
+@vue_api_bp.route('/api/inspections/report/latest/<int:inspection_id>', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspection_report_latest(inspection_id):
+    """下载巡检记录最新版现场报告（SSR 模板链接用）"""
+    from models import SubmissionVersion as _SV
+    v = _SV.query \
+        .filter_by(entity_type='inspection', entity_id=inspection_id) \
+        .filter(_SV.report_file != '') \
+        .order_by(_SV.version_no.desc()).first()
+    if not v:
+        return fail('报告不存在', 404)
+    return _send_report_file(v.report_file)
+
+
+@vue_api_bp.route('/api/inspections/report/<int:version_id>', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_inspection_report_download(version_id):
+    """下载某版上传的现场报告（防路径穿越）"""
+    from models import SubmissionVersion as _SV
+    v = _SV.query.get_or_404(version_id)
+    if v.entity_type != 'inspection' or not v.report_file:
+        return fail('报告不存在', 404)
+    return _send_report_file(v.report_file)
+
+
+@vue_api_bp.route('/api/tickets/report/<int:version_id>', methods=['GET'])
+@login_required
+@require_permission('ticket:view')
+def api_ticket_report_download(version_id):
+    """下载某版上传的工单处理报告（防路径穿越）"""
+    from models import SubmissionVersion as _SV
+    v = _SV.query.get_or_404(version_id)
+    if v.entity_type != 'ticket' or not v.report_file:
+        return fail('报告不存在', 404)
+    return _send_report_file(v.report_file)
+
+
+def _send_report_file(rel_path):
+    """安全下载 static/uploads/ 下的报告文件：realpath 校验防路径穿越"""
+    full = os.path.realpath(os.path.join('static', rel_path))
+    base = os.path.realpath(os.path.join('static', 'uploads'))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return fail('文件不存在', 404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+
+
 @vue_api_bp.route('/api/dicts/inspections', methods=['GET'])
 @login_required
 @require_permission('inspection:view')
 def api_inspection_dicts():
-    from models import Customer as _C, Inspector as _I
+    from models import Customer as _C, Inspector as _I, InspectionTask as _IT
     customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
     inspectors = [{'user_id': ins.user_id, 'name': ins.name}
                   for ins in _I.query.filter_by(is_active=True).order_by(_I.id).all()]
-    overall_statuses = ['正常', '警告', '异常']
+    tasks = [{'id': t.id, 'title': t.title, 'status': t.status,
+              'customer_id': t.customer_id,
+              'customer_name': t.customer_rel.name if t.customer_rel else '',
+              'assignee_id': t.assigned_to_user_id}
+             for t in _IT.query.order_by(_IT.id.desc()).limit(500).all()]
+    overall_statuses = ['正常', '警告', '异常']  # 显式展示顺序（常量 OVERALL_STATUSES 校验）
     review_statuses = ['草稿', '待审核', '已通过', '已退回']
-    return ok({'customers': customers, 'inspectors': inspectors,
+    return ok({'customers': customers, 'inspectors': inspectors, 'tasks': tasks,
                'overall_statuses': overall_statuses, 'review_statuses': review_statuses})
 
 # ==================== 地区管理 ====================

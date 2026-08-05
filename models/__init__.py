@@ -18,7 +18,7 @@ from models.ticket import FaultType, Ticket, TicketLog, Fault  # noqa: F401
 from models.knowledge import KnowledgeBase, KnowledgeAttachment  # noqa: F401
 from models.spare import SparePart, SpareStock, PurchaseOrder, SalesOrder  # noqa: F401
 from models.sales import Opportunity, Quotation, Contract, Project  # noqa: F401
-from models.misc import AIConfig, DeviceConfigBackup, Topology, DeviceCollectTask  # noqa: F401
+from models.misc import AIConfig, DeviceConfigBackup, Topology, DeviceCollectTask, SubmissionVersion  # noqa: F401
 from models.rack import Rack, RackInstall  # noqa: F401
 from models.notification import Notification  # noqa: F401
 from models.audit import AuditLog  # noqa: F401

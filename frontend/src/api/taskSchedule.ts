@@ -29,6 +29,7 @@ export interface TaskScheduleData {
     total: number
     pending: number
     running: number
+    reviewing: number
     done: number
     overdue: number
     est_effort: number

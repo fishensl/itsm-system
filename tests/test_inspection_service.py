@@ -20,7 +20,8 @@ def inspection(ctx):
     db.session.add(c)
     db.session.flush()
     i = Inspection(title='Q2 机房巡检', customer_id=c.id,
-                   inspection_date=date.today(), overall_status='', review_status='')
+                   inspection_date=date.today(), overall_status='', review_status='',
+                   submitted_report='uploads/inspection_reports/0/fake.docx')
     db.session.add(i)
     db.session.commit()
     return i.id

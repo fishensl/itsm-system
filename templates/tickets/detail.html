@@ -61,19 +61,29 @@
                     <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-hand-thumbs-up"></i> 接单</button>
                 </form>
                 {% elif ticket.status == '处理中' %}
-                <form method="post" action="{{ url_for('ops.ticket_submit', id=ticket.id) }}">
+                <form method="post" action="{{ url_for('ops.ticket_submit', id=ticket.id) }}" enctype="multipart/form-data">
                     <div class="row">
                         <div class="col-md-6 mb-2"><label class="form-label">诊断分析</label><textarea name="diagnosis" class="form-control" rows="2" required>{{ ticket.diagnosis or '' }}</textarea></div>
                         <div class="col-md-6 mb-2"><label class="form-label">解决方案</label><textarea name="solution" class="form-control" rows="2" required>{{ ticket.solution or '' }}</textarea></div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">处理报告（Word/PDF/Excel/图片，每次提交生成审核记录）</label>
+                        <input type="file" name="report_file" class="form-control form-control-sm"
+                               accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip" required>
                     </div>
                     <button type="submit" class="btn btn-primary btn-sm"><i class="bi-check-lg"></i> 提交审核</button>
                 </form>
                 {% elif ticket.status == '待审核' %}
                 <form method="post" action="{{ url_for('ops.ticket_audit', id=ticket.id) }}" class="row g-2 align-items-end">
-                    <div class="col-md-6"><label class="form-label">审核意见</label><input type="text" name="comment" class="form-control"></div>
+                    <div class="col-md-6"><label class="form-label">审核意见（退回原因必填）</label><input type="text" name="comment" class="form-control"></div>
                     <div class="col-auto"><button type="submit" name="action" value="通过" class="btn btn-success btn-sm">通过</button></div>
                     <div class="col-auto"><button type="submit" name="action" value="拒绝" class="btn btn-danger btn-sm">拒绝</button></div>
                 </form>
+                {% if ticket.report_file %}
+                <div class="mt-2 small">
+                    最新处理报告：<a href="#" onclick="window.open('/api/tickets/report/latest/{{ ticket.id }}', '_blank'); return false;">下载</a>
+                </div>
+                {% endif %}
                 {% elif ticket.status == '已验收' %}
                 <form method="post" action="{{ url_for('ops.ticket_accept_check', id=ticket.id) }}" class="row g-2 align-items-end">
                     <div class="col-md-6"><label class="form-label">验收意见</label><input type="text" name="comment" class="form-control"></div>

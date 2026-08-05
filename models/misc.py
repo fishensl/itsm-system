@@ -87,3 +87,39 @@ class DeviceCollectTask(db.Model):
     device_rel = db.relationship('Device', backref='collect_tasks')
 
 
+# ============================
+# 提交版本（巡检记录 / 工单通用审核闭环）
+# ============================
+
+class SubmissionVersion(db.Model):
+    """提交版本 — 每次"上传报告+提交审核"追加一条，审核结果/意见挂在版本上。
+
+    entity_type: inspection | ticket（entity_id 指向 inspections.id / tickets.id）
+    同一实体 version_no 从 1 递增，形成"提交→审核→退回→再提交"完整可复查历史：
+    每个版本保留报告文件、提交快照（content_json）、提交人/时间、审核人/时间/意见。
+    """
+    __tablename__ = 'submission_versions'
+    id = db.Column(db.Integer, primary_key=True)
+    entity_type = db.Column(db.String(16), default='inspection')
+    entity_id = db.Column(db.Integer)
+    version_no = db.Column(db.Integer, default=1)
+    report_file = db.Column(db.String(256), default='')     # 该版上传的报告文件（相对 static 路径）
+    content_json = db.Column(db.Text, default='{}')         # 该版提交快照（巡检:{conclusion}; 工单:{diagnosis,solution}）
+    submitted_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    review_status = db.Column(db.String(16), default='', index=True)   # ''(未审)/待审核/已通过/已退回
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    review_comment = db.Column(db.Text, default='')          # 本轮审核意见（退回原因）
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('entity_type', 'entity_id', 'version_no',
+                            name='uq_submission_versions_entity_version'),
+        db.Index('ix_submission_versions_entity', 'entity_type', 'entity_id'),
+    )
+
+    submitter_rel = db.relationship('User', foreign_keys=[submitted_by], backref='submitted_versions')
+    reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by], backref='reviewed_versions')
+
+

@@ -20,6 +20,13 @@
         <a href="{{ url_for('ops.inspection_add', customer_id=task.customer_id, task_id=task.id) }}"
            class="btn btn-primary btn-sm"><i class="bi-play-fill"></i> 执行巡检</a>
 
+        {% if task.status in ('执行中', '待执行', '待审核') %}
+        <button class="btn btn-info btn-sm" data-bs-toggle="collapse" data-bs-target="#reportUploadBox"
+                aria-expanded="false" aria-controls="reportUploadBox">
+            <i class="bi-upload"></i> 上传巡检报告并提交审核
+        </button>
+        {% endif %}
+
         {% if task.status == '待执行' %}
         <button class="btn btn-warning btn-sm" onclick="changeTaskStatus({{ task.id }}, '执行中')">
             <i class="bi-arrow-right-circle"></i> 标记执行中
@@ -51,6 +58,41 @@
         </form>
     </div>
 </div>
+
+{# 上传巡检报告（V21：执行完成后上传 → 自动生成巡检记录并提交审核） #}
+{% if task.status in ('执行中', '待执行', '待审核') %}
+<div class="collapse mb-3" id="reportUploadBox">
+    <div class="card border-info">
+        <div class="card-header text-info"><i class="bi-upload"></i> 上传巡检报告（每次上传生成提交版本，退回后修改可再传）</div>
+        <div class="card-body">
+            <form method="post" action="{{ url_for('task_schedule.upload_report', task_id=task.id) }}"
+                  enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label">报告文件（Word/PDF/Excel/图片）</label>
+                        <input type="file" name="report_file" class="form-control form-control-sm" required
+                               accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">巡检结论（可选）</label>
+                        <input type="text" name="conclusion" class="form-control form-control-sm"
+                               placeholder="如：设备运行正常，无异常">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-info btn-sm">
+                            <i class="bi-send"></i> 上传并提交审核
+                        </button>
+                    </div>
+                </div>
+                {% if task.status == '待审核' %}
+                <div class="form-text text-warning">任务正在审核中，重复上传将新建版本（旧版本保留）。</div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <div class="row">
     <div class="col-md-6">
