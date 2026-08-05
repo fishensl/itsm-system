@@ -15,6 +15,7 @@ export interface TaskTemplateItem {
   frequency: string
   customer_tier: string
   sections: TaskTemplateSection[]
+  required_assets: Record<string, boolean>
   is_active: boolean
   remark: string
   device_template_ids: number[]

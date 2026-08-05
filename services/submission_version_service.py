@@ -8,7 +8,25 @@
 import json
 from datetime import datetime
 
-from models import db, SubmissionVersion
+from models import db, SubmissionVersion, SubmissionAsset
+
+
+def add_asset(version_id, asset_type, file_path='', file_name='', device_id=None,
+              content_text='', target_id=None, skip_reason=''):
+    """为版本追加一条提交资料记录（含必传项豁免 skip_reason）。"""
+    a = SubmissionAsset(
+        version_id=version_id,
+        asset_type=asset_type,
+        file_path=file_path or '',
+        file_name=file_name or (file_path or '').split('/')[-1] or '',
+        device_id=device_id,
+        content_text=content_text or '',
+        target_id=target_id,
+        skip_reason=skip_reason or '',
+    )
+    db.session.add(a)
+    db.session.flush()
+    return a
 
 
 def add_version(entity_type, entity_id, report_file='', content=None,
@@ -49,11 +67,48 @@ def review_version(version_id, approved, reviewer_user_id=None, comment='', requ
 
 
 def list_versions(entity_type, entity_id):
-    """按版本号升序返回全部版本（含提交人/审核人姓名）。"""
+    """按版本号升序返回全部版本（含提交人/审核人姓名 + 资料明细）。"""
     rows = SubmissionVersion.query \
         .filter_by(entity_type=entity_type, entity_id=entity_id) \
         .order_by(SubmissionVersion.version_no.asc()).all()
-    return [_version_payload(v) for v in rows]
+    payloads = [_version_payload(v) for v in rows]
+    _attach_assets(payloads)
+    return payloads
+
+
+def _attach_assets(payloads):
+    """批量预取各版本的资料明细（防 N+1）"""
+    if not payloads:
+        return
+    version_ids = [p['id'] for p in payloads]
+    rows = SubmissionAsset.query \
+        .filter(SubmissionAsset.version_id.in_(version_ids)) \
+        .order_by(SubmissionAsset.id.asc()).all()
+    by_version = {}
+    for a in rows:
+        by_version.setdefault(a.version_id, []).append(a)
+    for p in payloads:
+        p['assets'] = [_asset_payload(a) for a in by_version.get(p['id'], [])]
+
+
+def _asset_payload(a):
+    device_name = ''
+    if a.device_id:
+        dev = a.device_rel
+        if dev:
+            device_name = dev.device_name or ''
+    return {
+        'id': a.id,
+        'asset_type': a.asset_type or '',
+        'file_path': a.file_path or '',
+        'file_name': a.file_name or '',
+        'device_id': a.device_id,
+        'device_name': device_name,
+        'has_content': bool(a.content_text),
+        'content_text': a.content_text or '',
+        'target_id': a.target_id,
+        'skip_reason': a.skip_reason or '',
+    }
 
 
 def latest_pending_version(entity_type, entity_id):

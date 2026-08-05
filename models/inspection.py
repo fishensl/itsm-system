@@ -112,6 +112,9 @@ class InspectionTaskTemplate(db.Model):
     frequency = db.Column(db.String(16), default='')          # 推荐频率
     customer_tier = db.Column(db.String(8), default='all')   # 适用客户级别: all/核心/重点/常规
     sections_json = db.Column(db.Text, default='{}')          # V10: 章节配置 {"sections":[{key,title,enabled},...]}
+    # V22: 提交资料必传配置 {"report": true, "config_zip": false, "config_text": false,
+    #                       "topology": false, "asset_list": false} —— 任务提交审核时按此校验
+    required_assets_json = db.Column(db.Text, default='{}')
     is_active = db.Column(db.Boolean, default=True)
     remark = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

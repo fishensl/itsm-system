@@ -559,6 +559,54 @@ def api_device_reveal_password(device_id):
     return ok({'password': pwd})
 
 
+# ==================== 设备配置备份（V22：巡检同步可见 + 受控下载/在线查看） ====================
+@vue_api_bp.route('/api/devices/<int:device_id>/config-backups', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_config_backups(device_id):
+    """设备配置备份列表（含巡检上传同步的记录）"""
+    from models import DeviceConfigBackup as _DCB
+    rows = _DCB.query.filter_by(device_id=device_id).order_by(_DCB.id.desc()).limit(50).all()
+    return ok([{
+        'id': b.id,
+        'backup_type': b.backup_type or '',
+        'backup_method': b.backup_method or '',
+        'backup_date': b.backup_date.strftime('%Y-%m-%d') if b.backup_date else '',
+        'has_content': bool(b.config_content),
+        'has_file': bool(b.file_path),
+        'file_name': (b.file_path or '').split('/')[-1] or '',
+        'checksum': (b.checksum or '')[:10],
+        'created_by': b.created_by or '',
+        'created_at': b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '',
+    } for b in rows])
+
+
+@vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/download', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_config_backup_download(backup_id):
+    """配置备份文件受控下载（防路径穿越，替代静态裸暴露）"""
+    from models import DeviceConfigBackup as _DCB
+    b = _DCB.query.get_or_404(backup_id)
+    if not b.file_path:
+        return fail('该备份无附件文件', 404)
+    full = os.path.realpath(os.path.join('static', b.file_path))
+    base = os.path.realpath(os.path.join('static', 'uploads'))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return fail('文件不存在', 404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+
+
+@vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/content', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_config_backup_content(backup_id):
+    """配置文本在线查看"""
+    from models import DeviceConfigBackup as _DCB
+    b = _DCB.query.get_or_404(backup_id)
+    return ok({'id': b.id, 'content': b.config_content or ''})
+
+
 def _sync_device_count(customer_id):
     """同步客户 device_count 冗余字段（与 asset 蓝图一致）"""
     if not customer_id:
@@ -1441,14 +1489,55 @@ def api_inspection_review(inspection_id):
     return ok(None)
 
 
+@vue_api_bp.route('/api/inspections/assets/<int:asset_id>/download', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_submission_asset_download(asset_id):
+    """下载提交资料文件（配置包/拓扑图/资产清单等，防路径穿越）"""
+    from models import SubmissionAsset as _SA
+    a = _SA.query.get_or_404(asset_id)
+    if not a.file_path:
+        return fail('该资料无附件文件', 404)
+    return _send_report_file(a.file_path)
+
+
+@vue_api_bp.route('/api/inspections/assets/<int:asset_id>/content', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_submission_asset_content(asset_id):
+    """提交资料文本内容在线查看（核心设备文本配置）"""
+    from models import SubmissionAsset as _SA
+    a = _SA.query.get_or_404(asset_id)
+    return ok({'id': a.id, 'content': a.content_text or ''})
+
+
+@vue_api_bp.route('/api/task-schedule/<int:task_id>/required-assets', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_task_required_assets(task_id):
+    """任务提交资料必传配置（按任务模板）+ 任务客户设备列表（提交弹窗数据源）"""
+    from services.inspection_service import get_task_required_assets
+    from models import InspectionTask as _IT, Device as _D
+    t = _IT.query.get_or_404(task_id)
+    devices = [{'id': d.id, 'device_name': d.device_name, 'device_type': d.device_type or ''}
+               for d in _D.query.filter_by(customer_id=t.customer_id, is_in_use=True)
+               .order_by(_D.device_name).all()]
+    return ok({'required_assets': get_task_required_assets(t), 'devices': devices})
+
+
 @vue_api_bp.route('/api/inspections/task/<int:task_id>/report', methods=['POST'])
 @login_required
 @require_permission('inspection:edit')
 def api_inspection_upload_report(task_id):
-    """工程师从任务上传现场报告 → 自动创建/复用巡检记录 + 建版本 + 任务「执行中→待审核」。
+    """工程师从任务上传全套资料 → 自动创建/复用巡检记录 + 建版本 + 任务「执行中→待审核」。
 
-    multipart 字段：report_file(必填) + conclusion(可选)。非任务指派者由服务层拒绝（管理员除外——
-    管理员上传走 create_inspection 表单流程，本端点校验指派者归属）。
+    multipart 字段：
+      report_file(必传，可豁免：report_skip_reason) + conclusion + remark
+      config_zip(完整配置包) + config_zip_device_id + config_zip_skip_reason
+      config_text_file_N / config_text_content_N / config_text_device_id_N（核心设备文本配置，可粘贴或传文件）
+      config_text_skip_reason
+      topology_file（拓扑图）+ topology_skip_reason
+      asset_list（资产清单 Excel，提交时解析导入设备）+ asset_list_skip_reason
     """
     from services.inspection_service import upload_report_for_task
     from utils.upload import validate_upload
@@ -1456,35 +1545,146 @@ def api_inspection_upload_report(task_id):
 
     ALLOWED_REPORT_EXT = {'.doc', '.docx', '.pdf', '.xlsx', '.xls',
                           '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.zip'}
-    f = request.files.get('report_file')
-    if not f:
-        return fail('请选择要上传的巡检报告文件')
-    ok_flag, err, safe_name = validate_upload(f, ALLOWED_REPORT_EXT, max_size_mb=50)
-    if not ok_flag:
-        return fail(err or '文件校验失败')
+    ALLOWED_ZIP_EXT = {'.zip'}
+    ALLOWED_TEXT_EXT = {'.txt', '.cfg', '.conf', '.log', '.text'}
+    ALLOWED_TOPOLOGY_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp',
+                            '.pdf', '.vsd', '.vsdx', '.drawio', '.xml'}
+    ALLOWED_ASSET_EXT = {'.xlsx', '.xls'}
+
+    def _save_file(f, subdir, allowed, max_mb=50):
+        ok_flag, err, safe_name = validate_upload(f, allowed, max_size_mb=max_mb)
+        if not ok_flag:
+            return None, err
+        os.makedirs(os.path.join('static', 'uploads', subdir), exist_ok=True)
+        rel = '/'.join(('uploads', subdir, safe_name))
+        f.save(os.path.join('static', rel))
+        return rel, None
 
     task = _IT.query.get_or_404(task_id)
-    base_dir = os.path.join('static', 'uploads', 'inspection_reports', str(task.id))
-    os.makedirs(base_dir, exist_ok=True)
-    rel_path = '/'.join(('uploads', 'inspection_reports', str(task.id), safe_name))
-    f.save(os.path.join('static', rel_path))
+
+    report_path = ''
+    report_skip_reason = (request.form.get('report_skip_reason') or '').strip()
+    f = request.files.get('report_file')
+    if f:
+        report_path, err = _save_file(f, f'inspection_reports/{task.id}', ALLOWED_REPORT_EXT)
+        if err:
+            return fail(err or '报告文件校验失败')
+
+    # 完整配置备份包
+    config_zip_path = ''
+    config_zip_device_id = request.form.get('config_zip_device_id') or None
+    config_zip_skip_reason = (request.form.get('config_zip_skip_reason') or '').strip()
+    f = request.files.get('config_zip')
+    if f:
+        config_zip_path, err = _save_file(f, f'inspection_configs/{task.id}', ALLOWED_ZIP_EXT, max_mb=100)
+        if err:
+            return fail(err or '配置包文件校验失败')
+
+    # 核心设备文本配置（动态行：文件 N 或粘贴 N + 设备 N）
+    config_texts = []
+    handled_idx = set()
+    for key, fobj in request.files.items():
+        if not key.startswith('config_text_file_'):
+            continue
+        n = key.rsplit('_', 1)[-1]
+        if not n.isdigit():
+            continue
+        handled_idx.add(n)
+        tpath, err = _save_file(fobj, f'inspection_configs/{task.id}', ALLOWED_TEXT_EXT)
+        if err:
+            return fail(err or '文本配置文件校验失败')
+        dev_id = request.form.get(f'config_text_device_id_{n}') or None
+        content = ''
+        try:
+            with open(os.path.join('static', tpath), 'r', encoding='utf-8', errors='replace') as fh:
+                content = fh.read()
+        except Exception:
+            pass
+        config_texts.append({'device_id': dev_id, 'content': content,
+                             'file_path': tpath, 'file_name': fobj.filename or ''})
+    for n, value in request.form.items():
+        if not n.startswith('config_text_content_'):
+            continue
+        idx = n.rsplit('_', 1)[-1]
+        if not idx.isdigit() or idx in handled_idx:
+            continue
+        content = (value or '').strip()
+        if not content:
+            continue
+        dev_id = request.form.get(f'config_text_device_id_{idx}') or None
+        config_texts.append({'device_id': dev_id, 'content': content, 'file_path': '', 'file_name': ''})
+    config_text_skip_reason = (request.form.get('config_text_skip_reason') or '').strip()
+
+    # 拓扑图
+    topology_file_path = ''
+    topology_file_name = ''
+    topology_skip_reason = (request.form.get('topology_skip_reason') or '').strip()
+    f = request.files.get('topology_file')
+    if f:
+        topology_file_path, err = _save_file(f, f'inspection_topologies/{task.id}', ALLOWED_TOPOLOGY_EXT)
+        if err:
+            return fail(err or '拓扑图文件校验失败')
+        topology_file_name = f.filename or ''
+
+    # 资产清单（保存 + 解析导入设备）
+    asset_list_path = ''
+    asset_list_file_name = ''
+    asset_list_skip_reason = (request.form.get('asset_list_skip_reason') or '').strip()
+    asset_import_result = None
+    f = request.files.get('asset_list')
+    if f:
+        asset_list_path, err = _save_file(f, f'inspection_assets/{task.id}', ALLOWED_ASSET_EXT)
+        if err:
+            return fail(err or '资产清单文件校验失败')
+        asset_list_file_name = f.filename or ''
+        try:
+            from services.asset_list_service import import_asset_list
+            asset_import_result = import_asset_list(
+                asset_list_path, task.customer_id,
+                current_user.realname or current_user.username, asset_list_file_name)
+        except Exception as e:
+            db.session.rollback()
+            return fail(str(e) or '资产清单解析失败', 400)
 
     conclusion = (request.form.get('conclusion') or '').strip()
     remark = (request.form.get('remark') or '').strip()
     me = current_user
     try:
-        inspection, version = upload_report_for_task(
-            task.id, rel_path, conclusion,
+        inspection, version, asset_result = upload_report_for_task(
+            task.id, report_path, conclusion,
             current_user_id=me.id,
             current_user_name=me.realname or me.username,
             force=(me.role == 'admin'),
             remark=remark,
+            report_skip_reason=report_skip_reason,
+            config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
+            config_zip_skip_reason=config_zip_skip_reason,
+            config_texts=config_texts, config_text_skip_reason=config_text_skip_reason,
+            topology_file_path=topology_file_path, topology_file_name=topology_file_name,
+            topology_skip_reason=topology_skip_reason,
+            asset_list_path=asset_list_path, asset_list_file_name=asset_list_file_name,
+            asset_list_skip_reason=asset_list_skip_reason,
         )
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '上传失败', 400)
+
+    if asset_result['config_backups'] or asset_result['topologies']:
+        try:
+            from blueprints.vue_api_sys import audit_log
+            audit_log('巡检提交资料同步', 'task', task.id,
+                      '配置备份 %d 条、拓扑 %d 条、资产导入 %s' % (
+                          asset_result['config_backups'], asset_result['topologies'],
+                          (asset_import_result or {}).get('created', 0)))
+        except Exception:
+            current_app.logger.warning('巡检资料同步审计失败 task_id=%s', task_id)
+
     return ok({'inspection_id': inspection.id, 'version_no': version.version_no,
-               'task_status': task.status})
+               'task_status': task.status,
+               'config_backups': asset_result['config_backups'],
+               'topologies': asset_result['topologies'],
+               'skipped': asset_result['skipped'],
+               'asset_import': asset_import_result})
 
 
 @vue_api_bp.route('/api/inspections/<int:inspection_id>/versions', methods=['GET'])

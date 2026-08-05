@@ -110,6 +110,19 @@
             <el-button size="small" plain class="mt-1" @click="openMatcher">按客户设备自动匹配</el-button>
           </div>
         </el-form-item>
+        <el-form-item label="必传资料">
+          <div class="required-editor">
+            <div v-for="item in REQUIRED_ASSET_ITEMS" :key="item.key" class="required-row">
+              <el-switch v-model="(form.required_assets as Record<string, boolean>)[item.key]" />
+              <span class="required-label">{{ item.label }}</span>
+              <span class="required-desc">{{ item.desc }}</span>
+            </div>
+            <div class="form-text text-muted small">
+              工程师提交审核时，必传项必须上传或填写无法上传的原因；未开启的项可选提交
+            </div>
+          </div>
+        </el-form-item>
+
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
@@ -172,7 +185,16 @@ const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, name: '', category: '日常巡检', inspection_type: '月度巡检', frequency: '',
   customer_tier: 'all', sections: [], device_template_ids: [], remark: '',
+  required_assets: { report: true, config_zip: false, config_text: false, topology: false, asset_list: false },
 })
+
+const REQUIRED_ASSET_ITEMS = [
+  { key: 'report', label: '巡检报告', desc: '巡检结果报告文件' },
+  { key: 'config_zip', label: '完整配置备份包', desc: '巡检备份配置压缩包' },
+  { key: 'config_text', label: '核心设备文本配置', desc: '核心交换机/路由器文本配置文件' },
+  { key: 'topology', label: '拓扑图', desc: '现场拓扑图（同步设备管理拓扑）' },
+  { key: 'asset_list', label: '资产清单', desc: '设备资产清单 Excel（解析导入设备）' },
+]
 
 const matchVisible = ref(false)
 const matchCustomerId = ref<number | null>(null)
@@ -198,6 +220,7 @@ function openCreate() {
   Object.assign(form, {
     id: null, name: '', category: '日常巡检', inspection_type: '月度巡检', frequency: '',
     customer_tier: 'all', sections: [], device_template_ids: [], remark: '',
+    required_assets: { report: true, config_zip: false, config_text: false, topology: false, asset_list: false },
   })
   formVisible.value = true
 }
@@ -209,6 +232,8 @@ function openEdit(row: TaskTemplateItem) {
     sections: (row.sections || []).map((s) => ({ ...s })),
     device_template_ids: [...(row.device_template_ids || [])],
     remark: row.remark, is_active: row.is_active,
+    required_assets: { report: true, config_zip: false, config_text: false, topology: false, asset_list: false,
+      ...(row.required_assets || {}) },
   })
   formVisible.value = true
 }
@@ -293,6 +318,10 @@ onMounted(load)
 .sections-editor { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .section-row { display: flex; align-items: center; gap: 8px; }
 .section-title { flex: 1; }
+.required-editor { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.required-row { display: flex; align-items: center; gap: 10px; }
+.required-label { font-size: 13px; font-weight: 600; width: 130px; }
+.required-desc { font-size: 12px; color: var(--itsm-text-muted); }
 .mt-1 { margin-top: 6px; }
 .match-result { margin-top: 12px; }
 .match-group { border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px; margin-bottom: 8px; }

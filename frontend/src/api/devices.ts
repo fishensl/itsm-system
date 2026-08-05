@@ -89,3 +89,29 @@ export function revealPassword(id: number) {
     method: 'POST',
   })
 }
+
+// ==================== 配置备份（V22：巡检同步可见 + 受控下载/在线查看） ====================
+export interface DeviceConfigBackup {
+  id: number
+  backup_type: string
+  backup_method: string
+  backup_date: string
+  has_content: boolean
+  has_file: boolean
+  file_name: string
+  checksum: string
+  created_by: string
+  created_at: string
+}
+
+export function fetchDeviceConfigBackups(deviceId: number) {
+  return request<DeviceConfigBackup[]>({ url: `/api/devices/${deviceId}/config-backups`, method: 'GET' })
+}
+
+export function deviceConfigBackupDownloadUrl(backupId: number) {
+  return `/api/devices/config-backup/${backupId}/download`
+}
+
+export function fetchDeviceConfigBackupContent(backupId: number) {
+  return request<{ content: string }>({ url: `/api/devices/config-backup/${backupId}/content`, method: 'GET' })
+}

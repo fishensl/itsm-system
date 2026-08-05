@@ -124,3 +124,27 @@ class SubmissionVersion(db.Model):
     reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by], backref='reviewed_versions')
 
 
+class SubmissionAsset(db.Model):
+    """提交资料 — 每轮提交（SubmissionVersion）附带的各类资料明细。
+
+    asset_type: report/config_zip/config_text/topology/asset_list
+    - 正常提交：file_path 指向文件（config_text 另存 content_text 供在线查看）；
+    - 必传项无法上传时：skip_reason 填豁免原因，file_path 为空；
+    - target_id：同步目标 ID（DeviceConfigBackup.id / Topology.id），用于溯源。
+    """
+    __tablename__ = 'submission_assets'
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey('submission_versions.id'), nullable=False, index=True)
+    asset_type = db.Column(db.String(32), default='report', index=True)
+    file_path = db.Column(db.String(256), default='')
+    file_name = db.Column(db.String(256), default='')
+    device_id = db.Column(db.Integer, db.ForeignKey('devices.id'), nullable=True)
+    content_text = db.Column(db.Text, default='')          # 文本配置内容（在线查看）
+    target_id = db.Column(db.Integer, nullable=True)       # 同步目标 ID
+    skip_reason = db.Column(db.Text, default='')           # 必传项豁免原因
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    version_rel = db.relationship('SubmissionVersion', backref='assets')
+    device_rel = db.relationship('Device', backref='submission_assets')
+
+

@@ -247,24 +247,103 @@
       </template>
     </el-drawer>
 
-    <!-- 上传巡检报告 -->
-    <el-dialog v-model="uploadVisible" title="上传巡检报告并提交审核" width="520px" destroy-on-close>
-      <el-form label-width="90px">
-        <el-form-item label="报告文件" required>
-          <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
-            :on-change="onUploadChange" :on-remove="() => uploadFile = null">
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖拽或点击选择巡检报告文件（Word/PDF/Excel/图片）</div>
-          </el-upload>
+    <!-- 上传提交资料（全套：报告 + 配置备份 + 拓扑图 + 资产清单） -->
+    <el-dialog v-model="uploadVisible" title="上传巡检资料并提交审核" width="680px" destroy-on-close>
+      <el-form label-width="100px">
+        <!-- 巡检报告 -->
+        <el-form-item :label="assetLabel('report')" :required="isRequired('report')">
+          <div class="asset-row">
+            <el-upload ref="reportUploadRef" :auto-upload="false" :limit="1"
+              accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+              :on-change="(f: UploadFile) => uploadFile = f.raw ?? null" :on-remove="() => uploadFile = null">
+              <el-button size="small" :icon="UploadFilled">选择报告文件</el-button>
+            </el-upload>
+            <span v-if="!uploadFile && isRequired('report')" class="skip-box">
+              <el-input v-model="skipReasons.report" size="small" placeholder="上传不了？填原因即可提交" style="width: 300px" />
+            </span>
+          </div>
         </el-form-item>
         <el-form-item label="结论">
-          <el-input v-model="uploadConclusion" type="textarea" :rows="3"
+          <el-input v-model="uploadConclusion" type="textarea" :rows="2"
             placeholder="本次巡检结论（可选），如：设备运行正常，无异常" />
         </el-form-item>
         <el-form-item label="提交备注">
           <el-input v-model="uploadRemark" type="textarea" :rows="2"
             placeholder="不便写入报告的实际情况（可选），将随本次提交留档" />
         </el-form-item>
+
+        <!-- 完整配置备份包 -->
+        <el-form-item :label="assetLabel('config_zip')" :required="isRequired('config_zip')">
+          <div class="asset-row">
+            <el-upload :auto-upload="false" :limit="1" accept=".zip"
+              :on-change="(f: UploadFile) => configZipFile = f.raw ?? null" :on-remove="() => configZipFile = null">
+              <el-button size="small" :icon="UploadFilled">选择配置备份包（zip）</el-button>
+            </el-upload>
+            <el-select v-if="configZipFile" v-model="configZipDeviceId" size="small" clearable filterable
+              placeholder="所属设备（核心设备）" style="width: 200px">
+              <el-option v-for="d in devices" :key="d.id" :label="d.device_name" :value="d.id" />
+            </el-select>
+            <span v-if="!configZipFile && isRequired('config_zip')" class="skip-box">
+              <el-input v-model="skipReasons.config_zip" size="small" placeholder="上传不了？填原因即可提交" style="width: 300px" />
+            </span>
+          </div>
+        </el-form-item>
+
+        <!-- 核心设备文本配置（动态行） -->
+        <el-form-item :label="assetLabel('config_text')" :required="isRequired('config_text')">
+          <div class="asset-col">
+            <div v-for="(row, i) in configTextRows" :key="i" class="asset-row">
+              <el-select v-model="row.device_id" size="small" clearable filterable placeholder="设备"
+                style="width: 160px">
+                <el-option v-for="d in devices" :key="d.id" :label="d.device_name" :value="d.id" />
+              </el-select>
+              <el-upload :auto-upload="false" :limit="1" accept=".txt,.cfg,.conf,.log,.text"
+                :on-change="(f: UploadFile) => { row.file = f.raw ?? null; if (row.file) row.content = '' }"
+                :on-remove="() => row.file = null">
+                <el-button size="small" :icon="UploadFilled">文件</el-button>
+              </el-upload>
+              <el-input v-model="row.content" size="small" type="textarea" :rows="2" placeholder="或直接粘贴配置内容"
+                style="width: 260px" />
+              <el-button size="small" link type="danger" :icon="Delete" @click="configTextRows.splice(i, 1)" />
+            </div>
+            <el-button size="small" plain :icon="Plus" @click="configTextRows.push({ device_id: null, file: null, content: '' })">
+              添加设备配置
+            </el-button>
+            <span v-if="!configTextRows.length && isRequired('config_text')" class="skip-box">
+              <el-input v-model="skipReasons.config_text" size="small" placeholder="上传不了？填原因即可提交" style="width: 300px" />
+            </span>
+          </div>
+        </el-form-item>
+
+        <!-- 拓扑图 -->
+        <el-form-item :label="assetLabel('topology')" :required="isRequired('topology')">
+          <div class="asset-row">
+            <el-upload :auto-upload="false" :limit="1"
+              accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.pdf,.vsd,.vsdx,.drawio,.xml"
+              :on-change="(f: UploadFile) => topologyFile = f.raw ?? null" :on-remove="() => topologyFile = null">
+              <el-button size="small" :icon="UploadFilled">选择拓扑图文件</el-button>
+            </el-upload>
+            <span class="asset-tip">上传后同步到设备管理-该客户拓扑图</span>
+            <span v-if="!topologyFile && isRequired('topology')" class="skip-box">
+              <el-input v-model="skipReasons.topology" size="small" placeholder="上传不了？填原因即可提交" style="width: 300px" />
+            </span>
+          </div>
+        </el-form-item>
+
+        <!-- 资产清单 -->
+        <el-form-item :label="assetLabel('asset_list')" :required="isRequired('asset_list')">
+          <div class="asset-row">
+            <el-upload :auto-upload="false" :limit="1" accept=".xlsx,.xls"
+              :on-change="(f: UploadFile) => assetListFile = f.raw ?? null" :on-remove="() => assetListFile = null">
+              <el-button size="small" :icon="UploadFilled">选择资产清单 Excel</el-button>
+            </el-upload>
+            <span class="asset-tip">提交时解析导入设备（按设备名更新/新增，列与设备导入模板一致）</span>
+            <span v-if="!assetListFile && isRequired('asset_list')" class="skip-box">
+              <el-input v-model="skipReasons.asset_list" size="small" placeholder="上传不了？填原因即可提交" style="width: 300px" />
+            </span>
+          </div>
+        </el-form-item>
+
         <el-form-item v-if="uploadHint" label="提示">
           <span class="upload-hint">{{ uploadHint }}</span>
         </el-form-item>
@@ -280,7 +359,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessageBox, type UploadFile } from 'element-plus'
-import { Plus, Search, Download, Upload, UploadFilled, Document } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
@@ -315,15 +394,37 @@ const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
 
-// V21: 关联巡检记录 + 上传报告
+// V21/V22: 关联巡检记录 + 上传全套资料
 const record = ref<Inspection | null>(null)
 const versions = ref<SubmissionVersion[]>([])
 const uploadVisible = ref(false)
 const uploading = ref(false)
-const uploadRef = ref()
 const uploadFile = ref<File | null>(null)
 const uploadConclusion = ref('')
 const uploadRemark = ref('')
+const devices = ref<Array<{ id: number; device_name: string; device_type: string }>>([])
+const requiredAssets = ref<Record<string, boolean>>({})
+const configZipFile = ref<File | null>(null)
+const configZipDeviceId = ref<number | null>(null)
+const configTextRows = ref<Array<{ device_id: number | null; file: File | null; content: string }>>([])
+const topologyFile = ref<File | null>(null)
+const assetListFile = ref<File | null>(null)
+const skipReasons = reactive<Record<string, string>>({
+  report: '', config_zip: '', config_text: '', topology: '', asset_list: '',
+})
+
+const ASSET_LABELS: Record<string, string> = {
+  report: '巡检报告', config_zip: '完整配置备份包', config_text: '核心设备文本配置',
+  topology: '拓扑图', asset_list: '资产清单',
+}
+
+function isRequired(key: string) {
+  return !!requiredAssets.value[key]
+}
+
+function assetLabel(key: string) {
+  return (isRequired(key) ? '* ' : '') + ASSET_LABELS[key]
+}
 const uploadHint = computed(() => {
   const st = detail.value?.status
   if (st === '待审核') return '任务正在审核中，请等待审核结果后再上传'
@@ -467,12 +568,24 @@ function openUpload() {
   uploadFile.value = null
   uploadConclusion.value = ''
   uploadRemark.value = ''
-  uploadRef.value?.clearFiles?.()
+  configZipFile.value = null
+  configZipDeviceId.value = null
+  configTextRows.value = []
+  topologyFile.value = null
+  assetListFile.value = null
+  Object.assign(skipReasons, { report: '', config_zip: '', config_text: '', topology: '', asset_list: '' })
   uploadVisible.value = true
-}
-
-function onUploadChange(f: UploadFile) {
-  uploadFile.value = f.raw ?? null
+  if (detail.value) {
+    fetch(`/api/task-schedule/${detail.value.id}/required-assets`)
+      .then((r) => r.json())
+      .then((body) => {
+        if (body?.code === 0) {
+          requiredAssets.value = body.data.required_assets || {}
+          devices.value = body.data.devices || []
+        }
+      })
+      .catch(() => { /* toast */ })
+  }
 }
 
 function downloadLatestReport() {
@@ -483,18 +596,53 @@ function downloadLatestReport() {
 
 async function doUpload() {
   if (!detail.value) return
-  if (!uploadFile.value) {
-    ui.toast('请选择要上传的巡检报告文件', 'warning')
+  if (!uploadFile.value && !skipReasons.report.trim()) {
+    ui.toast('请选择巡检报告文件，或填写无法上传的原因', 'warning')
     return
   }
   uploading.value = true
   try {
     const fd = new FormData()
-    fd.append('report_file', uploadFile.value)
+    if (uploadFile.value) fd.append('report_file', uploadFile.value)
+    else fd.append('report_skip_reason', skipReasons.report)
     fd.append('conclusion', uploadConclusion.value)
     fd.append('remark', uploadRemark.value)
+
+    if (configZipFile.value) {
+      fd.append('config_zip', configZipFile.value)
+      if (configZipDeviceId.value) fd.append('config_zip_device_id', String(configZipDeviceId.value))
+    } else if (skipReasons.config_zip) {
+      fd.append('config_zip_skip_reason', skipReasons.config_zip)
+    }
+
+    configTextRows.value.forEach((row, i) => {
+      if (row.file) {
+        fd.append(`config_text_file_${i}`, row.file)
+        if (row.device_id) fd.append(`config_text_device_id_${i}`, String(row.device_id))
+      } else if (row.content.trim()) {
+        fd.append(`config_text_content_${i}`, row.content)
+        if (row.device_id) fd.append(`config_text_device_id_${i}`, String(row.device_id))
+      }
+    })
+    if (!configTextRows.value.some((r) => r.file || r.content.trim()) && skipReasons.config_text) {
+      fd.append('config_text_skip_reason', skipReasons.config_text)
+    }
+
+    if (topologyFile.value) fd.append('topology_file', topologyFile.value)
+    else if (skipReasons.topology) fd.append('topology_skip_reason', skipReasons.topology)
+
+    if (assetListFile.value) fd.append('asset_list', assetListFile.value)
+    else if (skipReasons.asset_list) fd.append('asset_list_skip_reason', skipReasons.asset_list)
+
     const r = await uploadTaskReport(detail.value.id, fd)
-    ui.toast(`已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`, 'success')
+    let msg = `已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`
+    if (r.asset_import) {
+      msg += `；资产清单导入：新增 ${r.asset_import.created} 台、更新 ${r.asset_import.updated} 台`
+    }
+    if (r.skipped.length) {
+      msg += `；豁免：${r.skipped.map(([label]) => label).join('、')}`
+    }
+    ui.toast(msg, 'success')
     uploadVisible.value = false
     await loadRecord()
     reload()
@@ -602,6 +750,10 @@ onMounted(reload)
 .record-conclusion { font-size: 13px; margin: 8px 0; white-space: pre-wrap; }
 .upload-hint { color: var(--el-color-warning); font-size: 12px; }
 .mt-2 { margin-top: 8px; }
+.asset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.asset-col { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.asset-tip { font-size: 12px; color: var(--itsm-text-muted); }
+.skip-box { display: inline-flex; }
 .task-card {
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
   cursor: pointer; transition: border-color 0.15s;

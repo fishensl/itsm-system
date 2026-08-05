@@ -39,6 +39,35 @@
               </el-link>
             </div>
             <div v-else class="vt-row"><span class="vt-label">报告</span><span class="vt-none">未上传</span></div>
+
+            <!-- 提交资料明细（配置备份/拓扑图/资产清单） -->
+            <div v-if="v.assets?.length" class="vt-assets">
+              <div v-for="a in v.assets" :key="a.id" class="vt-row">
+                <span class="vt-label">{{ ASSET_LABELS[a.asset_type] || a.asset_type }}</span>
+                <template v-if="a.skip_reason">
+                  <span class="vt-skip">未上传（原因：{{ a.skip_reason }}）</span>
+                </template>
+                <template v-else>
+                  <template v-if="a.asset_type === 'config_text' && a.has_content">
+                    <el-link type="primary" :underline="false" @click="viewContent(a)">
+                      <el-icon style="margin-right: 2px"><View /></el-icon>{{ a.device_name || '配置' }} 在线查看
+                    </el-link>
+                  </template>
+                  <template v-else-if="a.asset_type === 'topology' && a.target_id">
+                    <el-link type="primary" :underline="false" @click="openTopology()">
+                      <el-icon style="margin-right: 2px"><Share /></el-icon>{{ a.file_name || '拓扑图' }}（已同步）
+                    </el-link>
+                  </template>
+                  <template v-else>
+                    <el-link v-if="a.file_name" type="primary" :underline="false" @click="downloadAsset(a)">
+                      <el-icon style="margin-right: 2px"><Download /></el-icon>{{ a.file_name }}
+                    </el-link>
+                    <span v-else class="vt-none">（无附件）</span>
+                  </template>
+                  <span v-if="a.device_name" class="vt-device">· {{ a.device_name }}</span>
+                </template>
+              </div>
+            </div>
           </div>
 
           <!-- 审核阶段 -->
@@ -63,14 +92,42 @@
 </template>
 
 <script setup lang="ts">
-import { Download } from '@element-plus/icons-vue'
-import type { SubmissionVersion } from '@/api/inspections'
-import { versionReportUrl } from '@/api/inspections'
+import { Download, View, Share } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
+import type { SubmissionVersion, SubmissionAsset } from '@/api/inspections'
+import { versionReportUrl, submissionAssetUrl, fetchSubmissionAssetContent } from '@/api/inspections'
 
 const props = defineProps<{
   versions: SubmissionVersion[]
   entityType: 'inspection' | 'ticket'
 }>()
+
+const ASSET_LABELS: Record<string, string> = {
+  report: '巡检报告',
+  config_zip: '完整配置包',
+  config_text: '设备文本配置',
+  topology: '拓扑图',
+  asset_list: '资产清单',
+}
+
+function viewContent(a: SubmissionAsset) {
+  fetchSubmissionAssetContent(a.id)
+    .then((r) => {
+      ElMessageBox.alert(r.content || '（空）', `配置文本 · ${a.device_name || a.file_name}`, {
+        customStyle: { maxHeight: '70vh', overflow: 'auto' },
+        confirmButtonText: '关闭',
+      }).catch(() => {})
+    })
+    .catch(() => { /* toast */ })
+}
+
+function downloadAsset(a: SubmissionAsset) {
+  window.open(submissionAssetUrl(a.id), '_blank')
+}
+
+function openTopology() {
+  window.open(`/app/topologies`, '_blank')
+}
 
 const REVIEW_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
   待审核: 'warning',
@@ -107,6 +164,9 @@ function download(v: SubmissionVersion) {
 .vt-label { color: var(--el-text-color-secondary); flex-shrink: 0; min-width: 60px; }
 .vt-remark { white-space: pre-wrap; color: var(--el-text-color-regular); }
 .vt-none { color: var(--el-text-color-placeholder); }
+.vt-assets { margin-top: 4px; padding: 4px 6px; border-radius: 4px; background: var(--el-fill-color-light); }
+.vt-skip { color: var(--el-color-warning); font-size: 12px; }
+.vt-device { color: var(--el-text-color-secondary); font-size: 12px; }
 .vt-review { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--el-border-color-lighter); font-size: 12px; }
 .vt-review-head { margin-bottom: 2px; }
 .vt-reviewer { color: var(--el-text-color-secondary); }
