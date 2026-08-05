@@ -107,9 +107,20 @@ probe_all_channels() {
     fi
 }
 
-# git pull：直连（限时 60s，不再无限卡死）→ 代理 → 镜像 依次兜底
+# git pull：离线 bundle（本地文件，秒级应用，零网络）→ 直连（限时 60s，不再无限卡死）→ 代理 → 镜像 依次兜底
 git_pull_with_fallback() {
-    local branch="${1:-master}" p m repo_base
+    local branch="${1:-master}" p m repo_base bundle
+    bundle="${APP_DIR}/backups/itsm-update.bundle"
+    if [ -f "${bundle}" ]; then
+        echo "  [INFO] 发现离线代码包 backups/itsm-update.bundle，本地应用..."
+        if timeout 60 git pull "${bundle}" "${branch}" 2>/dev/null; then
+            mv "${bundle}" "${bundle}.used.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || rm -f "${bundle}"
+            echo "  [OK] 代码已更新（本地 bundle，零网络依赖）"
+            return 0
+        else
+            echo "  [WARN] bundle 应用失败（可能已最新/损坏），继续网络拉取"
+        fi
+    fi
     if [ -n "${ITSM_PROXY_LIST}" ]; then
         export https_proxy="${ITSM_PROXY_ARRAY[0]}" http_proxy="${ITSM_PROXY_ARRAY[0]}"
         echo "  [INFO] git pull 使用代理: ${https_proxy}"
