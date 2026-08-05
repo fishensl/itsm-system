@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Inspection 巡检业务服务（V21：审核闭环版本化）
 
 闭环：任务执行中 → 工程师上传报告（建 SubmissionVersion）→ 任务待审核
@@ -200,17 +200,29 @@ def _revert_task_to_running(i):
 
 @transaction
 def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
-                           current_user_name, submit_review=True, force=False, remark=''):
-    """工程师从任务上传现场报告 → 自动生成/复用巡检记录并提交审核。
+                           current_user_name, submit_review=True, force=False, remark='',
+                           report_skip_reason='',
+                           config_zip_path='', config_zip_device_id=None, config_zip_skip_reason='',
+                           config_texts=None, config_text_skip_reason='',
+                           topology_file_path='', topology_file_name='', topology_skip_reason='',
+                           asset_list_path='', asset_list_file_name='', asset_list_skip_reason=''):
+    """工程师从任务上传现场报告（全套资料）→ 自动生成/复用巡检记录并提交审核。
+
+    全套资料（V22）：巡检报告（必传默认，可配置豁免）+ 完整配置包 config_zip +
+    核心设备文本配置 config_texts（[{device_id, content, file_path, file_name}]）+
+    拓扑图 topology + 资产清单 asset_list（已由调用方解析导入设备）。
 
     规则：
     - 任务必须存在且处于「执行中」（待审核时不可重复上传）；
     - 上传者必须是任务指派者本人；force=True 时跳过归属校验（管理员代传）；
     - 任务已有「待审核」版本时拒绝重复上传（先等审核）；
-    - 任务已有「已退回」记录时允许再次上传（追加新版本，历史留档）；
+    - 必传项（按任务模板 required_assets_json 配置）缺传且未填豁免原因 → 拒绝；
+    - 资料同步：文本配置/配置包 → DeviceConfigBackup，拓扑图 → Topology；
     - 创建记录后任务「执行中 → 待审核」。
-    返回 (inspection, version)。
+    返回 (inspection, version, asset_result)。
     """
+    from .submission_version_service import add_asset
+
     task = InspectionTask.query.get_or_404(task_id)
     if task.status not in (TASK_RUNNING, TASK_REVIEWING, TASK_PENDING):
         raise ServiceError('任务状态「%s」不允许上传报告（仅执行中/待审核中的任务可上传）' % task.status)
@@ -218,6 +230,16 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     if not force and task.assigned_to_user_id and current_user_id \
             and int(task.assigned_to_user_id) != int(current_user_id):
         raise ServiceError('只有该任务指派工程师或管理员可以上传报告')
+
+    _check_required_assets(task, report_path=report_path, report_skip_reason=report_skip_reason,
+                           config_zip_path=config_zip_path,
+                           config_zip_skip_reason=config_zip_skip_reason,
+                           config_texts=config_texts or [],
+                           config_text_skip_reason=config_text_skip_reason,
+                           topology_file_path=topology_file_path,
+                           topology_skip_reason=topology_skip_reason,
+                           asset_list_path=asset_list_path,
+                           asset_list_skip_reason=asset_list_skip_reason)
 
     inspection = Inspection.query.filter_by(task_id=task.id).first()
     if inspection:
@@ -254,9 +276,176 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     inspection.review_status = REVIEW_PENDING
     inspection.overall_status = REVIEW_PENDING
     inspection.conclusion = conclusion or ''
+
+    asset_result = _sync_submission_assets(
+        version, task, report_path, report_skip_reason,
+        config_zip_path, config_zip_device_id, config_zip_skip_reason,
+        config_texts or [], config_text_skip_reason,
+        topology_file_path, topology_file_name, topology_skip_reason,
+        asset_list_path, asset_list_file_name, asset_list_skip_reason,
+        current_user_name, add_asset)
+
     if submit_review:
         _sync_task_to_reviewing(inspection)
-    return inspection, version
+    return inspection, version, asset_result
+
+
+def get_task_required_assets(task):
+    """任务提交必传配置：按任务模板 required_assets_json，无模板/无效回退默认（仅报告必传）"""
+    from utils.json_fields import parse_json
+    defaults = {'report': True, 'config_zip': False, 'config_text': False,
+                'topology': False, 'asset_list': False}
+    tpl = task.task_template_rel if task.task_template_id else None
+    if not tpl:
+        return defaults
+    cfg = parse_json(tpl.required_assets_json, {}, 'inspection_task_templates.required_assets_json')
+    if not isinstance(cfg, dict):
+        return defaults
+    out = dict(defaults)
+    for k in defaults:
+        if k in cfg:
+            out[k] = bool(cfg[k])
+    return out
+
+
+def _check_required_assets(task, **kwargs):
+    """必传项校验：必传项缺文件且未填豁免原因 → 拒绝提交"""
+    required = get_task_required_assets(task)
+    has = {
+        'report': bool(kwargs.get('report_path')) or bool(kwargs.get('report_skip_reason')),
+        'config_zip': bool(kwargs.get('config_zip_path')) or bool(kwargs.get('config_zip_skip_reason')),
+        'config_text': bool(kwargs.get('config_texts')) or bool(kwargs.get('config_text_skip_reason')),
+        'topology': bool(kwargs.get('topology_file_path')) or bool(kwargs.get('topology_skip_reason')),
+        'asset_list': bool(kwargs.get('asset_list_path')) or bool(kwargs.get('asset_list_skip_reason')),
+    }
+    labels = {'report': '巡检报告', 'config_zip': '完整配置备份包', 'config_text': '核心设备文本配置',
+              'topology': '拓扑图', 'asset_list': '资产清单'}
+    for key, must in required.items():
+        if must and not has.get(key):
+            raise ServiceError('必传项「%s」未上传，请上传或填写无法上传的原因' % labels.get(key, key))
+
+
+def _sync_submission_assets(version, task, report_path, report_skip_reason,
+                            config_zip_path, config_zip_device_id, config_zip_skip_reason,
+                            config_texts, config_text_skip_reason,
+                            topology_file_path, topology_file_name, topology_skip_reason,
+                            asset_list_path, asset_list_file_name, asset_list_skip_reason,
+                            operator_name, add_asset):
+    """写 submission_assets 明细 + 同步 DeviceConfigBackup / Topology，返回汇总"""
+    from models import DeviceConfigBackup, Topology as _Topology
+    import hashlib
+
+    result = {'config_backups': 0, 'topologies': 0, 'assets': 0, 'skipped': []}
+
+    # 巡检报告
+    if report_path:
+        add_asset(version.id, 'report', file_path=report_path)
+        result['assets'] += 1
+    elif report_skip_reason:
+        add_asset(version.id, 'report', skip_reason=report_skip_reason)
+        result['skipped'].append(('巡检报告', report_skip_reason))
+
+    created_by = '%s / 版本%d' % (operator_name, version.version_no)
+
+    # 完整配置备份包
+    if config_zip_path:
+        cid = None
+        if config_zip_device_id:
+            try:
+                cid = int(config_zip_device_id)
+            except (TypeError, ValueError):
+                cid = None
+        if cid:
+            backup = DeviceConfigBackup(
+                device_id=cid,
+                backup_type='全部配置',
+                backup_method='巡检上传',
+                config_content='（完整配置备份包，见附件文件）',
+                file_path=config_zip_path,
+                backup_date=datetime.utcnow().date(),
+                created_by=created_by,
+            )
+            db.session.add(backup)
+            db.session.flush()
+            target_id = backup.id
+            result['config_backups'] += 1
+        else:
+            target_id = None
+        add_asset(version.id, 'config_zip', file_path=config_zip_path, device_id=cid, target_id=target_id)
+        result['assets'] += 1
+    elif config_zip_skip_reason:
+        add_asset(version.id, 'config_zip', skip_reason=config_zip_skip_reason)
+        result['skipped'].append(('完整配置备份包', config_zip_skip_reason))
+
+    # 核心设备文本配置（每条同步 DeviceConfigBackup，可在线查看）
+    if config_texts:
+        for ct in config_texts:
+            try:
+                dev_id = int(ct.get('device_id')) if ct.get('device_id') else None
+            except (TypeError, ValueError):
+                dev_id = None
+            content = ct.get('content') or ''
+            fpath = ct.get('file_path') or ''
+            fname = ct.get('file_name') or ''
+            backup = None
+            if dev_id:
+                backup = DeviceConfigBackup(
+                    device_id=dev_id,
+                    backup_type='运行配置',
+                    backup_method='巡检上传',
+                    config_content=content or '（文本配置见附件）',
+                    file_path=fpath,
+                    backup_date=datetime.utcnow().date(),
+                    checksum=hashlib.md5((content or '').encode('utf-8')).hexdigest() if content else '',
+                    created_by=created_by,
+                )
+                db.session.add(backup)
+                db.session.flush()
+                result['config_backups'] += 1
+            add_asset(version.id, 'config_text', file_path=fpath, file_name=fname,
+                 device_id=dev_id, content_text=content,
+                 target_id=backup.id if backup else None)
+            result['assets'] += 1
+    elif config_text_skip_reason:
+        add_asset(version.id, 'config_text', skip_reason=config_text_skip_reason)
+        result['skipped'].append(('核心设备文本配置', config_text_skip_reason))
+
+    # 拓扑图 → Topology（按客户，拓扑页自动可见）
+    if topology_file_path:
+        from datetime import date as _date
+        cust = task.customer_rel
+        cust_name = cust.name if cust else '未命名客户'
+        ext = (topology_file_path or '').rsplit('.', 1)[-1].lower() if '.' in (topology_file_path or '') else 'other'
+        file_type = 'image' if ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp') else (
+            'pdf' if ext == 'pdf' else 'drawio' if ext in ('drawio', 'xml') else 'other')
+        topo = _Topology(
+            customer_id=task.customer_id,
+            name='%s巡检拓扑 %s' % (cust_name, _date.today().strftime('%Y-%m-%d')),
+            description='由巡检任务 #%d 提交资料同步' % task.id,
+            file_path=topology_file_path,
+            file_type=file_type,
+            source='upload',
+            upload_by=operator_name,
+        )
+        db.session.add(topo)
+        db.session.flush()
+        add_asset(version.id, 'topology', file_path=topology_file_path,
+             file_name=topology_file_name, target_id=topo.id)
+        result['topologies'] += 1
+        result['assets'] += 1
+    elif topology_skip_reason:
+        add_asset(version.id, 'topology', skip_reason=topology_skip_reason)
+        result['skipped'].append(('拓扑图', topology_skip_reason))
+
+    # 资产清单（文件留档；设备解析导入已在调用方完成）
+    if asset_list_path:
+        add_asset(version.id, 'asset_list', file_path=asset_list_path, file_name=asset_list_file_name)
+        result['assets'] += 1
+    elif asset_list_skip_reason:
+        add_asset(version.id, 'asset_list', skip_reason=asset_list_skip_reason)
+        result['skipped'].append(('资产清单', asset_list_skip_reason))
+
+    return result
 
 
 @transaction

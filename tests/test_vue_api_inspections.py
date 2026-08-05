@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from models import db, Customer, Inspection, InspectionTask, User, SubmissionVersion
+from models import db, Customer, Inspection, InspectionTask, User, SubmissionVersion, Device
 
 
 @pytest.fixture()
@@ -499,6 +499,201 @@ class TestInspectionDicts:
 
     def test_list_requires_login(self, client):
         assert client.get('/api/inspections').status_code == 401
+
+
+def _xlsx_bytes(rows):
+    """构造 xlsx 内存字节（rows: 首行为表头）"""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    for row in rows:
+        ws.append(row)
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
+
+
+class TestTaskSubmissionAssets:
+    """V22: 任务提交全套资料（配置备份/拓扑图/资产清单）→ 同步设备管理"""
+
+    def _task(self, app, seed, tpl=None):
+        with app.app_context():
+            op = User.query.filter_by(username='op').first()
+            t = InspectionTask(title='全套资料任务', customer_id=seed['c'], status='执行中',
+                               assigned_to_user_id=op.id, task_template_id=tpl.id if tpl else None)
+            db.session.add(t)
+            db.session.flush()
+            d = Device(customer_id=seed['c'], device_name='核心交换机A', device_type='核心交换机',
+                       ip_address='10.0.0.1')
+            db.session.add(d)
+            db.session.commit()
+            return t.id, d.id
+
+    def test_full_submission_syncs_all(self, op_client, app, seed):
+        """报告+配置zip+文本配置+拓扑+资产清单 → 版本 assets + DeviceConfigBackup + Topology + 设备导入"""
+        from models import InspectionTaskTemplate, Device, DeviceConfigBackup, Topology, SubmissionAsset
+        with app.app_context():
+            tpl = InspectionTaskTemplate(name='全套模板', required_assets_json='{}')
+            db.session.add(tpl)
+            db.session.commit()
+            tid, did = self._task(app, seed, tpl)
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={
+                               'report_file': _dummy_file(),
+                               'config_zip': (io.BytesIO(b'zip'), 'full.zip'),
+                               'config_zip_device_id': str(did),
+                               'config_text_file_0': (io.BytesIO(b'hostname core-a\n'), 'core-a.cfg'),
+                               'config_text_device_id_0': str(did),
+                               'topology_file': (io.BytesIO(b'png'), 'topo.png'),
+                               'asset_list': (_xlsx_bytes([
+                                   ['设备名称', '设备类型', 'IP地址'],
+                                   ['核心交换机A', '核心交换机', '10.0.0.1'],
+                                   ['新服务器B', '服务器', '10.0.0.2'],
+                               ]), 'assets.xlsx'),
+                           },
+                           content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        body = r.get_json()['data']
+        assert body['config_backups'] == 2  # zip + 文本配置
+        assert body['topologies'] == 1
+        assert body['asset_import']['created'] == 1  # 新服务器B
+        assert body['asset_import']['updated'] == 1  # 核心交换机A
+        with app.app_context():
+            i = Inspection.query.filter_by(task_id=tid).first()
+            v = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).first()
+            assets = SubmissionAsset.query.filter_by(version_id=v.id).all()
+            types = sorted(a.asset_type for a in assets)
+            assert types == ['asset_list', 'config_text', 'config_zip', 'report', 'topology']
+            # 同步目标
+            assert DeviceConfigBackup.query.filter_by(device_id=did).count() == 2
+            cb = DeviceConfigBackup.query.filter_by(device_id=did, backup_type='全部配置').first()
+            assert cb is not None and cb.file_path.endswith('full.zip')
+            ct = DeviceConfigBackup.query.filter_by(device_id=did, backup_type='运行配置').first()
+            assert ct is not None and 'hostname core-a' in ct.config_content
+            assert Topology.query.filter_by(customer_id=seed['c']).count() == 1
+            # 资产导入
+            assert Device.query.filter_by(customer_id=seed['c']).count() == 2
+            assert Device.query.filter_by(device_name='新服务器B').first() is not None
+        # 版本列表 API 含资料明细
+        r = op_client.get(f"/api/inspections/{i.id}/versions")
+        vers = r.get_json()['data']
+        assert len(vers[0]['assets']) == 5
+
+    def test_required_assets_enforced(self, op_client, app, seed):
+        """模板配置 config_zip 必传：缺传拒绝 / 填豁免原因放行"""
+        import json
+        from models import InspectionTaskTemplate
+        with app.app_context():
+            tpl = InspectionTaskTemplate(
+                name='必传模板',
+                required_assets_json=json.dumps(
+                    {'report': True, 'config_zip': True, 'config_text': False,
+                     'topology': False, 'asset_list': False}, ensure_ascii=False))
+            db.session.add(tpl)
+            db.session.commit()
+            tid, did = self._task(app, seed, tpl)
+        # 缺 config_zip → 拒绝
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'report_file': _dummy_file()},
+                           content_type='multipart/form-data')
+        assert r.status_code == 400
+        assert '完整配置备份包' in r.get_json()['message']
+        # 填豁免原因 → 放行
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'report_file': _dummy_file(),
+                                 'config_zip_skip_reason': '客户机房未开放，无法导出完整配置'},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            i = Inspection.query.filter_by(task_id=tid).first()
+            v = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).first()
+            from models import SubmissionAsset
+            skip = SubmissionAsset.query.filter_by(version_id=v.id, asset_type='config_zip').first()
+            assert skip.skip_reason == '客户机房未开放，无法导出完整配置'
+        # 版本列表 API 可见豁免
+        r = op_client.get(f"/api/inspections/{i.id}/versions")
+        assets = r.get_json()['data'][0]['assets']
+        assert any(a['asset_type'] == 'config_zip' and a['skip_reason'] for a in assets)
+
+    def test_report_skip_reason(self, op_client, app, seed):
+        """报告豁免：不传文件但填原因 → 放行"""
+        tid, _ = self._task(app, seed)
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'report_skip_reason': '报告后续线下补交'},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+
+    def test_required_assets_default_when_no_template(self, op_client, app, seed):
+        """无模板任务默认仅报告必传：只传报告放行"""
+        tid, _ = self._task(app, seed)
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'report_file': _dummy_file()},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+
+    def test_required_assets_meta_endpoint(self, op_client, app, seed):
+        """GET /api/task-schedule/<id>/required-assets 返回配置+客户设备"""
+        tid, did = self._task(app, seed)
+        r = op_client.get(f'/api/task-schedule/{tid}/required-assets')
+        body = r.get_json()['data']
+        assert body['required_assets']['report'] is True
+        assert any(d['id'] == did for d in body['devices'])
+
+
+class TestDeviceConfigBackupApi:
+    """V22: Vue 设备配置备份（列表/内容/下载）"""
+
+    def test_list_content_download(self, op_client, app, seed):
+        from models import Device, DeviceConfigBackup
+        with app.app_context():
+            d = Device(customer_id=seed['c'], device_name='核心交换机A', device_type='核心交换机')
+            db.session.add(d)
+            db.session.flush()
+            b = DeviceConfigBackup(device_id=d.id, backup_type='运行配置', backup_method='巡检上传',
+                                   config_content='hostname core-a', created_by='op / 版本1')
+            db.session.add(b)
+            db.session.commit()
+            did, bid = d.id, b.id
+        r = op_client.get(f'/api/devices/{did}/config-backups')
+        assert r.status_code == 200
+        rows = r.get_json()['data']
+        assert len(rows) == 1
+        assert rows[0]['backup_method'] == '巡检上传'
+        assert rows[0]['has_content'] is True
+        r = op_client.get(f'/api/devices/config-backup/{bid}/content')
+        assert r.get_json()['data']['content'] == 'hostname core-a'
+        # 无附件文件 → 下载 404
+        r = op_client.get(f'/api/devices/config-backup/{bid}/download')
+        assert r.status_code == 404
+
+    def test_requires_login(self, client, seed):
+        assert client.get(f'/api/devices/{seed["c"]}/config-backups').status_code == 401
+
+
+class TestTaskTemplateRequiredAssets:
+    """V22: 任务模板必传配置 API"""
+
+    def test_set_and_read(self, op_client, app):
+        r = op_client.post('/api/task-templates', json={
+            'name': '必传模板X',
+            'required_assets': {'report': True, 'config_zip': True, 'config_text': True,
+                                'topology': True, 'asset_list': True},
+        })
+        assert r.status_code == 200
+        tid = r.get_json()['data']['id']
+        r = op_client.get('/api/task-templates')
+        tpl = next(t for t in r.get_json()['data']['templates'] if t['id'] == tid)
+        assert tpl['required_assets']['config_zip'] is True
+        # 更新
+        r = op_client.put(f'/api/task-templates/{tid}', json={
+            'required_assets': {'report': True, 'config_zip': False, 'config_text': False,
+                                'topology': False, 'asset_list': False},
+        })
+        assert r.status_code == 200
+        r = op_client.get('/api/task-templates')
+        tpl = next(t for t in r.get_json()['data']['templates'] if t['id'] == tid)
+        assert tpl['required_assets']['config_zip'] is False
 
 
 class TestInspectionExport:

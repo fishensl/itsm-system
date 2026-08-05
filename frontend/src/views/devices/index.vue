@@ -73,6 +73,25 @@
         </el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
       </el-descriptions>
+
+      <!-- 配置备份（含巡检上传同步记录） -->
+      <el-divider content-position="left">配置备份</el-divider>
+      <div v-loading="backupsLoading" class="backup-list">
+        <el-table v-if="backups.length" :data="backups" size="small" border stripe max-height="220">
+          <el-table-column prop="backup_type" label="类型" width="100" />
+          <el-table-column prop="backup_method" label="来源" width="100" />
+          <el-table-column prop="backup_date" label="日期" width="100" />
+          <el-table-column prop="created_by" label="创建人" min-width="90" />
+          <el-table-column label="操作" width="140">
+            <template #default="{ row }">
+              <el-button v-if="row.has_content" size="small" link type="primary" @click="viewBackup(row)">查看</el-button>
+              <el-button v-if="row.has_file" size="small" link type="primary" @click="downloadBackup(row)">下载</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else-if="!backupsLoading" description="暂无配置备份（巡检提交资料将自动同步）" :image-size="50" />
+      </div>
+
       <template #footer>
         <el-button v-if="user.hasPerm('device:reveal') && detail?.has_password" @click="revealPwd">
           <el-icon class="mr-1"><View /></el-icon>{{ pwdVisible ? '隐藏密码' : '查看密码' }}
@@ -219,7 +238,8 @@ import { useUiStore } from '@/stores/ui'
 import { IN_USE_LABELS } from '@/utils/labels'
 import {
   fetchDevices, fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
-  type Device, type DeviceForm,
+  fetchDeviceConfigBackups, fetchDeviceConfigBackupContent, deviceConfigBackupDownloadUrl,
+  type Device, type DeviceForm, type DeviceConfigBackup,
 } from '@/api/devices'
 
 const user = useUserStore()
@@ -264,6 +284,8 @@ const columns = computed<DataColumn[]>(() => [
 const detailVisible = ref(false)
 const detail = ref<Device | null>(null)
 const pwdVisible = ref(false)
+const backups = ref<DeviceConfigBackup[]>([])
+const backupsLoading = ref(false)
 
 async function openDetail(row: Record<string, unknown>) {
   const id = row.id as number
@@ -271,7 +293,32 @@ async function openDetail(row: Record<string, unknown>) {
     detail.value = await fetchDevice(id)
     pwdVisible.value = false
     detailVisible.value = true
+    loadBackups(id)
   } catch { /* toast */ }
+}
+
+async function loadBackups(deviceId: number) {
+  backupsLoading.value = true
+  try {
+    backups.value = await fetchDeviceConfigBackups(deviceId)
+  } catch { backups.value = [] } finally {
+    backupsLoading.value = false
+  }
+}
+
+function viewBackup(row: DeviceConfigBackup) {
+  fetchDeviceConfigBackupContent(row.id)
+    .then((r) => {
+      ElMessageBox.alert(r.content || '（空）', `配置备份 · ${row.backup_type}`, {
+        customStyle: { maxHeight: '70vh', overflow: 'auto' },
+        confirmButtonText: '关闭',
+      }).catch(() => {})
+    })
+    .catch(() => { /* toast */ })
+}
+
+function downloadBackup(row: DeviceConfigBackup) {
+  window.open(deviceConfigBackupDownloadUrl(row.id), '_blank')
 }
 
 async function revealPwd() {
@@ -426,4 +473,5 @@ fetchDeviceDicts().then((d) => {
 .cell-warn {
   color: #e6a23c;
 }
+.backup-list { margin-bottom: 8px; }
 </style>

@@ -1,6 +1,19 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types'
 
+export interface SubmissionAsset {
+  id: number
+  asset_type: string
+  file_path: string
+  file_name: string
+  device_id: number | null
+  device_name: string
+  has_content: boolean
+  content_text: string
+  target_id: number | null
+  skip_reason: string
+}
+
 export interface SubmissionVersion {
   id: number
   version_no: number
@@ -14,6 +27,7 @@ export interface SubmissionVersion {
   reviewed_at: string
   review_comment: string
   revision_requirements: string
+  assets: SubmissionAsset[]
 }
 
 export interface Inspection {
@@ -104,12 +118,33 @@ export function reviewInspection(id: number, approved: boolean, remark?: string,
 }
 
 /** 从任务上传巡检报告（multipart：report_file + conclusion）→ 自动建记录/版本并提交审核 */
+export interface UploadTaskReportResult {
+  inspection_id: number
+  version_no: number
+  task_status: string
+  config_backups: number
+  topologies: number
+  skipped: Array<[string, string]>
+  asset_import: { created: number; updated: number; skipped: number; errors: string[]; filename: string } | null
+}
+
+/** 从任务上传全套资料（multipart）→ 自动建记录/版本并提交审核 */
 export function uploadTaskReport(taskId: number, formData: FormData) {
-  return request<{ inspection_id: number; version_no: number; task_status: string }>({
+  return request<UploadTaskReportResult>({
     url: `/api/inspections/task/${taskId}/report`,
     method: 'POST',
     data: formData,
   })
+}
+
+/** 提交资料文件下载地址（GET）——挂 submission_assets（配置包/拓扑图/资产清单） */
+export function submissionAssetUrl(assetId: number) {
+  return `/api/inspections/assets/${assetId}/download`
+}
+
+/** 配置文本在线查看（挂 submission_assets） */
+export function fetchSubmissionAssetContent(assetId: number) {
+  return request<{ content: string }>({ url: `/api/inspections/assets/${assetId}/content`, method: 'GET' })
 }
 
 export function fetchInspectionVersions(id: number) {

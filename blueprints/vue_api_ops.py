@@ -516,6 +516,10 @@ def _task_template_payload(t):
         sections = json.loads(t.sections_json or '{}')
     except Exception:
         sections = {}
+    try:
+        required = json.loads(t.required_assets_json or '{}')
+    except Exception:
+        required = {}
     return {
         'id': t.id,
         'name': t.name,
@@ -524,6 +528,7 @@ def _task_template_payload(t):
         'frequency': t.frequency or '',
         'customer_tier': t.customer_tier or 'all',
         'sections': sections.get('sections', []),
+        'required_assets': required,
         'is_active': bool(t.is_active),
         'remark': t.remark or '',
         'device_template_ids': [d.id for d in t.get_ordered_device_templates()],
@@ -568,6 +573,7 @@ def api_task_template_add():
         frequency=(data.get('frequency') or '').strip(),
         customer_tier=(data.get('customer_tier') or 'all').strip(),
         sections_json=sections_json,
+        required_assets_json=json.dumps(data.get('required_assets') or {}, ensure_ascii=False),
         is_active=True,
         remark=(data.get('remark') or '').strip(),
     )
@@ -594,6 +600,8 @@ def api_task_template_update(tid):
     t.customer_tier = (data.get('customer_tier') or 'all').strip()
     import json
     t.sections_json = json.dumps({'sections': data.get('sections') or []}, ensure_ascii=False)
+    if 'required_assets' in data:
+        t.required_assets_json = json.dumps(data.get('required_assets') or {}, ensure_ascii=False)
     t.is_active = bool(data.get('is_active', t.is_active))
     t.remark = (data.get('remark') or '').strip()
     _save_task_template_devices_vue(t, data.get('device_template_ids') or [])
