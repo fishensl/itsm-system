@@ -266,7 +266,8 @@ class Inspection(db.Model):
     conclusion = db.Column(db.Text, default='')
     sections_json = db.Column(db.Text, default='{}')
     abnormal_items_json = db.Column(db.Text, default='[]')
-    report_file = db.Column(db.String(256), default='')
+    report_file = db.Column(db.String(256), default='')        # 审核通过时自动生成的正式 Word 报告
+    submitted_report = db.Column(db.String(256), default='')   # 工程师上传的最新现场报告（历史版本见 submission_versions）
     # v3 新增：自定义字段值 + 审核流程 + 跳过原因
     field_values_json = db.Column(db.Text, default='{}')     # {"设备名": {"检查项": "值"}}
     skip_reasons_json = db.Column(db.Text, default='{}')      # {"检查项": {"reason": "...", "detail": "..."}}

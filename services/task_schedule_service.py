@@ -224,3 +224,48 @@ def import_task_excel(file_storage, user):
         }
     finally:
         cleanup_temp_file(tmp)
+
+
+def check_task_transition(task, new_status):
+    """任务状态机校验（SSR 看板 / Vue 看板共用）。
+
+    - 合法转换见 utils.constants.TASK_TRANSITIONS；
+    - 兼容老流程：无关联巡检记录的手工任务允许直接完成/取消；
+    - 已有巡检记录的任务必须存在"已通过"记录才能置为已完成
+      （审核通过后才完成，对应"上传报告→审核闭环"）。
+    返回错误文案；None 表示允许。
+    """
+    from utils.constants import TASK_STATUSES, TASK_TRANSITIONS, REVIEW_APPROVED
+
+    if new_status not in TASK_STATUSES:
+        return '非法状态：%s' % new_status
+    if new_status == task.status:
+        return None
+    allowed = TASK_TRANSITIONS.get(task.status, set())
+    if new_status in allowed:
+        if new_status == '已完成' and task.records:
+            if not any(r.review_status == REVIEW_APPROVED for r in task.records):
+                return '该任务已有巡检记录，请先上传报告并通过审核后再完成任务'
+        return None
+    # 兼容：无关联记录的手工任务允许直接完成/取消（老流程不阻断）
+    if new_status in ('已完成', '已取消') and not task.records:
+        return None
+    return '不允许从「%s」变更为「%s」' % (task.status, new_status)
+
+
+def apply_task_status(task, new_status):
+    """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end。
+
+    与 blueprints/task_schedule._apply_status 行为一致，供 Vue API 复用；
+    校验失败抛 ValueError。
+    """
+    err = check_task_transition(task, new_status)
+    if err:
+        raise ValueError(err)
+    now = local_now()
+    task.status = new_status
+    if new_status == '执行中' and not task.actual_start:
+        task.actual_start = now
+    if new_status == '已完成' and not task.actual_end:
+        task.actual_end = now
+    return task

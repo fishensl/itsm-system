@@ -3,6 +3,8 @@
     <div class="page-header">
       <h2 class="page-title">工单管理</h2>
       <div class="header-actions">
+        <el-button :icon="Download" plain @click="doExport('excel')">导出记录</el-button>
+        <el-button :icon="FolderOpened" plain @click="doExport('zip')">导出报告包</el-button>
         <el-button v-if="user.hasPerm('ticket:add')" type="primary" :icon="Plus" @click="openCreate">
           新建工单
         </el-button>
@@ -23,9 +25,12 @@
         <el-select v-model="query.customer_id" placeholder="客户" clearable filterable class="filter-item" @change="reload">
           <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
+        <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期"
+          end-placeholder="结束日期" class="filter-item date-range" @change="onDateChange" />
         <el-checkbox v-model="query.scope" true-label="mine" false-label="all" @change="reload">
           只看我的
         </el-checkbox>
+        <el-checkbox v-model="incompleteOnly" @change="reload">仅看不完整</el-checkbox>
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
       </div>
     </el-card>
@@ -42,7 +47,7 @@
 
     <!-- 详情弹窗 -->
     <el-drawer v-model="detailVisible" :title="detail ? `${detail.number} · ${detail.title}` : ''"
-      size="560px" destroy-on-close>
+      size="620px" destroy-on-close>
       <div v-if="detail">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="状态">
@@ -57,6 +62,17 @@
           <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
           <el-descriptions-item label="来源">{{ detail.source_type || '-' }}</el-descriptions-item>
           <el-descriptions-item label="严重级别">{{ detail.severity_level || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="处理报告">
+            <el-link v-if="detail.report_file" type="primary" :underline="false" @click="downloadLatest">
+              {{ detail.report_name || '下载' }}
+            </el-link>
+            <span v-else class="text-muted">无</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="资料完整">
+            <el-tag size="small" :type="detail.complete ? 'success' : 'warning'">
+              {{ detail.complete ? '完整' : '缺:' + (detail.missing_fields || []).join('、') }}
+            </el-tag>
+          </el-descriptions-item>
         </el-descriptions>
 
         <el-divider content-position="left">描述</el-divider>
@@ -67,6 +83,22 @@
           <p class="detail-text"><b>诊断：</b>{{ detail.diagnosis || '-' }}</p>
           <p class="detail-text"><b>方案：</b>{{ detail.solution || '-' }}</p>
         </template>
+
+        <!-- 审核意见（退回原因醒目展示） -->
+        <template v-if="detail.audit_comment">
+          <el-divider content-position="left">审核意见</el-divider>
+          <p class="detail-text review-comment">{{ detail.audit_comment }}</p>
+          <p class="review-meta">
+            审核人：{{ detail.audit_by || '-' }} · {{ detail.audit_at || '-' }}
+            <el-tag size="small" :type="detail.audit_status === '通过' ? 'success' : 'danger'" class="audit-tag">
+              {{ detail.audit_status }}
+            </el-tag>
+          </p>
+        </template>
+
+        <!-- 提交审核记录时间线 -->
+        <el-divider content-position="left">提交审核记录（每次提交 + 每轮审核）</el-divider>
+        <VersionTimeline :versions="versions" entity-type="ticket" />
 
         <!-- 状态机操作 -->
         <el-divider content-position="left">操作</el-divider>
@@ -91,10 +123,10 @@
             </el-button>
           </template>
           <template v-else-if="detail.status === '待审核'">
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="success" @click="doAction('audit', true)">
+            <el-button v-if="user.hasPerm('ticket:review')" size="small" type="success" @click="openAudit(true)">
               审核通过
             </el-button>
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="danger" @click="doAction('audit', false)">
+            <el-button v-if="user.hasPerm('ticket:review')" size="small" type="danger" @click="openAudit(false)">
               退回
             </el-button>
           </template>
@@ -128,6 +160,30 @@
         <el-empty v-else description="暂无日志" :image-size="50" />
       </div>
     </el-drawer>
+
+    <!-- 提交审核（处理报告 + 诊断/方案） -->
+    <el-dialog v-model="submitVisible" title="提交审核" width="560px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="处理报告" required>
+          <el-upload ref="submitUploadRef" drag :auto-upload="false" :limit="1"
+            accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+            :on-change="onSubmitFileChange" :on-remove="() => submitFile = null">
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖拽或点击上传处理报告（Word/PDF/Excel/图片）</div>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="诊断分析">
+          <el-input v-model="submitForm.diagnosis" type="textarea" :rows="2" placeholder="故障诊断（可选）" />
+        </el-form-item>
+        <el-form-item label="解决方案">
+          <el-input v-model="submitForm.solution" type="textarea" :rows="3" placeholder="处置方案（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="submitVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="doSubmit">提交审核</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 新建工单 -->
     <el-dialog v-model="formVisible" title="新建工单" width="640px" top="5vh" destroy-on-close>
@@ -185,32 +241,40 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { ElMessageBox, type UploadFile } from 'element-plus'
+import { Plus, Search, Download, FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchTickets, fetchTicket, createTicket, deleteTicket, ticketAction,
-  fetchTicketDicts, TICKET_STATUS_TAG, type Ticket, type TicketDicts,
+  ticketActionSubmit, fetchTicketVersions, versionReportUrl, ticketExportUrl,
+  ticketReportsZipUrl, fetchTicketDicts, TICKET_STATUS_TAG,
+  type Ticket, type TicketDicts,
 } from '@/api/tickets'
+import type { SubmissionVersion as SV } from '@/api/inspections'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<TicketDicts | null>(null)
 
 const query = reactive<Record<string, unknown>>({ search: '', status: '', priority: '', customer_id: undefined, scope: 'all' })
+const dateRange = ref<[string, string] | null>(null)
+const incompleteOnly = ref(false)
 const tableRef = ref()
 
 const columns = computed<DataColumn[]>(() => [
-  { key: 'title', label: '标题', type: 'link', minWidth: 180, asTitle: true,
-    link: (r) => `/app/tickets/${r.id}` },
+  { key: 'title', label: '标题', minWidth: 180, asTitle: true },
   { key: 'number', label: '单号', width: 130 },
   { key: 'status', label: '状态', width: 90, type: 'tag', asTag: true, tagMap: TICKET_STATUS_TAG },
   { key: 'priority', label: '优先级', width: 80, type: 'tag',
     tagMap: { 紧急: 'danger', 高: 'warning', 中: 'info', 低: 'info' } },
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'assigned_to', label: '处理人', width: 90 },
+  { key: 'complete', label: '资料完整', width: 100, type: 'tag',
+    tagMap: { true: 'success', false: 'warning' } as Record<string, 'success' | 'warning'>,
+    valueMap: { true: '完整', false: '不完整' } },
   { key: 'created_at', label: '创建时间', width: 130 },
   { key: 'actions', label: '操作', width: 90, type: 'action', fixed: 'right',
     actions: [
@@ -224,14 +288,34 @@ const columns = computed<DataColumn[]>(() => [
 // 详情
 const detailVisible = ref(false)
 const detail = ref<Ticket | null>(null)
+const versions = ref<SV[]>([])
 const assignee = ref('')
 
 async function openDetail(row: Record<string, unknown>) {
   try {
     detail.value = await fetchTicket(row.id as number)
+    versions.value = await fetchTicketVersions(row.id as number)
     assignee.value = detail.value.assigned_to || ''
     detailVisible.value = true
   } catch { /* toast */ }
+}
+
+async function refreshDetail() {
+  if (!detail.value) return
+  try {
+    const [full, vers] = await Promise.all([
+      fetchTicket(detail.value.id),
+      fetchTicketVersions(detail.value.id),
+    ])
+    detail.value = full
+    versions.value = vers
+  } catch { /* toast */ }
+}
+
+function downloadLatest() {
+  const latest = versions.value.slice().reverse().find((v) => v.report_file)
+  if (!latest) return
+  window.open(versionReportUrl('ticket', latest.id), '_blank')
 }
 
 async function doAction(action: string, approved?: boolean) {
@@ -245,32 +329,77 @@ async function doAction(action: string, approved?: boolean) {
   try {
     await ticketAction(detail.value.id, payload)
     ui.toast('操作成功', 'success')
-    detail.value = await fetchTicket(detail.value.id)
+    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
 
-function openSubmit() {
-  ElMessageBox.prompt('提交审核（可填写处理方案）', '提交审核', {
-    inputType: 'textarea', inputPlaceholder: '诊断分析与解决方案（可选）',
+function openAudit(approved: boolean) {
+  if (!detail.value) return
+  const action = approved ? '审核通过' : '退回'
+  ElMessageBox.prompt(`${action}该工单？可填写审核意见`, action, {
+    inputType: 'textarea',
+    inputPlaceholder: approved ? '审核意见（可选）' : '退回原因（必填，处理人将据此修改重交）',
+    confirmButtonText: action,
   }).then(async ({ value }) => {
     if (!detail.value) return
     try {
-      const parts = (value || '').split('\n').filter(Boolean)
       await ticketAction(detail.value.id, {
-        action: 'submit',
-        diagnosis: parts[0] || '',
-        solution: parts.slice(1).join('\n') || '',
+        action: 'audit', approved, remark: (value || '').trim(),
       })
-      ui.toast('已提交审核', 'success')
-      detail.value = await fetchTicket(detail.value.id)
+      ui.toast(`${action}成功`, 'success')
+      await refreshDetail()
       tableRef.value?.refresh()
     } catch (e) {
       ui.toast((e as Error).message, 'error')
     }
   }).catch(() => {})
+}
+
+// 提交审核（处理报告 + 诊断/方案）
+const submitVisible = ref(false)
+const submitting = ref(false)
+const submitUploadRef = ref()
+const submitFile = ref<File | null>(null)
+const submitForm = reactive({ diagnosis: '', solution: '' })
+
+function openSubmit() {
+  submitFile.value = null
+  submitForm.diagnosis = ''
+  submitForm.solution = ''
+  submitUploadRef.value?.clearFiles?.()
+  submitVisible.value = true
+}
+
+function onSubmitFileChange(f: UploadFile) {
+  submitFile.value = f.raw ?? null
+}
+
+async function doSubmit() {
+  if (!detail.value) return
+  if (!submitFile.value) {
+    ui.toast('请上传处理报告文件', 'warning')
+    return
+  }
+  submitting.value = true
+  try {
+    const fd = new FormData()
+    fd.append('action', 'submit')
+    fd.append('report_file', submitFile.value)
+    fd.append('diagnosis', submitForm.diagnosis)
+    fd.append('solution', submitForm.solution)
+    await ticketActionSubmit(detail.value.id, fd)
+    ui.toast('已提交审核（生成提交记录）', 'success')
+    submitVisible.value = false
+    await refreshDetail()
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    submitting.value = false
+  }
 }
 
 async function onDelete(t: Ticket) {
@@ -318,7 +447,30 @@ async function save() {
   }
 }
 
-function reload() { tableRef.value?.refresh() }
+// 筛选 + 导出
+function onDateChange(val: [string, string] | null) {
+  query.date_from = val?.[0] ?? undefined
+  query.date_to = val?.[1] ?? undefined
+  reload()
+}
+
+function exportParams() {
+  return {
+    customer_id: query.customer_id as number | undefined,
+    date_from: query.date_from as string | undefined,
+    date_to: query.date_to as string | undefined,
+  }
+}
+
+function doExport(kind: 'excel' | 'zip') {
+  const url = kind === 'excel' ? ticketExportUrl(exportParams()) : ticketReportsZipUrl(exportParams())
+  window.open(url, '_blank')
+}
+
+function reload() {
+  query.incomplete_only = incompleteOnly.value ? 1 : undefined
+  tableRef.value?.refresh()
+}
 
 onMounted(() => {
   fetchTicketDicts().then((d) => (dicts.value = d))
@@ -328,14 +480,19 @@ onMounted(() => {
 <style scoped>
 .filter-card { margin-bottom: 12px; }
 .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.filter-search { width: 200px; max-width: 100%; }
+.filter-search { width: 180px; max-width: 100%; }
 .filter-item { width: 130px; max-width: 100%; }
+.date-range { width: 240px; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
 .detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+.review-comment { color: var(--el-color-danger); font-weight: 600; white-space: pre-wrap; }
+.review-meta { font-size: 12px; color: var(--itsm-text-muted); display: flex; align-items: center; gap: 6px; }
+.audit-tag { margin-left: 4px; }
 .action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .assign-input { width: 160px; }
 .log-item { font-size: 13px; }
 .log-op { color: var(--itsm-text-muted); margin-left: 8px; font-size: 12px; }
 .log-comment { color: var(--itsm-text-muted); font-size: 12px; margin-top: 2px; }
+.text-muted { color: var(--itsm-text-muted); }
 </style>

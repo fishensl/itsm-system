@@ -3,6 +3,8 @@
     <div class="page-header">
       <h2 class="page-title">巡检记录</h2>
       <div class="header-actions">
+        <el-button :icon="Download" plain @click="doExport('excel')">导出记录</el-button>
+        <el-button :icon="FolderOpened" plain @click="doExport('zip')">导出报告包</el-button>
         <el-button v-if="user.hasPerm('inspection:add')" type="primary" :icon="Plus" @click="openCreate">
           新建巡检
         </el-button>
@@ -23,6 +25,9 @@
         <el-select v-model="query.customer_id" placeholder="客户" clearable filterable class="filter-item" @change="reload">
           <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
+        <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期"
+          end-placeholder="结束日期" class="filter-item date-range" @change="onDateChange" />
+        <el-checkbox v-model="incompleteOnly" @change="reload">仅看不完整</el-checkbox>
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
       </div>
     </el-card>
@@ -39,7 +44,7 @@
 
     <!-- 详情抽屉 -->
     <el-drawer v-model="detailVisible" :title="detail ? `#${detail.id} · ${detail.title}` : ''"
-      size="560px" destroy-on-close>
+      size="600px" destroy-on-close>
       <div v-if="detail">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="总体状态">
@@ -53,9 +58,26 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="关联任务">
+            {{ detail.task_title || '-' }}
+          </el-descriptions-item>
           <el-descriptions-item label="巡检日期">{{ detail.inspection_date || '-' }}</el-descriptions-item>
           <el-descriptions-item label="巡检人员">{{ detail.inspector_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="报告">{{ detail.report_label }}</el-descriptions-item>
+          <el-descriptions-item label="现场报告">
+            <el-link v-if="detail.submitted_report_name" type="primary" :underline="false"
+              @click="downloadLatest">下载</el-link>
+            <span v-else class="text-muted">无</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="正式报告">
+            <el-link v-if="detail.report_file && detail.report_file_name" type="primary" :underline="false"
+              @click="downloadFormal">下载</el-link>
+            <span v-else class="text-muted">未生成</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="资料完整">
+            <el-tag size="small" :type="detail.complete ? 'success' : 'warning'">
+              {{ detail.complete ? '完整' : '缺:' + (detail.missing_fields || []).join('、') }}
+            </el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="巡检地点">{{ detail.location || '-' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
         </el-descriptions>
@@ -65,8 +87,12 @@
 
         <template v-if="detail.review_comment">
           <el-divider content-position="left">审核意见</el-divider>
-          <p class="detail-text">{{ detail.review_comment }}</p>
+          <p class="detail-text review-comment">{{ detail.review_comment }}</p>
         </template>
+
+        <!-- 提交审核记录时间线 -->
+        <el-divider content-position="left">提交审核记录（每次上传 + 每轮审核）</el-divider>
+        <VersionTimeline :versions="versions" entity-type="inspection" />
 
         <!-- 审核操作 -->
         <el-divider content-position="left">操作</el-divider>
@@ -93,13 +119,21 @@
     <el-dialog v-model="formVisible" :title="form.id ? '编辑巡检' : '新建巡检'" width="600px" top="5vh"
       destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px">
+        <el-form-item label="巡检任务" prop="task_id">
+          <el-select v-if="!form.id" v-model="form.task_id" filterable clearable class="w-full"
+            placeholder="必选：选择任务后自动带出客户/日期/工程师" @change="onTaskSelect">
+            <el-option v-for="t in selectableTasks" :key="t.id" :label="`${t.title}（${t.customer_name || '-'}）`"
+              :value="t.id" />
+          </el-select>
+          <span v-else>{{ form.task_title || '-' }}</span>
+        </el-form-item>
         <el-form-item label="标题" prop="title">
           <el-input v-model="form.title" placeholder="必填，如：核心机房月度巡检" />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :xs="24" :sm="12">
             <el-form-item label="客户" prop="customer_id">
-              <el-select v-model="form.customer_id" filterable clearable class="w-full" placeholder="必选">
+              <el-select v-model="form.customer_id" filterable clearable class="w-full" placeholder="从任务自动带出">
                 <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
               </el-select>
             </el-form-item>
@@ -140,14 +174,18 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Download, FolderOpened } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchInspections, fetchInspection, createInspection, updateInspection, deleteInspection,
-  submitInspection, reviewInspection, fetchInspectionDicts,
+  submitInspection, reviewInspection, fetchInspectionDicts, fetchInspectionVersions,
+  versionReportUrl, formalReportUrl, inspectionExportUrl,
+  inspectionReportsZipUrl,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type InspectionDicts,
+  type InspectionTaskOption, type SubmissionVersion,
 } from '@/api/inspections'
 
 const user = useUserStore()
@@ -157,18 +195,22 @@ const dicts = ref<InspectionDicts | null>(null)
 const query = reactive<Record<string, unknown>>({
   search: '', status: '', review_status: '', customer_id: undefined,
 })
+const dateRange = ref<[string, string] | null>(null)
+const incompleteOnly = ref(false)
 const tableRef = ref()
 
 const columns = computed<DataColumn[]>(() => [
-  { key: 'title', label: '标题', type: 'link', minWidth: 180, asTitle: true,
-    link: (r) => `/app/inspections/${r.id}` },
+  { key: 'title', label: '标题', minWidth: 180, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'inspection_date', label: '巡检日期', width: 100 },
   { key: 'inspector_name', label: '巡检人员', width: 90 },
   { key: 'overall_status', label: '总体状态', width: 90, type: 'tag', asTag: true,
     tagMap: OVERALL_STATUS_TAG },
   { key: 'review_status', label: '审核状态', width: 90, type: 'tag', tagMap: REVIEW_STATUS_TAG },
-  { key: 'report_label', label: '报告', width: 70 },
+  { key: 'complete', label: '资料完整', width: 100, type: 'tag',
+    tagMap: { true: 'success', false: 'warning' } as Record<string, 'success' | 'warning'>,
+    valueMap: { true: '完整', false: '不完整' } },
+  { key: 'report_label', label: '正式报告', width: 80 },
   { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right',
     actions: [
       { label: '查看', type: 'primary', link: true, perm: 'inspection:view', icon: 'View',
@@ -183,18 +225,36 @@ const columns = computed<DataColumn[]>(() => [
 // 详情
 const detailVisible = ref(false)
 const detail = ref<Inspection | null>(null)
+const versions = ref<SubmissionVersion[]>([])
 
 async function openDetail(row: Record<string, unknown>) {
   try {
     detail.value = await fetchInspection(row.id as number)
+    versions.value = await fetchInspectionVersions(row.id as number)
     detailVisible.value = true
   } catch { /* toast */ }
+}
+
+function downloadLatest() {
+  const latest = versions.value.slice().reverse().find((v) => v.report_file)
+  if (!latest || !detail.value) return
+  window.open(versionReportUrl('inspection', latest.id), '_blank')
+}
+
+function downloadFormal() {
+  if (!detail.value?.report_file_name) return
+  window.open(formalReportUrl(detail.value.report_file_name), '_blank')
 }
 
 async function refreshDetail() {
   if (!detail.value) return
   try {
-    detail.value = await fetchInspection(detail.value.id)
+    const [full, vers] = await Promise.all([
+      fetchInspection(detail.value.id),
+      fetchInspectionVersions(detail.value.id),
+    ])
+    detail.value = full
+    versions.value = vers
   } catch { /* toast */ }
 }
 
@@ -215,7 +275,7 @@ function onReview(approved: boolean) {
   const action = approved ? '审核通过' : '退回'
   ElMessageBox.prompt(`${action}该巡检？可填写审核意见`, action, {
     inputType: 'textarea',
-    inputPlaceholder: approved ? '审核意见（可选）' : '退回原因（可选）',
+    inputPlaceholder: approved ? '审核意见（可选）' : '退回原因（必填，工程师将据此修改重传）',
     confirmButtonText: action,
   }).then(async ({ value }) => {
     if (!detail.value) return
@@ -249,17 +309,30 @@ const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
-  id: null, title: '', customer_id: null, inspection_date: '', inspector_user_id: null,
-  overall_status: '正常', conclusion: '',
+  id: null, title: '', task_id: null, task_title: '', customer_id: null, inspection_date: '',
+  inspector_user_id: null, overall_status: '正常', conclusion: '',
 })
 const formRules = {
   title: [{ required: true, message: '请输入巡检标题', trigger: 'blur' }],
-  customer_id: [{ required: true, message: '请选择客户', trigger: 'change' }],
+  task_id: [{ required: true, message: '请选择巡检任务', trigger: 'change' }],
 }
 
+const selectableTasks = computed(() =>
+  (dicts.value?.tasks || []).filter((t) => t.status !== '已完成' && t.status !== '已取消'),
+)
+
 function blankForm() {
-  return { id: null, title: '', customer_id: null, inspection_date: '', inspector_user_id: null,
-    overall_status: '正常', conclusion: '' }
+  return { id: null, title: '', task_id: null, task_title: '', customer_id: null,
+    inspection_date: '', inspector_user_id: null, overall_status: '正常', conclusion: '' }
+}
+
+function onTaskSelect(tid: number | undefined) {
+  const t = (dicts.value?.tasks || []).find((x) => x.id === tid) as InspectionTaskOption | undefined
+  if (!t) return
+  form.customer_id = t.customer_id
+  form.title = t.title || form.title
+  const today = new Date().toISOString().slice(0, 10)
+  form.inspection_date = form.inspection_date || today
 }
 
 function openCreate() {
@@ -269,7 +342,8 @@ function openCreate() {
 
 function openEdit(i: Inspection) {
   Object.assign(form, {
-    id: i.id, title: i.title, customer_id: i.customer_id,
+    id: i.id, title: i.title, task_id: i.task_id, task_title: i.task_title,
+    customer_id: i.customer_id,
     inspection_date: i.inspection_date || '', overall_status: i.overall_status,
     conclusion: i.conclusion || '', inspector_user_id: null,
   })
@@ -297,7 +371,30 @@ async function save() {
   }
 }
 
-function reload() { tableRef.value?.refresh() }
+// 筛选 + 导出
+function onDateChange(val: [string, string] | null) {
+  query.date_from = val?.[0] ?? undefined
+  query.date_to = val?.[1] ?? undefined
+  reload()
+}
+
+function exportParams() {
+  return {
+    customer_id: query.customer_id as number | undefined,
+    date_from: query.date_from as string | undefined,
+    date_to: query.date_to as string | undefined,
+  }
+}
+
+function doExport(kind: 'excel' | 'zip') {
+  const url = kind === 'excel' ? inspectionExportUrl(exportParams()) : inspectionReportsZipUrl(exportParams())
+  window.open(url, '_blank')
+}
+
+function reload() {
+  query.incomplete_only = incompleteOnly.value ? 1 : undefined
+  tableRef.value?.refresh()
+}
 
 onMounted(() => {
   fetchInspectionDicts().then((d) => (dicts.value = d))
@@ -307,10 +404,14 @@ onMounted(() => {
 <style scoped>
 .filter-card { margin-bottom: 12px; }
 .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.filter-search { width: 200px; max-width: 100%; }
+.filter-search { width: 180px; max-width: 100%; }
 .filter-item { width: 130px; max-width: 100%; }
+.date-range { width: 240px; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
 .detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+.review-comment { color: var(--el-color-danger); font-weight: 600; }
 .action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.task-status-tag { margin-left: 6px; }
+.text-muted { color: var(--itsm-text-muted); }
 </style>

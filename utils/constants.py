@@ -21,11 +21,21 @@ TICKET_STATUSES = frozenset({
 # ==================== 巡检任务状态 ====================
 TASK_PENDING = '待执行'
 TASK_RUNNING = '执行中'
+TASK_REVIEWING = '待审核'
 TASK_DONE = '已完成'
 TASK_CANCELLED = '已取消'
-TASK_STATUSES = frozenset({TASK_PENDING, TASK_RUNNING, TASK_DONE, TASK_CANCELLED})
-# 看板排序优先级：逾期最前 → 执行中 → 待执行 → 已完成 → 已取消（值越小越靠前）
-TASK_SORT_PRIORITY = {TASK_RUNNING: 1, TASK_PENDING: 2, TASK_DONE: 3, TASK_CANCELLED: 4}
+TASK_STATUSES = frozenset({TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE, TASK_CANCELLED})
+# 看板排序优先级：逾期最前 → 执行中 → 待审核 → 待执行 → 已完成 → 已取消（值越小越靠前）
+TASK_SORT_PRIORITY = {TASK_RUNNING: 1, TASK_REVIEWING: 2, TASK_PENDING: 3,
+                      TASK_DONE: 4, TASK_CANCELLED: 5}
+# 任务状态机转换表（key=当前状态, value=允许的下一状态集合）
+TASK_TRANSITIONS = {
+    TASK_PENDING: {TASK_RUNNING, TASK_CANCELLED},
+    TASK_RUNNING: {TASK_REVIEWING, TASK_CANCELLED},
+    TASK_REVIEWING: {TASK_RUNNING, TASK_DONE},
+    TASK_DONE: set(),
+    TASK_CANCELLED: set(),
+}
 
 # ==================== 巡检记录审核状态 ====================
 REVIEW_DRAFT = ''           # 草稿（未提交）
@@ -33,6 +43,9 @@ REVIEW_PENDING = '待审核'
 REVIEW_APPROVED = '已通过'
 REVIEW_REJECTED = '已退回'
 REVIEW_STATUSES = frozenset({REVIEW_DRAFT, REVIEW_PENDING, REVIEW_APPROVED, REVIEW_REJECTED})
+
+# ==================== 巡检记录总体状态 ====================
+OVERALL_STATUSES = frozenset({'正常', '警告', '异常'})
 
 # ==================== 商机阶段 ====================
 OPP_STAGE_INITIAL = '初步接触'

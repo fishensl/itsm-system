@@ -44,6 +44,38 @@ class TestTaskScheduleApi:
         d = r.get_json()['data']
         assert d['view'] == 'status'
         assert d['status_groups']['待执行'] and d['status_groups']['执行中']
+        assert '待审核' in d['status_groups']  # V21 新状态列
+
+    def test_reviewing_kpi_and_group(self, admin_client, app):
+        """V21: 待审核任务计入 KPI + 状态分组 + 排序优先级"""
+        cid, op_id = _seed(app)
+        with app.app_context():
+            from datetime import date as _d
+            db.session.add(InspectionTask(title='待审核任务', customer_id=cid, status='待审核',
+                                          assigned_to_user_id=op_id,
+                                          planned_start=_d.today(),
+                                          planned_end=_d.today() + __import__('datetime').timedelta(days=5)))
+            db.session.commit()
+        r = admin_client.get('/api/task-schedule?view=status')
+        d = r.get_json()['data']
+        assert d['kpi']['reviewing'] == 1
+        assert len(d['status_groups']['待审核']) == 1
+        # 排序：逾期(待执行) → 执行中 → 待审核（同级按截止时间升序）
+        titles = [t['title'] for t in d['tasks']]
+        assert titles.index('2026年二季度巡检') < titles.index('2026年三季度巡检') \
+            < titles.index('待审核任务')
+
+    def test_status_machine_validation(self, admin_client, app):
+        """V21: 状态机校验 — 已取消不可回退；待审核不可手工重复"""
+        cid, _ = _seed(app)
+        with app.app_context():
+            t = InspectionTask(title='取消任务', customer_id=cid, status='已取消')
+            db.session.add(t)
+            db.session.commit()
+            tid = t.id
+        r = admin_client.put(f'/api/task-schedule/{tid}', json={'status': '执行中'})
+        assert r.status_code == 400
+        assert '不允许' in r.get_json()['message']
 
     def test_board_sort_order(self, admin_client, app):
         """看板排序：逾期最前 → 执行中 → 待执行 → 已完成（同级按截止时间升序）"""

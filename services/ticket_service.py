@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Ticket 工单业务服务"""
+"""Ticket 工单业务服务（V21：提交版本化审核闭环）"""
 from datetime import datetime
-from models import db, Ticket, TicketLog
-from utils.constants import TICKET_STATUSES
+from models import db, Ticket, TicketLog, User
+from utils.constants import TICKET_STATUSES, REVIEW_PENDING
 from .base import ServiceError, transaction
+from .submission_version_service import add_version, review_version, latest_pending_version
 
 
 # 状态集合单一真源在 utils/constants.py（此处保留别名兼容旧引用）
@@ -19,6 +20,24 @@ TICKET_TRANSITIONS = {
     '已验收': {'已关闭', '处理中'},  # 客户验收通过关闭，退回则回处理中
     '已关闭': set(),
 }
+
+
+def ticket_completeness(t):
+    """工单资料完整性检查：返回 (complete, missing_fields)"""
+    missing = []
+    if not (t.assigned_to or '').strip():
+        missing.append('处理人')
+    if not (t.diagnosis or '').strip():
+        missing.append('诊断')
+    if not (t.solution or '').strip():
+        missing.append('方案')
+    if not t.report_file:
+        missing.append('处理报告')
+    if not t.audit_status:
+        missing.append('审核')
+    if t.status not in ('已验收', '已关闭') and not t.accept_status:
+        missing.append('验收')
+    return not missing, missing
 
 
 def _record_log(ticket, action, by_user, remark=''):
@@ -120,13 +139,29 @@ def accept_ticket(ticket_id, current_user_name, remark=''):
 
 
 @transaction
-def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solution=None):
-    """提交处理结果（待审核），同时保存诊断分析与解决方案"""
+def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solution=None,
+                  report_path='', submitter_user_id=None):
+    """提交处理结果（待审核），同时保存诊断分析与解决方案。
+
+    V21：每次提交追加一条 SubmissionVersion（含诊断/方案快照 + 处理报告文件），
+    Ticket.report_file 指向最新提交的报告；退回后修改可再次提交，历史版本全部保留。
+    """
     t = Ticket.query.get_or_404(ticket_id)
+    if t.status != '处理中':
+        raise ServiceError(f'工单当前状态 "{t.status}" 不能提交审核（仅处理中可提交）')
     if diagnosis is not None:
         t.diagnosis = diagnosis
     if solution is not None:
         t.solution = solution
+    if report_path:
+        t.report_file = report_path
+    add_version(
+        'ticket', t.id,
+        report_file=report_path or '',
+        content={'diagnosis': diagnosis or '', 'solution': solution or ''},
+        submitted_by_user_id=submitter_user_id,
+        review_status=REVIEW_PENDING,
+    )
     t.completed_at = datetime.utcnow()
     _transition(t, '待审核', current_user_name, remark)
     return t
@@ -134,14 +169,25 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
 
 @transaction
 def audit_ticket(ticket_id, approved, current_user_name, remark=''):
-    """审核工单：approved=True 转 已验收，False 回退 处理中"""
+    """审核工单：approved=True 转 已验收，False 回退 处理中。
+
+    V21：审核结果/意见写回最新待审核版本（完整审核历史），
+    Ticket.audit_* 保留最新一轮快捷值（兼容老逻辑）。
+    """
     t = Ticket.query.get_or_404(ticket_id)
+    if t.status != '待审核':
+        raise ServiceError(f'工单当前状态 "{t.status}" 不能审核（仅待审核可审核）')
     target = '已验收' if approved else '处理中'
     t.audit_status = '通过' if approved else '拒绝'
     t.audit_by = current_user_name
     t.audit_at = datetime.utcnow()
     if remark:
         t.audit_comment = remark
+    reviewer = User.query.filter_by(username=current_user_name).first()
+    pending = latest_pending_version('ticket', t.id)
+    if pending:
+        review_version(pending.id, approved,
+                       reviewer_user_id=reviewer.id if reviewer else None, comment=remark)
     _transition(t, target, current_user_name, remark or ('审核通过' if approved else '审核不通过'))
     return t
 

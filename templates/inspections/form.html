@@ -2,6 +2,22 @@
 {% block content %}{% import "_ui.html" as ui %}
 {% if preselected_task_id %}
 <input type="hidden" name="task_id" form="inspectionForm" value="{{ preselected_task_id }}">
+{% elif tasks and not inspection %}
+<div class="col-md-4 mb-3">
+    <label class="form-label">巡检任务 <span class="text-danger">*</span></label>
+    <select name="task_id" id="taskSelect" class="form-select" required>
+        <option value="">-- 选择任务（自动带出客户） --</option>
+        {% for t in tasks %}
+        <option value="{{ t.id }}" data-customer="{{ t.customer_id }}"
+                {% if inspection and inspection.task_id == t.id %}selected{% endif %}>
+            {{ t.title }}{% if t.customer_rel %}（{{ t.customer_rel.name }}）{% endif %}[{{ t.status }}]
+        </option>
+        {% endfor %}
+    </select>
+    <div class="form-text text-muted small">任务↔记录 1:1：已有记录的任务不可再建</div>
+</div>
+{% elif inspection and inspection.task_id %}
+<input type="hidden" name="task_id" form="inspectionForm" value="{{ inspection.task_id }}">
 {% endif %}
 {{ ui.page_header('编辑巡检' if inspection else '新建巡检', 'pencil' if inspection else 'plus-circle') }}
 
@@ -279,6 +295,22 @@
 <script>
 window._inspectionData = {% if inspection and devices_json %}{{ devices_json | replace("'", "\\'") | safe }}{% else %}null{% endif %};
 window._currentCustomerId = {{ inspection.customer_id if inspection else 0 }};
+(function () {
+    // V21: 选择巡检任务 → 自动带出客户并加载检查项
+    var taskSel = document.getElementById('taskSelect');
+    var custSel = document.getElementById('customerSelect');
+    if (taskSel && custSel && taskSel.options.length) {
+        taskSel.addEventListener('change', function () {
+            var opt = taskSel.options[taskSel.selectedIndex];
+            if (!opt || !opt.value) return;
+            var cid = opt.getAttribute('data-customer');
+            if (cid) {
+                custSel.value = cid;
+                custSel.dispatchEvent(new Event('change'));
+            }
+        });
+    }
+})();
 </script>
 <script src="{{ url_for('static', filename='js/inspection-form.js') }}"></script>
 {% endblock %}

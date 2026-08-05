@@ -53,13 +53,14 @@ STATUS_FROM_EXCEL = {
     '取消':   '已取消',
 }
 
-ALL_STATUSES = ['待执行', '执行中', '已完成', '已取消']
-ACTIVE_STATUSES = ['待执行', '执行中', '已完成']  # 看板默认展示前三种
+ALL_STATUSES = ['待执行', '执行中', '待审核', '已完成', '已取消']
+ACTIVE_STATUSES = ['待执行', '执行中', '待审核', '已完成']  # 看板默认展示前四种
 
-# V17: 状态颜色统一 — 待执行红(提醒)/执行中橙(进行中)/已完成绿/已取消灰
+# V17: 状态颜色统一 — 待执行红(提醒)/执行中橙(进行中)/待审核蓝(审核中)/已完成绿/已取消灰
 STATUS_COLOR = {
     '待执行': 'danger',
     '执行中': 'warning',
+    '待审核': 'info',
     '已完成': 'success',
     '已取消': 'secondary',
 }
@@ -535,7 +536,12 @@ def import_excel():
 # ============================================================
 
 def _apply_status(task, new_status, now=None):
-    """改任务状态 + 自动维护 actual_start/actual_end 时间戳。单条/批量复用。"""
+    """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end 时间戳。单条/批量复用。
+    校验失败抛 ValueError（由调用方转 400/flash）。"""
+    from services.task_schedule_service import check_task_transition
+    err = check_task_transition(task, new_status)
+    if err:
+        raise ValueError(err)
     now = now or local_now()
     task.status = new_status
     if new_status == '执行中' and not task.actual_start:
@@ -555,6 +561,45 @@ def _apply_assignee(task, user, now=None):
     task.dispatched_at = task.dispatched_at or now
 
 
+@task_schedule_bp.route('/<int:task_id>/upload-report', methods=['POST'])
+@login_required
+@require_permission('inspection:edit')
+def upload_report(task_id):
+    """工程师从任务详情上传巡检报告 → 自动生成/复用巡检记录并提交审核（SSR 版）"""
+    import os
+    from services.inspection_service import upload_report_for_task
+    from utils.upload import validate_upload
+    task = InspectionTask.query.get_or_404(task_id)
+    f = request.files.get('report_file')
+    if not f:
+        flash('请选择要上传的巡检报告文件', 'danger')
+        return redirect(url_for('task_schedule.task_detail', task_id=task_id))
+    ALLOWED_REPORT_EXT = {'.doc', '.docx', '.pdf', '.xlsx', '.xls',
+                          '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.zip'}
+    ok_flag, err, safe_name = validate_upload(f, ALLOWED_REPORT_EXT, max_size_mb=50)
+    if not ok_flag:
+        flash(err or '文件校验失败', 'danger')
+        return redirect(url_for('task_schedule.task_detail', task_id=task_id))
+    os.makedirs(os.path.join('static', 'uploads', 'inspection_reports', str(task.id)), exist_ok=True)
+    rel_path = '/'.join(('uploads', 'inspection_reports', str(task.id), safe_name))
+    f.save(os.path.join('static', rel_path))
+    conclusion = (request.form.get('conclusion') or '').strip()
+    try:
+        inspection, version = upload_report_for_task(
+            task.id, rel_path, conclusion,
+            current_user_id=current_user.id,
+            current_user_name=current_user.realname or current_user.username,
+            force=(current_user.role == 'admin'),
+        )
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('上传巡检报告失败 task_id=%s', task_id)
+        flash(str(e) or '上传失败', 'danger')
+        return redirect(url_for('task_schedule.task_detail', task_id=task_id))
+    flash(f'报告已上传（版本 {version.version_no}）并提交审核，任务状态：{task.status}', 'success')
+    return redirect(url_for('task_schedule.task_detail', task_id=task_id))
+
+
 @task_schedule_bp.route('/<int:task_id>/status', methods=['POST'])
 @login_required
 @require_permission('task:schedule')
@@ -566,7 +611,10 @@ def change_status(task_id):
     if new_status not in ALL_STATUSES:
         return jsonify(success=False, error='非法状态'), 400
 
-    _apply_status(task, new_status)
+    try:
+        _apply_status(task, new_status)
+    except ValueError as e:
+        return jsonify(success=False, error=str(e)), 400
     db.session.commit()
     return jsonify(success=True, status=new_status)
 
@@ -684,7 +732,11 @@ def change_status_form(task_id):
     if new_status not in ALL_STATUSES:
         flash('非法状态', 'danger')
         return redirect(url_for('task_schedule.list_view'))
-    _apply_status(task, new_status)
+    try:
+        _apply_status(task, new_status)
+    except ValueError as e:
+        flash(str(e), 'danger')
+        return redirect(request.referrer or url_for('task_schedule.list_view'))
     db.session.commit()
     flash('任务状态已更新为「%s」' % new_status, 'success')
     return redirect(request.referrer or url_for('task_schedule.list_view'))
@@ -821,8 +873,12 @@ def batch_status():
 
     tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
     now = local_now()
-    for t in tasks:
-        _apply_status(t, new_status, now)
+    try:
+        for t in tasks:
+            _apply_status(t, new_status, now)
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify(success=False, error=str(e)), 400
     db.session.commit()
     return jsonify(success=True, count=len(tasks), status=new_status)
 
