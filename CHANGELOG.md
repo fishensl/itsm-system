@@ -6,6 +6,23 @@
 
 ---
 
+## [v2.3.1] — 2026-08-05
+
+### 修复：服务器增量升级漏列导致的巡检记录 500
+
+- **根因**：已发布的迁移 `9a8b7c6d5e4f`/`5f4e3d2c1b0a` 在后续提交中被修改（追加加列逻辑），
+  服务器 alembic_version 早已越过这两个版本 → 修改后的加列永不执行 → PG 上
+  `submission_versions` 缺 `revision_requirements`/`review_checklist_json` 列 →
+  `/api/inspections/<id>/versions` 500（本地全新库测试无法覆盖该场景）
+- **修复**：新迁移 `6f5e4d3c2b1a` 幂等补齐缺失列（revision_requirements、
+  review_checklist_json，并兜底检查 inspections.submitted_report、
+  inspection_task_templates.required_assets_json），PG/SQLite 通用
+- **测试**：新增 `tests/test_migration_incremental_fix.py`——模拟服务器真实场景
+  （alembic 已标记 head 但列缺失 → 升级补列 → versions API 正常），防再犯
+- **约定**：后续新列/新表必须新建迁移文件，严禁修改已发布的迁移 revision
+
+---
+
 ## [v2.3] — 2026-08-05
 
 ### 巡检审核：报告在线预览 + 检查项清单勾选（V23）
