@@ -40,6 +40,14 @@ git stash push --include-untracked -m "auto-stash-${TIMESTAMP}" 2>/dev/null || t
 # ---- 3. 拉取最新代码 ----
 echo "[3/6] 拉取最新代码..."
 # 统一生产分支为 master：CI 仅 master 发布 vue-dist，必须同源拉取（避免 main/master 错位）
+# 若配置了代理（ITSM_PROXIES/ITSM_PROXY），git pull 同步走代理（git 默认读 https_proxy/http_proxy）
+if [ -n "${ITSM_PROXIES:-}" ]; then
+    export https_proxy="${ITSM_PROXIES%%,*}" http_proxy="${ITSM_PROXIES%%,*}"
+    echo "  [INFO] git pull 使用代理: ${https_proxy}"
+elif [ -n "${ITSM_PROXY:-}" ]; then
+    export https_proxy="${ITSM_PROXY}" http_proxy="${ITSM_PROXY}"
+    echo "  [INFO] git pull 使用代理: ${ITSM_PROXY}"
+fi
 git pull origin master
 
 # ---- 4. 恢复本地修改 ----
@@ -100,7 +108,105 @@ if [ -f "${LOCAL_ZIP}" ]; then
         mv "${LOCAL_ZIP}" "${LOCAL_ZIP}.used.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || rm -f "${LOCAL_ZIP}"
     fi
 fi
-# 1) gh CLI 拉取
+
+# 1) 多通道拉取：先快速探测代理/直连/镜像可用性，只对可用通道下载
+if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
+    REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
+    if [ -n "${REPO_URL}" ]; then
+        GH_URL="${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
+        GH_BASE="${GH_URL#https://github.com/}"
+
+        # 代理列表：ITSM_PROXIES(逗号分隔) > ITSM_PROXY > 系统 https_proxy/http_proxy
+        PROXY_LIST=""
+        [ -n "${ITSM_PROXIES:-}" ] && PROXY_LIST="${ITSM_PROXIES}"
+        [ -z "${PROXY_LIST}" ] && [ -n "${ITSM_PROXY:-}" ] && PROXY_LIST="${ITSM_PROXY}"
+        [ -z "${PROXY_LIST}" ] && [ -n "${https_proxy:-}${HTTPS_PROXY:-}" ] && PROXY_LIST="${https_proxy:-${HTTPS_PROXY}}"
+        IFS=',' read -r -a PROXY_ARRAY <<< "${PROXY_LIST}"
+
+        # 镜像列表：前缀代理类（URL 前拼镜像域名）+ 域名替换类
+        MIRROR_PREFIX=(
+            "https://gh-proxy.com"
+            "https://ghfast.top"
+            "https://ghproxy.net"
+            "https://ghproxy.cc"
+            "https://gh.ddlc.top"
+            "https://github.moeyy.xyz"
+            "https://hub.gitmirror.com"
+        )
+        MIRROR_DOMAIN=(
+            "https://kkgithub.com"
+        )
+        if [ -n "${ITSM_MIRRORS:-}" ]; then
+            IFS=',' read -r -a _extra <<< "${ITSM_MIRRORS}"
+            MIRROR_PREFIX+=("${_extra[@]}")
+        fi
+
+        # 探测：Range 请求 1 字节，HTTP 200/206 即可用（每个 ≤10s）
+        probe_url() {
+            curl -sfL -r 0-0 -o /dev/null --connect-timeout 5 --max-time 10 "$@" >/dev/null 2>&1
+        }
+
+        echo "  [INFO] 探测可用下载通道（代理/直连/镜像）..."
+        AVAILABLE=()
+        for p in "${PROXY_ARRAY[@]+"${PROXY_ARRAY[@]}"}"; do
+            [ -z "$p" ] && continue
+            if probe_url "${GH_URL}" --proxy "$p"; then
+                AVAILABLE+=("proxy|$p")
+                echo "  [OK] 代理可用: $p"
+            else
+                echo "  [WARN] 代理不可达: $p"
+            fi
+        done
+        if [ ${#PROXY_ARRAY[@]} -eq 0 ] && probe_url "${GH_URL}"; then
+            AVAILABLE+=("direct|")
+            echo "  [OK] 直连可用"
+        fi
+        if [ "${ITSM_SKIP_MIRRORS:-0}" != "1" ]; then
+            for m in "${MIRROR_PREFIX[@]+"${MIRROR_PREFIX[@]}"}"; do
+                [ -z "$m" ] && continue
+                if probe_url "${m}/${GH_URL}"; then
+                    AVAILABLE+=("mirror|${m}/${GH_URL}")
+                    echo "  [OK] 镜像可用: $m"
+                fi
+            done
+            for m in "${MIRROR_DOMAIN[@]+"${MIRROR_DOMAIN[@]}"}"; do
+                [ -z "$m" ] && continue
+                if probe_url "${m}/${GH_BASE}"; then
+                    AVAILABLE+=("mirror|${m}/${GH_BASE}")
+                    echo "  [OK] 镜像可用: $m"
+                fi
+            done
+        fi
+
+        # 按优先级（代理 → 直连 → 镜像）依次下载，第一个成功即部署
+        if [ "${#AVAILABLE[@]}" -gt 0 ]; then
+            echo "  [INFO] 共 ${#AVAILABLE[@]} 个可用通道，开始下载..."
+            for item in "${AVAILABLE[@]}"; do
+                kind="${item%%|*}"
+                url="${item#*|}"
+                echo "  [INFO] 下载通道: ${kind} ${url}"
+                rm -f /tmp/itsm-vue-dist.zip
+                if [ "${kind}" = "proxy" ]; then
+                    curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+                        --proxy "${url}" "${GH_URL}" 2>/dev/null
+                else
+                    curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+                        "${url}" 2>/dev/null
+                fi
+                if [ -s /tmp/itsm-vue-dist.zip ] && deploy_vue_dist /tmp/itsm-vue-dist.zip; then
+                    VUE_DEPLOYED=true
+                    break
+                else
+                    echo "  [WARN] 该通道下载/校验失败，尝试下一个"
+                fi
+            done
+            rm -f /tmp/itsm-vue-dist.zip
+        else
+            echo "  [WARN] 所有通道（代理/直连/镜像）均不可达"
+        fi
+    fi
+fi
+# 2) gh CLI 拉取
 if [ "${VUE_DEPLOYED}" != "true" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     if gh release download vue-dist --pattern 'itsm-vue-dist.zip' --dir /tmp/itsm_vue --clobber 2>/dev/null && \
        [ -f /tmp/itsm_vue/itsm-vue-dist.zip ]; then
@@ -109,27 +215,6 @@ if [ "${VUE_DEPLOYED}" != "true" ] && command -v gh >/dev/null 2>&1 && gh auth s
         echo "  [WARN] gh 拉取 vue-dist 失败"
     fi
     rm -rf /tmp/itsm_vue
-fi
-# 2) curl 兜底（公共仓库免认证，无需 gh；直连失败走 ghproxy 镜像）
-if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
-    REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
-    if [ -n "${REPO_URL}" ]; then
-        RELEASE_URL="${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
-        echo "  [INFO] 改用 curl 拉取 vue-dist（${RELEASE_URL}）..."
-        rm -f /tmp/itsm-vue-dist.zip
-        if ! curl -fL --connect-timeout 15 --max-time 40 -o /tmp/itsm-vue-dist.zip \
-                "${RELEASE_URL}" 2>/dev/null; then
-            echo "  [INFO] 直连失败，尝试 ghproxy 镜像..."
-            if ! curl -fL --connect-timeout 20 --max-time 300 -o /tmp/itsm-vue-dist.zip \
-                    "https://ghproxy.com/${RELEASE_URL}" 2>/dev/null; then
-                echo "  [WARN] curl 拉取 vue-dist 失败（直连与 ghproxy 均不可达，可稍后重跑 update.sh）"
-            fi
-        fi
-        if [ -s /tmp/itsm-vue-dist.zip ]; then
-            deploy_vue_dist /tmp/itsm-vue-dist.zip && VUE_DEPLOYED=true || true
-        fi
-        rm -f /tmp/itsm-vue-dist.zip
-    fi
 fi
 # 3) 本地构建（服务器需 Node）
 if [ "${VUE_DEPLOYED}" != "true" ] && [ -d "${APP_DIR}/frontend" ] && command -v npm >/dev/null 2>&1; then
