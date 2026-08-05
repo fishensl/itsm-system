@@ -6,6 +6,18 @@
 
 ---
 
+## [v2.3.2] — 2026-08-05
+
+### 修复：update.sh git pull 卡死 + 全链路多通道
+
+- **根因**：`[3/6] git pull` 无超时无兜底——服务器直连 GitHub 被墙时无限挂起（此前多通道只覆盖 vue-dist 下载）
+- **修复**：公共多通道区（代理/直连/镜像列表 + 探测函数）供 git pull 与 vue-dist 共用；
+  `git pull` 限时 60s（不再卡死）→ 失败清理 index.lock → 代理 → 8 个镜像逐个兜底；
+  `[5.6]` 复用 [3/6] 探测结果（ITSM_AVAILABLE），不再重复探测
+- `ITSM_PROXIES`（逗号分隔多个）/ `ITSM_PROXY` / 系统 https_proxy 自动识别；`ITSM_MIRRORS` 可追加镜像；`ITSM_SKIP_MIRRORS=1` 跳过镜像
+
+---
+
 ## [v2.3.1] — 2026-08-05
 
 ### 修复：服务器增量升级漏列导致的巡检记录 500
