@@ -37,18 +37,124 @@ echo "[2/6] 暂存本地修改..."
 cd "${APP_DIR}"
 git stash push --include-untracked -m "auto-stash-${TIMESTAMP}" 2>/dev/null || true
 
+# ---- 公共：GitHub 多通道（git pull / vue-dist 下载共用） ----
+# 代理列表：ITSM_PROXIES(逗号分隔) > ITSM_PROXY > 系统 https_proxy/http_proxy
+ITSM_PROXY_LIST=""
+[ -n "${ITSM_PROXIES:-}" ] && ITSM_PROXY_LIST="${ITSM_PROXIES}"
+[ -z "${ITSM_PROXY_LIST}" ] && [ -n "${ITSM_PROXY:-}" ] && ITSM_PROXY_LIST="${ITSM_PROXY}"
+[ -z "${ITSM_PROXY_LIST}" ] && [ -n "${https_proxy:-}${HTTPS_PROXY:-}" ] && ITSM_PROXY_LIST="${https_proxy:-${HTTPS_PROXY}}"
+IFS=',' read -r -a ITSM_PROXY_ARRAY <<< "${ITSM_PROXY_LIST}"
+
+# 镜像列表：前缀代理类（URL 前拼镜像域名）+ 域名替换类（ITSM_MIRRORS 可追加）
+ITSM_MIRROR_PREFIX=(
+    "https://gh-proxy.com"
+    "https://ghfast.top"
+    "https://ghproxy.net"
+    "https://ghproxy.cc"
+    "https://gh.ddlc.top"
+    "https://github.moeyy.xyz"
+    "https://hub.gitmirror.com"
+)
+ITSM_MIRROR_DOMAIN=(
+    "https://kkgithub.com"
+)
+if [ -n "${ITSM_MIRRORS:-}" ]; then
+    IFS=',' read -r -a _extra <<< "${ITSM_MIRRORS}"
+    ITSM_MIRROR_PREFIX+=("${_extra[@]}")
+fi
+
+GITHUB_REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
+GITHUB_RELEASE_URL="${GITHUB_REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
+GITHUB_RELEASE_BASE="${GITHUB_RELEASE_URL#https://github.com/}"
+
+# 探测 URL 可用性（Range 请求 1 字节，HTTP 200/206 即可用，每个 ≤10s）
+probe_url() {
+    curl -sfL -r 0-0 -o /dev/null --connect-timeout 5 --max-time 10 "$@" >/dev/null 2>&1
+}
+
+# 探测全部通道（代理/直连/镜像），可用项写入全局 ITSM_AVAILABLE（格式 kind|url）
+probe_all_channels() {
+    ITSM_AVAILABLE=()
+    local p m
+    for p in "${ITSM_PROXY_ARRAY[@]+"${ITSM_PROXY_ARRAY[@]}"}"; do
+        [ -z "$p" ] && continue
+        if probe_url "${GITHUB_RELEASE_URL}" --proxy "$p"; then
+            ITSM_AVAILABLE+=("proxy|$p")
+            echo "  [OK] 代理可用: $p"
+        else
+            echo "  [WARN] 代理不可达: $p"
+        fi
+    done
+    if [ ${#ITSM_PROXY_ARRAY[@]} -eq 0 ] && probe_url "${GITHUB_RELEASE_URL}"; then
+        ITSM_AVAILABLE+=("direct|")
+        echo "  [OK] 直连可用"
+    fi
+    if [ "${ITSM_SKIP_MIRRORS:-0}" != "1" ]; then
+        for m in "${ITSM_MIRROR_PREFIX[@]+"${ITSM_MIRROR_PREFIX[@]}"}"; do
+            [ -z "$m" ] && continue
+            if probe_url "${m}/${GITHUB_RELEASE_URL}"; then
+                ITSM_AVAILABLE+=("mirror|${m}/${GITHUB_RELEASE_URL}")
+                echo "  [OK] 镜像可用: $m"
+            fi
+        done
+        for m in "${ITSM_MIRROR_DOMAIN[@]+"${ITSM_MIRROR_DOMAIN[@]}"}"; do
+            [ -z "$m" ] && continue
+            if probe_url "${m}/${GITHUB_RELEASE_BASE}"; then
+                ITSM_AVAILABLE+=("mirror|${m}/${GITHUB_RELEASE_BASE}")
+                echo "  [OK] 镜像可用: $m"
+            fi
+        done
+    fi
+}
+
+# git pull：直连（限时 60s，不再无限卡死）→ 代理 → 镜像 依次兜底
+git_pull_with_fallback() {
+    local branch="${1:-master}" p m repo_base
+    if [ -n "${ITSM_PROXY_LIST}" ]; then
+        export https_proxy="${ITSM_PROXY_ARRAY[0]}" http_proxy="${ITSM_PROXY_ARRAY[0]}"
+        echo "  [INFO] git pull 使用代理: ${https_proxy}"
+    fi
+    if timeout 60 git pull origin "${branch}" 2>/dev/null; then
+        return 0
+    fi
+    echo "  [WARN] git 直连拉取超时/失败，尝试代理/镜像拉取..."
+    # 超时中断可能残留 index.lock，清理后重试
+    rm -f "${APP_DIR}/.git/index.lock"
+    for p in "${ITSM_PROXY_ARRAY[@]+"${ITSM_PROXY_ARRAY[@]}"}"; do
+        [ -z "$p" ] && continue
+        if timeout 120 git -c http.proxy="$p" pull origin "${branch}" 2>/dev/null; then
+            echo "  [OK] 经代理完成 git pull: $p"
+            return 0
+        fi
+    done
+    for m in "${ITSM_MIRROR_PREFIX[@]+"${ITSM_MIRROR_PREFIX[@]}"}"; do
+        [ -z "$m" ] && continue
+        if timeout 120 git pull "${m}/${GITHUB_REPO_URL}" "${branch}" 2>/dev/null; then
+            echo "  [OK] 经镜像完成 git pull: $m"
+            return 0
+        fi
+    done
+    repo_base="${GITHUB_REPO_URL#https://github.com/}"
+    for m in "${ITSM_MIRROR_DOMAIN[@]+"${ITSM_MIRROR_DOMAIN[@]}"}"; do
+        [ -z "$m" ] && continue
+        if timeout 120 git pull "${m}/${repo_base}" "${branch}" 2>/dev/null; then
+            echo "  [OK] 经镜像完成 git pull: $m"
+            return 0
+        fi
+    done
+    echo "  [WARN] git 拉取全部通道失败（网络受限），可稍后重跑 update.sh"
+    return 1
+}
+
 # ---- 3. 拉取最新代码 ----
 echo "[3/6] 拉取最新代码..."
 # 统一生产分支为 master：CI 仅 master 发布 vue-dist，必须同源拉取（避免 main/master 错位）
-# 若配置了代理（ITSM_PROXIES/ITSM_PROXY），git pull 同步走代理（git 默认读 https_proxy/http_proxy）
-if [ -n "${ITSM_PROXIES:-}" ]; then
-    export https_proxy="${ITSM_PROXIES%%,*}" http_proxy="${ITSM_PROXIES%%,*}"
-    echo "  [INFO] git pull 使用代理: ${https_proxy}"
-elif [ -n "${ITSM_PROXY:-}" ]; then
-    export https_proxy="${ITSM_PROXY}" http_proxy="${ITSM_PROXY}"
-    echo "  [INFO] git pull 使用代理: ${ITSM_PROXY}"
+# 先探测通道（代理/直连/镜像），git pull 限时执行，失败走代理/镜像兜底（不无限卡死）
+echo "  [INFO] 探测下载通道（代理/直连/镜像）..."
+probe_all_channels || true
+if ! git_pull_with_fallback master; then
+    echo "  [WARN] 代码拉取失败，继续后续流程（可能使用旧代码）"
 fi
-git pull origin master
 
 # ---- 4. 恢复本地修改 ----
 echo "[4/6] 恢复本地修改..."
@@ -109,86 +215,24 @@ if [ -f "${LOCAL_ZIP}" ]; then
     fi
 fi
 
-# 1) 多通道拉取：先快速探测代理/直连/镜像可用性，只对可用通道下载
+# 1) 多通道拉取：复用 [3/6] 探测结果（ITSM_AVAILABLE），按优先级（代理 → 直连 → 镜像）下载
 if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
-    REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
-    if [ -n "${REPO_URL}" ]; then
-        GH_URL="${REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
-        GH_BASE="${GH_URL#https://github.com/}"
-
-        # 代理列表：ITSM_PROXIES(逗号分隔) > ITSM_PROXY > 系统 https_proxy/http_proxy
-        PROXY_LIST=""
-        [ -n "${ITSM_PROXIES:-}" ] && PROXY_LIST="${ITSM_PROXIES}"
-        [ -z "${PROXY_LIST}" ] && [ -n "${ITSM_PROXY:-}" ] && PROXY_LIST="${ITSM_PROXY}"
-        [ -z "${PROXY_LIST}" ] && [ -n "${https_proxy:-}${HTTPS_PROXY:-}" ] && PROXY_LIST="${https_proxy:-${HTTPS_PROXY}}"
-        IFS=',' read -r -a PROXY_ARRAY <<< "${PROXY_LIST}"
-
-        # 镜像列表：前缀代理类（URL 前拼镜像域名）+ 域名替换类
-        MIRROR_PREFIX=(
-            "https://gh-proxy.com"
-            "https://ghfast.top"
-            "https://ghproxy.net"
-            "https://ghproxy.cc"
-            "https://gh.ddlc.top"
-            "https://github.moeyy.xyz"
-            "https://hub.gitmirror.com"
-        )
-        MIRROR_DOMAIN=(
-            "https://kkgithub.com"
-        )
-        if [ -n "${ITSM_MIRRORS:-}" ]; then
-            IFS=',' read -r -a _extra <<< "${ITSM_MIRRORS}"
-            MIRROR_PREFIX+=("${_extra[@]}")
+    if [ -n "${GITHUB_REPO_URL}" ]; then
+        if [ "${#ITSM_AVAILABLE[@]}" -eq 0 ]; then
+            echo "  [INFO] 探测可用下载通道（代理/直连/镜像）..."
+            probe_all_channels || true
         fi
-
-        # 探测：Range 请求 1 字节，HTTP 200/206 即可用（每个 ≤10s）
-        probe_url() {
-            curl -sfL -r 0-0 -o /dev/null --connect-timeout 5 --max-time 10 "$@" >/dev/null 2>&1
-        }
-
-        echo "  [INFO] 探测可用下载通道（代理/直连/镜像）..."
-        AVAILABLE=()
-        for p in "${PROXY_ARRAY[@]+"${PROXY_ARRAY[@]}"}"; do
-            [ -z "$p" ] && continue
-            if probe_url "${GH_URL}" --proxy "$p"; then
-                AVAILABLE+=("proxy|$p")
-                echo "  [OK] 代理可用: $p"
-            else
-                echo "  [WARN] 代理不可达: $p"
-            fi
-        done
-        if [ ${#PROXY_ARRAY[@]} -eq 0 ] && probe_url "${GH_URL}"; then
-            AVAILABLE+=("direct|")
-            echo "  [OK] 直连可用"
-        fi
-        if [ "${ITSM_SKIP_MIRRORS:-0}" != "1" ]; then
-            for m in "${MIRROR_PREFIX[@]+"${MIRROR_PREFIX[@]}"}"; do
-                [ -z "$m" ] && continue
-                if probe_url "${m}/${GH_URL}"; then
-                    AVAILABLE+=("mirror|${m}/${GH_URL}")
-                    echo "  [OK] 镜像可用: $m"
-                fi
-            done
-            for m in "${MIRROR_DOMAIN[@]+"${MIRROR_DOMAIN[@]}"}"; do
-                [ -z "$m" ] && continue
-                if probe_url "${m}/${GH_BASE}"; then
-                    AVAILABLE+=("mirror|${m}/${GH_BASE}")
-                    echo "  [OK] 镜像可用: $m"
-                fi
-            done
-        fi
-
         # 按优先级（代理 → 直连 → 镜像）依次下载，第一个成功即部署
-        if [ "${#AVAILABLE[@]}" -gt 0 ]; then
-            echo "  [INFO] 共 ${#AVAILABLE[@]} 个可用通道，开始下载..."
-            for item in "${AVAILABLE[@]}"; do
+        if [ "${#ITSM_AVAILABLE[@]}" -gt 0 ]; then
+            echo "  [INFO] 共 ${#ITSM_AVAILABLE[@]} 个可用通道，开始下载..."
+            for item in "${ITSM_AVAILABLE[@]}"; do
                 kind="${item%%|*}"
                 url="${item#*|}"
                 echo "  [INFO] 下载通道: ${kind} ${url}"
                 rm -f /tmp/itsm-vue-dist.zip
                 if [ "${kind}" = "proxy" ]; then
                     curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
-                        --proxy "${url}" "${GH_URL}" 2>/dev/null
+                        --proxy "${url}" "${GITHUB_RELEASE_URL}" 2>/dev/null
                 else
                     curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
                         "${url}" 2>/dev/null
