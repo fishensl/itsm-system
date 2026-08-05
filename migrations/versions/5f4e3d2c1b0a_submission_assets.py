@@ -59,10 +59,18 @@ def upgrade():
     if 'required_assets_json' not in cols:
         with op.batch_alter_table('inspection_task_templates', schema=None) as batch_op:
             batch_op.add_column(sa.Column('required_assets_json', sa.Text(), nullable=True))
+    sv_cols = _existing_columns(bind, 'submission_versions')
+    if 'review_checklist_json' not in sv_cols:
+        with op.batch_alter_table('submission_versions', schema=None) as batch_op:
+            batch_op.add_column(sa.Column('review_checklist_json', sa.Text(), nullable=True))
 
 
 def downgrade():
     bind = op.get_bind()
+    sv_cols = _existing_columns(bind, 'submission_versions')
+    if 'review_checklist_json' in sv_cols:
+        with op.batch_alter_table('submission_versions', schema=None) as batch_op:
+            batch_op.drop_column('review_checklist_json')
     cols = _existing_columns(bind, 'inspection_task_templates')
     if 'required_assets_json' in cols:
         with op.batch_alter_table('inspection_task_templates', schema=None) as batch_op:

@@ -27,6 +27,7 @@ export interface SubmissionVersion {
   reviewed_at: string
   review_comment: string
   revision_requirements: string
+  checklist: Record<string, string>
   assets: SubmissionAsset[]
 }
 
@@ -109,11 +110,32 @@ export function submitInspection(id: number) {
   return request<null>({ url: `/api/inspections/${id}/submit`, method: 'POST' })
 }
 
-export function reviewInspection(id: number, approved: boolean, remark?: string, requirements?: string) {
+export function reviewInspection(id: number, approved: boolean, remark?: string, requirements?: string, checklist?: Record<string, string>) {
   return request<null>({
     url: `/api/inspections/${id}/review`,
     method: 'POST',
-    data: { approved, remark, requirements },
+    data: { approved, remark, requirements, checklist },
+  })
+}
+
+// ==================== 巡检审核检查项清单（V23） ====================
+export interface ReviewChecklistItem {
+  name: string
+  enabled: boolean
+}
+
+export function fetchReviewChecklist() {
+  return request<{ items: ReviewChecklistItem[] }>({
+    url: '/api/system/inspection-review-checklist',
+    method: 'GET',
+  })
+}
+
+export function updateReviewChecklist(items: ReviewChecklistItem[]) {
+  return request<{ items: ReviewChecklistItem[] }>({
+    url: '/api/system/inspection-review-checklist',
+    method: 'PUT',
+    data: { items },
   })
 }
 

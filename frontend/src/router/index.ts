@@ -213,6 +213,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/system/backup.vue'),
         meta: { title: '数据备份' },
       },
+      {
+        path: 'system/review-checklist',
+        name: 'sys-review-checklist',
+        component: () => import('@/views/system/ReviewChecklist.vue'),
+        meta: { title: '巡检审核清单', perm: 'permission:edit' },
+      },
     ],
   },
   // 未匹配 → 工作台（SPA 内无 404 页面时兜底）

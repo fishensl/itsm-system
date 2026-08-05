@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">巡检记录</h2>
@@ -115,32 +115,70 @@
       </div>
     </el-drawer>
 
-    <!-- 审核弹窗（退回修改：原因 + 修改要求） -->
-    <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="520px"
-      destroy-on-close>
-      <el-form label-width="90px">
-        <template v-if="reviewApproved">
-          <el-form-item label="审核意见">
-            <el-input v-model="reviewRemark" type="textarea" :rows="3" placeholder="审核意见（可选）" />
-          </el-form-item>
-        </template>
-        <template v-else>
-          <el-form-item label="退回原因" required>
-            <el-input v-model="reviewRemark" type="textarea" :rows="2"
-              placeholder="如：报告缺少现场照片、数据有误" />
-          </el-form-item>
-          <el-form-item label="需要修改" required>
-            <el-input v-model="reviewRequirements" type="textarea" :rows="3"
-              placeholder="填写需要修改的内容，工程师将按此要求修改后重新提交审核" />
-          </el-form-item>
-        </template>
-      </el-form>
-      <template #footer>
-        <el-button @click="reviewVisible = false">取消</el-button>
-        <el-button type="primary" :loading="reviewing" @click="doReview">
-          {{ reviewApproved ? '审核通过' : '退回修改' }}
-        </el-button>
-      </template>
+    <!-- 审核弹窗（双栏：报告在线预览 + 检查项清单勾选） -->
+    <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="980px"
+      top="4vh" destroy-on-close>
+      <div class="review-layout">
+        <!-- 左栏：报告预览 -->
+        <div class="review-preview">
+          <div class="preview-tabs">
+            <el-radio-group v-model="previewTab" size="small">
+              <el-radio-button value="report">现场报告</el-radio-button>
+              <el-radio-button v-if="pendingTextAsset" value="config_text">文本配置</el-radio-button>
+              <el-radio-button value="formal" :disabled="!formalReportName">正式报告</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div v-if="previewTab === 'report'" class="preview-body">
+            <FilePreview v-if="pendingVersion?.report_file" :url="pendingVersionUrl" :file-name="pendingVersion.report_name" />
+            <el-empty v-else description="该版本未上传现场报告（豁免提交）" :image-size="60" />
+          </div>
+          <div v-else-if="previewTab === 'config_text'" class="preview-body">
+            <FilePreview :text="pendingTextAsset?.content_text || ''" :file-name="pendingTextAsset?.file_name" />
+          </div>
+          <div v-else class="preview-body">
+            <FilePreview :url="formalReportUrl2" :file-name="formalReportName" />
+          </div>
+        </div>
+
+        <!-- 右栏：检查项 + 审核表单 -->
+        <div class="review-panel">
+          <el-form label-width="0px">
+            <div class="checklist-title">审核检查项<span class="checklist-hint">逐项核对，全程留痕</span></div>
+            <div v-for="item in checklistItems" :key="item.name" class="check-item">
+              <span class="check-name">{{ item.name }}</span>
+              <el-radio-group v-model="checklistValue[item.name]" size="small" @change="autoFillRequirements">
+                <el-radio-button value="合格">合格</el-radio-button>
+                <el-radio-button value="需修改">需修改</el-radio-button>
+                <el-radio-button value="不适用">不适用</el-radio-button>
+              </el-radio-group>
+            </div>
+
+            <template v-if="reviewApproved">
+              <el-divider />
+              <el-form-item label="审核意见">
+                <el-input v-model="reviewRemark" type="textarea" :rows="3" placeholder="审核意见（可选）" />
+              </el-form-item>
+            </template>
+            <template v-else>
+              <el-divider />
+              <el-form-item label="退回原因" required>
+                <el-input v-model="reviewRemark" type="textarea" :rows="2"
+                  placeholder="如：报告缺少现场照片、数据有误" />
+              </el-form-item>
+              <el-form-item label="需要修改" required>
+                <el-input v-model="reviewRequirements" type="textarea" :rows="3"
+                  placeholder="将按需修改检查项自动生成，可编辑补充" />
+              </el-form-item>
+            </template>
+          </el-form>
+          <div class="review-actions">
+            <el-button @click="reviewVisible = false">取消</el-button>
+            <el-button type="primary" :loading="reviewing" @click="doReview">
+              {{ reviewApproved ? '审核通过' : '退回修改' }}
+            </el-button>
+          </div>
+        </div>
+      </div>
     </el-dialog>
 
     <!-- 新建/编辑巡检 -->
@@ -205,15 +243,17 @@ import { ElMessageBox } from 'element-plus'
 import { Plus, Search, Download, FolderOpened } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import VersionTimeline from '@/components/VersionTimeline.vue'
+import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchInspections, fetchInspection, createInspection, updateInspection, deleteInspection,
   submitInspection, reviewInspection, fetchInspectionDicts, fetchInspectionVersions,
+  fetchReviewChecklist,
   versionReportUrl, formalReportUrl, inspectionExportUrl,
   inspectionReportsZipUrl,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type InspectionDicts,
-  type InspectionTaskOption, type SubmissionVersion,
+  type InspectionTaskOption, type SubmissionVersion, type ReviewChecklistItem,
 } from '@/api/inspections'
 
 const user = useUserStore()
@@ -254,13 +294,6 @@ const columns = computed<DataColumn[]>(() => [
 const detailVisible = ref(false)
 const detail = ref<Inspection | null>(null)
 const versions = ref<SubmissionVersion[]>([])
-
-// 审核弹窗
-const reviewVisible = ref(false)
-const reviewApproved = ref(true)
-const reviewRemark = ref('')
-const reviewRequirements = ref('')
-const reviewing = ref(false)
 
 async function openDetail(row: Record<string, unknown>) {
   try {
@@ -305,12 +338,45 @@ async function onSubmit() {
   }
 }
 
-function openReview(approved: boolean) {
+// 审核弹窗（V23：检查项清单 + 报告预览）
+const reviewVisible = ref(false)
+const reviewApproved = ref(true)
+const reviewRemark = ref('')
+const reviewRequirements = ref('')
+const reviewing = ref(false)
+const checklistItems = ref<ReviewChecklistItem[]>([])
+const checklistValue = reactive<Record<string, string>>({})
+const previewTab = ref('report')
+
+const pendingVersion = computed(() => versions.value.find((v) => v.review_status === '待审核'))
+const pendingVersionUrl = computed(() =>
+  pendingVersion.value?.report_file ? versionReportUrl('inspection', pendingVersion.value.id) : '')
+const formalReportName = computed(() => detail.value?.report_file_name || '')
+const formalReportUrl2 = computed(() => (formalReportName.value ? formalReportUrl(formalReportName.value) : ''))
+const pendingTextAsset = computed(() =>
+  pendingVersion.value?.assets?.find((a) => a.asset_type === 'config_text' && a.has_content) || null)
+
+async function openReview(approved: boolean) {
   if (!detail.value) return
   reviewApproved.value = approved
   reviewRemark.value = ''
   reviewRequirements.value = ''
   reviewVisible.value = true
+  previewTab.value = 'report'
+  try {
+    const { items } = await fetchReviewChecklist()
+    checklistItems.value = items.filter((it) => it.enabled)
+    checklistItems.value.forEach((it) => {
+      if (!(it.name in checklistValue)) checklistValue[it.name] = '合格'
+    })
+  } catch { /* toast */ }
+}
+
+function autoFillRequirements() {
+  const need = checklistItems.value
+    .filter((it) => checklistValue[it.name] === '需修改')
+    .map((it) => it.name)
+  reviewRequirements.value = need.length ? `请完善：${need.join('、')}` : ''
 }
 
 async function doReview() {
@@ -321,14 +387,23 @@ async function doReview() {
       return
     }
     if (!reviewRequirements.value.trim()) {
-      ui.toast('请填写需要修改的内容（修改要求）', 'warning')
+      ui.toast('请填写需要修改的内容（可由检查项自动生成）', 'warning')
       return
+    }
+  } else {
+    const needFix = checklistItems.value.some((it) => checklistValue[it.name] === '需修改')
+    if (needFix) {
+      try {
+        await ElMessageBox.confirm('存在「需修改」检查项，确定仍要审核通过吗？', '确认', { type: 'warning' })
+      } catch { return }
     }
   }
   reviewing.value = true
   try {
+    const checklist: Record<string, string> = {}
+    checklistItems.value.forEach((it) => { checklist[it.name] = checklistValue[it.name] || '合格' })
     await reviewInspection(detail.value.id, reviewApproved.value,
-      reviewRemark.value.trim(), reviewRequirements.value.trim())
+      reviewRemark.value.trim(), reviewRequirements.value.trim(), checklist)
     ui.toast(`${reviewApproved.value ? '审核通过' : '退回修改'}成功`, 'success')
     reviewVisible.value = false
     await refreshDetail()
@@ -339,7 +414,6 @@ async function doReview() {
     reviewing.value = false
   }
 }
-
 async function onDelete(i: Inspection) {
   try {
     await ElMessageBox.confirm(`确定删除巡检「${i.title}」吗？`, '删除确认', { type: 'warning' })
@@ -464,4 +538,15 @@ onMounted(() => {
 .action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .task-status-tag { margin-left: 6px; }
 .text-muted { color: var(--itsm-text-muted); }
+.review-layout { display: flex; gap: 12px; }
+.review-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.review-panel { width: 340px; flex-shrink: 0; }
+.preview-tabs { flex-shrink: 0; }
+.preview-body { flex: 1; min-height: 380px; max-height: 62vh; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; padding: 8px; }
+.checklist-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.checklist-hint { font-weight: 400; font-size: 12px; color: var(--itsm-text-muted); margin-left: 6px; }
+.check-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
+.check-name { font-size: 13px; }
+.check-item .el-radio-button__inner { padding: 4px 8px; font-size: 12px; }
+.review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 </style>
