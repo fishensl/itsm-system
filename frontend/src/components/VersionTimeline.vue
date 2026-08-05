@@ -75,6 +75,18 @@
             <div class="vt-review-head">
               <span class="vt-reviewer">审核人：{{ v.reviewed_by_name || '-' }} · {{ v.reviewed_at || '-' }}</span>
             </div>
+            <!-- 检查项勾选结果（V23 留痕） -->
+            <div v-if="Object.keys(v.checklist || {}).length" class="vt-checklist">
+              <div v-for="(st, name) in v.checklist" :key="name" class="vt-check-row">
+                <el-icon :color="st === '合格' ? 'var(--el-color-success)' : st === '需修改' ? 'var(--el-color-danger)' : 'var(--el-text-color-placeholder)'"
+                  size="13" style="margin-right: 4px">
+                  <CircleCheck v-if="st === '合格'" />
+                  <CircleClose v-else />
+                </el-icon>
+                <span class="vt-check-name">{{ name }}</span>
+                <el-tag size="small" :type="checkTag(st)" class="vt-check-status">{{ st }}</el-tag>
+              </div>
+            </div>
             <template v-if="v.review_status === '已退回'">
               <div v-if="v.revision_requirements" class="vt-requirements">
                 <span class="vt-req-label">需要修改：</span>{{ v.revision_requirements }}
@@ -92,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { Download, View, Share } from '@element-plus/icons-vue'
+import { Download, View, Share, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import type { SubmissionVersion, SubmissionAsset } from '@/api/inspections'
 import { versionReportUrl, submissionAssetUrl, fetchSubmissionAssetContent } from '@/api/inspections'
@@ -108,6 +120,12 @@ const ASSET_LABELS: Record<string, string> = {
   config_text: '设备文本配置',
   topology: '拓扑图',
   asset_list: '资产清单',
+}
+
+function checkTag(st: string): 'success' | 'danger' | 'info' {
+  if (st === '合格') return 'success'
+  if (st === '需修改') return 'danger'
+  return 'info'
 }
 
 function viewContent(a: SubmissionAsset) {
@@ -170,6 +188,10 @@ function download(v: SubmissionVersion) {
 .vt-review { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--el-border-color-lighter); font-size: 12px; }
 .vt-review-head { margin-bottom: 2px; }
 .vt-reviewer { color: var(--el-text-color-secondary); }
+.vt-checklist { margin: 4px 0; display: flex; flex-direction: column; gap: 2px; }
+.vt-check-row { display: flex; align-items: center; }
+.vt-check-name { font-size: 12px; }
+.vt-check-status { margin-left: auto; }
 .vt-requirements {
   color: var(--el-color-danger);
   font-weight: 600;

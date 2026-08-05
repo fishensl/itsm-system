@@ -52,8 +52,8 @@ def add_version(entity_type, entity_id, report_file='', content=None,
     return v
 
 
-def review_version(version_id, approved, reviewer_user_id=None, comment='', requirements=''):
-    """审核指定版本：写回审核结果/审核人/时间/意见/修改要求。返回该版本实例。"""
+def review_version(version_id, approved, reviewer_user_id=None, comment='', requirements='', checklist=None):
+    """审核指定版本：写回审核结果/审核人/时间/意见/修改要求/检查项勾选。返回该版本实例。"""
     from utils.constants import REVIEW_APPROVED, REVIEW_REJECTED
     v = SubmissionVersion.query.get_or_404(version_id)
     v.review_status = REVIEW_APPROVED if approved else REVIEW_REJECTED
@@ -63,6 +63,8 @@ def review_version(version_id, approved, reviewer_user_id=None, comment='', requ
         v.review_comment = comment
     if requirements:
         v.revision_requirements = requirements
+    if checklist is not None:
+        v.review_checklist_json = json.dumps(checklist or {}, ensure_ascii=False)
     return v
 
 
@@ -135,4 +137,5 @@ def _version_payload(v):
         'reviewed_at': v.reviewed_at.strftime('%Y-%m-%d %H:%M') if v.reviewed_at else '',
         'review_comment': v.review_comment or '',
         'revision_requirements': v.revision_requirements or '',
+        'checklist': parse_json(v.review_checklist_json, {}, 'submission_versions.review_checklist_json'),
     }

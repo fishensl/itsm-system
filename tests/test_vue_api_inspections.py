@@ -696,6 +696,80 @@ class TestTaskTemplateRequiredAssets:
         assert tpl['required_assets']['config_zip'] is False
 
 
+class TestReviewChecklist:
+    """V23: 审核检查项清单——勾选留痕 / 退回自动拼装 / 配置 API"""
+
+    def test_default_checklist(self, op_client):
+        r = op_client.get('/api/system/inspection-review-checklist')
+        assert r.status_code == 200
+        items = r.get_json()['data']['items']
+        names = [it['name'] for it in items]
+        assert '核心设备配置备份' in names
+        assert '拓扑图' in names and '机房环境' in names
+        assert len(items) == 9
+
+    def test_update_checklist_requires_admin_perm(self, admin_client, op_client, viewer_client):
+        # viewer 无 permission:edit → 403
+        r = viewer_client.put('/api/system/inspection-review-checklist', json={'items': [{'name': 'x', 'enabled': True}]})
+        assert r.status_code == 403
+        # 保存后读回
+        r = admin_client.put('/api/system/inspection-review-checklist', json={'items': [
+            {'name': '链路状态', 'enabled': True}, {'name': '设备除尘', 'enabled': False},
+        ]})
+        assert r.status_code == 200
+        r = op_client.get('/api/system/inspection-review-checklist')
+        items = r.get_json()['data']['items']
+        assert [it['name'] for it in items] == ['链路状态', '设备除尘']
+        assert items[1]['enabled'] is False
+
+    def test_checklist_written_to_version(self, op_client, seed, app):
+        """审核提交 checklist → 版本落库 + 版本列表 API 输出 + 退回自动拼装"""
+        r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
+                           data={'report_file': _dummy_file()},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200
+        checklist = {'核心设备配置备份': '合格', '拓扑图': '需修改', '资产信息': '合格',
+                     '链路状态及信息': '合格', '路由信息': '不适用', '现场图片': '需修改',
+                     '设备除尘': '合格', '机房环境': '合格', '会议测试': '合格'}
+        # 退回且不填 requirements → 由需修改项自动拼装
+        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+            'approved': False, 'remark': '两项不合格', 'checklist': checklist})
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            v = SubmissionVersion.query.filter_by(entity_type='inspection',
+                                                  entity_id=seed['i1']).first()
+            assert '拓扑图' in (v.review_checklist_json or '')
+            assert '需修改' in (v.review_checklist_json or '')
+        r = op_client.get(f"/api/inspections/{seed['i1']}/versions")
+        data = r.get_json()['data']
+        assert data[-1]['checklist']['拓扑图'] == '需修改'
+        assert '请完善：拓扑图、现场图片' in data[-1]['revision_requirements']
+
+    def test_preview_content_types(self, admin_client, app, seed):
+        """预览数据流：受控下载端点 Content-Type 按扩展名"""
+        import os
+        from models import SubmissionAsset, SubmissionVersion as _SV
+        with app.app_context():
+            i = Inspection.query.get(seed['i1'])
+            v = _SV(entity_type='inspection', entity_id=i.id, version_no=99,
+                    report_file='uploads/inspection_reports/1/r.pdf')
+            db.session.add(v)
+            db.session.flush()
+            os.makedirs(os.path.join('static', 'uploads', 'inspection_reports', '1'), exist_ok=True)
+            with open(os.path.join('static', 'uploads', 'inspection_reports', '1', 'r.pdf'), 'wb') as fh:
+                fh.write(b'%PDF-1.4 fake')
+            a = SubmissionAsset(version_id=v.id, asset_type='report',
+                                file_path='uploads/inspection_reports/1/r.pdf',
+                                file_name='r.pdf')
+            db.session.add(a)
+            db.session.commit()
+            aid = a.id
+        r = admin_client.get(f'/api/inspections/assets/{aid}/download')
+        assert r.status_code == 200
+        assert 'pdf' in r.content_type.lower()
+        assert r.data == b'%PDF-1.4 fake'
+
+
 class TestInspectionExport:
     """V21: 按客户+时间段导出 Excel / 报告包 zip"""
 

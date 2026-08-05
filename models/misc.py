@@ -112,6 +112,7 @@ class SubmissionVersion(db.Model):
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_comment = db.Column(db.Text, default='')          # 本轮审核意见（退回原因）
     revision_requirements = db.Column(db.Text, default='')   # 退回修改：需要修改的内容（与原因分行保存）
+    review_checklist_json = db.Column(db.Text, default='{}') # 本轮审核检查项勾选 {"项名": "合格|需修改|不适用"}（未勾选项=未核对）
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (

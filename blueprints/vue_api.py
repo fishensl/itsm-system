@@ -1469,20 +1469,82 @@ def api_inspection_submit(inspection_id):
     return ok(None)
 
 
+# ==================== 巡检审核检查项清单（V23：系统级可配置） ====================
+DEFAULT_REVIEW_CHECKLIST = [
+    {'name': '核心设备配置备份', 'enabled': True},
+    {'name': '拓扑图', 'enabled': True},
+    {'name': '资产信息', 'enabled': True},
+    {'name': '链路状态及信息', 'enabled': True},
+    {'name': '路由信息', 'enabled': True},
+    {'name': '现场图片', 'enabled': True},
+    {'name': '设备除尘', 'enabled': True},
+    {'name': '机房环境', 'enabled': True},
+    {'name': '会议测试', 'enabled': True},
+]
+REVIEW_CHECKLIST_SETTING_KEY = 'inspection_review_checklist'
+
+
+def _get_review_checklist():
+    """读取巡检审核检查项清单（SystemSetting，无效/缺失回退默认 9 项）"""
+    from utils.json_fields import parse_json
+    from models import SystemSetting
+    row = SystemSetting.query.filter_by(key=REVIEW_CHECKLIST_SETTING_KEY).first()
+    items = parse_json(row.value if row else '', [], 'system_settings.review_checklist')
+    if not isinstance(items, list) or not items:
+        return [dict(x) for x in DEFAULT_REVIEW_CHECKLIST]
+    return items
+
+
+@vue_api_bp.route('/api/system/inspection-review-checklist', methods=['GET'])
+@login_required
+@require_permission('inspection:view')
+def api_review_checklist_get():
+    return ok({'items': _get_review_checklist()})
+
+
+@vue_api_bp.route('/api/system/inspection-review-checklist', methods=['PUT'])
+@login_required
+@require_permission('permission:edit')
+def api_review_checklist_put():
+    """管理员保存检查项清单（[{name, enabled}]，name 非空）"""
+    import json
+    from models import SystemSetting
+    data = request.get_json(silent=True) or {}
+    items = data.get('items') or []
+    cleaned = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = (it.get('name') or '').strip()
+        if name:
+            cleaned.append({'name': name, 'enabled': bool(it.get('enabled', True))})
+    if not cleaned:
+        return fail('检查项不能为空', 400)
+    row = SystemSetting.query.filter_by(key=REVIEW_CHECKLIST_SETTING_KEY).first()
+    if not row:
+        row = SystemSetting(key=REVIEW_CHECKLIST_SETTING_KEY, value='')
+        db.session.add(row)
+    row.value = json.dumps(cleaned, ensure_ascii=False)
+    db.session.commit()
+    return ok({'items': cleaned})
+
+
 @vue_api_bp.route('/api/inspections/<int:inspection_id>/review', methods=['POST'])
 @login_required
 @require_permission('inspection:review')
 def api_inspection_review(inspection_id):
     """审核巡检：approved=True 通过（自动生成 Word 报告）/ False 退回修改。
-    remark=退回原因/审核意见，requirements=需要修改的内容（退回时填写）。"""
+    remark=退回原因/审核意见，requirements=需要修改的内容（空时由需修改检查项自动拼装），
+    checklist=检查项勾选 {"项名": "合格|需修改|不适用"}。"""
     from services.inspection_service import review_inspection
     data = request.get_json(silent=True) or {}
     approved = bool(data.get('approved'))
     remark = data.get('remark') or ''
     requirements = data.get('requirements') or ''
+    checklist = data.get('checklist')
     try:
         review_inspection(inspection_id, approved, current_user.realname or current_user.username,
-                          remark, requirements)
+                          remark, requirements, checklist)
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '审核失败', 400)

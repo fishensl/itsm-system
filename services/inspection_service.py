@@ -465,8 +465,8 @@ def submit_for_review(inspection_id, current_user_name):
 
 
 @transaction
-def review_inspection(inspection_id, approved, current_user_name, remark='', requirements=''):
-    """审核巡检 — V21: 审核结果/意见/修改要求写回最新待审核版本 + 任务联动。
+def review_inspection(inspection_id, approved, current_user_name, remark='', requirements='', checklist=None):
+    """审核巡检 — V21/V23: 审核结果/意见/修改要求/检查项勾选写回最新待审核版本 + 任务联动。
 
     审核通过 (approved=True):
         - review_status = '已通过'，overall_status = '正常'
@@ -474,7 +474,8 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
         - 关联任务「待审核 → 已完成」（写 actual_end）
     审核退回修改 (approved=False):
         - review_status = '已退回'，overall_status = '异常'
-        - 退回原因 remark + 需要修改的内容 requirements 写回版本
+        - 退回原因 remark + 需要修改的内容 requirements 写回版本；
+          requirements 为空时由「需修改」检查项自动拼装（"请完善：×××、×××"）
         - 关联任务「待审核 → 执行中」，工程师按修改要求重传
     """
     from models import User as _User
@@ -484,11 +485,16 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
 
     reviewer = _User.query.filter_by(username=current_user_name).first()
 
+    if not approved and not requirements and checklist:
+        need_fix = [name for name, st in checklist.items() if st == '需修改']
+        if need_fix:
+            requirements = '请完善：%s' % '、'.join(need_fix)
+
     pending = latest_pending_version('inspection', i.id)
     if pending:
         review_version(pending.id, approved,
                        reviewer_user_id=reviewer.id if reviewer else None,
-                       comment=remark, requirements=requirements)
+                       comment=remark, requirements=requirements, checklist=checklist)
 
     i.review_status = REVIEW_APPROVED if approved else REVIEW_REJECTED
     i.overall_status = '正常' if approved else '异常'
