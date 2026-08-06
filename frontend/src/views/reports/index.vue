@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">报告中心</h2>
@@ -86,7 +86,13 @@
             <div class="bucket-section-label">报告文件</div>
             <div v-for="item in bucket.items.file" :key="item.filename" class="record-row">
               <span class="record-title file-name">{{ item.filename }}</span>
-              <span class="record-meta">{{ item.type }} · {{ item.size_display }} · {{ item.create_time }}</span>
+              <span class="record-meta">
+                {{ item.type }} · {{ item.size_display }} · {{ item.create_time }}
+                <el-button size="small" link type="primary" :icon="Download"
+                  @click="downloadFile(item.filename)">下载</el-button>
+                <el-button v-if="user.hasPerm('report:delete')" size="small" link type="danger"
+                  :icon="Delete" @click="deleteFile(item.filename)">删除</el-button>
+              </span>
             </div>
           </template>
 
@@ -101,13 +107,20 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted, watch } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { Search, Download, Delete } from '@element-plus/icons-vue'
+import request, { http } from '@/utils/request'
 import {
   fetchReports, type ReportTab, type ReportBucket,
 } from '@/api/reports'
 import { fetchCustomers } from '@/api/customers'
 import { FAULT_RESULT_TAG } from '@/api/faults'
+import { useUserStore } from '@/stores/user'
+import { useUiStore } from '@/stores/ui'
+
+const user = useUserStore()
+const ui = useUiStore()
 
 const tab = ref<ReportTab>('all')
 const query = reactive<Record<string, unknown>>({ date_from: '', date_to: '', customer_id: undefined })
@@ -139,6 +152,24 @@ async function load() {
 }
 
 function reload() { load() }
+
+function downloadFile(filename: string) {
+  window.open(`/reports/${encodeURIComponent(filename)}`, '_blank')
+}
+
+async function deleteFile(filename: string) {
+  try {
+    await ElMessageBox.confirm(`确定删除报告「${filename}」吗？`, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    // SSR 删除端点返回 redirect HTML，用裸 axios 发送（响应体不解析）
+    await http.post(`/reports/delete/${encodeURIComponent(filename)}`)
+    ui.toast('已删除', 'success')
+    load()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
 
 onMounted(() => {
   load()

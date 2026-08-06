@@ -35,6 +35,8 @@ static/vendor/drawio/
 *.db.*
 instance/*.db
 instance/*.db.*
+# 调度器 PID 锁（运行时文件）
+instance/scheduler.lock
 
 # Secrets
 .secret.key

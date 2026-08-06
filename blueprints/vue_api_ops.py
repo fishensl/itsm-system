@@ -72,13 +72,18 @@ def api_kb_list():
 @require_permission('kb:view')
 def api_kb_get(kb_id):
     from models import KnowledgeBase as _KB
+    from flask import session
     k = _KB.query.get_or_404(kb_id)
-    # 浏览次数 +1：原子 UPDATE，避免 read-modify-write 并发丢失（不影响 SSR session 去重逻辑）
-    db.session.execute(sa_text(
-        'UPDATE knowledge_base SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :kid'),
-        {'kid': kb_id})
-    k.view_count = (k.view_count or 0) + 1  # 页面展示同步
-    db.session.commit()
+    # 浏览次数 +1：原子 UPDATE，避免 read-modify-write 并发丢失；
+    # session 去重（同人同会话重复访问不计，与旧 SSR 详情页行为一致）
+    viewed_key = f'kb_viewed_{kb_id}'
+    if not session.get(viewed_key):
+        db.session.execute(sa_text(
+            'UPDATE knowledge_base SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :kid'),
+            {'kid': kb_id})
+        k.view_count = (k.view_count or 0) + 1  # 页面展示同步
+        db.session.commit()
+        session[viewed_key] = True
     payload = _kb_payload(k)
     payload['content'] = k.content or ''
     return ok(payload)
@@ -906,9 +911,20 @@ def api_task_schedule_update(task_id):
             db.session.rollback()
             return fail(str(e), 400)
     if data.get('assignee_id') is not None:
+        old_uid = t.assigned_to_user_id
         t.assigned_to_user_id = data['assignee_id'] or None
         t.dispatched_by = t.dispatched_by or current_user.id
         t.dispatched_at = t.dispatched_at or local_now()
+        # 事件源：任务指派通知（新指派且非本人）
+        new_uid = t.assigned_to_user_id
+        if new_uid and new_uid != old_uid and new_uid != current_user.id:
+            try:
+                from utils.notifications import notify
+                notify(new_uid, 'inspection', f'新任务指派：{t.title}',
+                       f'计划时间 {t.planned_start or "-"} ~ {t.planned_end or "-"}，请及时处理',
+                       '/app/task-schedule')
+            except Exception:
+                current_app.logger.warning('任务指派通知失败 task_id=%s', task_id)
     if data.get('planned_start') is not None:
         t.planned_start = _date.fromisoformat(data['planned_start']) if data['planned_start'] else None
     if data.get('planned_end') is not None:
@@ -931,6 +947,8 @@ def api_task_schedule_update(task_id):
 def api_task_schedule_delete(task_id):
     from models import InspectionTask as _IT
     t = _IT.query.get_or_404(task_id)
+    if t.records:
+        return fail('该任务已有巡检记录，请先删除关联记录再删除任务', 400)
     db.session.delete(t)
     db.session.commit()
     return ok(None)
@@ -966,6 +984,9 @@ def api_task_schedule_batch():
             t.dispatched_at = t.dispatched_at or local_now()
     elif action == 'delete':
         for t in tasks:
+            if t.records:
+                db.session.rollback()
+                return fail(f'任务「{t.title}」已有巡检记录，请先删除关联记录再删除任务', 400)
             db.session.delete(t)
     else:
         return fail(f'未知操作: {action}', 400)

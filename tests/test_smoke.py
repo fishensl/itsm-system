@@ -4,13 +4,16 @@ from tests.conftest import login
 
 
 def test_login_page(client):
-    assert client.get('/login').status_code == 200
+    # SSR 业务页已剥离：GET 登录页一律重定向到 SPA 登录页
+    r = client.get('/login')
+    assert r.status_code == 302
+    assert '/app/login' in r.headers.get('Location', '')
 
 
 def test_login_logout_flow(client):
     r = login(client, 'admin')
     assert r.status_code == 302
-    # 默认 Vue 模式：首页重定向到 /app/
+    # 首页重定向到 /app/
     r = client.get('/')
     assert r.status_code == 302
     assert r.headers.get('Location', '').endswith('/app/')
@@ -20,7 +23,8 @@ def test_login_logout_flow(client):
 
 def test_wrong_password(client):
     r = client.post('/login', data={'username': 'admin', 'password': 'bad'})
-    assert r.status_code == 200  # 重渲染登录页
+    assert r.status_code == 302  # 登录失败不再渲染，重定向 SPA 登录页
+    assert '/app/login' in r.headers.get('Location', '')
     assert client.get('/').status_code == 302  # 未建立会话
 
 
@@ -31,13 +35,13 @@ def test_api_unauthorized_json_401(client):
 
 
 def test_page_unauthorized_redirects_to_login(client):
-    r = client.get('/system')
+    r = client.get('/system/repair-schema')
     assert r.status_code == 302
     assert '/login' in r.headers.get('Location', '')
 
 
 def test_index_ok_for_admin(admin_client):
-    """默认 Vue 模式：已登录首页 302 → /app/"""
+    """已登录首页 302 → /app/"""
     r = admin_client.get('/')
     assert r.status_code == 302
     assert r.headers.get('Location', '').endswith('/app/')
@@ -48,15 +52,14 @@ def test_404_page(admin_client):
 
 
 def test_url_map_core_endpoints(app):
-    """端点名保持历史兼容（模板 url_for 依赖）"""
+    """保留端点名（SSR 业务端点已剥离）"""
     endpoints = {r.endpoint for r in app.url_map.iter_rules()}
-    for ep in ('index', 'login', 'logout', 'user_list', 'user_edit',
-               'system_settings', 'customer_list', 'permission_list',
-               'ai_config_page', 'download_template'):
+    for ep in ('index', 'login', 'logout', 'repair_schema', 'drawio_diag',
+               'download_template', 'api_sidebar_reset'):
         assert ep in endpoints, f'端点缺失: {ep}'
 
 
-def test_device_list_page_renders(admin_client):
-    """回归：设备列表页可渲染（曾因 export_fields 内嵌 {% if %} 致 Jinja 语法错误 500）"""
+def test_device_list_page_gone(admin_client):
+    """回归：SSR 设备列表页已剥离（Vue /app/devices 接管）"""
     r = admin_client.get('/devices')
-    assert r.status_code == 200
+    assert r.status_code == 404

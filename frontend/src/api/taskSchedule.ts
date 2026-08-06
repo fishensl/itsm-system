@@ -82,10 +82,27 @@ export function importTaskSchedule(formData: FormData) {
     url: '/api/task-schedule/import',
     method: 'POST',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
 
+export interface RequiredAssets {
+  report: boolean
+  config_zip: boolean
+  config_text: boolean
+  topology: boolean
+  asset_list: boolean
+}
+
+export interface RequiredAssetsData {
+  required_assets: RequiredAssets
+  devices: Array<{ id: number; device_name: string; device_type: string }>
+}
+
+export function fetchRequiredAssets(id: number) {
+  return request<RequiredAssetsData>({ url: `/api/task-schedule/${id}/required-assets`, method: 'GET' })
+}
+
+/** 下载后端返回的 base64 文件（UTF-8 文件名安全解码） */
 export function downloadBase64(b64: string, filename: string) {
   const bin = atob(b64)
   const bytes = new Uint8Array(bin.length)
@@ -96,7 +113,7 @@ export function downloadBase64(b64: string, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = filename
+  a.download = decodeURIComponent(filename)
   a.click()
   URL.revokeObjectURL(url)
 }

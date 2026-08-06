@@ -45,8 +45,6 @@ const kind = computed(() => {
   return 'other'
 })
 
-let revokeTimer: ReturnType<typeof setTimeout> | undefined
-
 async function load() {
   cleanup()
   content.value = ''
@@ -93,7 +91,6 @@ function cleanup() {
     objectUrl.value = ''
   }
   if (docxBox.value) docxBox.value.innerHTML = ''
-  if (revokeTimer) clearTimeout(revokeTimer)
 }
 
 function download() {

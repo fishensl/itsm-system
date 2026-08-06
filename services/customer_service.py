@@ -252,8 +252,23 @@ def delete_customer(customer_id):
     c = Customer.query.get_or_404(customer_id)
     if c.devices.count() > 0:
         raise ServiceError(f'客户 "{c.name}" 仍有关联设备，无法删除')
+    # 引用完整性检查：销售链路（商机/报价/合同/项目）与备件销售单有引用时拒绝删除
+    from models import (Ticket, Inspection, Fault, Opportunity, Quotation,
+                        Contract, Project, SalesOrder, RackInstall, Rack)
+    if Opportunity.query.filter_by(customer_id=customer_id).first():
+        raise ServiceError(f'客户 "{c.name}" 仍有关联商机，无法删除')
+    if Quotation.query.filter_by(customer_id=customer_id).first():
+        raise ServiceError(f'客户 "{c.name}" 仍有关联报价单，无法删除')
+    if Contract.query.filter_by(customer_id=customer_id).first():
+        raise ServiceError(f'客户 "{c.name}" 仍有关联合同，无法删除')
+    if Project.query.filter_by(customer_id=customer_id).first():
+        raise ServiceError(f'客户 "{c.name}" 仍有关联项目，无法删除')
+    if SalesOrder.query.filter_by(customer_id=customer_id).first():
+        raise ServiceError(f'客户 "{c.name}" 仍有关联备件销售单，无法删除')
+    if RackInstall.query.join(Rack, Rack.id == RackInstall.rack_id)\
+            .filter(Rack.customer_id == customer_id).first():
+        raise ServiceError(f'客户 "{c.name}" 仍有上架机柜记录，无法删除')
     # 置空引用该客户的工单/巡检/故障，避免悬挂外键（SQLite 默认不强制 FK）
-    from models import Ticket, Inspection, Fault
     Ticket.query.filter_by(customer_id=customer_id).update({'customer_id': None})
     Inspection.query.filter_by(customer_id=customer_id).update({'customer_id': None})
     Fault.query.filter_by(customer_id=customer_id).update({'customer_id': None})

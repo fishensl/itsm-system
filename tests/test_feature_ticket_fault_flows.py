@@ -17,11 +17,11 @@ def customer(app):
 class TestSelfAcceptOnCreate:
     def test_create_with_self_accept(self, op_client, customer, app):
         """录单时选「我自己接单处置」→ 直接到处理中（派单+接单一体，日志完整）"""
-        r = op_client.post('/tickets/add', data={
+        r = op_client.post('/api/tickets', json={
             'title': '防火墙策略异常', 'customer_id': customer,
             'priority': '高', 'dispatch_mode': 'self_accept',
         })
-        assert r.status_code == 302
+        assert r.status_code == 200
         with app.app_context():
             t = Ticket.query.filter_by(title='防火墙策略异常').first()
             assert t.status == '处理中'
@@ -33,8 +33,9 @@ class TestSelfAcceptOnCreate:
 
     def test_create_default_pending_assign(self, op_client, customer, app):
         """默认仍为待派单（流程不破坏）"""
-        op_client.post('/tickets/add', data={
+        r = op_client.post('/api/tickets', json={
             'title': '普通工单', 'customer_id': customer, 'priority': '中'})
+        assert r.status_code == 200
         with app.app_context():
             t = Ticket.query.filter_by(title='普通工单').first()
             assert t.status == '待派单'

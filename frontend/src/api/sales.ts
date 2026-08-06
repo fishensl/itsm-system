@@ -24,6 +24,7 @@ export interface Quotation {
   total_amount: number
   valid_until: string
   status: string
+  items?: Array<{ name: string; quantity: number; unit_price: number }>
   created_at: string
 }
 
@@ -82,36 +83,9 @@ export interface PageQuery {
   [key: string]: unknown
 }
 
-export const OPP_STAGE_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  初步接触: 'primary',
-  需求确认: 'primary',
-  方案报价: 'primary',
-  商务谈判: 'primary',
-  成交: 'success',
-  失败: 'danger',
-}
-
-export const QUOTATION_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  草稿: 'info',
-  已发送: 'primary',
-  已接受: 'success',
-  已拒绝: 'danger',
-}
-
-export const CONTRACT_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  草签: 'info',
-  已签: 'primary',
-  执行中: 'success',
-  已完成: 'warning',
-  已终止: 'danger',
-}
-
-export const PROJECT_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  未启动: 'info',
-  进行中: 'primary',
-  已完成: 'success',
-  已暂停: 'warning',
-}
+export {
+  OPP_STAGE_TAG, QUOTATION_STATUS_TAG, CONTRACT_STATUS_TAG, PROJECT_STATUS_TAG,
+} from '@/utils/status'
 
 export function fetchOpportunities(params: PageQuery) {
   return request<PageResult<Opportunity>>({ url: '/api/opportunities', method: 'GET', params })

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">知识库</h2>
@@ -103,8 +103,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -155,6 +155,12 @@ async function openDetail(row: Record<string, unknown>) {
     detailVisible.value = true
   } catch { /* toast */ }
 }
+
+// 支持 /app/knowledge-base/:id 直达（全局搜索跳转）
+onMounted(() => {
+  const id = Number(route.params.id)
+  if (id && !Number.isNaN(id)) openDetail({ id })
+})
 
 async function onDelete(k: KnowledgeItem) {
   try {

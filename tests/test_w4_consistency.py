@@ -68,11 +68,10 @@ class TestMatchTemplatesApi:
 
 
 class TestFaultTypePage:
-    def test_fault_types_always_renders_page(self, op_client):
-        """不再按 cwd 相对路径双态返回"""
+    def test_fault_types_page_gone(self, op_client):
+        """SSR 故障类型页已剥离 → 404（Vue /app/faults 接管）"""
         r = op_client.get('/fault-types')
-        assert r.status_code == 200
-        assert b'<html' in r.data.lower() or 'text/html' in r.content_type
+        assert r.status_code == 404
 
 
 class TestTicketDelete:
@@ -84,8 +83,8 @@ class TestTicketDelete:
             db.session.add(TicketLog(ticket_id=t.id, action='创建', operator='admin'))
             db.session.commit()
             tid = t.id
-        r = admin_client.post(f'/tickets/delete/{tid}')
-        assert r.status_code == 302
+        r = admin_client.delete(f'/api/tickets/{tid}')
+        assert r.status_code == 200
         with app.app_context():
             assert Ticket.query.get(tid) is None
             assert TicketLog.query.filter_by(ticket_id=tid).count() == 0
@@ -149,10 +148,11 @@ class TestDeviceImportBatch:
             ['导入客户', 'SW-B', '交换机', '10.0.0.2', '否'],
             ['导入客户', '', '交换机', '10.0.0.3', '是'],  # 坏行：无名称
         ])
-        r = op_client.post('/devices/import', data={
+        r = op_client.post('/api/v2/devices/import', data={
             'import_file': (xlsx, 'devices.xlsx')},
             content_type='multipart/form-data')
-        assert r.status_code == 302
+        assert r.status_code == 200
+        assert r.get_json()['data']['created'] == 2
         with app.app_context():
             devs = Device.query.filter_by(device_type='交换机').all()
             assert len(devs) == 2

@@ -1,13 +1,33 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">客户管理</h2>
       <div class="header-actions">
+        <el-button :icon="Download" plain @click="doExport">导出</el-button>
+        <el-button v-if="user.hasPerm('customer:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('customer:add')" type="primary" :icon="Plus" @click="openCreate">
           新建客户
         </el-button>
       </div>
     </div>
+
+    <!-- 导入弹窗 -->
+    <el-dialog v-model="importVisible" title="批量导入客户" width="520px" destroy-on-close>
+      <el-alert type="info" :closable="false" class="mb-2" show-icon
+        title="请先下载导入模板（Excel），按列填写后上传；已存在客户名自动跳过" />
+      <div class="mb-2">
+        <el-button size="small" link type="primary" @click="downloadTemplate">下载导入模板</el-button>
+      </div>
+      <el-upload ref="importUploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx,.xls"
+        :on-change="onImportFileChange" :on-remove="() => importFile = null">
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>
+      </el-upload>
+      <template #footer>
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importing" @click="doImport">开始导入</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 筛选 -->
     <el-card shadow="never" class="filter-card">
@@ -187,20 +207,84 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, UploadFilled } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
-  fetchCustomerDicts, CUSTOMER_LEVEL_TAG, CUSTOMER_LEVEL_LABELS,
+  fetchCustomerDicts, exportCustomers, importCustomers,
+  CUSTOMER_LEVEL_TAG, CUSTOMER_LEVEL_LABELS,
   type Customer, type CustomerDicts, type CustomerForm, type RegionItem,
 } from '@/api/customers'
 
+const route = useRoute()
 const user = useUserStore()
 const ui = useUiStore()
+
+// ==================== 导入 / 导出 ====================
+const importVisible = ref(false)
+const importing = ref(false)
+const importUploadRef = ref()
+const importFile = ref<File | null>(null)
+
+function onImportFileChange(f: UploadFile) {
+  importFile.value = f.raw ?? null
+}
+
+function downloadTemplate() {
+  window.open('/exports/download-template/customer', '_blank')
+}
+
+function saveBase64(b64: string, filename: string) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = decodeURIComponent(filename)
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function doExport() {
+  try {
+    const res = await exportCustomers()
+    saveBase64(res.content, res.filename)
+    ui.toast('导出成功', 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function doImport() {
+  if (!importFile.value) {
+    ui.toast('请选择 Excel 文件', 'warning')
+    return
+  }
+  importing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('import_file', importFile.value)
+    const res = await importCustomers(fd)
+    let msg = `导入完成：成功 ${res.created} 条`
+    if (res.unknown_categories.length) {
+      msg += `；未识别单位类别（已留空）：${res.unknown_categories.join('、')}`
+    }
+    ui.toast(msg, res.unknown_categories.length ? 'warning' : 'success')
+    importVisible.value = false
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    importing.value = false
+  }
+}
 const dicts = ref<CustomerDicts | null>(null)
 
 const categories = computed(() => dicts.value?.customer_categories || [])
@@ -256,6 +340,12 @@ async function openDetail(row: Record<string, unknown>) {
     detailVisible.value = true
   } catch { /* toast */ }
 }
+
+// 支持 /app/customers/:id 直达（全局搜索跳转）
+onMounted(() => {
+  const id = Number(route.params.id)
+  if (id && !Number.isNaN(id)) openDetail({ id })
+})
 
 // 表单
 interface CustomerFormModel {

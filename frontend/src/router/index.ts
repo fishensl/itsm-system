@@ -34,6 +34,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '客户管理', perm: 'customer:view' },
       },
       {
+        path: 'customers/:id(\\d+)',
+        name: 'customer-detail',
+        component: () => import('@/views/customers/index.vue'),
+        meta: { title: '客户详情', perm: 'customer:view' },
+      },
+      {
         path: 'regions',
         name: 'regions',
         component: () => import('@/views/regions/index.vue'),
@@ -100,6 +106,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '巡检记录', perm: 'inspection:view' },
       },
       {
+        path: 'inspections/:id(\\d+)',
+        name: 'inspection-detail',
+        component: () => import('@/views/inspections/index.vue'),
+        meta: { title: '巡检详情', perm: 'inspection:view' },
+      },
+      {
         path: 'inspectors',
         name: 'inspectors',
         component: () => import('@/views/inspectors/index.vue'),
@@ -122,6 +134,12 @@ const routes: RouteRecordRaw[] = [
         name: 'knowledge',
         component: () => import('@/views/knowledge/index.vue'),
         meta: { title: '知识库', perm: 'kb:view' },
+      },
+      {
+        path: 'knowledge-base/:id(\\d+)',
+        name: 'knowledge-detail',
+        component: () => import('@/views/knowledge/index.vue'),
+        meta: { title: '知识详情', perm: 'kb:view' },
       },
       {
         path: 'faults',

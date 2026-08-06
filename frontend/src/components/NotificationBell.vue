@@ -104,7 +104,8 @@ async function readAll() {
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   load()
-  timer = setInterval(load, 60000) // 每分钟轮询未读数
+  // inline 模式（移动端抽屉内的第二实例）不重复轮询，仅顶栏铃铛实例轮询
+  if (!props.inline) timer = setInterval(load, 60000) // 每分钟轮询未读数
 })
 onBeforeUnmount(() => clearInterval(timer))
 

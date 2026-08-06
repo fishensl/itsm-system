@@ -1,24 +1,16 @@
 # -*- coding: utf-8 -*-
-"""系统概览 / schema 修复 / drawio 诊断 / 侧栏 / 导入模板下载 / 客户列表"""
+"""系统运维端点：schema 修复 / drawio 诊断 / 侧栏保存 / 导入模板下载（SSR 业务页已剥离）"""
 import os
 from datetime import date
-from flask import (render_template, request, redirect, url_for,
-                   flash, send_from_directory, jsonify, current_app)
+from flask import (request, redirect, url_for,
+                   flash, render_template, send_from_directory, jsonify, current_app)
 from flask_login import (login_required, current_user)
-from models import db, Customer, Device, Inspection
-from models import Region, Ticket
-from models import Topology
-from models import Department, CustomerCategory, UserDashboardPreference
-from utils.pagination import paginate, paginate_render_args
+from models import db, UserDashboardPreference
 from utils.permission import require_permission, admin_required
 from utils.decorators import api_view
 
 
 # ==================== 简化的 admin 路由（暂留 app.py 后续蓝图化）====================
-from models import (User as UserM)
-from sqlalchemy.orm import joinedload
-
-
 @login_required
 @admin_required
 def repair_schema():
@@ -89,7 +81,8 @@ def repair_schema():
         import os as _os
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            _migrate_upgrade(directory=_os.path.join(_os.path.dirname(__file__), 'migrations'))
+            _migrate_upgrade(directory=_os.path.join(
+                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'migrations'))
         upgrade_output = [l for l in buf.getvalue().split('\n') if l.strip()]
         reports.append(('flask db upgrade', '✅ 成功', 'ok'))
     except Exception as e:
@@ -117,77 +110,38 @@ def drawio_diag():
 
 
 @login_required
-def system_settings():
-    """系统概览页：业务统计 + 部署系统信息（CPU/内存/磁盘/版本）"""
-    from utils.system_info import collect_deployment_info
-    stats = {
-        'user_count': UserM.query.filter_by(is_active=True).count(),
-        'user_total': UserM.query.count(),
-        'department_count': Department.query.count(),
-        'customer_count': Customer.query.count(),
-        'device_count': Device.query.count(),
-        'topology_count': Topology.query.count(),
-        'inspection_count': Inspection.query.count(),
-        'ticket_count': Ticket.query.count(),
-    }
-    # 最近 5 个登录用户
-    recent_users = UserM.query.options(joinedload(UserM.department_rel))\
-        .order_by(UserM.id.desc()).limit(5).all()
-
-    deploy = collect_deployment_info()
-
-    return render_template('system/index.html',
-                           stats=stats,
-                           recent_users=recent_users,
-                           ui_version=get_ui_version(),
-                           **deploy)
-
-
-def get_ui_version():
-    """当前界面版本（供系统概览页切换控件展示）"""
-    from utils.ui_version import get_ui_version as _gv
-    return _gv()
-
-
-@login_required
 @admin_required
 def system_ui_version():
-    """界面版本切换（SSR 系统概览页表单）"""
+    """界面版本切换（兼容遗留 POST；保存后回 SPA 系统概览）"""
     from utils.ui_version import set_ui_version
     version = request.form.get('version')
     if version in ('vue', 'ssr'):
         set_ui_version(version)
         current_app.logger.info('用户 [%s] 切换界面版本 → %s', current_user.username, version)
         flash(f'界面已切换为 {"Vue" if version == "vue" else "SSR"}', 'success')
-    return redirect(url_for('system_settings'))
+    return redirect('/app/system/overview')
 
 
     # ==================== 侧栏自定义 ====================
 @login_required
 @api_view  # POST 路由需要豁免 CSRF（前端用 fetch + JSON body）
 def system_sidebar():
-    """侧栏自定义页面 / 保存"""
-    from utils.sidebar_config import (SIDEBAR_GROUPS, get_user_sidebar_groups, save_user_sidebar)
+    """侧栏自定义（GET 已剥离渲染，302 到 SPA；POST 保留 JSON 保存）"""
+    from utils.sidebar_config import save_user_sidebar
     if request.method == 'POST':
-        # 提交顺序 + 启用/禁用
         payload = request.get_json(silent=True) or {}
         groups_data = payload.get('groups', [])
         if not isinstance(groups_data, list):
             return jsonify({'success': False, 'message': '参数错误'}), 400
         save_user_sidebar(current_user, groups_data)
         return jsonify({'success': True, 'message': '侧栏设置已保存'})
-    # GET：渲染编辑页面
-    current_groups = get_user_sidebar_groups(current_user)
-    return render_template('system/sidebar.html',
-                           all_groups=SIDEBAR_GROUPS,
-                           current_groups=current_groups)
+    return redirect('/app/system/sidebar')
 
 
 @login_required
 @api_view
 def api_sidebar_reset():
     """重置为默认"""
-    from models import db
     pref = UserDashboardPreference.query.filter_by(user_id=current_user.id).first()
     if pref:
         pref.sidebar_json = None
@@ -197,7 +151,7 @@ def api_sidebar_reset():
 
 @login_required
 def dashboard_reports():
-    return redirect(url_for('ops.report_list'))
+    return redirect('/app/reports')
 
 
 @login_required
@@ -208,7 +162,7 @@ def download_template(module):
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
     header_font = Font(name='微软雅黑', bold=True, size=11, color='FFFFFF')
-    header_fill = PatternFill(start_color='1890FF', end_color='096DD9', fill_type='solid')
+    header_fill = PatternFill(start_color='1890FF', end_color='0969DD', fill_type='solid')
     header_align = Alignment(horizontal='center', vertical='center')
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                          top=Side(style='thin'), bottom=Side(style='thin'))
@@ -274,31 +228,3 @@ def download_template(module):
         as_attachment=True,
         download_name=f'{tpl["name"]}_{date.today().isoformat()}.xlsx'
     )
-
-
-# ==================== 客户管理 ====================
-@login_required
-@require_permission('customer:view')
-def customer_list():
-    search = request.args.get('search', '')
-    category_id = request.args.get('category_id', type=int)
-    page = request.args.get('page', 1, type=int)
-    query = Customer.query
-    if search:
-        query = query.filter(
-            Customer.name.contains(search) |
-            Customer.contact_person.contains(search) |
-            Customer.phone.contains(search)
-        )
-    if category_id:
-        query = query.filter_by(category_id=category_id)
-    # 预加载 region_rel 及其 parent，避免列表渲染时 N+1
-    from sqlalchemy.orm import joinedload
-    query = query.options(joinedload(Customer.region_rel).joinedload(Region.parent))
-    query = query.order_by(Customer.id.desc())
-    pag = paginate(query, page=page)
-    categories = CustomerCategory.query.order_by(CustomerCategory.sort_order).all()
-    return render_template('customers/list.html', **paginate_render_args(pag), search=search,
-                          categories=categories, current_category_id=category_id or 0)
-
-

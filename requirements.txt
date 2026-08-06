@@ -14,3 +14,4 @@ XdbSearchIP==1.0.2
 cairosvg>=2.7
 svglib>=2.0
 reportlab>=4.0
+apscheduler>=3.10,<4

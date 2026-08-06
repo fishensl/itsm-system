@@ -23,6 +23,7 @@ export interface TaskBoard {
   total: number
   pending: number
   running: number
+  reviewing: number
   done: number
 }
 

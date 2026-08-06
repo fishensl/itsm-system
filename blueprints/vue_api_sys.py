@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Vue SPA 系统 API（系统域：用户/RBAC / 部门 / 备份 / 审计日志 / 系统概览）
 
 复用 blueprints.vue_api 的 vue_api_bp 蓝图对象与 ok/fail 契约。
@@ -92,7 +92,15 @@ def api_user_list():
     if current_user.role != 'admin':
         return fail('需要管理员权限', 403)
     from models import User, Department
-    users = User.query.order_by(User.id).all()
+    page = max(request.args.get('page', 1, type=int), 1)
+    page_size = min(request.args.get('page_size', 20, type=int), 100)
+    search = (request.args.get('search') or '').strip()
+    q = User.query
+    if search:
+        like = f'%{search}%'
+        q = q.filter(db.or_(User.username.like(like), User.realname.like(like)))
+    total = q.count()
+    users = q.order_by(User.id).offset((page - 1) * page_size).limit(page_size).all()
     dept_map = {d.id: d.name for d in Department.query.all()}
     roles = [r.code for r in Role.query.filter_by(is_active=True)
              .order_by(Role.sort_order, Role.id).all()]
@@ -102,11 +110,13 @@ def api_user_list():
             'role': u.role or 'viewer', 'department_id': u.department_id,
             'department_name': dept_map.get(u.department_id, ''),
             'is_active': bool(u.is_active), 'phone': u.phone or '', 'email': u.email or '',
+            'certifications': u.cert_list(),
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],
         'departments': [{'id': d.id, 'name': d.name}
                         for d in Department.query.order_by(Department.sort_order).all()],
         'roles': roles,
+        'total': total, 'page': page, 'page_size': page_size,
     })
 
 
@@ -131,6 +141,8 @@ def api_user_create():
     u.phone = (data.get('phone') or '').strip()
     u.email = (data.get('email') or '').strip()
     u.is_active = bool(data.get('is_active', True))
+    if data.get('certifications') is not None:
+        u.set_cert_list(list(data['certifications']))
     db.session.add(u)
     db.session.commit()
     audit_log('user:create', 'user', u.id, f'创建用户 {username}')
@@ -157,11 +169,31 @@ def api_user_update(user_id):
     u.is_active = bool(data.get('is_active', True))
     u.phone = (data.get('phone') or '').strip()
     u.email = (data.get('email') or '').strip()
+    if data.get('certifications') is not None:
+        u.set_cert_list(list(data['certifications']))
     password = data.get('password') or ''
     if password:
         u.set_password(password)
     db.session.commit()
     audit_log('user:update', 'user', u.id, f'更新用户 {new_username}')
+    return ok(None)
+
+
+@vue_api_bp.route('/api/users/<int:user_id>/password', methods=['PUT'])
+@login_required
+def api_user_reset_password(user_id):
+    """管理员强制重置任意账号密码（无需原密码）"""
+    if current_user.role != 'admin':
+        return fail('需要管理员权限', 403)
+    from models import User
+    u = User.query.get_or_404(user_id)
+    data = request.get_json(silent=True) or {}
+    new_pwd = (data.get('new_password') or '').strip()
+    if len(new_pwd) < 6:
+        return fail('新密码长度至少 6 位', 400)
+    u.set_password(new_pwd)
+    db.session.commit()
+    audit_log('user:reset_password', 'user', u.id, f'管理员重置用户 {u.username} 的密码')
     return ok(None)
 
 
@@ -214,6 +246,7 @@ def api_department_create():
                    sort_order=int(data.get('sort_order') or 0))
     db.session.add(d)
     db.session.commit()
+    audit_log('dept:create', 'department', d.id, f'创建部门 {name}')
     return ok({'id': d.id})
 
 
@@ -235,6 +268,7 @@ def api_department_update(dept_id):
     if data.get('sort_order') is not None:
         d.sort_order = int(data['sort_order'])
     db.session.commit()
+    audit_log('dept:update', 'department', dept_id, f'更新部门 {d.name}')
     return ok(None)
 
 
@@ -251,6 +285,7 @@ def api_department_delete(dept_id):
         return fail(f'部门「{d.name}」下有子部门，无法删除', 400)
     db.session.delete(d)
     db.session.commit()
+    audit_log('dept:delete', 'department', dept_id, f'删除部门 {d.name}')
     return ok(None)
 
 
@@ -493,6 +528,7 @@ def api_backup_export():
     download_name = f'itsm_backup_{ts}{suffix}{enc_mark}.zip'
     current_app.logger.info('用户 [%s] 导出备份包 %s（%s 字节）', current_user.username,
                             download_name, size)
+    audit_log('backup:export', 'backup', None, f'导出备份包 {download_name}')
     # 返回 base64（文件可能较大，但本地部署可控）
     with open(tmp_path, 'rb') as fh:
         b64 = base64.b64encode(fh.read()).decode('ascii')
@@ -546,6 +582,7 @@ def api_backup_import():
         if result['warnings']:
             msg += '。警告：' + '；'.join(result['warnings'][:3])
         current_app.logger.info('用户 [%s] 导入备份：%s', current_user.username, msg)
+        audit_log('backup:import', 'backup', None, '导入备份包（覆盖恢复）')
         return ok({'message': msg})
     finally:
         try:

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">设备检查模板</h2>
@@ -119,8 +119,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import {
   fetchDeviceCheckTemplates, createDeviceCheckTemplate, updateDeviceCheckTemplate, deleteDeviceCheckTemplate,

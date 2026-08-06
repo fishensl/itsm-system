@@ -13,6 +13,4 @@ from blueprints.ops import task_redirects  # noqa: F401,E402
 from blueprints.ops import templates  # noqa: F401,E402
 from blueprints.ops import faults  # noqa: F401,E402
 from blueprints.ops import tickets  # noqa: F401,E402
-from blueprints.ops import knowledge  # noqa: F401,E402
-from blueprints.ops import inspectors  # noqa: F401,E402
 from blueprints.ops import reports  # noqa: F401,E402

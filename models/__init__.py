@@ -16,7 +16,7 @@ from models.inspection import (  # noqa: F401
     InspectionTemplate, Inspector, InspectionTask, Inspection)
 from models.ticket import FaultType, Ticket, TicketLog, Fault  # noqa: F401
 from models.knowledge import KnowledgeBase, KnowledgeAttachment  # noqa: F401
-from models.spare import SparePart, SpareStock, PurchaseOrder, SalesOrder  # noqa: F401
+from models.spare import SparePart, SpareStock, PurchaseOrder, SalesOrder, StockMovement  # noqa: F401
 from models.sales import Opportunity, Quotation, Contract, Project  # noqa: F401
 from models.misc import AIConfig, DeviceConfigBackup, Topology, DeviceCollectTask, SubmissionVersion, SubmissionAsset  # noqa: F401
 from models.rack import Rack, RackInstall  # noqa: F401

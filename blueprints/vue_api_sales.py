@@ -209,6 +209,7 @@ def api_spare_stock_list():
 @login_required
 @require_permission('spare:add')
 def api_spare_stock_create():
+    from services.spare_service import _record_movement
     data = request.get_json(silent=True) or {}
     if not data.get('spare_part_id'):
         return fail('请选择备件', 400)
@@ -222,6 +223,10 @@ def api_spare_stock_create():
         unit_price=float(data.get('unit_price') or 0),
     )
     db.session.add(s)
+    db.session.flush()
+    _record_movement(s.spare_part_id, 'adjust', qty, current_user.realname or current_user.username,
+                     balance_after=qty, location=s.location, source_id=s.id,
+                     remark='新增库存行（盘点）')
     db.session.commit()
     return ok({'id': s.id})
 
@@ -230,17 +235,23 @@ def api_spare_stock_create():
 @login_required
 @require_permission('spare:edit')
 def api_spare_stock_update(stock_id):
+    from services.spare_service import _record_movement
     data = request.get_json(silent=True) or {}
     qty = int(data.get('quantity') or 0)
     if qty < 0:
         return fail('库存数量不能为负数', 400)
     s = SpareStock.query.get_or_404(stock_id)
+    old_qty = s.quantity or 0
     if data.get('spare_part_id'):
         s.spare_part_id = int(data['spare_part_id'])
     s.location = data.get('location', s.location) or ''
     s.quantity = qty
     if 'unit_price' in data:
         s.unit_price = float(data.get('unit_price') or 0)
+    if qty != old_qty:
+        _record_movement(s.spare_part_id, 'adjust', qty - old_qty,
+                         current_user.realname or current_user.username,
+                         location=s.location, source_id=s.id, remark='库存盘点调整')
     db.session.commit()
     return ok({'id': s.id})
 
@@ -249,7 +260,11 @@ def api_spare_stock_update(stock_id):
 @login_required
 @require_permission('spare:delete')
 def api_spare_stock_delete(stock_id):
+    from services.spare_service import _record_movement
     s = SpareStock.query.get_or_404(stock_id)
+    _record_movement(s.spare_part_id, 'adjust', -(s.quantity or 0),
+                     current_user.realname or current_user.username,
+                     location=s.location or '', source_id=s.id, remark='删除库存行')
     db.session.delete(s)
     db.session.commit()
     return ok(None)
@@ -374,7 +389,7 @@ def api_sales_order_list():
 @login_required
 @require_permission('spare:add')
 def api_sales_order_create():
-    from services.spare_service import create_sales_order
+    from services.spare_service import create_sales_order, _check_low_stock
     data = request.get_json(silent=True) or {}
     try:
         so = create_sales_order(data, _me())
@@ -382,6 +397,8 @@ def api_sales_order_create():
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '销售出库失败', 400)
+    # 事件源：出库后低库存预警
+    _check_low_stock(so.spare_part_id, _me())
     return ok({'id': so.id})
 
 
@@ -504,6 +521,7 @@ def api_opportunity_delete(opp_id):
 
 # ==================== 报价单 ====================
 def _quotation_payload(q, customer_map=None, opp_map=None):
+    from utils.json_fields import parse_json
     return {
         'id': q.id,
         'number': q.number or '',
@@ -514,6 +532,7 @@ def _quotation_payload(q, customer_map=None, opp_map=None):
         'total_amount': q.total_amount or 0,
         'valid_until': _fmt_date(q.valid_until),
         'status': q.status or '草稿',
+        'items': parse_json(q.items_json, [], 'quotation.items_json'),
         'created_at': _fmt_dt(q.created_at),
     }
 

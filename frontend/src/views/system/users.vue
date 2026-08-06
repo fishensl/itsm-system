@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">用户与部门管理</h2>
@@ -99,11 +99,37 @@
               <el-switch v-model="form.is_active" />
             </el-form-item>
           </el-col>
+          <el-col :xs="24">
+            <el-form-item label="资质证书">
+              <div class="cert-groups">
+                <div v-for="grp in CERT_GROUPS" :key="grp.group" class="cert-group">
+                  <span class="cert-group-name">{{ grp.group }}</span>
+                  <el-checkbox-group v-model="form.certifications" size="small">
+                    <el-checkbox v-for="c in grp.items" :key="c" :value="c" size="small">{{ c }}</el-checkbox>
+                  </el-checkbox-group>
+                </div>
+              </div>
+            </el-form-item>
+          </el-col>
         </el-row>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 重置密码弹窗 -->
+    <el-dialog v-model="resetPwdVisible" title="重置密码" width="400px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="用户">{{ resetTarget?.username }}</el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="resetPwd" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resetPwdVisible = false">取消</el-button>
+        <el-button type="primary" :loading="resettingPwd" @click="doResetPwd">确认重置</el-button>
       </template>
     </el-dialog>
 
@@ -134,16 +160,17 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, computed, onMounted, watch } from 'vue'
 import { nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import type { PageResult } from '@/types'
 import { useUiStore } from '@/stores/ui'
 import { ROLE_LABELS, ROLE_TAG, ACTIVE_LABELS } from '@/utils/labels'
 import {
-  fetchUsers, createUser, updateUser, deleteUser,
+  fetchUsers, createUser, updateUser, deleteUser, resetUserPassword,
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
   type UserItem, type DepartmentItem,
 } from '@/api/system'
@@ -192,12 +219,15 @@ async function load() {
   allUsers.value = deptData.users
 }
 
-const loadUsers = async (): Promise<{ items: Record<string, any>[]; total: number; page: number; page_size: number }> => ({
-  items: users.value as unknown as Record<string, any>[],
-  total: users.value.length,
-  page: 1,
-  page_size: users.value.length || 20,
-})
+const loadUsers = async (params: Record<string, unknown>): Promise<PageResult<Record<string, any>>> => {
+  const data = await fetchUsers(params)
+  return {
+    items: data.users as unknown as Record<string, any>[],
+    total: data.total ?? data.users.length,
+    page: data.page ?? 1,
+    page_size: data.page_size ?? (data.users.length || 20),
+  }
+}
 
 const userColumns = computed(() => [
   { key: 'username', label: '用户名', minWidth: 110, asTitle: true },
@@ -209,10 +239,14 @@ const userColumns = computed(() => [
     tagMap: { true: 'success', false: 'info' }, valueMap: ACTIVE_LABELS },
   { key: 'phone', label: '电话', minWidth: 110 },
   { key: 'created_at', label: '创建时间', width: 100 },
-  { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right',
+  { key: 'actions', label: '操作', width: 170, type: 'action', fixed: 'right',
     actions: [
-      { label: '编辑', type: 'primary', link: true, icon: 'Edit', onClick: (row) => openEdit(row as unknown as UserItem) },
-      { label: '删除', type: 'danger', link: true, icon: 'Delete', onClick: (row) => onDelete(row as unknown as UserItem) },
+      { label: '编辑', type: 'primary', link: true, icon: 'Edit', perm: 'user:edit',
+        onClick: (row) => openEdit(row as unknown as UserItem) },
+      { label: '重置密码', type: 'warning', link: true, perm: 'user:edit',
+        onClick: (row) => openResetPwd(row as unknown as UserItem) },
+      { label: '删除', type: 'danger', link: true, icon: 'Delete', perm: 'user:delete',
+        onClick: (row) => onDelete(row as unknown as UserItem) },
     ] },
 ] as DataColumn[])
 
@@ -223,16 +257,54 @@ const formRef = ref()
 const form = ref<Record<string, unknown>>({})
 const formRules = { username: [{ required: true, message: '请输入用户名', trigger: 'blur' }] }
 
+// 证书选项（对齐后端 utils/cert_options.py）
+const CERT_GROUPS = [
+  { group: '华为', items: ['HCIA', 'HCIP', 'HCIE'] },
+  { group: 'H3C', items: ['H3CNE', 'H3CSE', 'H3CIE'] },
+  { group: '软考', items: ['网络管理员', '网络工程师', '网络规划设计师'] },
+  { group: '国家注册信息安全', items: ['CISP', 'CISP-PTE', 'CISP-PTS'] },
+]
+
+// 重置密码
+const resetPwdVisible = ref(false)
+const resetTarget = ref<UserItem | null>(null)
+const resetPwd = ref('')
+const resettingPwd = ref(false)
+
+function openResetPwd(u: UserItem) {
+  resetTarget.value = u
+  resetPwd.value = ''
+  resetPwdVisible.value = true
+}
+
+async function doResetPwd() {
+  if (!resetTarget.value) return
+  if (resetPwd.value.length < 6) {
+    ui.toast('新密码长度至少 6 位', 'warning')
+    return
+  }
+  resettingPwd.value = true
+  try {
+    await resetUserPassword(resetTarget.value.id, resetPwd.value)
+    ui.toast('密码已重置', 'success')
+    resetPwdVisible.value = false
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    resettingPwd.value = false
+  }
+}
+
 function openCreate() {
   form.value = { username: '', realname: '', role: 'viewer', department_id: null,
-    phone: '', email: '', password: '', is_active: true }
+    phone: '', email: '', password: '', is_active: true, certifications: [] }
   formVisible.value = true
 }
 
 function openEdit(u: UserItem) {
   form.value = { id: u.id, username: u.username, realname: u.realname, role: u.role,
     department_id: u.department_id, phone: u.phone, email: u.email,
-    password: '', is_active: u.is_active }
+    password: '', is_active: u.is_active, certifications: [...(u.certifications || [])] }
   formVisible.value = true
 }
 

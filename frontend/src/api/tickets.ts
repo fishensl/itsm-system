@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { buildQueryUrl } from '@/utils/queryUrl'
 import type { PageResult } from '@/types'
 import type { SubmissionVersion } from './inspections'
 
@@ -12,6 +13,8 @@ export interface Ticket {
   priority: string
   customer_id: number | null
   customer_name: string
+  related_device_id: number | null
+  related_device_name: string
   assigned_to: string
   created_by: string
   created_at: string
@@ -68,15 +71,7 @@ export interface TicketActionPayload {
   note?: string
 }
 
-export const TICKET_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  待派单: 'danger',
-  已派单: 'warning',
-  已接单: 'warning',
-  处理中: 'primary',
-  待审核: 'warning',
-  已验收: 'success',
-  已关闭: 'info',
-}
+export { TICKET_STATUS_TAG } from '@/utils/status'
 
 export function fetchTickets(params: TicketQuery) {
   return request<PageResult<Ticket>>({ url: '/api/tickets', method: 'GET', params })
@@ -98,6 +93,10 @@ export function deleteTicket(id: number) {
   return request<null>({ url: `/api/tickets/${id}`, method: 'DELETE' })
 }
 
+export function archiveTicketAsCase(id: number) {
+  return request<{ id: number }>({ url: `/api/tickets/${id}/archive-as-case`, method: 'POST' })
+}
+
 export function ticketAction(id: number, payload: TicketActionPayload) {
   return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: payload })
 }
@@ -116,6 +115,7 @@ export interface TicketDicts {
   fault_types: { id: number; name: string }[]
   statuses: string[]
   priorities: string[]
+  devices: { id: number; device_name: string; customer_id: number | null }[]
 }
 
 export function fetchTicketDicts() {
@@ -124,17 +124,9 @@ export function fetchTicketDicts() {
 
 /** 工单记录导出 URL（SSR，带筛选参数） */
 export function ticketExportUrl(params: Record<string, unknown>) {
-  const q = new URLSearchParams()
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
-  })
-  return `/tickets/export?${q.toString()}`
+  return buildQueryUrl('/tickets/export', params)
 }
 
 export function ticketReportsZipUrl(params: Record<string, unknown>) {
-  const q = new URLSearchParams()
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
-  })
-  return `/tickets/reports-zip?${q.toString()}`
+  return buildQueryUrl('/tickets/reports-zip', params)
 }

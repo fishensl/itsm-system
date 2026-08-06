@@ -156,33 +156,18 @@ def load_user(user_id):
 # ==================== 路由集中注册 ====================
 def register_routes(app):
     """集中注册主应用路由（视图函数在 views/ 包，端点名与历史完全一致）。"""
-    from views import dashboard, auth, admin_users, system
+    from views import dashboard, auth, system
 
     app.add_url_rule('/', 'index', dashboard.index)
     app.add_url_rule('/login', 'login', auth.login, methods=['GET', 'POST'])
     app.add_url_rule('/logout', 'logout', auth.logout)
     app.add_url_rule('/system/repair-schema', 'repair_schema', system.repair_schema)
     app.add_url_rule('/system/drawio-diag', 'drawio_diag', system.drawio_diag)
-    app.add_url_rule('/users', 'user_list', admin_users.user_list, methods=['GET', 'POST'])
-    app.add_url_rule('/users/delete/<int:id>', 'user_delete', admin_users.user_delete, methods=['POST'])
-    app.add_url_rule('/users/add', 'user_add', admin_users.user_add, methods=['POST'])
-    app.add_url_rule('/users/edit/<int:id>', 'user_edit', admin_users.user_edit, methods=['GET', 'POST'])
-    app.add_url_rule('/users/<int:id>/reset_password', 'user_reset_password',
-                     admin_users.user_reset_password, methods=['POST'])
-    app.add_url_rule('/me/change_password', 'me_change_password', auth.me_change_password,
-                     methods=['GET', 'POST'])
-    app.add_url_rule('/system', 'system_settings', system.system_settings)
     app.add_url_rule('/system/ui-version', 'system_ui_version', system.system_ui_version,
                      methods=['POST'])
-    app.add_url_rule('/system/sidebar', 'system_sidebar', system.system_sidebar, methods=['GET', 'POST'])
     app.add_url_rule('/api/sidebar/reset', 'api_sidebar_reset', system.api_sidebar_reset, methods=['POST'])
-    app.add_url_rule('/permissions', 'permission_list', admin_users.permission_list)
-    app.add_url_rule('/ai-config', 'ai_config_page', admin_users.ai_config_page, methods=['GET', 'POST'])
-    app.add_url_rule('/ai-config/delete/<int:id>', 'ai_config_delete', admin_users.ai_config_delete,
-                     methods=['POST'])
     app.add_url_rule('/dashboard/reports', 'dashboard_reports', system.dashboard_reports)
     app.add_url_rule('/exports/download-template/<module>', 'download_template', system.download_template)
-    app.add_url_rule('/customers', 'customer_list', system.customer_list)
     app.add_url_rule('/api/dashboard/opportunity-stages', 'api_dashboard_opp_stages',
                      dashboard.api_dashboard_opp_stages)
     app.add_url_rule('/api/dashboard/preferences', 'api_dashboard_preferences',
@@ -270,6 +255,14 @@ def create_app(test_config=None):
     # 注册业务蓝图模块
     from blueprints import register_blueprints
     register_blueprints(app)
+
+    # 后台调度（APScheduler）：每日自动任务生成 + 逾期提醒（dev reloader 防双实例）
+    if not test_config:
+        try:
+            from utils.scheduler import start_scheduler
+            start_scheduler(app)
+        except Exception:
+            app.logger.warning('后台调度器启动失败（非致命）', exc_info=True)
 
     return app
 

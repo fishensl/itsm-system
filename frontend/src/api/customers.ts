@@ -74,6 +74,21 @@ export function fetchCustomers(params: CustomerQuery) {
   return request<PageResult<Customer>>({ url: '/api/customers', method: 'GET', params })
 }
 
+export function exportCustomers() {
+  return request<{ filename: string; content: string }>({
+    url: '/api/v2/customers/export',
+    method: 'POST',
+  })
+}
+
+export function importCustomers(formData: FormData) {
+  return request<{ created: number; unknown_categories: string[] }>({
+    url: '/api/v2/customers/import',
+    method: 'POST',
+    data: formData,
+  })
+}
+
 export function fetchCustomer(id: number) {
   return request<Customer>({ url: `/api/customers/${id}`, method: 'GET' })
 }

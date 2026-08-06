@@ -105,11 +105,6 @@
             <button class="nav-link theme-toggle" type="button" onclick="toggleTheme()" title="切换主题">
                 <i class="bi-moon-stars" id="themeToggleIcon"></i><span class="sidebar-text" id="themeToggleText">深色模式</span>
             </button>
-            {% if current_user.is_authenticated %}
-            <a class="nav-link" href="{{ url_for('me_change_password') }}" title="修改密码">
-                <i class="bi-key"></i><span class="sidebar-text">修改密码</span>
-            </a>
-            {% endif %}
             <a class="nav-link" href="javascript:void(0)" onclick="logout()" title="退出登录">
                 <i class="bi-box-arrow-right"></i><span class="sidebar-text">退出登录</span>
             </a>

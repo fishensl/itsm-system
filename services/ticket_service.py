@@ -78,6 +78,7 @@ def create_ticket(data, current_user_name):
         priority=data.get('priority', '中'),
         description=data.get('description', ''),
         assigned_to=data.get('assigned_to', ''),
+        related_device_id=int(data['related_device_id']) if data.get('related_device_id') else None,
         created_by=current_user_name,
         status='待派单',
     )
@@ -99,6 +100,8 @@ def update_ticket(ticket_id, data, current_user_name):
     t.priority = data.get('priority', t.priority)
     t.description = data.get('description', t.description)
     t.assigned_to = data.get('assigned_to', t.assigned_to)
+    if 'related_device_id' in data:
+        t.related_device_id = int(data['related_device_id']) if data.get('related_device_id') else None
     _record_log(t, '编辑工单', current_user_name, '')
     return t
 
@@ -205,6 +208,17 @@ def accept_check_ticket(ticket_id, current_user_name, remark='', approved=True):
     if remark:
         t.accept_comment = remark
     _transition(t, target, current_user_name, remark or ('客户验收通过' if approved else '客户验收退回'))
+    return t
+
+
+@transaction
+def unassign_ticket(ticket_id, current_user_name, remark=''):
+    """撤回重派：已派单/已接单 → 待派单（清空处理人，重新调度）"""
+    t = Ticket.query.get_or_404(ticket_id)
+    t.assigned_to = ''
+    t.assigned_by = ''
+    t.assigned_at = None
+    _transition(t, '待派单', current_user_name, remark or '撤回重派')
     return t
 
 

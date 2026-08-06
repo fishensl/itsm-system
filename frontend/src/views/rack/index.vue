@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">机柜管理</h2>
@@ -241,8 +241,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Edit, Delete, Collection } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'

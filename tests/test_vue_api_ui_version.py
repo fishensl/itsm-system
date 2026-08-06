@@ -99,29 +99,25 @@ class TestUiVersionApi:
 
 
 class TestSsrSidebarIntegration:
-    def test_sidebar_links_follow_ui_version(self, admin_client, app):
-        """vue 模式：SSR 侧栏已迁移链接带 /app 前缀"""
+    def test_index_redirect_regardless_of_mode(self, admin_client, app):
+        """SSR 业务页已剥离：无论 ui_version 如何，GET / 一律 302 → /app/"""
         with app.app_context():
             set_ui_version('vue')
         r = admin_client.get('/')
-        body = r.data.decode('utf-8')
-        # 首页重定向到 /app/
         assert r.status_code == 302
         assert r.headers.get('Location', '').endswith('/app/')
         with app.app_context():
             set_ui_version('ssr')
         r = admin_client.get('/')
-        assert r.status_code == 200
-        body = r.data.decode('utf-8')
-        assert '/app/devices' not in body
-        assert 'href="/devices"' in body
+        assert r.status_code == 302
+        assert r.headers.get('Location', '').endswith('/app/')
 
-    def test_ssr_render_does_not_mutate_sidebar_api(self, admin_client, app):
-        """vue 模式渲染 SSR 页面后，/api/auth/sidebar-groups 仍一致（共享配置不被污染）"""
+    def test_ssr_pages_gone_do_not_affect_sidebar_api(self, admin_client, app):
+        """SSR 业务页已剥离（404），/api/auth/sidebar-groups 仍一致（共享配置不被污染）"""
         with app.app_context():
             set_ui_version('vue')
         assert admin_client.get('/').status_code == 302
-        assert admin_client.get('/devices').status_code == 200
+        assert admin_client.get('/devices').status_code == 404
         r = admin_client.get('/api/auth/sidebar-groups')
         body = r.get_json()
         assert body['code'] == 0
@@ -131,7 +127,7 @@ class TestSsrSidebarIntegration:
                 urls.append(g['single_link']['url'])
             for c in g.get('children', []):
                 urls.append(c['url'])
-        # 已迁移页面稳定返回 /app 前缀；未迁移保持原样（不随 SSR 渲染漂移）
+        # 已迁移页面稳定返回 /app 前缀
         assert '/app/devices' in urls
         assert '/devices' not in urls
         assert '/app/inspectors' in urls

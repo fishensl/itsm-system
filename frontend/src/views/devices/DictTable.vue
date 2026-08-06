@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <div class="tab-toolbar">
       <el-button v-if="user.hasPerm('device:edit')" type="primary" :icon="Plus" @click="openCreate">
@@ -51,8 +51,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import {
   fetchDeviceDict, createDeviceDict, updateDeviceDict, deleteDeviceDict, type DictItem,

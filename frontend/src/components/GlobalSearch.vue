@@ -1,5 +1,5 @@
 <template>
-  <el-popover v-model:visible="visible" placement="bottom-end" :width="420" trigger="manual" popper-class="search-popover">
+  <el-popover v-model:visible="visible" placement="bottom-end" :width="420" :trigger="['manual']" popper-class="search-popover">
     <template #reference>
       <div class="search-wrap" @click.stop>
         <el-input
@@ -98,7 +98,7 @@ function go(type: string, id: number) {
     devices: '/app/devices/',
     customers: '/app/customers/',
     tickets: '/app/tickets/',
-    knowledge: '/app/knowledge/',
+    knowledge: '/app/knowledge-base/',
   }
   visible.value = false
   router.push(`${pathMap[type]}${id}`)

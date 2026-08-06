@@ -10,6 +10,7 @@ export interface UserItem {
   is_active: boolean
   phone: string
   email: string
+  certifications?: string[]
   created_at: string
 }
 
@@ -17,10 +18,13 @@ export interface UserListData {
   users: UserItem[]
   departments: { id: number; name: string }[]
   roles: string[]
+  total?: number
+  page?: number
+  page_size?: number
 }
 
-export function fetchUsers() {
-  return request<UserListData>({ url: '/api/users', method: 'GET' })
+export function fetchUsers(params?: Record<string, unknown>) {
+  return request<UserListData>({ url: '/api/users', method: 'GET', params })
 }
 
 export function createUser(data: Record<string, unknown>) {
@@ -33,6 +37,14 @@ export function updateUser(id: number, data: Record<string, unknown>) {
 
 export function deleteUser(id: number) {
   return request<null>({ url: `/api/users/${id}`, method: 'DELETE' })
+}
+
+export function resetUserPassword(id: number, newPassword: string) {
+  return request<null>({
+    url: `/api/users/${id}/password`,
+    method: 'PUT',
+    data: { new_password: newPassword },
+  })
 }
 
 export interface AuditItem {
@@ -238,7 +250,6 @@ export function importBackup(formData: FormData) {
     url: '/api/system/backup/import',
     method: 'POST',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
 

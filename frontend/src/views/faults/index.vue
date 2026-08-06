@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">故障记录</h2>
@@ -143,8 +143,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
