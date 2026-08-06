@@ -31,6 +31,19 @@ export function sidebarTarget(url: string): SidebarTarget {
   return { mode: 'ssr', url }
 }
 
+/**
+ * /app 前缀 URL → SPA 内部路由路径。
+ * SPA 路由注册在 /app/ 历史基座下且不含 /app 前缀，router-link 直接使用
+ * /app/... 会匹配不到路由 → 被兜底路由重定向回首页（如知识库标题/详情跳转）。
+ */
+export function toRouterPath(url: string): string {
+  if (!url.startsWith('/app')) return url
+  const qi = url.indexOf('?')
+  const base = qi >= 0 ? url.slice(0, qi) : url
+  const query = qi >= 0 ? url.slice(qi) : ''
+  return (base.replace(/^\/app/, '').replace(/\/+$/, '') || '/') + query
+}
+
 /** 拆分链接为 path + query 参数（无 query 返回 null） */
 function splitUrl(url: string): { path: string; params: URLSearchParams | null } {
   const qi = url.indexOf('?')

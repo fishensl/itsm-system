@@ -171,7 +171,7 @@
           <el-table :data="relatedTickets" size="small" border stripe max-height="200">
             <el-table-column label="关联工单" min-width="200">
               <template #default="{ row }">
-                <router-link :to="`/app/tickets/${row.id}`" class="row-link">
+                <router-link :to="toRouterPath(`/app/tickets/${row.id}`)" class="row-link">
                   {{ row.number }} · {{ row.title }}
                 </router-link>
               </template>
@@ -182,7 +182,7 @@
           <el-table :data="relatedInspections" size="small" border stripe max-height="200" class="mt-2">
             <el-table-column label="巡检记录" min-width="200">
               <template #default="{ row }">
-                <router-link :to="`/app/inspections/${row.id}`" class="row-link">
+                <router-link :to="toRouterPath(`/app/inspections/${row.id}`)" class="row-link">
                   {{ row.title }}<span v-if="row.task_title" class="text-muted">（{{ row.task_title }}）</span>
                 </router-link>
               </template>
@@ -359,6 +359,7 @@ import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { IN_USE_LABELS } from '@/utils/labels'
+import { toRouterPath } from '@/utils/sidebarNav'
 import {
   fetchDevices, fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
   fetchDeviceConfigBackups, fetchDeviceConfigBackupContent, deviceConfigBackupDownloadUrl,

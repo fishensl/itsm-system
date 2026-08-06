@@ -108,6 +108,24 @@ class TestUserApi:
         r = c.get('/api/auth/me')
         assert r.get_json()['data']['customer_ids'] == []
 
+    def test_role_name_display(self, admin_client, app):
+        """自定义角色在用户列表显示名称而非代码"""
+        with app.app_context():
+            from models import Role
+            db.session.add(Role(code='ops_zhuchang', name='驻场工程师',
+                                is_system=False, is_active=True))
+            db.session.commit()
+        r = admin_client.post('/api/users', json={
+            'username': 'eng3', 'password': 'pass123', 'role': 'ops_zhuchang'})
+        assert r.status_code == 200
+        r = admin_client.get('/api/users')
+        data = r.get_json()['data']
+        row = next(x for x in data['users'] if x['username'] == 'eng3')
+        assert row['role'] == 'ops_zhuchang'
+        assert row['role_name'] == '驻场工程师'
+        assert data['role_names']['ops_zhuchang'] == '驻场工程师'
+        assert data['role_names']['admin'] == '系统管理员'
+
     def test_cannot_delete_self(self, admin_client):
         r = admin_client.delete('/api/users/1')
         assert r.status_code == 400

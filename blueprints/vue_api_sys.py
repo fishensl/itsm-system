@@ -104,6 +104,7 @@ def api_user_list():
     dept_map = {d.id: d.name for d in Department.query.all()}
     roles = [r.code for r in Role.query.filter_by(is_active=True)
              .order_by(Role.sort_order, Role.id).all()]
+    role_names = {r.code: r.name for r in Role.query.all()}
     # 用户负责区域：一次 IN 预加载（多对多），避免逐用户 N+1
     region_map = {}
     if users:
@@ -135,7 +136,8 @@ def api_user_list():
     return ok({
         'users': [{
             'id': u.id, 'username': u.username, 'realname': u.realname or '',
-            'role': u.role or 'viewer', 'department_id': u.department_id,
+            'role': u.role or 'viewer', 'role_name': role_names.get(u.role, u.role or 'viewer'),
+            'department_id': u.department_id,
             'department_name': dept_map.get(u.department_id, ''),
             'is_active': bool(u.is_active), 'phone': u.phone or '', 'email': u.email or '',
             'certifications': u.cert_list(),
@@ -148,6 +150,7 @@ def api_user_list():
         'departments': [{'id': d.id, 'name': d.name}
                         for d in Department.query.order_by(Department.sort_order).all()],
         'roles': roles,
+        'role_names': role_names,
         'total': total, 'page': page, 'page_size': page_size,
     })
 
