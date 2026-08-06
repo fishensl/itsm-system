@@ -295,7 +295,7 @@ const userColumns = computed(() => [
   { key: 'username', label: '用户名', minWidth: 110, asTitle: true },
   { key: 'realname', label: '姓名', width: 90 },
   { key: 'role', label: '角色', width: 110, type: 'tag',
-    tagMap: ROLE_TAG, valueMap: roleLabelMap },
+    tagMap: ROLE_TAG, valueMap: roleLabelMap.value },
   { key: 'department_name', label: '部门', minWidth: 100 },
   { key: 'region_names', label: '负责区域', minWidth: 130 },
   { key: 'customer_names', label: '关联客户', minWidth: 130 },
