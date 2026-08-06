@@ -5,167 +5,25 @@
 上传逻辑与原 app.py 完全一致；在线绘制 API 在 P2 接入。
 """
 import os
-import time
 import base64
-from datetime import date
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, current_app)
 from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
 
 from models import Topology, Customer, Region, db
 from utils.permission import require_permission, has_permission
-from utils.upload import ALLOWED_IMAGE_EXT
 
 topology_bp = Blueprint('topology', __name__)
 
 
-# ============================ 列表 / 上传 ============================
+# ============================ 列表（SSR 已剥离：302 到 SPA） ============================
 @topology_bp.route('/topologies', methods=['GET', 'POST'])
 @login_required
 @require_permission('topology:view')
 def topology_list():
-    if request.method == 'POST':
-        f = request.files.get('topo_file')
-        if f and f.filename:
-            safe_name = secure_filename(f.filename)
-            upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
-            os.makedirs(upload_dir, exist_ok=True)
-            f.save(os.path.join(upload_dir, safe_name))
-            t = Topology(
-                name=request.form.get('name') or safe_name,
-                description=request.form.get('description', ''),
-                customer_id=request.form.get('customer_id', type=int),
-                region_id=request.form.get('region_id', type=int),
-                file_path=f'uploads/topologies/{safe_name}',
-                file_type='image' if safe_name.lower().endswith(
-                    ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')) else 'other',
-                upload_by=current_user.username,
-            )
-            db.session.add(t)
-            db.session.commit()
-            flash(f'拓扑图 {t.name} 已上传', 'success')
-        return redirect(url_for('topology.topology_list'))
-    topologies = Topology.query.order_by(Topology.id.desc()).all()
-    all_customers = Customer.query.order_by(Customer.name).all()
-    regions = Region.query.order_by(Region.parent_id.is_(None).desc(),
-                                    Region.parent_id, Region.sort_order, Region.id).all()
-    search = (request.args.get('search') or '').strip().lower()
-    if search:
-        topologies = [t for t in topologies if
-                      search in (t.name or '').lower() or
-                      search in (t.description or '').lower() or
-                      search in (t.customer_rel.name if t.customer_rel else '').lower()]
-
-    # V6.1.1：相同 客户+名称 合并为一行（多文件类型用图标列表展示）
-    grouped_dict = {}
-    for t in topologies:
-        cust_name = t.customer_rel.name if t.customer_rel else '未关联客户'
-        bucket = grouped_dict.setdefault(cust_name, {})
-        merged = bucket.setdefault(t.name, {'first': t, 'files': []})
-        merged['files'].append(t)
-        if (merged['first'].created_at or merged['first'].id) > (t.created_at or t.id):
-            merged['first'] = t
-
-    grouped = []
-    for cust_name in sorted(grouped_dict.keys(), key=lambda x: (x == '未关联客户', x)):
-        items = []
-        for topo_name, m in grouped_dict[cust_name].items():
-            order = {'image': 0, 'pdf': 1, 'visio': 2, 'drawio': 3, 'other': 4}
-            files_sorted = sorted(m['files'], key=lambda x: (order.get(x.file_type, 9), x.id))
-            items.append({
-                'name': topo_name,
-                'first': m['first'],
-                'files': files_sorted,
-            })
-        items.sort(key=lambda x: x['first'].id, reverse=True)
-        grouped.append((cust_name, items))
-
-    return render_template('topologies/list.html', topologies=topologies,
-                           grouped=grouped, search=search,
-                           all_customers=all_customers, regions=regions)
-
-
-@topology_bp.route('/topologies/delete/<int:id>', methods=['POST'])
-@login_required
-@require_permission('topology:delete')
-def topology_delete(id):
-    Topology.query.filter_by(id=id).delete()
-    db.session.commit()
-    flash('已删除', 'success')
-    return redirect(url_for('topology.topology_list'))
-
-
-@topology_bp.route('/topologies/upload', methods=['POST'])
-@login_required
-@require_permission('topology:add')
-def topology_upload():
-    """拓扑图上传（保存到 DB + 静态目录）"""
-    f = request.files.get('topo_file')
-    if not f or not f.filename:
-        flash('请选择文件', 'danger')
-        return redirect(url_for('topology.topology_list'))
-
-    name_lower = f.filename.lower()
-    if name_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
-        file_type = 'image'
-        allowed = ALLOWED_IMAGE_EXT
-    elif name_lower.endswith('.pdf'):
-        file_type = 'pdf'
-        allowed = {'.pdf'}
-    elif name_lower.endswith(('.vsd', '.vsdx')):
-        file_type = 'visio'
-        allowed = {'.vsd', '.vsdx'}
-    elif name_lower.endswith(('.drawio', '.xml')) and not name_lower.endswith('.vsdx'):
-        file_type = 'drawio'
-        allowed = {'.drawio', '.xml'}
-    else:
-        file_type = 'other'
-        allowed = set()
-
-    ext = os.path.splitext(name_lower)[1]
-    if allowed and ext not in allowed:
-        flash(f'不支持的文件类型 {ext}', 'danger')
-        return redirect(url_for('topology.topology_list'))
-
-    upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
-    os.makedirs(upload_dir, exist_ok=True)
-    safe_name = secure_filename(f.filename) or ('topology' + ext)
-    # 防止重名覆盖：加时间戳
-    base, e = os.path.splitext(safe_name)
-    safe_name = f"{base}_{int(time.time())}{e}"
-    full_path = os.path.join(upload_dir, safe_name)
-    f.save(full_path)
-
-    customer_id = request.form.get('customer_id', type=int)
-    region_id = request.form.get('region_id', type=int)
-    topo_type = request.form.get('topo_type', '网络拓扑图')
-    user_name = (request.form.get('name') or '').strip()
-
-    # 自动拼接名称：客户名称 + 拓扑图类型 + 年月日
-    if not user_name:
-        cust_name = ''
-        if customer_id:
-            c = Customer.query.get(customer_id)
-            if c:
-                cust_name = c.name
-        today_str = date.today().strftime('%Y%m%d')
-        user_name = f"{cust_name}{topo_type}{today_str}" if cust_name else f"{topo_type}{today_str}"
-
-    t = Topology(
-        name=user_name,
-        description=request.form.get('description', ''),
-        customer_id=customer_id,
-        region_id=region_id,
-        file_path=f'uploads/topologies/{safe_name}',
-        file_type=file_type,
-        upload_by=current_user.username,
-    )
-    db.session.add(t)
-    db.session.commit()
-    flash(f'拓扑图「{t.name}」已上传', 'success')
-    return redirect(url_for('topology.topology_list'))
+    """拓扑图列表（上传/删除已由 Vue SPA /api/topologies/* 接管）"""
+    return redirect('/app/topologies')
 
 
 # ============================ 在线编辑（drawio 集成） ============================
@@ -441,7 +299,7 @@ def download_drawio(id):
     t = Topology.query.get_or_404(id)
     if t.source != 'draw' or not t.diagram_xml:
         flash('该拓扑图不支持 drawio 导出', 'warning')
-        return redirect(url_for('topology.topology_list'))
+        return redirect('/app/topologies')
     safe_name = (t.name or 'topology').replace(' ', '_')
     resp = Response(t.diagram_xml, mimetype='application/octet-stream')
     # filename* 支持中文（RFC 5987），octet-stream 强制下载避免浏览器当 XML 显示

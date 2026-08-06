@@ -171,6 +171,20 @@
               </el-form-item>
             </template>
           </el-form>
+          <!-- AI 辅助分析 -->
+          <el-divider content-position="left">AI 辅助分析</el-divider>
+          <div class="ai-box">
+            <el-button v-if="!aiLoading && !aiResult" size="small" plain type="primary" :icon="MagicStick"
+              @click="runAiAnalyze">生成分析建议</el-button>
+            <div v-if="aiLoading" v-loading="true" class="ai-loading">AI 分析中，请稍候…</div>
+            <div v-else-if="aiResult" class="ai-result">
+              <div class="ai-result-head">
+                <span class="ai-result-title">AI 建议</span>
+                <el-button size="small" link type="primary" @click="aiResult = ''">重新分析</el-button>
+              </div>
+              <pre class="ai-text">{{ aiResult }}</pre>
+            </div>
+          </div>
           <div class="review-actions">
             <el-button @click="reviewVisible = false">取消</el-button>
             <el-button type="primary" :loading="reviewing" @click="doReview">
@@ -228,19 +242,41 @@
         <el-form-item label="结论">
           <el-input v-model="form.conclusion" type="textarea" :rows="3" placeholder="巡检结论（可选）" />
         </el-form-item>
+        <el-form-item v-if="!form.id" label="现场报告">
+          <el-upload ref="reportUploadRef" drag :auto-upload="false" :limit="1" accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+            :on-change="onReportChange" :on-remove="() => form.reportFile = null">
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖拽或点击上传现场报告（可选，创建后直接进入提交审核）</div>
+          </el-upload>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ form.id ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 提交审核引导：无现场报告时上传 -->
+    <el-dialog v-model="submitReportVisible" title="上传现场报告并提交审核" width="480px" destroy-on-close>
+      <el-upload ref="submitReportUploadRef" drag :auto-upload="false" :limit="1"
+        accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+        :on-change="onSubmitReportChange" :on-remove="() => submitReportFile = null">
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽或点击上传现场报告（Word/PDF/Excel/图片）</div>
+      </el-upload>
+      <template #footer>
+        <el-button @click="submitReportVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submittingReport" @click="doSubmitReport">上传并提交审核</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import type { UploadFile } from 'element-plus/es/components/upload'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, FolderOpened } from '@element-plus/icons-vue'
+import { Plus, Search, Download, FolderOpened, UploadFilled, MagicStick } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import VersionTimeline from '@/components/VersionTimeline.vue'
 import FilePreview from '@/components/FilePreview.vue'
@@ -248,7 +284,7 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchInspections, fetchInspection, createInspection, updateInspection, deleteInspection,
-  submitInspection, reviewInspection, fetchInspectionDicts, fetchInspectionVersions,
+  submitInspection, reviewInspection, analyzeInspectionAI, fetchInspectionDicts, fetchInspectionVersions,
   fetchReviewChecklist,
   versionReportUrl, formalReportUrl, inspectionExportUrl,
   inspectionReportsZipUrl,
@@ -297,8 +333,12 @@ const versions = ref<SubmissionVersion[]>([])
 
 async function openDetail(row: Record<string, unknown>) {
   try {
-    detail.value = await fetchInspection(row.id as number)
-    versions.value = await fetchInspectionVersions(row.id as number)
+    const [full, vers] = await Promise.all([
+      fetchInspection(row.id as number),
+      fetchInspectionVersions(row.id as number),
+    ])
+    detail.value = full
+    versions.value = vers
     detailVisible.value = true
   } catch { /* toast */ }
 }
@@ -334,7 +374,50 @@ async function onSubmit() {
     await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
+    const msg = (e as Error).message
+    if (msg.includes('报告')) {
+      openSubmitReport()
+      return
+    }
+    ui.toast(msg, 'error')
+  }
+}
+
+// 提交审核引导弹窗：无现场报告时上传后提交
+const submitReportVisible = ref(false)
+const submitReportFile = ref<File | null>(null)
+const submitReportUploadRef = ref()
+const submittingReport = ref(false)
+
+function openSubmitReport() {
+  submitReportFile.value = null
+  submitReportUploadRef.value?.clearFiles?.()
+  submitReportVisible.value = true
+}
+
+function onSubmitReportChange(f: UploadFile) {
+  submitReportFile.value = f.raw ?? null
+}
+
+async function doSubmitReport() {
+  if (!detail.value) return
+  if (!submitReportFile.value) {
+    ui.toast('请选择现场报告文件', 'warning')
+    return
+  }
+  submittingReport.value = true
+  try {
+    const fd = new FormData()
+    fd.append('report_file', submitReportFile.value)
+    await submitInspection(detail.value.id, fd)
+    ui.toast('已上传并提交审核', 'success')
+    submitReportVisible.value = false
+    await refreshDetail()
+    tableRef.value?.refresh()
+  } catch (e) {
     ui.toast((e as Error).message, 'error')
+  } finally {
+    submittingReport.value = false
   }
 }
 
@@ -347,6 +430,24 @@ const reviewing = ref(false)
 const checklistItems = ref<ReviewChecklistItem[]>([])
 const checklistValue = reactive<Record<string, string>>({})
 const previewTab = ref('report')
+
+// AI 辅助分析
+const aiLoading = ref(false)
+const aiResult = ref('')
+
+async function runAiAnalyze() {
+  if (!detail.value) return
+  aiLoading.value = true
+  aiResult.value = ''
+  try {
+    const res = await analyzeInspectionAI(detail.value.id)
+    aiResult.value = res.analysis
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    aiLoading.value = false
+  }
+}
 
 const pendingVersion = computed(() => versions.value.find((v) => v.review_status === '待审核'))
 const pendingVersionUrl = computed(() =>
@@ -362,6 +463,7 @@ async function openReview(approved: boolean) {
   reviewRemark.value = ''
   reviewRequirements.value = ''
   reviewVisible.value = true
+  aiResult.value = ''
   previewTab.value = 'report'
   try {
     const { items } = await fetchReviewChecklist()
@@ -432,9 +534,10 @@ async function onDelete(i: Inspection) {
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
+const reportUploadRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', task_id: null, task_title: '', customer_id: null, inspection_date: '',
-  inspector_user_id: null, overall_status: '正常', conclusion: '',
+  inspector_user_id: null, overall_status: '正常', conclusion: '', reportFile: null,
 })
 const formRules = {
   title: [{ required: true, message: '请输入巡检标题', trigger: 'blur' }],
@@ -442,12 +545,18 @@ const formRules = {
 }
 
 const selectableTasks = computed(() =>
-  (dicts.value?.tasks || []).filter((t) => t.status !== '已完成' && t.status !== '已取消'),
+  (dicts.value?.tasks || []).filter((t) =>
+    t.status !== '已完成' && t.status !== '已取消' && !t.has_record),
 )
 
 function blankForm() {
   return { id: null, title: '', task_id: null, task_title: '', customer_id: null,
-    inspection_date: '', inspector_user_id: null, overall_status: '正常', conclusion: '' }
+    inspection_date: '', inspector_user_id: null, overall_status: '正常', conclusion: '',
+    reportFile: null }
+}
+
+function onReportChange(f: UploadFile) {
+  form.reportFile = f.raw ?? null
 }
 
 function onTaskSelect(tid: number | undefined) {
@@ -461,6 +570,7 @@ function onTaskSelect(tid: number | undefined) {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  reportUploadRef.value?.clearFiles?.()
   formVisible.value = true
 }
 
@@ -469,7 +579,7 @@ function openEdit(i: Inspection) {
     id: i.id, title: i.title, task_id: i.task_id, task_title: i.task_title,
     customer_id: i.customer_id,
     inspection_date: i.inspection_date || '', overall_status: i.overall_status,
-    conclusion: i.conclusion || '', inspector_user_id: null,
+    conclusion: i.conclusion || '', inspector_user_id: i.inspector_user_id ?? null,
   })
   formVisible.value = true
 }
@@ -482,8 +592,16 @@ async function save() {
       await updateInspection(form.id as number, { ...form })
       ui.toast('已保存', 'success')
     } else {
-      await createInspection({ ...form })
-      ui.toast('巡检记录已创建', 'success')
+      const res = await createInspection({ ...form })
+      // 创建时上传现场报告 → 直接进入提交审核（补齐"记录页新建"闭环）
+      if (form.reportFile) {
+        const fd = new FormData()
+        fd.append('report_file', form.reportFile as File)
+        await submitInspection(res.id, fd)
+        ui.toast('巡检记录已创建并提交审核', 'success')
+      } else {
+        ui.toast('巡检记录已创建', 'success')
+      }
     }
     formVisible.value = false
     await refreshDetail()
@@ -552,4 +670,23 @@ onMounted(() => {
 .check-name { font-size: 13px; flex-shrink: 0; }
 .check-item .el-radio-button__inner { padding: 4px 8px; font-size: 12px; }
 .review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; flex-shrink: 0; }
+.ai-box { margin-bottom: 8px; }
+.ai-loading { font-size: 12px; color: var(--itsm-text-muted); padding: 8px 0; min-height: 40px; }
+.ai-result {
+  border: 1px dashed var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 300px;
+  overflow: auto;
+}
+.ai-result-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.ai-result-title { font-size: 12px; font-weight: 600; color: var(--el-color-primary); }
+.ai-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.6;
+}
 </style>

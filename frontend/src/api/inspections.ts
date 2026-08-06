@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { buildQueryUrl } from '@/utils/queryUrl'
 import type { PageResult } from '@/types'
 
 export interface SubmissionAsset {
@@ -42,6 +43,7 @@ export interface Inspection {
   overall_status: string
   review_status: string
   inspector_name: string
+  inspector_user_id: number | null
   report_file: boolean
   report_label: string
   report_file_name: string
@@ -72,19 +74,7 @@ export interface InspectionQuery {
   incomplete_only?: number
 }
 
-export const OVERALL_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  正常: 'success',
-  警告: 'warning',
-  异常: 'danger',
-  待审核: 'warning',
-}
-
-export const REVIEW_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  草稿: 'info',
-  待审核: 'warning',
-  已通过: 'success',
-  已退回: 'danger',
-}
+export { OVERALL_STATUS_TAG, REVIEW_STATUS_TAG } from '@/utils/status'
 
 export function fetchInspections(params: InspectionQuery) {
   return request<PageResult<Inspection>>({ url: '/api/inspections', method: 'GET', params })
@@ -106,8 +96,12 @@ export function deleteInspection(id: number) {
   return request<null>({ url: `/api/inspections/${id}`, method: 'DELETE' })
 }
 
-export function submitInspection(id: number) {
-  return request<null>({ url: `/api/inspections/${id}/submit`, method: 'POST' })
+export function submitInspection(id: number, formData?: FormData) {
+  return request<null>({
+    url: `/api/inspections/${id}/submit`,
+    method: 'POST',
+    data: formData,
+  })
 }
 
 export function reviewInspection(id: number, approved: boolean, remark?: string, requirements?: string, checklist?: Record<string, string>) {
@@ -116,6 +110,11 @@ export function reviewInspection(id: number, approved: boolean, remark?: string,
     method: 'POST',
     data: { approved, remark, requirements, checklist },
   })
+}
+
+/** AI 辅助审核分析（需启用 AI 配置） */
+export function analyzeInspectionAI(id: number) {
+  return request<{ analysis: string }>({ url: `/api/inspections/${id}/ai-analyze`, method: 'POST' })
 }
 
 // ==================== 巡检审核检查项清单（V23） ====================
@@ -192,6 +191,7 @@ export interface InspectionTaskOption {
   customer_id: number
   customer_name: string
   assignee_id: number | null
+  has_record?: boolean
 }
 
 export interface InspectionDicts {
@@ -208,17 +208,9 @@ export function fetchInspectionDicts() {
 
 /** 巡检记录导出 URL（SSR，带筛选参数） */
 export function inspectionExportUrl(params: Record<string, unknown>) {
-  const q = new URLSearchParams()
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
-  })
-  return `/inspections/export?${q.toString()}`
+  return buildQueryUrl('/inspections/export', params)
 }
 
 export function inspectionReportsZipUrl(params: Record<string, unknown>) {
-  const q = new URLSearchParams()
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
-  })
-  return `/inspections/reports-zip?${q.toString()}`
+  return buildQueryUrl('/inspections/reports-zip', params)
 }

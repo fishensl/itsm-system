@@ -1,47 +1,12 @@
 # -*- coding: utf-8 -*-
-"""机柜管理蓝图：机柜 / 设备上架 — 按客户分组管理"""
-from flask import (Blueprint, render_template, request, jsonify)
+"""机柜管理蓝图：机柜 / 设备上架 API（SSR 主页已由 Vue SPA /app/rack 接管）"""
+from flask import (Blueprint, request, jsonify)
 from flask_login import login_required
 from sqlalchemy.orm import joinedload, selectinload
-from models import (Rack, RackInstall, Device, Customer, Region, db)
+from models import (Rack, RackInstall, Device, db)
 from utils.permission import require_permission
 
 rack_bp = Blueprint('rack', __name__)
-
-
-# ============================ 主页面 ============================
-@rack_bp.route('/rack')
-@login_required
-@require_permission('device:view')
-def rack_index():
-    """机柜管理主页：按「地市 → 客户」分组列出机柜 + 右侧可视化"""
-    racks = Rack.query.order_by(Rack.id.desc()).all()
-    # 按客户分组（参照设备列表 city_data 三段式）
-    by_customer = {}
-    for r in racks:
-        by_customer.setdefault(r.customer_id, []).append(r)
-    cust_ids = [cid for cid in by_customer.keys() if cid is not None]
-    cust_map = {}
-    if cust_ids:
-        for c in Customer.query.options(
-            joinedload(Customer.region_rel).joinedload(Region.parent)
-        ).filter(Customer.id.in_(cust_ids)).all():
-            cust_map[c.id] = c
-    city_data = {}
-    for cid, rack_list in by_customer.items():
-        c = cust_map.get(cid)
-        if c:
-            if c.region_rel and c.region_rel.parent:
-                city = c.region_rel.parent.name
-            elif c.region_rel:
-                city = c.region_rel.name
-            else:
-                city = c.city or '未分配地市'
-        else:
-            city = '未分配客户'
-        city_data.setdefault(city, []).append({'customer': c, 'racks': rack_list})
-    customers = Customer.query.order_by(Customer.name).all()
-    return render_template('rack/index.html', city_data=city_data, customers=customers)
 
 
 # ============================ 机柜 API ============================

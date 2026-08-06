@@ -36,6 +36,15 @@ export function fetchSidebarGroups() {
   })
 }
 
+/** 自助修改密码（成功后强制登出） */
+export function changePassword(oldPassword: string, newPassword: string) {
+  return request<null>({
+    url: '/api/auth/change-password',
+    method: 'POST',
+    data: { old_password: oldPassword, new_password: newPassword },
+  })
+}
+
 // ==================== Dashboard ====================
 export interface DashboardData {
   counts: Record<string, number>

@@ -1,18 +1,12 @@
 # -*- coding: utf-8 -*-
-"""W1 性能修复回归：页面可渲染 + 数据正确性（N+1 修复不改变输出）"""
+"""W1 性能修复回归：页面渲染（SSR 已剥离 → Vue API 等价断言）+ 数据正确性"""
+
 from datetime import date, timedelta
 
 import pytest
 
 from models import (db, Customer, Device, DeviceFirmware, Rack, RackInstall,
-                    Inspection, Ticket, InspectionTask, Inspector, User)
-
-
-def _use_ssr(app):
-    """这些用例断言 SSR 首页内容：显式切回 SSR（默认 Vue 模式）"""
-    from utils.ui_version import set_ui_version
-    with app.app_context():
-        set_ui_version('ssr')
+                    Inspection, Ticket, InspectionTask, User)
 
 
 @pytest.fixture()
@@ -48,48 +42,45 @@ def seed(app):
 class TestIndexByRole:
     @pytest.mark.parametrize('role_client', ['admin_client', 'op_client',
                                              'sales_client', 'viewer_client'])
-    def test_index_200(self, role_client, seed, request, app):
-        _use_ssr(app)
+    def test_index_302(self, role_client, request):
+        """SSR 首页已剥离：无论界面版本，GET / 一律 302 → /app/"""
         client = request.getfixturevalue(role_client)
-        assert client.get('/').status_code == 200
+        r = client.get('/')
+        assert r.status_code == 302
+        assert r.headers.get('Location', '').endswith('/app/')
 
-    def test_index_shows_assigned_ticket(self, op_client, seed, app):
-        """operator 首页待办包含派给他的工单（assigned_to 匹配 realname/username）"""
-        _use_ssr(app)
-        r = op_client.get('/')
-        assert '断网'.encode() in r.data
+    def test_overview_shows_assigned_ticket(self, op_client, seed):
+        """Vue 工作台 API 待办包含派给他的工单（assigned_to 匹配 realname/username）"""
+        r = op_client.get('/api/dashboard/overview')
+        assert r.status_code == 200
+        tasks = r.get_json()['data']['my_tasks']
+        assert any(t['type_label'] == '工单' and t['title'] == '断网' for t in tasks)
 
 
-class TestInspectorTaskSqlMatch:
-    def test_comma_wrapped_match_no_false_positive(self, op_client, app, seed):
-        """inspector_ids 逗号包裹匹配：id=2 不应命中 '12'"""
-        _use_ssr(app)
+class TestInspectorTaskMatch:
+    def test_assigned_to_user_id_match(self, op_client, app, seed):
+        """巡检待办按 assigned_to_user_id 精确匹配：未指派的任务不出现在我的待办"""
         with app.app_context():
             op = User.query.filter_by(username='op').first()
-            insp_person = Inspector(user_id=op.id, is_active=True)
-            db.session.add(insp_person)
-            db.session.flush()
-            iid = insp_person.id
-            # 构造干扰任务：inspector_ids 含 '999,1001' 但不含独立 ',iid,'（iid 若为 10，1001 也不能误匹配）
             decoy = InspectionTask(title='干扰任务', customer_id=seed['customer_id'],
                                    status='待执行', task_type='计划',
                                    inspector_ids='999,1001')
             hit = InspectionTask(title='我的任务', customer_id=seed['customer_id'],
                                  status='待执行', task_type='计划',
-                                 inspector_ids=f'5,{iid},9')
+                                 assigned_to_user_id=op.id)
             db.session.add_all([decoy, hit])
             db.session.commit()
-        r = op_client.get('/')
-        body = r.data.decode('utf-8')
-        assert '我的任务' in body
-        assert '干扰任务' not in body
+        r = op_client.get('/api/dashboard/overview')
+        tasks = r.get_json()['data']['my_tasks']
+        titles = [t['title'] for t in tasks]
+        assert '我的任务' in titles
+        assert '干扰任务' not in titles
 
 
 class TestFirmwareList:
-    def test_devices_grouped_single_pass(self, op_client, seed):
-        r = op_client.get('/device-firmwares')
-        assert r.status_code == 200
-        assert 'SW-01'.encode() in r.data  # 同 brand+model 设备挂到固件组下
+    def test_firmware_page_gone(self, op_client):
+        """SSR 固件列表页已剥离（Vue /app/device-firmwares 接管）"""
+        assert op_client.get('/device-firmwares').status_code == 404
 
 
 class TestRackApis:
@@ -116,20 +107,22 @@ class TestRackApis:
 
 class TestReportCenter:
     def test_default_window_excludes_old_records(self, op_client, seed):
-        """无过滤条件默认近 12 个月：三年前的巡检不出现在报告中心"""
-        r = op_client.get('/reports')
+        """无过滤条件默认近 12 个月：三年前的巡检不出现在报告中心 API"""
+        r = op_client.get('/api/reports')
         assert r.status_code == 200
-        body = r.data.decode('utf-8')
-        assert 'Q2巡检' in body
-        assert '三年前巡检' not in body
-        assert '默认显示近 12 个月' in body  # 默认窗口提示
+        data = r.get_json()['data']
+        titles = [i['title'] for b in data['data_order'] for i in b['items']['inspection']]
+        assert 'Q2巡检' in titles
+        assert '三年前巡检' not in titles
 
     def test_explicit_date_range_shows_old(self, op_client, seed):
         old = (date.today() - timedelta(days=1200)).isoformat()
-        r = op_client.get(f'/reports?date_from={old}')
-        body = r.data.decode('utf-8')
-        assert '三年前巡检' in body
+        r = op_client.get(f'/api/reports?date_from={old}')
+        data = r.get_json()['data']
+        titles = [i['title'] for b in data['data_order'] for i in b['items']['inspection']]
+        assert '三年前巡检' in titles
 
     def test_tab_filter(self, op_client, seed):
-        r = op_client.get('/reports?tab=ticket')
+        r = op_client.get('/api/reports?tab=ticket')
         assert r.status_code == 200
+        assert r.get_json()['code'] == 0

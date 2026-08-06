@@ -8,4 +8,4 @@ from flask import Blueprint
 asset_bp = Blueprint('asset', __name__)
 
 # 子模块路由注册（import 即生效，顺序无关）
-from blueprints.asset import devices, dicts, firmwares, config_backups  # noqa: F401,E402
+from blueprints.asset import devices, firmwares, config_backups  # noqa: F401,E402

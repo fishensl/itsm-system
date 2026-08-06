@@ -145,17 +145,64 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 最近巡检 + 设备类型分布 -->
+    <el-row :gutter="12" class="mt-3">
+      <el-col :xs="24" :md="14">
+        <el-card shadow="never" class="section-card">
+          <template #header>
+            <div class="section-header"><span>最近巡检</span></div>
+          </template>
+          <div v-if="data?.recent_inspections?.length" class="task-list">
+            <div v-for="r in data.recent_inspections" :key="r.id" class="task-item"
+              @click="go(`/app/inspections/${r.id}`)">
+              <span class="task-type task-type-info">巡检</span>
+              <span class="task-title">{{ r.title }}</span>
+              <span class="task-sub">{{ r.customer_name }}</span>
+              <el-tag size="small" :type="OVERALL_TAG[r.overall_status] || 'info'">
+                {{ r.overall_status }}
+              </el-tag>
+            </div>
+          </div>
+          <el-empty v-else description="暂无巡检记录" :image-size="60" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :md="10">
+        <el-card shadow="never" class="section-card">
+          <template #header>
+            <div class="section-header"><span>设备类型分布</span></div>
+          </template>
+          <div v-if="data?.device_type_stats?.length" class="type-stats">
+            <div v-for="[name, cnt] in data.device_type_stats" :key="name" class="type-stat-row">
+              <span class="type-stat-name">{{ name }}</span>
+              <el-progress :percentage="typePct(cnt)" :stroke-width="8" />
+              <span class="type-stat-cnt">{{ cnt }}</span>
+            </div>
+          </div>
+          <el-empty v-else description="暂无设备" :image-size="60" />
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchDashboard, type DashboardData } from '@/api/auth'
+import { OVERALL_STATUS_TAG } from '@/utils/status'
 
+const OVERALL_TAG = OVERALL_STATUS_TAG
 const router = useRouter()
 const data = ref<DashboardData | null>(null)
 const loading = ref(false)
+
+const typePct = (cnt: number) => {
+  const stats = data.value?.device_type_stats || []
+  const total = stats.reduce((s, [, c]) => s + c, 0)
+  if (!total) return 0
+  return Math.round((cnt / total) * 100)
+}
 
 const go = (url: string) => {
   if (url.startsWith('/app')) {

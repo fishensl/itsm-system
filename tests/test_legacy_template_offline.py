@@ -17,11 +17,11 @@ class TestLegacyTemplateWritePathsGone:
         assert r.status_code == 404
 
     def test_read_paths_kept(self, op_client, app):
-        """列表页 + API 只读保留（历史任务/巡检表单仍引用）"""
+        """SSR 列表页已剥离（404），/api/inspection-templates 只读保留（历史任务/巡检表单仍引用）"""
         with app.app_context():
             db.session.add(InspectionTemplate(name='遗留模板', is_active=True))
             db.session.commit()
-        assert op_client.get('/inspection-templates').status_code == 200
+        assert op_client.get('/inspection-templates').status_code == 404
         r = op_client.get('/api/inspection-templates')
         assert r.status_code == 200
         assert r.get_json()[0]['name'] == '遗留模板'

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""W3-R7 form_commit 封装路由回归：成功/失败路径的消息与重定向"""
+"""W3-R7 写操作路由回归（SSR form_commit 路由已剥离 → Vue API /api/* 等价契约）"""
 
 from models import db, SparePart, SpareStock, Opportunity, Customer
 from services import sales_service
@@ -11,17 +11,18 @@ class TestSalesRoutes:
             db.session.add(Customer(name='销售客户'))
             db.session.commit()
             cid = Customer.query.filter_by(name='销售客户').first().id
-        r = sales_client.post('/opportunities/add', data={
+        r = sales_client.post('/api/opportunities', json={
             'title': '百万集采项目', 'customer_id': cid, 'stage': '初步接触'})
-        assert r.status_code == 302
+        assert r.status_code == 200
+        assert r.get_json()['code'] == 0
         with app.app_context():
             assert Opportunity.query.filter_by(title='百万集采项目').first() is not None
 
-    def test_opportunity_add_invalid_shows_error(self, sales_client, app):
-        """空标题 → ServiceError → rollback + flash danger，不入库"""
-        r = sales_client.post('/opportunities/add', data={'title': '  '},
-                              follow_redirects=True)
-        assert r.status_code == 200
+    def test_opportunity_add_invalid_rejected(self, sales_client, app):
+        """空标题 → ServiceError → 400，不入库"""
+        r = sales_client.post('/api/opportunities', json={'title': '  '})
+        assert r.status_code == 400
+        assert r.get_json()['code'] == 1
         with app.app_context():
             assert Opportunity.query.count() == 0
 
@@ -42,8 +43,10 @@ class TestSalesRoutes:
             db.session.add(ct)
             db.session.commit()
             ctid = ct.id
-        r = sales_client.post(f'/contracts/edit/{ctid}', data={'title': '年度维保合同V2'})
-        assert r.status_code == 302
+        r = sales_client.put(f'/api/contracts/{ctid}',
+                             json={'title': '年度维保合同V2', 'auto_generate_tasks': True})
+        assert r.status_code == 200
+        assert r.get_json()['data']['generated'] >= 1
         with app.app_context():
             from models import InspectionTask, InspectionTaskTemplate
             tid = InspectionTaskTemplate.query.filter_by(name='季巡任务模板').first().id
@@ -63,13 +66,14 @@ class TestSalesRoutes:
             db.session.commit()
             cid = Customer.query.filter_by(name='配置客户').first().id
             tid = tpl.id
-        r = sales_client.post('/contracts/add', data={
+        r = sales_client.post('/api/contracts', json={
             'title': '含巡检合同', 'customer_id': cid, 'status': '执行中',
             'start_date': '2026-01-01', 'end_date': '2026-12-31',
             'inspection_frequency': '每月', 'task_template_id': str(tid),
-            'auto_generate_tasks': 'on',
+            'auto_generate_tasks': True,
         })
-        assert r.status_code == 302
+        assert r.status_code == 200
+        assert r.get_json()['data']['generated'] >= 1
         with app.app_context():
             from models import Contract, InspectionTask
             ct = Contract.query.filter_by(title='含巡检合同').first()
@@ -104,8 +108,9 @@ class TestSpareRoutes:
             db.session.add(p)
             db.session.commit()
             pid = p.id
-        op_client.post('/spare-stocks/add', data={
+        r = op_client.post('/api/spare-stocks', json={
             'spare_part_id': pid, 'quantity': -5, 'location': 'A'})
+        assert r.status_code == 400
         with app.app_context():
             assert SpareStock.query.count() == 0
 
@@ -115,8 +120,9 @@ class TestSpareRoutes:
             db.session.add(p)
             db.session.commit()
             pid = p.id
-        op_client.post('/spare-stocks/add', data={
+        r = op_client.post('/api/spare-stocks', json={
             'spare_part_id': pid, 'quantity': 8, 'location': 'A', 'unit_price': 200})
+        assert r.status_code == 200
         with app.app_context():
             assert SpareStock.query.filter_by(spare_part_id=pid).first().quantity == 8
 
@@ -124,8 +130,7 @@ class TestSpareRoutes:
         with app.app_context():
             db.session.add(SparePart(name='电源', code='PS-01'))
             db.session.commit()
-        r = op_client.post('/spare-parts/add', data={'name': '电源', 'code': 'PS-02'},
-                           follow_redirects=True)
-        assert r.status_code == 200
+        r = op_client.post('/api/spare-parts', json={'name': '电源', 'code': 'PS-02'})
+        assert r.status_code == 400
         with app.app_context():
             assert SparePart.query.filter_by(name='电源').count() == 1

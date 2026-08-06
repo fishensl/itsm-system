@@ -1,13 +1,33 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">设备管理</h2>
       <div class="header-actions">
+        <el-button :icon="Download" plain @click="doExport">导出</el-button>
+        <el-button v-if="user.hasPerm('device:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('device:add')" type="primary" :icon="Plus" @click="openCreate">
           新增设备
         </el-button>
       </div>
     </div>
+
+    <!-- 导入弹窗 -->
+    <el-dialog v-model="importVisible" title="批量导入设备" width="520px" destroy-on-close>
+      <el-alert type="info" :closable="false" class="mb-2" show-icon
+        title="请先下载导入模板（Excel），按列填写后上传；客户名须已存在，导入后自动刷新客户设备数" />
+      <div class="mb-2">
+        <el-button size="small" link type="primary" @click="downloadTemplate">下载导入模板</el-button>
+      </div>
+      <el-upload ref="importUploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx,.xls"
+        :on-change="onImportFileChange" :on-remove="() => importFile = null">
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>
+      </el-upload>
+      <template #footer>
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importing" @click="doImport">开始导入</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 筛选栏 -->
     <el-card shadow="never" class="filter-card">
@@ -76,29 +96,131 @@
 
       <!-- 配置备份（含巡检上传同步记录） -->
       <el-divider content-position="left">配置备份</el-divider>
+      <div class="backup-toolbar">
+        <el-checkbox-group v-model="compareSel" size="small" class="backup-compare-sel">
+          <el-checkbox v-for="b in backups.slice(0, 20)" :key="b.id" :value="b.id" size="small">
+            #{{ b.id }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <el-button size="small" :disabled="compareSel.length !== 2" @click="doCompare">对比</el-button>
+        <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary" plain @click="openBackupAdd">
+          新增备份
+        </el-button>
+      </div>
       <div v-loading="backupsLoading" class="backup-list">
         <el-table v-if="backups.length" :data="backups" size="small" border stripe max-height="220">
           <el-table-column prop="backup_type" label="类型" width="100" />
           <el-table-column prop="backup_method" label="来源" width="100" />
           <el-table-column prop="backup_date" label="日期" width="100" />
           <el-table-column prop="created_by" label="创建人" min-width="90" />
-          <el-table-column label="操作" width="140">
+          <el-table-column label="操作" width="220">
             <template #default="{ row }">
               <el-button v-if="row.has_content" size="small" link type="primary" @click="viewBackup(row)">查看</el-button>
               <el-button v-if="row.has_file" size="small" link type="primary" @click="downloadBackup(row)">下载</el-button>
+              <el-button v-if="user.hasPerm('device:edit') && row.has_content" size="small" link type="warning"
+                @click="onRollback(row)">回滚</el-button>
+              <el-button v-if="user.hasPerm('device:delete')" size="small" link type="danger"
+                @click="onBackupDelete(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
         <el-empty v-else-if="!backupsLoading" description="暂无配置备份（巡检提交资料将自动同步）" :image-size="50" />
       </div>
 
+      <!-- 新增备份弹窗 -->
+      <el-dialog v-model="backupAddVisible" title="新增配置备份" width="560px" destroy-on-close>
+        <el-form label-width="80px">
+          <el-form-item label="类型">
+            <el-select v-model="backupForm.type" class="w-full">
+              <el-option v-for="t in ['运行配置', '启动配置', '其他']" :key="t" :label="t" :value="t" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="内容">
+            <el-input v-model="backupForm.content" type="textarea" :rows="8" placeholder="粘贴配置内容（与文件二选一）" />
+          </el-form-item>
+          <el-form-item label="文件">
+            <el-upload ref="backupUploadRef" :auto-upload="false" :limit="1" accept=".txt,.cfg,.conf,.log"
+              :on-change="onBackupFileChange" :on-remove="() => backupForm.file = null">
+              <el-button size="small" plain :icon="Upload">选择文件（可选）</el-button>
+            </el-upload>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="backupAddVisible = false">取消</el-button>
+          <el-button type="primary" :loading="backupSaving" @click="saveBackup">保存</el-button>
+        </template>
+      </el-dialog>
+
+      <!-- 对比弹窗 -->
+      <el-dialog v-model="diffVisible" title="配置对比" width="900px" top="4vh" destroy-on-close>
+        <div v-loading="diffLoading" class="diff-wrap">
+          <div v-if="diffLines.length" class="diff-table">
+            <div v-for="(line, i) in diffLines" :key="i" :class="['diff-row', `diff-${line.tag}`]">
+              <span class="diff-a">{{ line.line_a || ' ' }}</span>
+              <span class="diff-b">{{ line.line_b || ' ' }}</span>
+            </div>
+          </div>
+          <el-empty v-else-if="!diffLoading" description="两版本内容一致" :image-size="50" />
+        </div>
+      </el-dialog>
+
+      <!-- 关联工单 / 巡检记录（反向视图） -->
+      <el-divider content-position="left">关联工单与巡检</el-divider>
+      <div v-loading="relatedLoading" class="related-list">
+        <template v-if="relatedTickets.length || relatedInspections.length">
+          <el-table :data="relatedTickets" size="small" border stripe max-height="200">
+            <el-table-column label="关联工单" min-width="200">
+              <template #default="{ row }">
+                <router-link :to="`/app/tickets/${row.id}`" class="row-link">
+                  {{ row.number }} · {{ row.title }}
+                </router-link>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="90" />
+            <el-table-column prop="created_at" label="创建时间" width="100" />
+          </el-table>
+          <el-table :data="relatedInspections" size="small" border stripe max-height="200" class="mt-2">
+            <el-table-column label="巡检记录" min-width="200">
+              <template #default="{ row }">
+                <router-link :to="`/app/inspections/${row.id}`" class="row-link">
+                  {{ row.title }}<span v-if="row.task_title" class="text-muted">（{{ row.task_title }}）</span>
+                </router-link>
+              </template>
+            </el-table-column>
+            <el-table-column prop="overall_status" label="总体" width="80" />
+            <el-table-column prop="review_status" label="审核" width="90" />
+            <el-table-column prop="inspection_date" label="巡检日期" width="100" />
+          </el-table>
+        </template>
+        <el-empty v-else-if="!relatedLoading" description="暂无关联工单/巡检" :image-size="40" />
+      </div>
+
       <template #footer>
         <el-button v-if="user.hasPerm('device:reveal') && detail?.has_password" @click="revealPwd">
           <el-icon class="mr-1"><View /></el-icon>{{ pwdVisible ? '隐藏密码' : '查看密码' }}
         </el-button>
+        <el-button v-if="user.hasPerm('device:reveal')" @click="openPwdHistory">
+          历史密码
+        </el-button>
         <el-button v-if="user.hasPerm('device:edit')" type="primary" @click="openEdit(detail!)">编辑</el-button>
         <el-button @click="detailVisible = false">关闭</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 历史密码弹窗 -->
+    <el-dialog v-model="pwdHistoryVisible" title="历史密码（查看明文将记录审计）" width="560px" destroy-on-close>
+      <el-table v-loading="pwdHistoryLoading" :data="pwdHistory" size="small" border stripe max-height="360">
+        <el-table-column prop="id" label="#" width="60" />
+        <el-table-column prop="changed_by" label="修改人" width="120" />
+        <el-table-column prop="created_at" label="时间" width="150" />
+        <el-table-column prop="remark" label="备注" min-width="100" />
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button size="small" link type="primary" @click="revealHistory(row.id)">查看明文</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!pwdHistoryLoading && !pwdHistory.length" description="暂无历史记录" :image-size="50" />
     </el-dialog>
 
     <!-- 新增/编辑弹窗 -->
@@ -229,9 +351,10 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { Plus, Search, View } from '@element-plus/icons-vue'
+import { Plus, Search, View, Download, Upload, UploadFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -239,7 +362,10 @@ import { IN_USE_LABELS } from '@/utils/labels'
 import {
   fetchDevices, fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
   fetchDeviceConfigBackups, fetchDeviceConfigBackupContent, deviceConfigBackupDownloadUrl,
-  type Device, type DeviceForm, type DeviceConfigBackup,
+  fetchDeviceRelated, exportDevices, importDevices, createConfigBackup, deleteConfigBackup,
+  rollbackConfigBackup, fetchConfigBackupDiff, fetchPasswordHistory, type DiffLine,
+  type Device, type DeviceForm, type DeviceConfigBackup, type RelatedTicket, type RelatedInspection,
+  type PasswordHistoryItem,
 } from '@/api/devices'
 
 const user = useUserStore()
@@ -252,6 +378,71 @@ const deviceTypes = ref<{ name: string }[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
 
 const tableRef = ref()
+
+// ==================== 导入 / 导出 ====================
+const importVisible = ref(false)
+const importing = ref(false)
+const importUploadRef = ref()
+const importFile = ref<File | null>(null)
+
+function onImportFileChange(f: UploadFile) {
+  importFile.value = f.raw ?? null
+}
+
+function downloadTemplate() {
+  window.open('/exports/download-template/device', '_blank')
+}
+
+function saveBase64(b64: string, filename: string) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = decodeURIComponent(filename)
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function doExport() {
+  try {
+    const res = await exportDevices({
+      search: query.search as string,
+      customer_id: query.customer_id as number | undefined,
+    })
+    saveBase64(res.content, res.filename)
+    ui.toast('导出成功', 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function doImport() {
+  if (!importFile.value) {
+    ui.toast('请选择 Excel 文件', 'warning')
+    return
+  }
+  importing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('import_file', importFile.value)
+    const res = await importDevices(fd)
+    const msg = `导入完成：成功 ${res.created} 条${res.total_errors ? `，失败 ${res.total_errors} 条` : ''}`
+    ui.toast(msg, res.total_errors ? 'warning' : 'success')
+    if (res.errors.length) {
+      ElMessageBox.alert(res.errors.join('\n'), '导入错误明细', {
+        customStyle: { maxHeight: '70vh', overflow: 'auto', whiteSpace: 'pre-wrap' },
+      }).catch(() => {})
+    }
+    importVisible.value = false
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    importing.value = false
+  }
+}
 
 const columns = computed<DataColumn[]>(() => [
   { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
@@ -286,6 +477,9 @@ const detail = ref<Device | null>(null)
 const pwdVisible = ref(false)
 const backups = ref<DeviceConfigBackup[]>([])
 const backupsLoading = ref(false)
+const relatedTickets = ref<RelatedTicket[]>([])
+const relatedInspections = ref<RelatedInspection[]>([])
+const relatedLoading = ref(false)
 
 async function openDetail(row: Record<string, unknown>) {
   const id = row.id as number
@@ -294,7 +488,22 @@ async function openDetail(row: Record<string, unknown>) {
     pwdVisible.value = false
     detailVisible.value = true
     loadBackups(id)
+    loadRelated(id)
   } catch { /* toast */ }
+}
+
+async function loadRelated(deviceId: number) {
+  relatedLoading.value = true
+  try {
+    const data = await fetchDeviceRelated(deviceId)
+    relatedTickets.value = data.tickets
+    relatedInspections.value = data.inspections
+  } catch {
+    relatedTickets.value = []
+    relatedInspections.value = []
+  } finally {
+    relatedLoading.value = false
+  }
 }
 
 async function loadBackups(deviceId: number) {
@@ -321,6 +530,95 @@ function downloadBackup(row: DeviceConfigBackup) {
   window.open(deviceConfigBackupDownloadUrl(row.id), '_blank')
 }
 
+// ==================== 配置备份写操作（新增/对比/回滚/删除） ====================
+const compareSel = ref<number[]>([])
+const backupAddVisible = ref(false)
+const backupSaving = ref(false)
+const backupUploadRef = ref()
+const backupForm = reactive<{ type: string; content: string; file: File | null }>({
+  type: '运行配置', content: '', file: null,
+})
+const diffVisible = ref(false)
+const diffLoading = ref(false)
+const diffLines = ref<DiffLine[]>([])
+
+function openBackupAdd() {
+  backupForm.type = '运行配置'
+  backupForm.content = ''
+  backupForm.file = null
+  backupUploadRef.value?.clearFiles?.()
+  backupAddVisible.value = true
+}
+
+function onBackupFileChange(f: UploadFile) {
+  backupForm.file = f.raw ?? null
+}
+
+async function saveBackup() {
+  if (!detail.value) return
+  if (!backupForm.content.trim() && !backupForm.file) {
+    ui.toast('请填写配置内容或上传文件', 'warning')
+    return
+  }
+  backupSaving.value = true
+  try {
+    const fd = new FormData()
+    fd.append('config_content', backupForm.content)
+    fd.append('backup_type', backupForm.type)
+    if (backupForm.file) fd.append('config_file', backupForm.file)
+    await createConfigBackup(detail.value.id, fd)
+    ui.toast('配置备份已保存', 'success')
+    backupAddVisible.value = false
+    loadBackups(detail.value.id)
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    backupSaving.value = false
+  }
+}
+
+async function doCompare() {
+  if (compareSel.value.length !== 2) return
+  diffLoading.value = true
+  diffVisible.value = true
+  try {
+    const [a, b] = compareSel.value
+    const res = await fetchConfigBackupDiff(a, b)
+    diffLines.value = res.lines
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    diffLoading.value = false
+  }
+}
+
+async function onRollback(row: DeviceConfigBackup) {
+  try {
+    await ElMessageBox.confirm(
+      `确定回滚到版本 #${row.id} 吗？将生成一条新的备份记录（原版本保留）`, '回滚确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await rollbackConfigBackup(row.id)
+    ui.toast('已生成回滚备份', 'success')
+    if (detail.value) loadBackups(detail.value.id)
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function onBackupDelete(row: DeviceConfigBackup) {
+  try {
+    await ElMessageBox.confirm(`确定删除备份 #${row.id}（${row.backup_method}）吗？`, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await deleteConfigBackup(row.id)
+    ui.toast('已删除', 'success')
+    if (detail.value) loadBackups(detail.value.id)
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
 async function revealPwd() {
   if (!detail.value) return
   if (!pwdVisible.value) {
@@ -329,6 +627,35 @@ async function revealPwd() {
     pwdVisible.value = true
   } else {
     pwdVisible.value = false
+  }
+}
+
+// 历史密码
+const pwdHistoryVisible = ref(false)
+const pwdHistoryLoading = ref(false)
+const pwdHistory = ref<PasswordHistoryItem[]>([])
+
+async function openPwdHistory() {
+  if (!detail.value) return
+  pwdHistoryVisible.value = true
+  pwdHistoryLoading.value = true
+  try {
+    pwdHistory.value = await fetchPasswordHistory(detail.value.id)
+  } catch {
+    pwdHistory.value = []
+  } finally {
+    pwdHistoryLoading.value = false
+  }
+}
+
+async function revealHistory(historyId: number) {
+  if (!detail.value) return
+  try {
+    const res = await revealPassword(detail.value.id, historyId)
+    ElMessageBox.alert(`历史密码（#${historyId}）：${res.password || '（空）'}`, '历史密码',
+      { confirmButtonText: '关闭' }).catch(() => {})
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
   }
 }
 
@@ -474,4 +801,38 @@ fetchDeviceDicts().then((d) => {
   color: #e6a23c;
 }
 .backup-list { margin-bottom: 8px; }
+.backup-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.backup-compare-sel {
+  flex: 1;
+  min-width: 200px;
+}
+.diff-wrap {
+  max-height: 70vh;
+  overflow: auto;
+}
+.diff-row {
+  display: flex;
+  gap: 8px;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-a,
+.diff-b {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 1px 4px;
+  min-width: 0;
+}
+.diff-equal { color: var(--itsm-text-muted); }
+.diff-delete { background: #f56c6c22; color: #f56c6c; }
+.diff-insert { background: #67c23a22; color: #67c23a; }
+.diff-replace { background: #e6a23c22; color: #e6a23c; }
 </style>

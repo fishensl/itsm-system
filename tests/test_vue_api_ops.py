@@ -79,10 +79,11 @@ class TestKbDetailAndViewCount:
         assert body['data']['content'] == '<p>重启步骤</p>'
 
     def test_view_count_increments_atomically(self, op_client, kb_seed, app):
+        """原子自增 + 同 session 去重（与旧 SSR 详情页一致）：同人连看两次只 +1"""
         assert op_client.get(f"/api/knowledge-base/{kb_seed['k1']}").get_json()['data']['view_count'] == 1
-        assert op_client.get(f"/api/knowledge-base/{kb_seed['k1']}").get_json()['data']['view_count'] == 2
+        assert op_client.get(f"/api/knowledge-base/{kb_seed['k1']}").get_json()['data']['view_count'] == 1
         with app.app_context():
-            assert KnowledgeBase.query.get(kb_seed['k1']).view_count == 2
+            assert KnowledgeBase.query.get(kb_seed['k1']).view_count == 1
 
 
 class TestKbCreate:

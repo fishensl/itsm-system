@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">地区管理</h2>
@@ -69,8 +69,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, OfficeBuilding, Location, ArrowRight } from '@element-plus/icons-vue'
 import { fetchRegions, createRegion, updateRegion, deleteRegion, type RegionItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'

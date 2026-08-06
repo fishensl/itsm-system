@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""故障记录恢复可编辑/删除：路由 + 权限 + 页面按钮回归"""
+"""故障记录可编辑/删除：Vue API 路由 + 权限回归（SSR 页面已剥离）"""
 import pytest
 
 from models import db, Customer, Fault
@@ -19,24 +19,24 @@ def fault(app):
 
 
 class TestFaultEdit:
-    def test_edit_page_renders(self, op_client, fault):
-        assert op_client.get(f'/faults/edit/{fault}').status_code == 200
+    def test_edit_page_gone(self, op_client, fault):
+        """SSR 编辑页已剥离 → 404"""
+        assert op_client.get(f'/faults/edit/{fault}').status_code == 404
 
-    def test_edit_post_updates(self, op_client, fault, app):
-        r = op_client.post(f'/faults/edit/{fault}', data={
+    def test_put_updates(self, op_client, fault, app):
+        r = op_client.put(f'/api/faults/{fault}', json={
             'title': '核心交换机宕机（已定位）', 'handler': 'op',
             'fault_type': '设备故障', 'result': '已解决'})
-        assert r.status_code == 302
+        assert r.status_code == 200
         with app.app_context():
             f = Fault.query.get(fault)
             assert f.title == '核心交换机宕机（已定位）'
             assert f.result == '已解决'
 
     def test_viewer_cannot_edit(self, viewer_client, fault, app):
-        """viewer 无 fault:edit → 重定向，不报 500"""
-        assert viewer_client.get(f'/faults/edit/{fault}').status_code == 302
-        r = viewer_client.post(f'/faults/edit/{fault}', data={'title': 'X'})
-        assert r.status_code == 302
+        """viewer 无 fault:edit → 403 JSON"""
+        r = viewer_client.put(f'/api/faults/{fault}', json={'title': 'X'})
+        assert r.status_code == 403
         with app.app_context():
             assert Fault.query.get(fault).title == '核心交换机宕机'
 
@@ -44,29 +44,21 @@ class TestFaultEdit:
 class TestFaultDelete:
     def test_operator_deletes(self, op_client, fault, app):
         """operator 现持有 fault:delete"""
-        r = op_client.post(f'/faults/delete/{fault}')
-        assert r.status_code == 302
+        r = op_client.delete(f'/api/faults/{fault}')
+        assert r.status_code == 200
         with app.app_context():
             assert Fault.query.get(fault) is None
 
     def test_viewer_cannot_delete(self, viewer_client, fault, app):
-        viewer_client.post(f'/faults/delete/{fault}')
+        r = viewer_client.delete(f'/api/faults/{fault}')
+        assert r.status_code == 403
         with app.app_context():
             assert Fault.query.get(fault) is not None
 
 
-class TestFaultListButtons:
-    def test_list_shows_edit_delete_for_operator(self, op_client, fault):
-        body = op_client.get('/faults').data.decode('utf-8')
-        assert f'/faults/edit/{fault}' in body
-        assert f'/faults/delete/{fault}' in body
-
-    def test_list_hides_edit_delete_for_viewer(self, viewer_client, fault):
-        body = viewer_client.get('/faults').data.decode('utf-8')
-        assert f'/faults/edit/{fault}' not in body
-        assert f'/faults/delete/{fault}' not in body
-
-    def test_detail_shows_edit_delete_for_operator(self, op_client, fault):
-        body = op_client.get(f'/faults/{fault}').data.decode('utf-8')
-        assert f'/faults/edit/{fault}' in body
-        assert f'/faults/delete/{fault}' in body
+class TestFaultApiList:
+    def test_list_returns_items(self, op_client, fault):
+        r = op_client.get('/api/faults')
+        assert r.status_code == 200
+        items = r.get_json()['data']['items']
+        assert any(i['id'] == fault for i in items)

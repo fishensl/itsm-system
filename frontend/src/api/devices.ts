@@ -71,6 +71,30 @@ export function fetchDevice(id: number) {
   return request<Device>({ url: `/api/devices/${id}`, method: 'GET' })
 }
 
+export interface RelatedTicket {
+  id: number
+  number: string
+  title: string
+  status: string
+  created_at: string
+}
+
+export interface RelatedInspection {
+  id: number
+  title: string
+  task_title: string
+  overall_status: string
+  review_status: string
+  inspection_date: string
+}
+
+export function fetchDeviceRelated(id: number) {
+  return request<{ tickets: RelatedTicket[]; inspections: RelatedInspection[] }>({
+    url: `/api/devices/${id}/related`,
+    method: 'GET',
+  })
+}
+
 export function createDevice(data: DeviceForm) {
   return request<{ id: number }>({ url: '/api/devices', method: 'POST', data })
 }
@@ -83,10 +107,64 @@ export function deleteDevice(id: number) {
   return request<null>({ url: `/api/devices/${id}`, method: 'DELETE' })
 }
 
-export function revealPassword(id: number) {
+export function revealPassword(id: number, historyId?: number) {
   return request<{ password: string }>({
     url: `/api/v2/devices/${id}/reveal-password`,
     method: 'POST',
+    data: historyId ? { history_id: historyId } : undefined,
+  })
+}
+
+export interface PasswordHistoryItem {
+  id: number
+  changed_by: string
+  created_at: string
+  remark: string
+}
+
+export function fetchPasswordHistory(id: number) {
+  return request<PasswordHistoryItem[]>({ url: `/api/v2/devices/${id}/password-history`, method: 'GET' })
+}
+
+export function exportDevices(params: { search?: string; customer_id?: number; with_password?: boolean }) {
+  return request<{ filename: string; content: string }>({
+    url: '/api/v2/devices/export',
+    method: 'POST',
+    data: params,
+  })
+}
+
+export function importDevices(formData: FormData) {
+  return request<{ created: number; errors: string[]; total_errors: number }>({
+    url: '/api/v2/devices/import',
+    method: 'POST',
+    data: formData,
+  })
+}
+
+export function createConfigBackup(deviceId: number, formData: FormData) {
+  return request<{ id: number }>({ url: `/api/devices/${deviceId}/config-backup`, method: 'POST', data: formData })
+}
+
+export function deleteConfigBackup(id: number) {
+  return request<null>({ url: `/api/devices/config-backup/${id}/delete`, method: 'POST' })
+}
+
+export function rollbackConfigBackup(id: number) {
+  return request<{ id: number }>({ url: `/api/devices/config-backup/${id}/rollback`, method: 'POST' })
+}
+
+export interface DiffLine {
+  tag: 'equal' | 'delete' | 'insert' | 'replace'
+  line_a: string
+  line_b: string
+}
+
+export function fetchConfigBackupDiff(a: number, b: number) {
+  return request<{ lines: DiffLine[] }>({
+    url: '/api/devices/config-backup/diff',
+    method: 'GET',
+    params: { a, b },
   })
 }
 

@@ -12,17 +12,14 @@
 import os
 import re
 from datetime import date, datetime, timezone, timedelta
-from collections import defaultdict
 
-from flask import (Blueprint, render_template, request, redirect, url_for,
+from flask import (Blueprint, request, redirect, url_for,
                    flash, jsonify, send_from_directory, current_app)
 from flask_login import login_required, current_user
 from sqlalchemy import or_
-from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from models import db, InspectionTask, Customer, User
+from models import db, InspectionTask, User
 from utils.permission import require_permission, has_permission, is_supervisor
-from utils.pagination import paginate, paginate_render_args
 
 
 task_schedule_bp = Blueprint('task_schedule', __name__, url_prefix='/task-schedule')
@@ -297,172 +294,16 @@ def _kpi_counts(tasks):
 @login_required
 @require_permission('task:schedule')
 def index():
-    """看板首页（三视图切换）
-
-    任务自动生成不在此处触发 —— 客户/合同新增时已在各自路由里生成。
-    若需为存量数据补打本年度任务，点页头「回填本年度任务」按钮，
-    即 POST /task-schedule/regenerate 一次性回填。
-    """
-    view = request.args.get('view', 'by-engineer')
-    if view not in ('by-engineer', 'by-status', 'matrix', 'by-customer'):
-        view = 'by-engineer'
-
-    # V18: 默认本季度口径（无 period、无手填日期时自动落到 this_quarter）
-    eff_args, eff_period = _effective_request_args(request.args)
-
-    # DB schema 未同步时（如 actual_effort 列缺失）兜底：flash 提示 + 空列表，避免裸 500
-    try:
-        query = _apply_filters(_base_query(), eff_args)
-        tasks = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc()).all()
-    except (OperationalError, ProgrammingError) as e:
-        current_app.logger.exception('task_schedule 查询失败（可能 schema 未同步）: %s', e)
-        flash('任务安排查询失败——数据库 schema 可能未同步。请管理员运行 '
-              '<code>flask db upgrade</code> 或 <code>sudo bash itsm-admin.sh</code> 选 2(在线更新)。',
-              'danger')
-        tasks = []
-
-    kpi = _kpi_counts(tasks)
-    engineers = _engineers_with_tasks()
-    customers = Customer.query.order_by(Customer.name).all()
-    today = date.today()
-
-    # 分桶：一次遍历同时算任务条数 + 工作量(人天)，供各视图列头并列展示
-    buckets_by_engineer = defaultdict(lambda: defaultdict(list))   # {user_id: {status: [tasks]}}
-    buckets_by_status = defaultdict(list)                          # {status: [tasks]}
-    buckets_by_customer = defaultdict(lambda: defaultdict(list))   # {customer_id: {status: [tasks]}}
-    unassigned = defaultdict(list)                                 # {status: [tasks]}  无负责人
-    overdue_bucket = []
-    effort_by_engineer = defaultdict(float)                        # {user_id: 总人天}
-    effort_by_status = defaultdict(float)                          # {status: 总人天}
-    effort_by_customer = defaultdict(float)                        # {customer_id: 总人天}
-    effort_unassigned = 0.0                                        # 未指派合计人天
-    effort_overdue = 0.0                                           # 逾期合计人天
-    for t in tasks:
-        st = t.status if t.status in ALL_STATUSES else '待执行'
-        eff = t.estimated_effort or 0
-        effort_by_status[st] += eff
-        buckets_by_status[st].append(t)
-        if t.assigned_to_user_id:
-            buckets_by_engineer[t.assigned_to_user_id][st].append(t)
-            effort_by_engineer[t.assigned_to_user_id] += eff
-        else:
-            unassigned[st].append(t)
-            effort_unassigned += eff
-        if t.customer_id:
-            buckets_by_customer[t.customer_id][st].append(t)
-            effort_by_customer[t.customer_id] += eff
-        if is_overdue(t, today):
-            overdue_bucket.append(t)
-            effort_overdue += eff
-
-    # 矩阵（视图③）：engineer × status -> count / effort 两套
-    matrix = {}
-    matrix_effort = {}
-    for u in engineers:
-        bk = buckets_by_engineer[u.id]
-        matrix[u.id] = {s: len(bk[s]) for s in ALL_STATUSES}
-        matrix_effort[u.id] = {s: sum(t.estimated_effort or 0 for t in bk[s]) for s in ALL_STATUSES}
-    matrix_unassigned = {s: len(unassigned[s]) for s in ALL_STATUSES}
-    matrix_unassigned_effort = {s: sum(t.estimated_effort or 0 for t in unassigned[s]) for s in ALL_STATUSES}
-
-    if buckets_by_customer:
-        customers_with_tasks = (Customer.query
-                                .filter(Customer.id.in_(list(buckets_by_customer.keys())))
-                                .order_by(Customer.name).all())
-    else:
-        customers_with_tasks = []
-
-    # 矩阵计量口径：count(条数,默认) / effort(人天)
-    metric = request.args.get('metric', 'count')
-    if metric not in ('count', 'effort'):
-        metric = 'count'
-    # 切换 metric 时保留其他筛选参数（view/metric 除外，模板里另行拼接）
-    from urllib.parse import urlencode
-    metric_qs = urlencode({k: v for k, v in request.args.to_dict(flat=True).items()
-                           if k not in ('metric', 'view')})
-
-    return render_template(
-        'task_schedule/index.html',
-        view=view,
-        tasks=tasks,
-        engineers=engineers,
-        customers=customers,
-        kpi=kpi,
-        today=today,
-        active_statuses=ACTIVE_STATUSES,
-        all_statuses=ALL_STATUSES,
-        status_color=STATUS_COLOR,
-        buckets_by_engineer=buckets_by_engineer,
-        unassigned=unassigned,
-        buckets_by_status=buckets_by_status,
-        overdue_bucket=overdue_bucket,
-        matrix=matrix,
-        matrix_effort=matrix_effort,
-        matrix_unassigned=matrix_unassigned,
-        matrix_unassigned_effort=matrix_unassigned_effort,
-        buckets_by_customer=buckets_by_customer,
-        customers_with_tasks=customers_with_tasks,
-        effort_by_engineer=effort_by_engineer,
-        effort_by_status=effort_by_status,
-        effort_by_customer=effort_by_customer,
-        effort_unassigned=effort_unassigned,
-        effort_overdue=effort_overdue,
-        is_overdue=is_overdue,
-        fmt_effort=_fmt_effort,
-        # 回填筛选条
-        f_engineer=request.args.get('engineer_id', type=int) or 0,
-        f_status=request.args.get('status', ''),
-        f_customer=request.args.get('customer_id', type=int) or 0,
-        f_q=request.args.get('q', ''),
-        f_overdue=request.args.get('overdue', ''),
-        f_start_from=request.args.get('start_from', ''),
-        f_start_to=request.args.get('start_to', ''),
-        f_period=eff_period,
-        f_metric=metric,
-        metric_qs=metric_qs,
-    )
+    """看板首页（SSR 已剥离：302 到 SPA 任务看板）"""
+    return redirect('/app/task-schedule')
 
 
 @task_schedule_bp.route('/list')
 @login_required
 @require_permission('task:schedule')
 def list_view():
-    """扁平表格视图（带分页）"""
-    page = request.args.get('page', 1, type=int)
-    # V18: 默认本季度口径
-    eff_args, eff_period = _effective_request_args(request.args)
-    try:
-        query = _apply_filters(_base_query(), eff_args)
-        query = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc())
-        pag = paginate(query, page=page, per_page=30)
-    except (OperationalError, ProgrammingError) as e:
-        current_app.logger.exception('task_schedule/list 查询失败（可能 schema 未同步）: %s', e)
-        flash('任务安排查询失败——数据库 schema 可能未同步。请管理员运行 '
-              '<code>flask db upgrade</code> 或 <code>sudo bash itsm-admin.sh</code> 选 2(在线更新)。',
-              'danger')
-        pag = paginate(InspectionTask.query.filter(False), page=page, per_page=30)
-
-    engineers = _engineers_with_tasks()
-    customers = Customer.query.order_by(Customer.name).all()
-    today = date.today()
-    return render_template(
-        'task_schedule/list.html',
-        **paginate_render_args(pag),
-        engineers=engineers,
-        customers=customers,
-        all_statuses=ALL_STATUSES,
-        status_color=STATUS_COLOR,
-        today=today,
-        is_overdue=is_overdue,
-        f_engineer=request.args.get('engineer_id', type=int) or 0,
-        f_status=request.args.get('status', ''),
-        f_customer=request.args.get('customer_id', type=int) or 0,
-        f_q=request.args.get('q', ''),
-        f_overdue=request.args.get('overdue', ''),
-        f_start_from=request.args.get('start_from', ''),
-        f_start_to=request.args.get('start_to', ''),
-        f_period=eff_period,
-    )
+    """扁平表格视图（SSR 已剥离：302 到 SPA 任务看板）"""
+    return redirect('/app/task-schedule')
 
 
 # ============================================================
@@ -937,43 +778,11 @@ def batch_delete():
 @task_schedule_bp.route('/<int:task_id>')
 @login_required
 def task_detail(task_id):
-    """任务详情。task:schedule | inspection:view 任一权限均可看。"""
+    """任务详情（SSR 已剥离：302 到 SPA 任务看板）"""
     if not (has_permission('task:schedule') or has_permission('inspection:view')):
         flash('权限不足，需要：任务安排-看板 或 巡检管理-查看', 'danger')
         return redirect(url_for('index'))
-
-    from models import Inspection, Inspector, InspectionTemplate
-    task = InspectionTask.query.get_or_404(task_id)
-
-    # 关联巡检记录
-    records = (Inspection.query.filter_by(task_id=task.id)
-               .order_by(Inspection.id.desc()).all())
-
-    # 老数据兼容：把 inspector_ids 解析成人名（仅展示）
-    inspector_names = []
-    if task.inspector_ids:
-        try:
-            ids = [int(x) for x in task.inspector_ids.split(',') if x.strip()]
-            if ids:
-                inspectors = Inspector.query.filter(Inspector.id.in_(ids)).all()
-                inspector_names = [i.name for i in inspectors if getattr(i, 'name', None)]
-        except (ValueError, AttributeError):
-            inspector_names = []
-
-    template = None
-    if task.template_id:
-        template = InspectionTemplate.query.get(task.template_id)
-
-    return render_template(
-        'task_schedule/detail.html',
-        task=task,
-        records=records,
-        customer=task.customer_rel,
-        template=template,
-        inspector_names=inspector_names,
-        all_statuses=ALL_STATUSES,
-        status_color=STATUS_COLOR,
-    )
+    return redirect('/app/task-schedule')
 
 
 @task_schedule_bp.route('/export')

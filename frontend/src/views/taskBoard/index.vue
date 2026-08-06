@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">任务看板</h2>
@@ -51,14 +51,17 @@
             </div>
             <div class="card-actions">
               <el-button
-                v-if="t.status === '待执行' && user.hasPerm('task:dispatch')" size="small"
-                type="warning" plain @click="changeStatus(t, '执行中')">开始</el-button>
+                v-if="t.status === TASK_STATUS.PENDING && user.hasPerm('task:dispatch')" size="small"
+                type="warning" plain @click="changeStatus(t, TASK_STATUS.RUNNING)">开始</el-button>
               <el-button
-                v-if="t.status === '执行中' && user.hasPerm('task:dispatch')" size="small"
-                type="success" plain @click="changeStatus(t, '已完成')">完成</el-button>
+                v-if="t.status === TASK_STATUS.RUNNING && user.hasPerm('task:dispatch')" size="small"
+                type="success" plain @click="changeStatus(t, TASK_STATUS.DONE)">完成</el-button>
               <el-button
-                v-if="t.status === '待执行' && user.hasPerm('task:dispatch')" size="small"
-                type="info" plain @click="changeStatus(t, '已取消')">取消</el-button>
+                v-if="t.status === TASK_STATUS.PENDING && user.hasPerm('task:dispatch')" size="small"
+                type="info" plain @click="changeStatus(t, TASK_STATUS.CANCELLED)">取消</el-button>
+              <el-button
+                v-if="t.status === TASK_STATUS.REVIEWING && user.hasPerm('task:dispatch')" size="small"
+                type="warning" plain @click="changeStatus(t, TASK_STATUS.RUNNING)">退回执行</el-button>
             </div>
           </div>
           <el-empty v-if="!board?.groups?.[st]?.length" description="暂无任务" :image-size="40" />
@@ -69,10 +72,12 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { TASK_STATUS } from '@/utils/status'
 import {
   fetchTaskBoard, setTaskStatus, fetchTaskBoardDicts, type TaskBoard, type TaskBoardDicts,
 } from '@/api/taskBoard'
@@ -85,10 +90,15 @@ const loading = ref(false)
 const showCancelled = ref(false)
 
 const query = reactive<Record<string, unknown>>({ customer_id: undefined, assignee_id: undefined })
-const statusOrder = ['待执行', '执行中', '已完成']
+const statusOrder = [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]
 
 function statusClass(st: string) {
-  return { 待执行: 'pending', 执行中: 'running', 已完成: 'done' }[st] || ''
+  return {
+    [TASK_STATUS.PENDING]: 'pending',
+    [TASK_STATUS.RUNNING]: 'running',
+    [TASK_STATUS.REVIEWING]: 'reviewing',
+    [TASK_STATUS.DONE]: 'done',
+  }[st] || ''
 }
 
 async function reload() {
@@ -106,6 +116,11 @@ async function reload() {
 }
 
 async function changeStatus(t: { id: number; title: string }, status: string) {
+  if (status === TASK_STATUS.CANCELLED) {
+    try {
+      await ElMessageBox.confirm(`确定取消任务「${t.title}」吗？`, '取消确认', { type: 'warning' })
+    } catch { return }
+  }
   try {
     await setTaskStatus(t.id, status)
     ui.toast(`「${t.title}」已改为 ${status}`, 'success')
@@ -145,6 +160,7 @@ onMounted(() => {
 }
 .col-pending { background: #f56c6c22; color: #f56c6c; }
 .col-running { background: #e6a23c22; color: #e6a23c; }
+.col-reviewing { background: #409eff22; color: #409eff; }
 .col-done { background: #67c23a22; color: #67c23a; }
 .col-count { font-weight: 400; font-size: 12px; }
 .board-col-body {

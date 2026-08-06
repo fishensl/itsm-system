@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="version-timeline">
     <el-empty v-if="!versions.length" description="暂无提交记录" :image-size="50" />
     <el-timeline v-else>
@@ -10,11 +10,11 @@
         :timestamp="`${v.submitted_at} · ${v.submitted_by_name || '-'}`"
         placement="top"
       >
-        <div class="vt-card" :class="{ rejected: v.review_status === '已退回', approved: v.review_status === '已通过' }">
+        <div class="vt-card" :class="{ rejected: v.review_status === REVIEW_STATUS.REJECTED, approved: v.review_status === REVIEW_STATUS.APPROVED }">
           <!-- 提交阶段 -->
           <div class="vt-head">
             <span class="vt-no">第 {{ v.version_no }} 轮提交</span>
-            <el-tag v-if="v.review_status" size="small" :type="REVIEW_TAG[v.review_status] || 'info'">
+            <el-tag v-if="v.review_status" size="small" :type="REVIEW_STATUS_TAG[v.review_status] || 'info'">
               {{ v.review_status }}
             </el-tag>
             <el-tag v-else size="small" type="info">待审核</el-tag>
@@ -87,7 +87,7 @@
                 <el-tag size="small" :type="checkTag(st)" class="vt-check-status">{{ st }}</el-tag>
               </div>
             </div>
-            <template v-if="v.review_status === '已退回'">
+            <template v-if="v.review_status === REVIEW_STATUS.REJECTED">
               <div v-if="v.revision_requirements" class="vt-requirements">
                 <span class="vt-req-label">需要修改：</span>{{ v.revision_requirements }}
               </div>
@@ -104,8 +104,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { Download, View, Share, CircleCheck, CircleClose } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
 import type { SubmissionVersion, SubmissionAsset } from '@/api/inspections'
 import { versionReportUrl, submissionAssetUrl, fetchSubmissionAssetContent } from '@/api/inspections'
 
@@ -147,16 +147,12 @@ function openTopology() {
   window.open(`/app/topologies`, '_blank')
 }
 
-const REVIEW_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  待审核: 'warning',
-  已通过: 'success',
-  已退回: 'danger',
-}
+import { REVIEW_STATUS, REVIEW_STATUS_TAG } from '@/utils/status'
 
 function timelineType(v: SubmissionVersion): 'primary' | 'success' | 'warning' | 'danger' {
-  if (v.review_status === '已通过') return 'success'
-  if (v.review_status === '已退回') return 'danger'
-  if (v.review_status === '待审核') return 'warning'
+  if (v.review_status === REVIEW_STATUS.APPROVED) return 'success'
+  if (v.review_status === REVIEW_STATUS.REJECTED) return 'danger'
+  if (v.review_status === REVIEW_STATUS.PENDING) return 'warning'
   return 'primary'
 }
 

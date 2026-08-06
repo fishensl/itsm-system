@@ -49,13 +49,13 @@ class TestKnowledgeViewCount:
             db.session.commit()
             kb_id = kb.id
 
-        assert op_client.get(f'/knowledge-base/{kb_id}').status_code == 200
-        assert op_client.get(f'/knowledge-base/{kb_id}').status_code == 200
+        assert op_client.get(f'/api/knowledge-base/{kb_id}').status_code == 200
+        assert op_client.get(f'/api/knowledge-base/{kb_id}').status_code == 200
         with app.app_context():
             from models import KnowledgeBase
             assert KnowledgeBase.query.get(kb_id).view_count == 1
 
-        assert viewer_client.get(f'/knowledge-base/{kb_id}').status_code == 200
+        assert viewer_client.get(f'/api/knowledge-base/{kb_id}').status_code == 200
         with app.app_context():
             from models import KnowledgeBase
             assert KnowledgeBase.query.get(kb_id).view_count == 2

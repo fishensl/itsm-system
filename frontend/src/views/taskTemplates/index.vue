@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">任务模板</h2>
@@ -165,8 +165,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import {
   fetchTaskTemplates, createTaskTemplate, updateTaskTemplate, deleteTaskTemplate, matchDeviceTemplates,

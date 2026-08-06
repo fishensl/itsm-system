@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="layout">
     <!-- 移动端抽屉遮罩 -->
     <div
@@ -197,6 +197,30 @@
       <NotificationBell :inline="true" />
     </el-drawer>
 
+    <!-- 修改密码弹窗 -->
+    <el-dialog v-model="pwdVisible" title="修改密码" width="420px" destroy-on-close>
+      <el-form ref="pwdFormRef" :model="pwdForm" label-width="90px">
+        <el-form-item label="原密码" prop="old_password"
+          :rules="[{ required: true, message: '请输入原密码', trigger: 'blur' }]">
+          <el-input v-model="pwdForm.old_password" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码" prop="new_password"
+          :rules="[{ required: true, message: '请输入新密码', trigger: 'blur' },
+                   { min: 6, message: '至少 6 位', trigger: 'blur' }]">
+          <el-input v-model="pwdForm.new_password" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirm"
+          :rules="[{ required: true, message: '请再次输入新密码', trigger: 'blur' },
+                   { validator: confirmValidator, trigger: 'blur' }]">
+          <el-input v-model="pwdForm.confirm" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pwdVisible = false">取消</el-button>
+        <el-button type="primary" :loading="pwdSaving" @click="savePassword">确认修改</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Toast 容器 -->
     <div class="toast-wrap">
       <el-alert
@@ -212,9 +236,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
 import {
   Monitor, Expand, Fold, Menu, ArrowDown, MoonNight, Sunny,
   SwitchButton, HomeFilled, Bell,
@@ -223,6 +247,7 @@ import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { sidebarTarget, isRouteActive } from '@/utils/sidebarNav'
 import { loadOpenGroups, saveOpenGroups, clearOpenGroups } from '@/utils/sidebarState'
+import { changePassword } from '@/api/auth'
 import type { SidebarGroup } from '@/types'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -281,7 +306,41 @@ const handleLogout = async () => {
 
 const onUserCommand = (cmd: string) => {
   if (cmd === 'logout') handleLogout()
-  else if (cmd === 'password') window.location.href = '/me/change_password'
+  else if (cmd === 'password') openPwdDialog()
+}
+
+// 修改密码（SPA 弹窗，替代 /me/change_password 整页跳转）
+const pwdVisible = ref(false)
+const pwdSaving = ref(false)
+const pwdFormRef = ref()
+const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' })
+
+const confirmValidator = (_r: unknown, v: string, cb: (e?: Error) => void) => {
+  if (v === pwdForm.new_password) cb()
+  else cb(new Error('两次输入不一致'))
+}
+
+function openPwdDialog() {
+  pwdForm.old_password = ''
+  pwdForm.new_password = ''
+  pwdForm.confirm = ''
+  pwdVisible.value = true
+}
+
+async function savePassword() {
+  try { await pwdFormRef.value?.validate() } catch { return }
+  pwdSaving.value = true
+  try {
+    await changePassword(pwdForm.old_password, pwdForm.new_password)
+    ui.toast('密码已修改，请重新登录', 'success')
+    pwdVisible.value = false
+    await user.logout()
+    router.push('/login')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    pwdSaving.value = false
+  }
 }
 
 /** 当前路由所在分组（用于首次进入自动展开） */

@@ -82,3 +82,20 @@ class SalesOrder(db.Model):
     customer_rel = db.relationship('Customer', backref='sales_orders')
 
 
+class StockMovement(db.Model):
+    """库存流水（单一账本：采购/销售/冲销/盘点调整全部走此表，来源可追溯）"""
+    __tablename__ = 'stock_movements'
+    id = db.Column(db.Integer, primary_key=True)
+    spare_part_id = db.Column(db.Integer, db.ForeignKey('spare_parts.id'), nullable=False, index=True)
+    movement_type = db.Column(db.String(16), nullable=False)  # purchase/sales/purchase_cancel/sales_cancel/adjust
+    quantity = db.Column(db.Integer, default=0)                # 正=入库 负=出库
+    balance_after = db.Column(db.Integer, default=0)           # 变动后该备件总库存
+    location = db.Column(db.String(128), default='')
+    source_id = db.Column(db.Integer, default=None)            # 关联单据 id（采购/销售/库存行）
+    operator = db.Column(db.String(64), default='')
+    remark = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    spare_part_rel = db.relationship('SparePart', backref='movements')
+
+

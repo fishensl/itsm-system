@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">单位类别</h2>
@@ -41,8 +41,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, type CategoryItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'

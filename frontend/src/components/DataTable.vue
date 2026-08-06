@@ -195,6 +195,9 @@ const pageSize = ref(20)
 const loading = ref(false)
 const isMobile = ref(false)
 
+// 筛选变化防抖：文本输入击键不立即发请求，避免每敲一键一次 API 调用
+let queryTimer: ReturnType<typeof setTimeout> | null = null
+
 const titleCol = computed(() => props.columns.find((c) => c.asTitle))
 const tagCol = computed(() => props.columns.find((c) => c.asTag))
 const actionCol = computed(() => props.columns.find((c) => c.type === 'action'))
@@ -257,7 +260,14 @@ function refresh() {
   load()
 }
 
-watch(() => props.query, refresh, { deep: true })
+watch(
+  () => props.query,
+  () => {
+    if (queryTimer) clearTimeout(queryTimer)
+    queryTimer = setTimeout(() => refresh(), 250)
+  },
+  { deep: true },
+)
 
 const mq = window.matchMedia('(max-width: 767px)')
 function onMq(e: MediaQueryListEvent | MediaQueryList) {
@@ -270,7 +280,10 @@ onMounted(() => {
   if (props.immediate) load()
 })
 
-onBeforeUnmount(() => mq.removeEventListener('change', onMq))
+onBeforeUnmount(() => {
+  mq.removeEventListener('change', onMq)
+  if (queryTimer) clearTimeout(queryTimer)
+})
 
 defineExpose({ refresh, load })
 

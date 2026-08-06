@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">AI 对接</h2>
@@ -8,6 +8,9 @@
         </el-button>
       </div>
     </div>
+
+    <el-alert type="info" :closable="false" class="ai-note" show-icon
+      title="当前为 AI 配置管理：支持连通性测试，业务能力（巡检/故障智能分析）预留待启用" />
 
     <el-card v-loading="loading" shadow="never">
       <div class="cfg-grid">
@@ -83,8 +86,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import {
   fetchAiConfigs, createAiConfig, updateAiConfig, deleteAiConfig, testAiConfig, type AiConfigItem,

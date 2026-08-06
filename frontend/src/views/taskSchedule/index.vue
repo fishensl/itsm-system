@@ -51,7 +51,7 @@
       <span>已选 {{ selectedIds.length }} 项</span>
       <el-select v-model="batchStatus" placeholder="批量改状态" size="small" style="width: 140px"
         @change="runBatch('status', batchStatus)">
-        <el-option v-for="s in ['待执行', '执行中', '已完成', '已取消']" :key="s" :label="s" :value="s" />
+        <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
       </el-select>
       <el-select v-model="batchAssignee" placeholder="批量指派" clearable filterable size="small" style="width: 160px"
         @change="runBatch('assign', batchAssignee)">
@@ -63,7 +63,7 @@
 
     <!-- 按状态视图 -->
     <div v-if="data?.view === 'status'" class="board-cols">
-      <div v-for="st in ['待执行', '执行中', '待审核', '已完成']" :key="st" class="board-col">
+      <div v-for="st in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
         <div class="col-head" :class="`col-${st}`">
           {{ st }}
           <span class="col-count">{{ data.status_groups?.[st]?.length || 0 }}</span>
@@ -183,7 +183,7 @@
           <el-form-item label="状态">
             <el-select v-if="detail.status !== '待审核'" :model-value="detail.status" size="small" style="width: 160px"
               @change="(v: string) => quickUpdate({ status: v })">
-              <el-option v-for="s in ['待执行', '执行中', '已完成', '已取消']" :key="s" :label="s" :value="s" />
+              <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
             </el-select>
             <el-tag v-else size="small" type="warning">待审核（报告审核中，不可手工改状态）</el-tag>
           </el-form-item>
@@ -357,12 +357,14 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox, type UploadFile } from 'element-plus'
 import { Plus, Search, Download, Upload, UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
+  fetchRequiredAssets,
   type TaskScheduleData, type TaskScheduleItem,
 } from '@/api/taskSchedule'
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
@@ -370,6 +372,8 @@ import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskR
 import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { TASK_STATUS, REVIEW_STATUS, REVIEW_STATUS_TAG } from '@/utils/status'
+const REVIEW_TAG = REVIEW_STATUS_TAG
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -427,32 +431,26 @@ function assetLabel(key: string) {
 }
 const uploadHint = computed(() => {
   const st = detail.value?.status
-  if (st === '待审核') return '任务正在审核中，请等待审核结果后再上传'
-  if (st === '已完成') return '任务已完成，如需补充请先改回执行中'
-  if (st === '已取消') return '任务已取消，不可上传'
-  if (record.value?.review_status === '待审核') return '已有报告在审核中，请等待审核结果'
+  if (st === TASK_STATUS.REVIEWING) return '任务正在审核中，请等待审核结果后再上传'
+  if (st === TASK_STATUS.DONE) return '任务已完成，如需补充请先改回执行中'
+  if (st === TASK_STATUS.CANCELLED) return '任务已取消，不可上传'
+  if (record.value?.review_status === REVIEW_STATUS.PENDING) return '已有报告在审核中，请等待审核结果'
   return ''
 })
 const canUpload = computed(() =>
   user.hasPerm('inspection:edit') && !!detail.value &&
-  ['待执行', '执行中', '待审核'].includes(detail.value.status),
+  ([TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING] as string[]).includes(detail.value.status),
 )
-const REVIEW_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
-  草稿: 'info',
-  待审核: 'warning',
-  已通过: 'success',
-  已退回: 'danger',
-}
 
 const kpiCards = computed(() => {
   const k = data.value?.kpi
   if (!k) return []
   return [
     { key: 'total', label: '总任务', value: k.total, cls: '' },
-    { key: 'pending', label: '待执行', value: k.pending, cls: 'warning' },
-    { key: 'running', label: '执行中', value: k.running, cls: 'primary' },
-    { key: 'reviewing', label: '待审核', value: k.reviewing, cls: 'info' },
-    { key: 'done', label: '已完成', value: k.done, cls: 'success' },
+    { key: 'pending', label: TASK_STATUS.PENDING, value: k.pending, cls: 'warning' },
+    { key: 'running', label: TASK_STATUS.RUNNING, value: k.running, cls: 'primary' },
+    { key: 'reviewing', label: TASK_STATUS.REVIEWING, value: k.reviewing, cls: 'info' },
+    { key: 'done', label: TASK_STATUS.DONE, value: k.done, cls: 'success' },
     { key: 'overdue', label: '逾期', value: k.overdue, cls: 'danger' },
     { key: 'est', label: '预估人天', value: k.est_effort, cls: '' },
     { key: 'act', label: '实际人天', value: k.act_effort, cls: '' },
@@ -576,13 +574,10 @@ function openUpload() {
   Object.assign(skipReasons, { report: '', config_zip: '', config_text: '', topology: '', asset_list: '' })
   uploadVisible.value = true
   if (detail.value) {
-    fetch(`/api/task-schedule/${detail.value.id}/required-assets`)
-      .then((r) => r.json())
-      .then((body) => {
-        if (body?.code === 0) {
-          requiredAssets.value = body.data.required_assets || {}
-          devices.value = body.data.devices || []
-        }
+    fetchRequiredAssets(detail.value.id)
+      .then((data) => {
+        requiredAssets.value = data.required_assets as unknown as Record<string, boolean>
+        devices.value = data.devices
       })
       .catch(() => { /* toast */ })
   }

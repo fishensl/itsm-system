@@ -1,8 +1,46 @@
 # -*- coding: utf-8 -*-
 """SparePart 备件业务服务 + 库存/采购/销售订单"""
 from datetime import datetime
-from models import db, SparePart, SpareStock, PurchaseOrder, SalesOrder
+from models import db, SparePart, SpareStock, PurchaseOrder, SalesOrder, StockMovement
 from .base import ServiceError, transaction
+
+
+def _record_movement(spare_part_id, movement_type, quantity, operator,
+                     balance_after=None, location='', source_id=None, remark=''):
+    """写库存流水（随外层事务提交）。quantity 正=入库 负=出库。"""
+    if not spare_part_id:
+        return
+    if balance_after is None:
+        balance_after = sum((s.quantity or 0) for s in
+                            SpareStock.query.filter_by(spare_part_id=spare_part_id).all())
+    db.session.add(StockMovement(
+        spare_part_id=spare_part_id, movement_type=movement_type,
+        quantity=quantity, balance_after=balance_after,
+        location=location, source_id=source_id,
+        operator=operator or '', remark=remark or '',
+    ))
+
+
+def _check_low_stock(spare_id, current_user_name):
+    """低库存预警：低于 min_stock 时通知 admin 角色用户（失败不阻断）"""
+    try:
+        p = SparePart.query.get(spare_id)
+        if not p or not p.min_stock:
+            return
+        total = sum((s.quantity or 0) for s in
+                    SpareStock.query.filter_by(spare_part_id=spare_id).all())
+        if total < p.min_stock:
+            from models import User
+            admins = User.query.filter_by(role='admin', is_active=True).all()
+            from utils.notifications import notify
+            for u in admins:
+                notify(u.id, 'spare', f'备件库存预警：{p.name}',
+                       f'当前库存 {total}{p.unit or "个"}，低于预警值 {p.min_stock}{p.unit or "个"}',
+                       '/app/spare-parts?tab=stocks')
+    except Exception:
+        db.session.rollback()
+        from flask import current_app
+        current_app.logger.warning('低库存预警通知失败 spare_id=%s', spare_id)
 
 
 @transaction
@@ -92,8 +130,13 @@ def create_purchase_order(data, current_user_name):
     stock = SpareStock.query.filter_by(spare_part_id=int(spare_id)).first()
     if stock:
         stock.quantity = (stock.quantity or 0) + qty
+        _record_movement(int(spare_id), 'purchase', qty, current_user_name,
+                         source_id=po.id, location=stock.location or '', remark='采购入库')
     else:
-        db.session.add(SpareStock(spare_part_id=int(spare_id), quantity=qty, location=data.get('location', '默认库位')))
+        loc = data.get('location', '默认库位')
+        db.session.add(SpareStock(spare_part_id=int(spare_id), quantity=qty, location=loc))
+        _record_movement(int(spare_id), 'purchase', qty, current_user_name,
+                         source_id=po.id, location=loc, remark='采购入库')
     return po
 
 
@@ -134,6 +177,8 @@ def create_sales_order(data, current_user_name):
         take = min(st.quantity, remaining)
         st.quantity -= take
         remaining -= take
+    _record_movement(int(spare_id), 'sales', -qty, current_user_name,
+                     source_id=so.id, remark='销售出库')
     return so
 
 
@@ -147,6 +192,8 @@ def delete_purchase_order(po_id):
             .order_by(SpareStock.id).with_for_update().first()
         if stock:
             stock.quantity = max(0, (stock.quantity or 0) - qty)
+        _record_movement(po.spare_part_id, 'purchase_cancel', -qty, '系统',
+                         source_id=po.id, remark='删除采购单冲销')
     db.session.delete(po)
 
 
@@ -162,4 +209,19 @@ def delete_sales_order(so_id):
             stock.quantity = (stock.quantity or 0) + qty
         else:
             db.session.add(SpareStock(spare_part_id=so.spare_part_id, quantity=qty, location='默认库位'))
+        _record_movement(so.spare_part_id, 'sales_cancel', qty, '系统',
+                         source_id=so.id, remark='删除销售单回补')
     db.session.delete(so)
+
+
+def adjust_stock(stock_id, new_quantity, operator, remark=''):
+    """盘点调整：直接改库存并记录流水（替代原蓝图内裸改 quantity）"""
+    stock = SpareStock.query.get_or_404(stock_id)
+    delta = int(new_quantity) - (stock.quantity or 0)
+    if delta == 0:
+        return stock
+    stock.quantity = int(new_quantity)
+    _record_movement(stock.spare_part_id, 'adjust', delta, operator,
+                     location=stock.location or '', source_id=stock.id,
+                     remark=remark or '库存盘点调整')
+    return stock

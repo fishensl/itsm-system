@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">拓扑图</h2>
@@ -146,8 +146,8 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted, type Component } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Search, EditPen, Plus, Fold, Picture, Document, Files } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -185,15 +185,13 @@ const loading = ref(false)
 async function loadAll() {
   loading.value = true
   try {
-    const all: TopologyItem[] = []
-    const pageSize = 100
-    let page = 1
-    for (;;) {
-      const res = await fetchTopologies({ search: query.search, page, page_size: pageSize })
-      all.push(...res.items)
-      if (all.length >= res.total) break
-      page++
-    }
+    const first = await fetchTopologies({ search: query.search, page: 1, page_size: 100 })
+    const pageCount = Math.max(1, Math.ceil(first.total / 100))
+    const pages = await Promise.all(
+      Array.from({ length: pageCount - 1 }, (_, i) =>
+        fetchTopologies({ search: query.search, page: i + 2, page_size: 100 })),
+    )
+    const all = [first, ...pages].flatMap((res) => res.items)
     const map = new Map<string, TopologyItem[]>()
     for (const item of all) {
       const key = item.customer_name

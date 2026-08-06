@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">销售管线</h2>
@@ -113,14 +113,14 @@
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :sm="12">
-                  <el-form-item label="客户">
+                  <el-form-item label="客户" prop="customer_id" :rules="{ required: true, message: '请选择客户', trigger: 'change' }">
                     <el-select v-model="quotForm.customer_id" filterable clearable class="w-full">
                       <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
                     </el-select>
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :sm="12">
-                  <el-form-item label="总金额">
+                  <el-form-item label="总金额" prop="total_amount" :rules="{ required: true, message: '请输入总金额', trigger: 'change' }">
                     <el-input-number v-model="quotForm.total_amount" :min="0" :precision="2" class="w-full" />
                   </el-form-item>
                 </el-col>
@@ -138,6 +138,21 @@
                   </el-form-item>
                 </el-col>
               </el-row>
+              <!-- 报价明细行（联动总金额） -->
+              <el-form-item label="报价明细">
+                <div class="quot-items">
+                  <div v-for="(it, idx) in quotForm.items" :key="idx" class="quot-item-row">
+                    <el-input v-model="it.name" placeholder="品名" size="small" style="flex: 2" />
+                    <el-input-number v-model="it.quantity" :min="0" size="small" style="width: 110px" />
+                    <el-input-number v-model="it.unit_price" :min="0" :precision="2" size="small"
+                      style="width: 130px" />
+                    <span class="quot-item-amount">¥{{ fmtMoney(it.quantity * it.unit_price) }}</span>
+                    <el-button size="small" text type="danger" :icon="Delete" @click="removeQuotItem(idx)" />
+                  </div>
+                  <el-button size="small" plain :icon="Plus" @click="addQuotItem">添加明细行</el-button>
+                  <div class="quot-item-total">合计：¥{{ fmtMoney(quotItemsTotal) }}</div>
+                </div>
+              </el-form-item>
             </el-form>
             <template #footer>
               <el-button @click="quotFormVisible = false">取消</el-button>
@@ -333,10 +348,10 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Delete } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -496,6 +511,7 @@ interface QuotFormModel {
   total_amount: number
   valid_until: string
   status: string
+  items: Array<{ name: string; quantity: number; unit_price: number }>
 }
 
 const quotFormVisible = ref(false)
@@ -505,12 +521,27 @@ const quotForm = reactive<QuotFormModel>(blankQuotForm())
 function blankQuotForm(): QuotFormModel {
   return {
     id: undefined, number: '', opportunity_id: null, customer_id: null,
-    total_amount: 0, valid_until: '', status: '草稿',
+    total_amount: 0, valid_until: '', status: '草稿', items: [],
   }
 }
 
+function fmtMoney(v: number) {
+  return Number(v || 0).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+const quotItemsTotal = computed(() =>
+  (quotForm.items || []).reduce((s, it) => s + (it.quantity || 0) * (it.unit_price || 0), 0))
+
+function addQuotItem() {
+  quotForm.items.push({ name: '', quantity: 1, unit_price: 0 })
+}
+
+function removeQuotItem(idx: number) {
+  quotForm.items.splice(idx, 1)
+}
+
 function openQuotCreate() {
-  Object.assign(quotForm, blankQuotForm())
+  Object.assign(quotForm, blankQuotForm(), { items: [] })
   quotFormVisible.value = true
 }
 
@@ -518,11 +549,17 @@ function openQuotEdit(q: Quotation) {
   Object.assign(quotForm, blankQuotForm(), {
     id: q.id, number: q.number, opportunity_id: q.opportunity_id, customer_id: q.customer_id,
     total_amount: q.total_amount, valid_until: q.valid_until, status: q.status || '草稿',
+    items: (q.items || []).map((it) => ({
+      name: it.name || '', quantity: Number(it.quantity || 0), unit_price: Number(it.unit_price || 0),
+    })),
   })
   quotFormVisible.value = true
 }
 
 async function saveQuot() {
+  try { await quotFormRef.value?.validate() } catch { return }
+  // 明细行合计自动覆盖总金额（无明细时保留手动值）
+  if (quotItemsTotal.value > 0) quotForm.total_amount = quotItemsTotal.value
   saving.value = true
   try {
     if (quotForm.id) {

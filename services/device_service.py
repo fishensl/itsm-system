@@ -132,7 +132,9 @@ def delete_device(device_id):
     """删除设备（清理关联的密码历史、凭据、接口、配置备份、采集任务；置空工单/上架的设备引用）"""
     d = Device.query.get_or_404(device_id)
     from models import (PasswordHistory, DeviceCredential, DeviceInterface,
-                        DeviceConfigBackup, DeviceCollectTask, Ticket, RackInstall)
+                        DeviceConfigBackup, DeviceCollectTask, Ticket, RackInstall,
+                        InspectionTask)
+    from utils.json_fields import parse_json, dumps_json
     PasswordHistory.query.filter_by(device_id=device_id).delete()
     DeviceCredential.query.filter_by(device_id=device_id).delete()
     DeviceInterface.query.filter_by(device_id=device_id).delete()
@@ -140,7 +142,25 @@ def delete_device(device_id):
     DeviceCollectTask.query.filter_by(device_id=device_id).delete()
     # 置空可空外键引用，避免悬挂外键（SQLite 默认不强制 FK）
     Ticket.query.filter_by(related_device_id=device_id).update({'related_device_id': None})
-    RackInstall.query.filter_by(device_id=device_id).update({'device_id': None})
+    # 上架记录：快照设备信息，机柜仍保留占位（避免渲染为"(未命名)"）
+    for ri in RackInstall.query.filter_by(device_id=device_id).all():
+        ri.device_id = None
+        if not ri.manual_name:
+            ri.manual_name = d.device_name
+        if not ri.manual_brand:
+            ri.manual_brand = d.brand or ''
+        if not ri.manual_model:
+            ri.manual_model = d.model or ''
+        if not ri.manual_ip:
+            ri.manual_ip = d.ip_address or ''
+    # 巡检任务 device_ids_json 剔除该设备 id
+    for t in InspectionTask.query.filter(InspectionTask.device_ids_json.isnot(None)).all():
+        try:
+            ids = [x for x in parse_json(t.device_ids_json, [], 'task.device_ids_json')
+                   if isinstance(x, int) and x != device_id]
+        except (TypeError, ValueError):
+            continue
+        t.device_ids_json = dumps_json(ids)
     cid = d.customer_id
     db.session.delete(d)
     return cid

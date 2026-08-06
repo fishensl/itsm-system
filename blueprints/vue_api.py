@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Vue SPA 专用 API 蓝图（/api/*）
 
 设计约束：
@@ -70,6 +70,7 @@ _ICON_MAP = {
     'bi-sliders': 'Operation', 'bi-wrench-adjustable': 'Tools', 'bi-key': 'Key',
     'bi-shield-lock': 'Lock', 'bi-database': 'Coin', 'bi-robot': 'Cpu', 'bi-hdd-network': 'Monitor',
     'bi-people-fill': 'UserFilled', 'bi-chat-dots': 'ChatDotRound', 'bi-clipboard-check': 'Finished',
+    'bi-kanban': 'Files',
 }
 
 
@@ -117,6 +118,25 @@ def api_logout():
 @login_required
 def api_me():
     return ok(_user_payload(current_user))
+
+
+@vue_api_bp.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+    """自助改密（SPA 弹窗）：校验旧密码 + 新密码强度，成功后强制重新登录"""
+    data = request.get_json(silent=True) or {}
+    old_pwd = data.get('old_password') or ''
+    new_pwd = data.get('new_password') or ''
+    if not current_user.check_password(old_pwd):
+        return fail('原密码不正确', 400)
+    if len(new_pwd) < 6:
+        return fail('新密码长度至少 6 位', 400)
+    current_user.set_password(new_pwd)
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('user:change_password', 'user', current_user.id, f'用户 {current_user.username} 自助修改密码')
+    logout_user()
+    return ok(None)
 
 
 def _user_payload(user):
@@ -215,7 +235,7 @@ def api_dashboard_overview():
                 'type_label': '工单', 'type_color': 'danger',
                 'title': t.title,
                 'sub': f"{customer_map.get(t.customer_id, '-')} · {t.priority} · {t.status}",
-                'url': f'/tickets/{t.id}',
+                'url': f'/app/tickets/{t.id}',
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
             })
         # V21: 巡检待办按 assigned_to_user_id 匹配（弃用旧 inspector_ids 双轨）；
@@ -229,7 +249,7 @@ def api_dashboard_overview():
                 'type_label': '巡检', 'type_color': 'primary',
                 'title': t.title,
                 'sub': f"{customer_map.get(t.customer_id, '-')} · {t.status} · {t.task_type}",
-                'url': f'/task-schedule/{t.id}',
+                'url': '/app/task-schedule',
                 'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' +
                         (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
             })
@@ -239,7 +259,7 @@ def api_dashboard_overview():
                 'type_label': '故障', 'type_color': 'warning',
                 'title': f.title,
                 'sub': f"{customer_map.get(f.customer_id, '-')} · {f.fault_type or '-'}",
-                'url': f'/faults/{f.id}',
+                'url': '/app/faults',
                 'time': f.fault_time.strftime('%m-%d %H:%M') if f.fault_time else '',
             })
     elif role == 'sales':
@@ -252,7 +272,7 @@ def api_dashboard_overview():
                 'type_label': '商机', 'type_color': 'primary',
                 'title': o.title,
                 'sub': f"{customer_map.get(o.customer_id, '-')} · {o.stage} · {o.expected_amount or 0}",
-                'url': '/opportunities',
+                'url': '/app/sales?tab=opps',
                 'time': o.expected_close_date.strftime('%Y-%m-%d') if o.expected_close_date else '-',
             })
         my_contracts = Contract.query.filter(Contract.status == '执行中') \
@@ -262,7 +282,7 @@ def api_dashboard_overview():
                 'type_label': '合同', 'type_color': 'success',
                 'title': c.title,
                 'sub': f"{customer_map.get(c.customer_id, '-')} · {c.amount or 0}",
-                'url': '/contracts',
+                'url': '/app/sales?tab=contracts',
                 'time': c.end_date.strftime('%Y-%m-%d') if c.end_date else '-',
             })
     my_tasks = my_tasks[:8]
@@ -310,34 +330,34 @@ def api_dashboard_overview():
     # ---- 快捷入口 ----
     if role == 'admin':
         quick_entries = [
-            {'url': '/customers', 'title': '客户管理', 'sub': '客户信息维护', 'icon': 'bi-people'},
-            {'url': '/devices', 'title': '设备管理', 'sub': '设备档案与密码', 'icon': 'bi-hdd-rack'},
-            {'url': '/tickets', 'title': '工单管理', 'sub': '派单/接单/处理', 'icon': 'bi-ticket-detailed'},
-            {'url': '/knowledge-base', 'title': '知识库', 'sub': '故障案例与手册', 'icon': 'bi-book'},
-            {'url': '/users', 'title': '用户管理', 'sub': '账号与角色', 'icon': 'bi-people-fill'},
+            {'url': '/app/customers', 'title': '客户管理', 'sub': '客户信息维护', 'icon': 'bi-people'},
+            {'url': '/app/devices', 'title': '设备管理', 'sub': '设备档案与密码', 'icon': 'bi-hdd-rack'},
+            {'url': '/app/tickets', 'title': '工单管理', 'sub': '派单/接单/处理', 'icon': 'bi-ticket-detailed'},
+            {'url': '/app/knowledge-base', 'title': '知识库', 'sub': '故障案例与手册', 'icon': 'bi-book'},
+            {'url': '/app/system/users', 'title': '用户管理', 'sub': '账号与角色', 'icon': 'bi-people-fill'},
         ]
     elif role == 'operator':
         quick_entries = [
-            {'url': '/devices', 'title': '设备管理', 'sub': '设备档案', 'icon': 'bi-hdd-rack'},
-            {'url': '/tickets', 'title': '工单处理', 'sub': '我的工单', 'icon': 'bi-ticket-detailed'},
-            {'url': '/task-schedule/', 'title': '任务安排', 'sub': '执行计划巡检', 'icon': 'bi-calendar3-week'},
-            {'url': '/inspections', 'title': '巡检记录', 'sub': '提交巡检报告', 'icon': 'bi-clipboard-check'},
-            {'url': '/knowledge-base', 'title': '知识库', 'sub': '快速查询', 'icon': 'bi-book'},
+            {'url': '/app/devices', 'title': '设备管理', 'sub': '设备档案', 'icon': 'bi-hdd-rack'},
+            {'url': '/app/tickets', 'title': '工单处理', 'sub': '我的工单', 'icon': 'bi-ticket-detailed'},
+            {'url': '/app/task-schedule', 'title': '任务安排', 'sub': '执行计划巡检', 'icon': 'bi-calendar3-week'},
+            {'url': '/app/inspections', 'title': '巡检记录', 'sub': '提交巡检报告', 'icon': 'bi-clipboard-check'},
+            {'url': '/app/knowledge-base', 'title': '知识库', 'sub': '快速查询', 'icon': 'bi-book'},
         ]
     elif role == 'sales':
         quick_entries = [
-            {'url': '/customers', 'title': '客户管理', 'sub': '客户信息', 'icon': 'bi-people'},
-            {'url': '/opportunities', 'title': '商机跟进', 'sub': '阶段推进', 'icon': 'bi-lightbulb'},
-            {'url': '/quotations', 'title': '报价单', 'sub': '生成报价', 'icon': 'bi-file-earmark-text'},
-            {'url': '/contracts', 'title': '合同管理', 'sub': '合同执行', 'icon': 'bi-file-earmark-lock'},
-            {'url': '/projects', 'title': '项目管理', 'sub': '项目进度', 'icon': 'bi-graph-up'},
+            {'url': '/app/customers', 'title': '客户管理', 'sub': '客户信息', 'icon': 'bi-people'},
+            {'url': '/app/sales?tab=opps', 'title': '商机跟进', 'sub': '阶段推进', 'icon': 'bi-lightbulb'},
+            {'url': '/app/sales?tab=quotations', 'title': '报价单', 'sub': '生成报价', 'icon': 'bi-file-earmark-text'},
+            {'url': '/app/sales?tab=contracts', 'title': '合同管理', 'sub': '合同执行', 'icon': 'bi-file-earmark-lock'},
+            {'url': '/app/sales?tab=projects', 'title': '项目管理', 'sub': '项目进度', 'icon': 'bi-graph-up'},
         ]
     else:
         quick_entries = [
-            {'url': '/customers', 'title': '客户管理', 'sub': '查看客户', 'icon': 'bi-people'},
-            {'url': '/devices', 'title': '设备管理', 'sub': '查看设备', 'icon': 'bi-hdd-rack'},
-            {'url': '/tickets', 'title': '工单管理', 'sub': '查看工单', 'icon': 'bi-ticket-detailed'},
-            {'url': '/knowledge-base', 'title': '知识库', 'sub': '查看知识', 'icon': 'bi-book'},
+            {'url': '/app/customers', 'title': '客户管理', 'sub': '查看客户', 'icon': 'bi-people'},
+            {'url': '/app/devices', 'title': '设备管理', 'sub': '查看设备', 'icon': 'bi-hdd-rack'},
+            {'url': '/app/tickets', 'title': '工单管理', 'sub': '查看工单', 'icon': 'bi-ticket-detailed'},
+            {'url': '/app/knowledge-base', 'title': '知识库', 'sub': '查看知识', 'icon': 'bi-book'},
         ]
 
     # 设备类型分布
@@ -469,6 +489,175 @@ def api_device_list():
     })
 
 
+@vue_api_bp.route('/api/v2/devices/export', methods=['POST'])
+@login_required
+@require_permission('device:view')
+def api_v2_device_export():
+    """设备导出（JSON：base64 返回，与 SSR 导出同源；密码列仅 device:reveal 权限）"""
+    import base64
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from utils.permission import has_permission
+    from models import Device as _D, Customer as _C
+    data = request.get_json(silent=True) or {}
+    search = (data.get('search') or '').strip()
+    customer_id = data.get('customer_id')
+    with_password = bool(data.get('with_password')) and has_permission('device:reveal')
+    q = _D.query
+    if search:
+        q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
+                     _D.brand.contains(search))
+    if customer_id:
+        q = q.filter(_D.customer_id == int(customer_id))
+    devices = q.order_by(_D.id.desc()).all()
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    headers = ['所属客户', '设备名称', '设备类型', '品牌', '型号', '序列号', 'IP地址', '端口',
+               '登录用户名', '登录密码', '授权截止日期', '授权开始日期', '登录方式', '安装位置',
+               '系统版本', '规则库版本', '是否维修', '是否在用', '剩余天数', '备注']
+    from utils.crypto import decrypt_password
+    rows = []
+    for d in devices:
+        rows.append([
+            customer_map.get(d.customer_id, ''), d.device_name, d.device_type or '',
+            d.brand or '', d.model or '', d.serial_number or '', d.ip_address, d.port or 22,
+            d.username or '', decrypt_password(d.password_encrypted) if (d.password_encrypted and with_password) else '',
+            d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
+            d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
+            d.login_method or '', d.location or '', d.os_version or '', d.rule_version or '',
+            '是' if d.is_maintenance else '否', '是' if d.is_in_use else '否',
+            (d.license_expiry - _date.today()).days if d.license_expiry else '', d.remark or '',
+        ])
+    if with_password:
+        current_app.logger.info('密码导出审计(Vue): 用户[%s] 导出含明文密码的设备清单(%d台), IP=%s',
+                                current_user.username, len(devices), request.remote_addr)
+    tmp_path, download_name = export_xlsx(headers, rows, f'设备导出_{_date.today().isoformat()}.xlsx',
+                                          sheet_name='设备信息')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
+@vue_api_bp.route('/api/v2/devices/import', methods=['POST'])
+@login_required
+@require_permission('device:add')
+def api_v2_device_import():
+    """设备批量导入（multipart import_file；与 SSR 导入同字段映射）"""
+    from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from services.device_service import _parse_date
+    from utils.crypto import encrypt_password as _ep
+    from models import Device as _D, Customer as _C
+    if 'import_file' not in request.files:
+        return fail('请选择要导入的 Excel 文件', 400)
+    f = request.files['import_file']
+    ALLOWED_EXCEL_EXT = {'.xlsx', '.xls'}
+    ok_flag, err, _ = validate_upload(f, ALLOWED_EXCEL_EXT, max_size_mb=20)
+    if not ok_flag:
+        return fail(err, 400)
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    created = 0
+    errors = []
+    try:
+        wb, ws, err2 = open_excel(tmp, app=current_app)
+        if err2:
+            return fail(err2[0], 400)
+        header_row = [cell.value for cell in ws[1]]
+        col_map = {}
+        for idx, h in enumerate(header_row):
+            if h:
+                col_map[str(h).strip()] = idx
+        field_mapping = {
+            '所属客户': 'customer_name', '设备名称': 'device_name', '设备类型': 'device_type',
+            '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
+            '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
+            '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method',
+            '安装位置': 'location', '系统版本': 'os_version', '规则库版本': 'rule_version',
+            '备注': 'remark', '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
+        }
+        customers = {c.name: c for c in _C.query.all()}
+        new_devices = []
+        for row_idx in range(2, ws.max_row + 1):
+            row_data = {}
+            for cn, idx in col_map.items():
+                val = ws.cell(row=row_idx, column=idx + 1).value
+                field = field_mapping.get(cn)
+                if field:
+                    row_data[field] = str(val).strip() if val else ''
+            device_name = row_data.get('device_name', '')
+            if not device_name:
+                errors.append(f'第{row_idx}行：设备名称为空，跳过')
+                continue
+            customer = customers.get(row_data.get('customer_name', '')) if row_data.get('customer_name') else None
+            if row_data.get('customer_name') and not customer:
+                errors.append(f'第{row_idx}行：客户 "{row_data["customer_name"]}" 不存在，已跳过')
+                continue
+            try:
+                plain_password = row_data.get('password', '')
+                new_devices.append(_D(
+                    customer_id=customer.id if customer else None,
+                    device_name=device_name, device_type=row_data.get('device_type', ''),
+                    brand=row_data.get('brand', ''), model=row_data.get('model', ''),
+                    serial_number=row_data.get('serial_number', ''),
+                    ip_address=row_data.get('ip_address', ''),
+                    port=int(row_data.get('port', 22)) if row_data.get('port') else 22,
+                    username=row_data.get('username', ''),
+                    password_encrypted=_ep(plain_password) if plain_password else '',
+                    login_method=row_data.get('login_method', ''),
+                    os_version=row_data.get('os_version', ''), rule_version=row_data.get('rule_version', ''),
+                    is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
+                    is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
+                    license_expiry=_parse_date(row_data.get('license_expiry')),
+                    license_start=_parse_date(row_data.get('license_start')),
+                    remark=row_data.get('remark', ''),
+                ))
+            except Exception as e:
+                errors.append(f'第{row_idx}行（{device_name}）：{e}')
+        if new_devices:
+            try:
+                db.session.add_all(new_devices)
+                db.session.commit()
+                created = len(new_devices)
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.exception('设备批量导入(Vue)提交失败: %s', e)
+                errors.append(f'批量提交失败：{e}')
+    finally:
+        cleanup_temp_file(tmp)
+    return ok({'created': created, 'errors': errors[:20], 'total_errors': len(errors)})
+
+
+@vue_api_bp.route('/api/devices/<int:device_id>/related', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_related(device_id):
+    """设备反向关联：关联工单（related_device_id）+ 巡检记录（任务 device_ids_json 反查）"""
+    from models import Ticket as _TK, InspectionTask as _IT, Inspection as _IC
+    tickets = [{'id': t.id, 'number': t.number, 'title': t.title, 'status': t.status,
+                'created_at': t.created_at.strftime('%Y-%m-%d') if t.created_at else ''}
+               for t in _TK.query.filter_by(related_device_id=device_id)
+               .order_by(_TK.id.desc()).limit(50).all()]
+    inspections = []
+    task_ids = []
+    for t in _IT.query.filter(_IT.device_ids_json.isnot(None)).all():
+        from utils.json_fields import parse_json
+        try:
+            ids = {int(x) for x in parse_json(t.device_ids_json, [], 'task.device_ids_json')}
+        except (ValueError, TypeError):
+            continue
+        if device_id in ids:
+            task_ids.append(t.id)
+    if task_ids:
+        rows = _IC.query.filter(_IC.task_id.in_(task_ids)).order_by(_IC.id.desc()).limit(50).all()
+        inspections = [{'id': i.id, 'title': i.title, 'task_title': i.task_rel.title if i.task_rel else '',
+                        'overall_status': i.overall_status or '', 'review_status': i.review_status or '草稿',
+                        'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else ''}
+                       for i in rows]
+    return ok({'tickets': tickets, 'inspections': inspections})
+
+
 @vue_api_bp.route('/api/devices/<int:device_id>', methods=['GET'])
 @login_required
 @require_permission('device:view')
@@ -547,16 +736,42 @@ def api_device_reveal_password(device_id):
     （SSR 前端在用），注册顺序上 asset 先注册，同 rule 会被遮蔽。
     """
     from utils.crypto import decrypt_password
-    from models import Device as _Device
+    from models import Device as _Device, PasswordHistory as _PH
+    history_id = request.get_json(silent=True) or {}
+    history_id = history_id.get('history_id')
     d = _Device.query.get_or_404(device_id)
-    pwd = decrypt_password(d.password_encrypted) if d.password_encrypted else ''
+    if history_id:
+        h = _PH.query.filter_by(id=int(history_id), device_id=device_id).first()
+        if not h:
+            return fail('历史记录不存在', 404)
+        pwd = decrypt_password(h.password_encrypted) if h.password_encrypted else ''
+        kind = f'历史密码(#{h.id})'
+    else:
+        pwd = decrypt_password(d.password_encrypted) if d.password_encrypted else ''
+        kind = '当前密码'
     current_app.logger.info(
-        '密码查看审计(Vue): 用户[%s] 查看设备[%s](id=%s), IP=%s',
-        current_user.username, d.device_name, d.id, request.remote_addr)
+        '密码查看审计(Vue): 用户[%s] 查看设备[%s](id=%s) %s, IP=%s',
+        current_user.username, d.device_name, d.id, kind, request.remote_addr)
     # 审计写表（供 admin 审计查询页）
     from blueprints.vue_api_sys import audit_log
-    audit_log('device:reveal', 'device', d.id, f'查看设备「{d.device_name}」明文密码')
+    audit_log('device:reveal', 'device', d.id, f'查看设备「{d.device_name}」{kind}')
     return ok({'password': pwd})
+
+
+@vue_api_bp.route('/api/v2/devices/<int:device_id>/password-history', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_password_history(device_id):
+    """历史密码列表（不含明文）"""
+    from models import PasswordHistory as _PH
+    rows = _PH.query.filter_by(device_id=device_id)\
+        .order_by(_PH.id.desc()).limit(50).all()
+    return ok([{
+        'id': h.id,
+        'changed_by': h.changed_by or '-',
+        'created_at': h.created_at.strftime('%Y-%m-%d %H:%M') if h.created_at else '-',
+        'remark': h.remark or '-',
+    } for h in rows])
 
 
 # ==================== 设备配置备份（V22：巡检同步可见 + 受控下载/在线查看） ====================
@@ -607,6 +822,114 @@ def api_device_config_backup_content(backup_id):
     return ok({'id': b.id, 'content': b.config_content or ''})
 
 
+@vue_api_bp.route('/api/devices/<int:device_id>/config-backup', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def api_device_config_backup_add(device_id):
+    """新增配置备份（multipart：config_content / backup_type / config_file）"""
+    import hashlib
+    from datetime import date as _date
+    from werkzeug.utils import secure_filename
+    from models import DeviceConfigBackup as _DCB
+    from models import Device as _D
+    _D.query.get_or_404(device_id)
+    content = request.form.get('config_content', '')
+    backup_type = request.form.get('backup_type', '运行配置')
+    backup_method = request.form.get('backup_method', '手动输入')
+    file_path = ''
+    f = request.files.get('config_file')
+    if f and f.filename:
+        upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'configs', str(device_id))
+        os.makedirs(upload_dir, exist_ok=True)
+        safe_name = secure_filename(f.filename) or 'config.txt'
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime('%Y%m%d_%H%M%S')
+        name_base, name_ext = os.path.splitext(safe_name)
+        safe_name = f'{name_base}_{ts}{name_ext}'
+        full_path = os.path.join(upload_dir, safe_name)
+        f.save(full_path)
+        file_path = f'uploads/configs/{device_id}/{safe_name}'
+        backup_method = '文件上传'
+        if not content:
+            try:
+                with open(full_path, 'r', encoding='utf-8', errors='replace') as fh:
+                    content = fh.read()
+            except Exception:
+                pass
+    if not content and not file_path:
+        return fail('请填写配置内容或上传配置文件', 400)
+    checksum = hashlib.md5(content.encode('utf-8')).hexdigest() if content else ''
+    backup = _DCB(
+        device_id=device_id, backup_type=backup_type, config_content=content,
+        backup_method=backup_method, backup_date=_date.today(),
+        file_path=file_path, checksum=checksum,
+        created_by=(current_user.realname or current_user.username),
+    )
+    db.session.add(backup)
+    db.session.commit()
+    return ok({'id': backup.id})
+
+
+@vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/delete', methods=['POST'])
+@login_required
+@require_permission('device:delete')
+def api_device_config_backup_delete(backup_id):
+    """删除配置备份（含关联文件）"""
+    import os as _os
+    from models import DeviceConfigBackup as _DCB
+    backup = _DCB.query.get_or_404(backup_id)
+    if backup.file_path:
+        full = _os.path.join(current_app.root_path, 'static', backup.file_path.replace('/', _os.sep))
+        if _os.path.exists(full):
+            try:
+                _os.remove(full)
+            except Exception:
+                pass
+    db.session.delete(backup)
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/rollback', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def api_device_config_backup_rollback(backup_id):
+    """回滚：把选中版本内容写为新备份（标记来源，不覆盖历史）"""
+    import hashlib
+    from datetime import date as _date
+    from models import DeviceConfigBackup as _DCB
+    src = _DCB.query.get_or_404(backup_id)
+    content = src.config_content or ''
+    checksum = hashlib.md5(content.encode('utf-8')).hexdigest() if content else ''
+    backup = _DCB(
+        device_id=src.device_id, backup_type=src.backup_type, config_content=content,
+        backup_method=f'回滚自 #{src.id}', backup_date=_date.today(),
+        checksum=checksum,
+        created_by=(current_user.realname or current_user.username),
+    )
+    db.session.add(backup)
+    db.session.commit()
+    return ok({'id': backup.id})
+
+
+@vue_api_bp.route('/api/devices/config-backup/diff', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_config_backup_diff():
+    """两版本逐行对比"""
+    from blueprints.asset.config_backups import _compute_config_diff
+    from models import DeviceConfigBackup as _DCB
+    a_id = request.args.get('a', type=int)
+    b_id = request.args.get('b', type=int)
+    if not a_id or not b_id or a_id == b_id:
+        return fail('请选择两个不同的版本进行对比', 400)
+    ba = _DCB.query.get(a_id)
+    bb = _DCB.query.get(b_id)
+    if not ba or not bb:
+        return fail('备份版本不存在', 404)
+    return ok({'lines': _compute_config_diff(ba.config_content or '', bb.config_content or '')})
+
+
 def _sync_device_count(customer_id):
     """同步客户 device_count 冗余字段（与 asset 蓝图一致）"""
     if not customer_id:
@@ -630,17 +953,7 @@ def _count_by(table, col, value):
 
 
 # ==================== 通知中心 ====================
-def notify(user_id, category, title, content='', link=''):
-    """写入站内通知（失败不阻断主流程）"""
-    from models import Notification
-    try:
-        db.session.add(Notification(
-            user_id=user_id, category=category, title=title,
-            content=content, link=link))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        current_app.logger.warning('通知写入失败: user=%s %s', user_id, title)
+from utils.notifications import notify  # noqa: E402  (统一入口，详见 utils/notifications.py)
 
 
 @vue_api_bp.route('/api/notifications', methods=['GET'])
@@ -781,7 +1094,7 @@ def api_task_board():
 
     customer_map = {c.id: c.name for c in _C.query.all()}
     groups = {}
-    for st in ('待执行', '执行中', '已完成'):
+    for st in ('待执行', '执行中', '待审核', '已完成'):
         groups[st] = [_task_payload(t, customer_map) for t in tasks if t.status == st]
 
     # 汇总
@@ -791,6 +1104,7 @@ def api_task_board():
         'total': len(tasks),
         'pending': len(groups['待执行']),
         'running': len(groups['执行中']),
+        'reviewing': len(groups['待审核']),
         'done': len(groups['已完成']),
     })
 
@@ -799,19 +1113,17 @@ def api_task_board():
 @login_required
 @require_permission('task:dispatch')
 def api_task_board_status(task_id):
-    """看板内状态流转（待执行/执行中/已完成）"""
+    """看板内状态流转：复用服务层状态机（校验 + local_now 时间戳维护）"""
     from models import InspectionTask as _IT
+    from services.task_schedule_service import apply_task_status
     data = request.get_json(silent=True) or {}
     status = data.get('status', '')
-    if status not in ('待执行', '执行中', '已完成', '已取消'):
-        return fail(f'非法的状态: {status}', 400)
     t = _IT.query.get_or_404(task_id)
-    t.status = status
-    from datetime import datetime as _dt
-    if status == '执行中' and not t.actual_start:
-        t.actual_start = _dt.utcnow()
-    if status == '已完成' and not t.actual_end:
-        t.actual_end = _dt.utcnow()
+    try:
+        apply_task_status(t, status)
+    except ValueError as e:
+        db.session.rollback()
+        return fail(str(e), 400)
     db.session.commit()
     return ok(None)
 
@@ -828,7 +1140,9 @@ def api_task_board_dicts():
     return ok({'customers': customers, 'assignees': assignees})
 def _ticket_payload(t, customer_map=None):
     from services.ticket_service import ticket_completeness
+    from models import Device as _D
     complete, missing = ticket_completeness(t)
+    related_device = _D.query.get(t.related_device_id) if t.related_device_id else None
     return {
         'id': t.id,
         'number': t.number,
@@ -837,6 +1151,8 @@ def _ticket_payload(t, customer_map=None):
         'priority': t.priority,
         'customer_id': t.customer_id,
         'customer_name': (customer_map or {}).get(t.customer_id, ''),
+        'related_device_id': t.related_device_id,
+        'related_device_name': related_device.device_name if related_device else '',
         'assigned_to': t.assigned_to or '',
         'created_by': t.created_by or '',
         'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
@@ -986,6 +1302,49 @@ def api_ticket_delete(ticket_id):
     return ok(None)
 
 
+@vue_api_bp.route('/api/tickets/<int:ticket_id>/archive-as-case', methods=['POST'])
+@login_required
+@require_permission('kb:add')
+def api_ticket_archive_as_case(ticket_id):
+    """归档为知识库案例（仅已关闭/已验收/已完成；内容由诊断/方案/描述拼装）"""
+    from models import Ticket as _T, KnowledgeBase as _KB
+    t = _T.query.get_or_404(ticket_id)
+    if t.status not in ('已关闭', '已验收', '已完成'):
+        return fail(f'仅已关闭/已验收/已完成工单可归档（当前状态：{t.status}）', 400)
+    content_parts = []
+    if t.diagnosis:
+        content_parts.append(f'## 诊断分析\n\n{t.diagnosis}\n')
+    if t.solution:
+        content_parts.append(f'## 解决方案\n\n{t.solution}\n')
+    if t.description:
+        content_parts.append(f'## 故障描述\n\n{t.description}\n')
+    if t.fault_category_level1:
+        rc = [f'一级分类：{t.fault_category_level1}']
+        if t.fault_category_level2:
+            rc.append(f'二级分类：{t.fault_category_level2}')
+        if t.root_cause_category:
+            rc.append(f'根因分类：{t.root_cause_category}')
+        if t.severity_level:
+            rc.append(f'严重级别：{t.severity_level}')
+        content_parts.append('## 根因分析\n\n' + '\n'.join(rc) + '\n')
+    content = '\n\n'.join(content_parts) if content_parts else f'（工单 #{t.number} 归档）'
+    tags = ['工单归档']
+    if t.fault_category_level1:
+        tags.append(t.fault_category_level1)
+    if t.root_cause_category:
+        tags.append(t.root_cause_category)
+    kb = _KB(
+        title=f'【案例】{t.title}', category='故障处置', content=content,
+        related_ticket_id=t.id, tags=','.join(tags),
+        created_by=current_user.realname or current_user.username,
+    )
+    db.session.add(kb)
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('kb:create', 'kb', kb.id, f'工单 {t.number} 归档为知识库案例 #{kb.id}')
+    return ok({'id': kb.id})
+
+
 @vue_api_bp.route('/api/tickets/<int:ticket_id>/action', methods=['POST'])
 @login_required
 @require_permission('ticket:edit')
@@ -996,7 +1355,8 @@ def api_ticket_action(ticket_id):
     JSON 请求也可带 diagnosis/solution（无文件）。
     """
     from services.ticket_service import (assign_ticket, accept_ticket, submit_ticket,
-                                         audit_ticket, accept_check_ticket, close_ticket)
+                                         audit_ticket, accept_check_ticket, close_ticket,
+                                         unassign_ticket)
     data = request.get_json(silent=True) or {}
     if request.form:
         for k, v in request.form.items():
@@ -1041,6 +1401,8 @@ def api_ticket_action(ticket_id):
                                 approved=approved)
         elif action == 'close':
             close_ticket(ticket_id, me, remark or '关闭工单')
+        elif action == 'reassign':
+            unassign_ticket(ticket_id, me, remark or '撤回重派')
         else:
             return fail(f'未知动作: {action}', 400)
         db.session.commit()
@@ -1099,14 +1461,16 @@ def api_ticket_report_latest(ticket_id):
 @login_required
 @require_permission('ticket:view')
 def api_ticket_dicts():
-    from models import Customer as _C, FaultType as _FT
+    from models import Customer as _C, FaultType as _FT, Device as _D
     customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
     fault_types = [{'id': f.id, 'name': f.name}
                    for f in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
     statuses = ['待派单', '已派单', '已接单', '处理中', '待审核', '已验收', '已关闭']
     priorities = ['紧急', '高', '中', '低']
+    devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
+               for d in _D.query.order_by(_D.device_name).all()]
     return ok({'customers': customers, 'fault_types': fault_types,
-               'statuses': statuses, 'priorities': priorities})
+               'statuses': statuses, 'priorities': priorities, 'devices': devices})
 @vue_api_bp.route('/api/dicts/devices', methods=['GET'])
 @login_required
 @require_permission('device:view')
@@ -1166,6 +1530,118 @@ def _customer_payload(c, region_map=None, category_map=None):
         'created_at': c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '',
         'extra_fields': parse_extra_fields(c),
     }
+
+
+@vue_api_bp.route('/api/v2/customers/export', methods=['POST'])
+@login_required
+@require_permission('customer:view')
+def api_v2_customer_export():
+    """客户导出（base64，列序与导入模板一致）"""
+    import base64
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from models import Customer as _C
+    headers = ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址',
+               '单位类别', '客户等级', '办公室', '有无驻场', '驻场联系人', '驻场联系方式', '驻场办公室',
+               '有无攻防演练', '巡检频率', '来源', '备注']
+    rows = []
+    for c in _C.query.order_by(_C.name).all():
+        region_label = ''
+        if c.region_rel:
+            region_label = f'{c.region_rel.parent.name} - {c.region_rel.name}' if c.region_rel.parent else c.region_rel.name
+        rows.append([
+            c.name, c.contact_person or '', c.phone or '', c.email or '',
+            region_label, c.city or '', c.address or '',
+            (c.category_rel.name if c.category_rel else ''), c.level or '',
+            c.office or '', '是' if c.has_onsite else '否',
+            c.onsite_contact or '', c.onsite_phone or '', c.onsite_office or '',
+            '是' if c.has_drill else '否', c.inspection_frequency or '',
+            c.source or '', c.remark or '',
+        ])
+    tmp_path, download_name = export_xlsx(headers, rows, f'客户导出_{_date.today().isoformat()}.xlsx',
+                                          sheet_name='客户信息')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
+@vue_api_bp.route('/api/v2/customers/import', methods=['POST'])
+@login_required
+@require_permission('customer:add')
+def api_v2_customer_import():
+    """客户批量导入（multipart import_file；与 SSR 导入同字段映射）"""
+    from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from models import Customer as _C, Region as _R, CustomerCategory as _CC
+    if 'import_file' not in request.files:
+        return fail('请选择要导入的 Excel 文件', 400)
+    f = request.files['import_file']
+    ok_flag, err, _ = validate_upload(f, {'.xlsx', '.xls'}, max_size_mb=20)
+    if not ok_flag:
+        return fail(err, 400)
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    success = 0
+    unknown_categories = set()
+    try:
+        wb, ws, err2 = open_excel(tmp, app=current_app)
+        if err2:
+            return fail(err2[0], 400)
+        col_map = {}
+        header = [c.value for c in ws[1]]
+        for i, h in enumerate(header):
+            if h:
+                col_map[str(h).strip()] = i
+
+        def _cell(r, name):
+            idx = col_map.get(name)
+            if idx is None:
+                return ''
+            v = ws.cell(r, idx + 1).value
+            return str(v).strip() if v is not None else ''
+
+        TRUE_SET = {'是', '1', 'true', 'True', 'Y', 'y', '有'}
+        for r in range(2, ws.max_row + 1):
+            name = _cell(r, '客户名称')
+            if not name:
+                continue
+            if _C.query.filter_by(name=name).first():
+                continue
+            region_id = None
+            region_name = _cell(r, '所属地区')
+            if region_name:
+                region = _R.query.filter_by(name=region_name.split(' - ')[-1]).first()
+                if region:
+                    region_id = region.id
+            category_id = None
+            cat_name = _cell(r, '单位类别')
+            if cat_name:
+                cat = _CC.query.filter_by(name=cat_name).first()
+                if cat:
+                    category_id = cat.id
+                else:
+                    unknown_categories.add(cat_name)
+            db.session.add(_C(
+                name=name, contact_person=_cell(r, '联系人') or None,
+                phone=_cell(r, '电话') or None, email=_cell(r, '邮箱') or None,
+                region_id=region_id, category_id=category_id,
+                city=_cell(r, '地市') or None, address=_cell(r, '地址') or None,
+                office=_cell(r, '办公室') or '', level=_cell(r, '客户等级') or '常规',
+                has_onsite=_cell(r, '有无驻场') in TRUE_SET,
+                onsite_contact=_cell(r, '驻场联系人') or '',
+                onsite_phone=_cell(r, '驻场联系方式') or '',
+                onsite_office=_cell(r, '驻场办公室') or '',
+                has_drill=_cell(r, '有无攻防演练') in TRUE_SET,
+                inspection_frequency=_cell(r, '巡检频率') or '',
+                source=_cell(r, '来源') or None, remark=_cell(r, '备注') or None,
+            ))
+            success += 1
+        db.session.commit()
+    finally:
+        cleanup_temp_file(tmp)
+    return ok({'created': success, 'unknown_categories': sorted(unknown_categories)})
 
 
 @vue_api_bp.route('/api/customers', methods=['GET'])
@@ -1321,6 +1797,7 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
         'overall_status': i.overall_status or '',
         'review_status': i.review_status or '草稿',
         'inspector_name': i.inspector_name or i.inspector or '',
+        'inspector_user_id': i.inspector_user_id,
         'report_file': bool(i.report_file),
         'report_label': '有' if i.report_file else '无',
         'report_file_name': (i.report_file or '').split('/')[-1] or '',
@@ -1459,8 +1936,35 @@ def api_inspection_delete(inspection_id):
 @login_required
 @require_permission('inspection:edit')
 def api_inspection_submit(inspection_id):
-    """提交审核：review_status → 待审核"""
+    """提交审核：review_status → 待审核。
+
+    支持 multipart（report_file 现场报告上传，补齐"记录页新建→提交审核"闭环）：
+    带文件时保存到 submission 版本并置 submitted_report 后再提交。
+    """
     from services.inspection_service import submit_for_review
+    from services.submission_version_service import add_version, latest_pending_version
+    from utils.upload import validate_upload
+    from models import Inspection as _I
+    from utils.constants import REVIEW_PENDING as _RP
+
+    ALLOWED_REPORT_EXT = {'.doc', '.docx', '.pdf', '.xlsx', '.xls',
+                          '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.zip'}
+    i = _I.query.get_or_404(inspection_id)
+    report_path = ''
+    if request.files.get('report_file'):
+        if i.submitted_report or latest_pending_version('inspection', inspection_id):
+            return fail('该记录已有报告或待审核版本，请勿重复上传', 400)
+        ok_flag, err, safe_name = validate_upload(request.files['report_file'], ALLOWED_REPORT_EXT, max_size_mb=50)
+        if not ok_flag:
+            return fail(err, 400)
+        subdir = 'inspection_reports'
+        os.makedirs(os.path.join('static', 'uploads', subdir), exist_ok=True)
+        report_path = os.path.join(subdir, safe_name)
+        request.files['report_file'].save(os.path.join('static', 'uploads', report_path))
+        i.submitted_report = report_path
+        add_version('inspection', inspection_id, report_file=report_path,
+                    content={'conclusion': i.conclusion or '', 'remark': ''},
+                    submitted_by_user_id=current_user.id, review_status=_RP)
     try:
         submit_for_review(inspection_id, current_user.realname or current_user.username)
     except Exception as e:
@@ -1529,6 +2033,45 @@ def api_review_checklist_put():
     return ok({'items': cleaned})
 
 
+@vue_api_bp.route('/api/inspections/<int:inspection_id>/ai-analyze', methods=['POST'])
+@login_required
+@require_permission('inspection:review')
+def api_inspection_ai_analyze(inspection_id):
+    """AI 辅助审核：基于巡检记录内容生成分析建议（需在 AI 对接中启用配置）"""
+    from utils.json_fields import parse_json
+    from models import AIConfig, Inspection as _I
+    cfg = AIConfig.query.filter_by(is_enabled=True).order_by(AIConfig.id).first()
+    if not cfg:
+        return fail('未配置可用的 AI 服务（系统设置 → AI 对接），无法使用 AI 辅助分析', 400)
+    i = _I.query.get_or_404(inspection_id)
+    parts = [f'巡检标题：{i.title}']
+    if i.conclusion:
+        parts.append(f'结论：{i.conclusion}')
+    parts.append(f'总体状态：{i.overall_status or "-"}')
+    parts.append(f'审核状态：{i.review_status or "-"}')
+    if i.location:
+        parts.append(f'地点：{i.location}')
+    content = parse_json(i.content_json, [], 'inspection.content_json')
+    if content:
+        import json as _json
+        parts.append('检查内容：' + _json.dumps(content, ensure_ascii=False)[:1500])
+    from services.submission_version_service import latest_pending_version
+    v = latest_pending_version('inspection', inspection_id)
+    if v and v.content:
+        import json as _json
+        parts.append('最新提交内容：' + _json.dumps(v.content, ensure_ascii=False)[:1500])
+    prompt = ('你是 IT 运维巡检审核助手。请基于以下巡检记录给出审核建议：'
+              '1) 资料是否完整、结论与内容是否一致；2) 需要重点核实的事项；'
+              '3) 建议通过或退回及理由。\n\n' + '\n'.join(parts))
+    from utils.ai_client import AIClient
+    try:
+        text = AIClient(cfg).chat(prompt)
+    except Exception as e:
+        current_app.logger.warning('AI 巡检分析失败 inspection_id=%s: %s', inspection_id, e)
+        return fail(f'AI 调用失败：{e}', 500)
+    return ok({'analysis': text})
+
+
 @vue_api_bp.route('/api/inspections/<int:inspection_id>/review', methods=['POST'])
 @login_required
 @require_permission('inspection:review')
@@ -1537,6 +2080,8 @@ def api_inspection_review(inspection_id):
     remark=退回原因/审核意见，requirements=需要修改的内容（空时由需修改检查项自动拼装），
     checklist=检查项勾选 {"项名": "合格|需修改|不适用"}。"""
     from services.inspection_service import review_inspection
+    from models import Inspection as _IC
+    from services.submission_version_service import latest_pending_version
     data = request.get_json(silent=True) or {}
     approved = bool(data.get('approved'))
     remark = data.get('remark') or ''
@@ -1548,6 +2093,21 @@ def api_inspection_review(inspection_id):
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '审核失败', 400)
+    # ---- 事件源：审核结果通知提交工程师 ----
+    try:
+        from utils.notifications import notify
+        i = _IC.query.get(inspection_id)
+        target_uid = None
+        if i:
+            v = latest_pending_version('inspection', inspection_id)
+            target_uid = (v.submitted_by if v else None) or i.inspector_user_id
+        if target_uid and target_uid != current_user.id:
+            notify(target_uid, 'inspection',
+                   f'巡检「{i.title if i else ""}」审核{"通过" if approved else "退回"}',
+                   (remark or requirements) or ('已生成正式报告' if approved else '请按修改要求重新提交'),
+                   f'/app/inspections/{inspection_id}')
+    except Exception:
+        current_app.logger.warning('巡检审核通知失败 inspection_id=%s', inspection_id)
     return ok(None)
 
 
@@ -1814,11 +2374,15 @@ def api_inspection_dicts():
     customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
     inspectors = [{'user_id': ins.user_id, 'name': ins.name}
                   for ins in _I.query.filter_by(is_active=True).order_by(_I.id).all()]
-    tasks = [{'id': t.id, 'title': t.title, 'status': t.status,
-              'customer_id': t.customer_id,
-              'customer_name': t.customer_rel.name if t.customer_rel else '',
-              'assignee_id': t.assigned_to_user_id}
-             for t in _IT.query.order_by(_IT.id.desc()).limit(500).all()]
+    tasks = []
+    for t in _IT.query.order_by(_IT.id.desc()).limit(500).all():
+        tasks.append({
+            'id': t.id, 'title': t.title, 'status': t.status,
+            'customer_id': t.customer_id,
+            'customer_name': t.customer_rel.name if t.customer_rel else '',
+            'assignee_id': t.assigned_to_user_id,
+            'has_record': bool(t.records),
+        })
     overall_statuses = ['正常', '警告', '异常']  # 显式展示顺序（常量 OVERALL_STATUSES 校验）
     review_statuses = ['草稿', '待审核', '已通过', '已退回']
     return ok({'customers': customers, 'inspectors': inspectors, 'tasks': tasks,

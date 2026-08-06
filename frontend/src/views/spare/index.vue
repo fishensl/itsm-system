@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">备件管理</h2>
@@ -328,9 +328,9 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
@@ -615,7 +615,10 @@ function blankPurchaseForm(): PurchaseFormModel {
 
 const purchaseFormRules = {
   spare_part_id: [{ required: true, message: '请选择备件', trigger: 'change' }],
-  quantity: [{ required: true, message: '数量必须大于 0', trigger: 'change' }],
+  quantity: [
+    { required: true, message: '请输入数量', trigger: 'change' },
+    { type: 'number', min: 1, message: '数量必须大于 0', trigger: 'change' },
+  ],
 }
 
 function openPurchaseCreate() {

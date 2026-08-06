@@ -81,16 +81,11 @@ class TestDevicesWithTemplatesApi:
 
 
 class TestInspectionFormTemplateSelector:
-    def test_add_form_renders_customers_and_selector(self, op_client, seed):
-        """回归：新建巡检页必须渲染客户下拉（曾缺 customers 变量）+ 模板选择器"""
-        r = op_client.get('/inspections/add')
-        assert r.status_code == 200
-        body = r.data.decode('utf-8')
-        assert '巡检模板客户' in body  # customers 已传入
-        assert 'taskTemplateSelect' in body
-        assert '安全设备季巡' in body
+    def test_add_form_gone(self, op_client, seed):
+        """SSR 新建巡检页已剥离 → 404（Vue /app/inspections 接管）"""
+        assert op_client.get('/inspections/add').status_code == 404
 
-    def test_edit_form_renders_customers(self, op_client, seed, app):
+    def test_edit_form_gone(self, op_client, seed, app):
         with app.app_context():
             from models import Inspection
             from datetime import date
@@ -99,6 +94,4 @@ class TestInspectionFormTemplateSelector:
             db.session.add(i)
             db.session.commit()
             iid = i.id
-        r = op_client.get(f'/inspections/edit/{iid}')
-        assert r.status_code == 200
-        assert '巡检模板客户' in r.data.decode('utf-8')
+        assert op_client.get(f'/inspections/edit/{iid}').status_code == 404

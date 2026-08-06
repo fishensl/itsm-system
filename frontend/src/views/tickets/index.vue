@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">工单管理</h2>
@@ -57,6 +57,11 @@
             <el-tag size="small" :type="detail.priority === '紧急' ? 'danger' : 'warning'">{{ detail.priority }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="关联设备">
+            <router-link v-if="detail.related_device_id" :to="`/devices/${detail.related_device_id}`"
+              class="row-link">{{ detail.related_device_name || '#' }}</router-link>
+            <span v-else>-</span>
+          </el-descriptions-item>
           <el-descriptions-item label="处理人">{{ detail.assigned_to || '-' }}</el-descriptions-item>
           <el-descriptions-item label="创建人">{{ detail.created_by || '-' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
@@ -103,7 +108,7 @@
         <!-- 状态机操作 -->
         <el-divider content-position="left">操作</el-divider>
         <div class="action-bar">
-          <template v-if="detail.status === '待派单'">
+          <template v-if="detail.status === TICKET_STATUS.PENDING_ASSIGN">
             <el-input v-model="assignee" placeholder="处理人姓名" class="assign-input" size="small" />
             <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" @click="doAction('assign')">
               派单
@@ -112,17 +117,20 @@
               关闭
             </el-button>
           </template>
-          <template v-else-if="detail.status === '已派单'">
+          <template v-else-if="detail.status === TICKET_STATUS.ASSIGNED || detail.status === TICKET_STATUS.ACCEPTED">
             <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="success" @click="doAction('accept')">
               接单（开始处理）
             </el-button>
+            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="info" plain @click="doAction('reassign')">
+              撤回重派
+            </el-button>
           </template>
-          <template v-else-if="detail.status === '处理中'">
+          <template v-else-if="detail.status === TICKET_STATUS.PROCESSING">
             <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" @click="openSubmit">
               提交审核
             </el-button>
           </template>
-          <template v-else-if="detail.status === '待审核'">
+          <template v-else-if="detail.status === TICKET_STATUS.SUBMITTED">
             <el-button v-if="user.hasPerm('ticket:review')" size="small" type="success" @click="openAudit(true)">
               审核通过
             </el-button>
@@ -130,7 +138,7 @@
               退回修改
             </el-button>
           </template>
-          <template v-else-if="detail.status === '已验收'">
+          <template v-else-if="detail.status === TICKET_STATUS.CHECKED">
             <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="success" @click="doAction('accept_check', true)">
               验收通过（关闭）
             </el-button>
@@ -138,8 +146,14 @@
               退回处理
             </el-button>
           </template>
-          <el-button v-if="user.hasPerm('ticket:edit') && detail.status !== '已关闭'" size="small" type="info"
+          <el-button v-if="user.hasPerm('ticket:edit') && detail.status !== TICKET_STATUS.CLOSED" size="small" type="info"
             plain @click="doAction('close')">关闭工单</el-button>
+          <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" plain @click="openEdit(detail)">
+            编辑
+          </el-button>
+          <el-button
+            v-if="user.hasPerm('kb:add') && ([TICKET_STATUS.CLOSED, TICKET_STATUS.CHECKED] as string[]).includes(detail.status)"
+            size="small" type="success" plain @click="onArchive">归档为知识库案例</el-button>
           <el-button v-if="user.hasPerm('ticket:delete')" size="small" type="danger" plain @click="onDelete">
             删除
           </el-button>
@@ -217,8 +231,8 @@
       </template>
     </el-dialog>
 
-    <!-- 新建工单 -->
-    <el-dialog v-model="formVisible" title="新建工单" width="640px" top="5vh" destroy-on-close>
+    <!-- 新建/编辑工单 -->
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑工单' : '新建工单'" width="640px" top="5vh" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="100px">
         <el-form-item label="标题" prop="title">
           <el-input v-model="form.title" placeholder="必填，如：核心交换机宕机" />
@@ -241,7 +255,7 @@
           <el-col :xs="24" :sm="12">
             <el-form-item label="来源">
               <el-select v-model="form.source_type" class="w-full">
-                <el-option v-for="s in ['客户报修','巡检发现','手动创建','定期维护']" :key="s" :label="s" :value="s" />
+                <el-option v-for="s in TICKET_SOURCE_TYPES" :key="s" :label="s" :value="s" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -249,6 +263,14 @@
             <el-form-item label="故障类型">
               <el-select v-model="form.fault_category_id" filterable allow-create clearable class="w-full">
                 <el-option v-for="f in dicts?.fault_types || []" :key="f.id" :label="f.name" :value="f.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="关联设备">
+              <el-select v-model="form.related_device_id" filterable clearable class="w-full"
+                placeholder="按客户过滤，可搜索">
+                <el-option v-for="d in filteredDevices" :key="d.id" :label="d.device_name" :value="d.id" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -265,31 +287,40 @@
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">创建</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ form.id ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessageBox, type UploadFile } from 'element-plus'
 import { Plus, Search, Download, FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
-  fetchTickets, fetchTicket, createTicket, deleteTicket, ticketAction,
+  fetchTickets, fetchTicket, createTicket, updateTicket, deleteTicket, ticketAction,
   ticketActionSubmit, fetchTicketVersions, versionReportUrl, ticketExportUrl,
-  ticketReportsZipUrl, fetchTicketDicts, TICKET_STATUS_TAG,
+  ticketReportsZipUrl, fetchTicketDicts, TICKET_STATUS_TAG, archiveTicketAsCase,
   type Ticket, type TicketDicts,
 } from '@/api/tickets'
+import { TICKET_STATUS, TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
 import type { SubmissionVersion as SV } from '@/api/inspections'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<TicketDicts | null>(null)
+
+/** 关联设备下拉：按所选客户过滤（未选客户时展示全部） */
+const filteredDevices = computed(() => {
+  const list = dicts.value?.devices || []
+  if (!form.customer_id) return list
+  return list.filter((d) => d.customer_id === form.customer_id)
+})
 
 const query = reactive<Record<string, unknown>>({ search: '', status: '', priority: '', customer_id: undefined, scope: 'all' })
 const dateRange = ref<[string, string] | null>(null)
@@ -300,8 +331,7 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'title', label: '标题', minWidth: 180, asTitle: true },
   { key: 'number', label: '单号', width: 130 },
   { key: 'status', label: '状态', width: 90, type: 'tag', asTag: true, tagMap: TICKET_STATUS_TAG },
-  { key: 'priority', label: '优先级', width: 80, type: 'tag',
-    tagMap: { 紧急: 'danger', 高: 'warning', 中: 'info', 低: 'info' } },
+  { key: 'priority', label: '优先级', width: 80, type: 'tag', tagMap: TICKET_PRIORITY_TAG },
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'assigned_to', label: '处理人', width: 90 },
   { key: 'complete', label: '资料完整', width: 100, type: 'tag',
@@ -325,9 +355,13 @@ const assignee = ref('')
 
 async function openDetail(row: Record<string, unknown>) {
   try {
-    detail.value = await fetchTicket(row.id as number)
-    versions.value = await fetchTicketVersions(row.id as number)
-    assignee.value = detail.value.assigned_to || ''
+    const [full, vers] = await Promise.all([
+      fetchTicket(row.id as number),
+      fetchTicketVersions(row.id as number),
+    ])
+    detail.value = full
+    versions.value = vers
+    assignee.value = full.assigned_to || ''
     detailVisible.value = true
   } catch { /* toast */ }
 }
@@ -479,14 +513,23 @@ const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
-  title: '', customer_id: null, priority: '中', source_type: '手动创建',
-  fault_category_id: null, description: '', dispatch_mode: 'pending',
+  id: null, title: '', customer_id: null, priority: '中', source_type: '手动创建',
+  fault_category_id: null, related_device_id: null, description: '', dispatch_mode: 'pending',
 })
 const formRules = { title: [{ required: true, message: '请输入工单标题', trigger: 'blur' }] }
 
 function openCreate() {
-  Object.assign(form, { title: '', customer_id: null, priority: '中', source_type: '手动创建',
-    fault_category_id: null, description: '', dispatch_mode: 'pending' })
+  Object.assign(form, { id: null, title: '', customer_id: null, priority: '中', source_type: '手动创建',
+    fault_category_id: null, related_device_id: null, description: '', dispatch_mode: 'pending' })
+  formVisible.value = true
+}
+
+function openEdit(t: Ticket) {
+  Object.assign(form, {
+    id: t.id, title: t.title, customer_id: t.customer_id, priority: t.priority,
+    source_type: t.source_type || '手动创建', fault_category_id: t.fault_category_id,
+    related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
+  })
   formVisible.value = true
 }
 
@@ -494,14 +537,35 @@ async function save() {
   try { await formRef.value?.validate() } catch { return }
   saving.value = true
   try {
-    const res = await createTicket({ ...form })
-    ui.toast(`工单 ${res.number} 已创建${form.dispatch_mode === 'self_accept' ? '，已由你接单' : ''}`, 'success')
-    formVisible.value = false
+    if (form.id) {
+      await updateTicket(form.id as number, { ...form })
+      ui.toast('工单已更新', 'success')
+      formVisible.value = false
+      await refreshDetail()
+    } else {
+      const res = await createTicket({ ...form })
+      ui.toast(`工单 ${res.number} 已创建${form.dispatch_mode === 'self_accept' ? '，已由你接单' : ''}`, 'success')
+      formVisible.value = false
+    }
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
     saving.value = false
+  }
+}
+
+async function onArchive() {
+  if (!detail.value) return
+  try {
+    await ElMessageBox.confirm('归档后生成知识库案例（内容来自诊断/方案/描述），继续吗？', '归档确认',
+      { type: 'info' })
+  } catch { return }
+  try {
+    const res = await archiveTicketAsCase(detail.value.id)
+    ui.toast(`已归档为知识库案例 #${res.id}`, 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
   }
 }
 
