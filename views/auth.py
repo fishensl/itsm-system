@@ -45,3 +45,12 @@ def logout():
     current_app.logger.info(f'用户 [{current_user.username}] 登出')
     logout_user()
     return redirect(url_for('login'))
+
+
+# ==================== 自助改密兼容端点 ====================
+# SSR 剥离后改密由 SPA 弹窗（/api/auth/change-password）承担。
+# 旧书签/旧前端产物仍可能整页访问 /me/change_password —— 302 到 SPA 工作台，
+# 用户可在右上角用户菜单弹窗改密，避免 404。
+@login_required
+def me_change_password():
+    return redirect('/app/')

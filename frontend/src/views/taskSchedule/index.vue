@@ -15,7 +15,7 @@
     <!-- KPI -->
     <el-row v-if="data" :gutter="8" class="kpi-row">
       <el-col v-for="k in kpiCards" :key="k.key" :xs="12" :sm="8" :md="3">
-        <div class="kpi-card" :class="k.cls">
+        <div class="kpi-card" :class="[k.cls, { 'kpi-clickable': k.clickable }]" @click="k.action && k.action()">
           <div class="kpi-value">{{ k.value }}</div>
           <div class="kpi-label">{{ k.label }}</div>
         </div>
@@ -379,7 +379,7 @@ const user = useUserStore()
 const ui = useUiStore()
 const data = ref<TaskScheduleData | null>(null)
 const loading = ref(false)
-const query = reactive<Record<string, unknown>>({ view: 'engineer', period: 'this_quarter', q: '' })
+const query = reactive<Record<string, unknown>>({ view: 'engineer', period: 'this_quarter', q: '', status: '' })
 const onlyOverdue = ref(false)
 const selectedIds = ref<number[]>([])
 const batchStatus = ref('')
@@ -445,17 +445,40 @@ const canUpload = computed(() =>
 const kpiCards = computed(() => {
   const k = data.value?.kpi
   if (!k) return []
+  const statusCards = [
+    { key: 'pending', label: TASK_STATUS.PENDING, value: k.pending, cls: 'warning', status: TASK_STATUS.PENDING },
+    { key: 'running', label: TASK_STATUS.RUNNING, value: k.running, cls: 'primary', status: TASK_STATUS.RUNNING },
+    { key: 'reviewing', label: TASK_STATUS.REVIEWING, value: k.reviewing, cls: 'info', status: TASK_STATUS.REVIEWING },
+    { key: 'done', label: TASK_STATUS.DONE, value: k.done, cls: 'success', status: TASK_STATUS.DONE },
+  ]
   return [
-    { key: 'total', label: '总任务', value: k.total, cls: '' },
-    { key: 'pending', label: TASK_STATUS.PENDING, value: k.pending, cls: 'warning' },
-    { key: 'running', label: TASK_STATUS.RUNNING, value: k.running, cls: 'primary' },
-    { key: 'reviewing', label: TASK_STATUS.REVIEWING, value: k.reviewing, cls: 'info' },
-    { key: 'done', label: TASK_STATUS.DONE, value: k.done, cls: 'success' },
-    { key: 'overdue', label: '逾期', value: k.overdue, cls: 'danger' },
-    { key: 'est', label: '预估人天', value: k.est_effort, cls: '' },
-    { key: 'act', label: '实际人天', value: k.act_effort, cls: '' },
+    { key: 'total', label: '总任务', value: k.total, cls: '', clickable: true, action: clearFilters },
+    ...statusCards.map((c) => ({ ...c, clickable: true, action: () => applyStatusFilter(c.status) })),
+    { key: 'overdue', label: '逾期', value: k.overdue, cls: 'danger', clickable: true, action: applyOverdue },
+    { key: 'est', label: '预估人天', value: k.est_effort, cls: '', clickable: false },
+    { key: 'act', label: '实际人天', value: k.act_effort, cls: '', clickable: false },
   ]
 })
+
+// KPI 卡点击筛选：状态/逾期在当前页应用筛选，总任务清空
+function applyStatusFilter(st: string) {
+  query.status = st
+  onlyOverdue.value = false
+  query.view = 'status'
+  reload()
+}
+
+function applyOverdue() {
+  query.status = ''
+  onlyOverdue.value = true
+  reload()
+}
+
+function clearFilters() {
+  query.status = ''
+  onlyOverdue.value = false
+  reload()
+}
 
 function priorityType(p: string) {
   return { 低: 'info', 中: '', 高: 'warning', 紧急: 'danger' }[p] || 'info'
@@ -711,6 +734,15 @@ onMounted(reload)
 .kpi-card {
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px; text-align: center;
   background: var(--itsm-card-bg); margin-bottom: 8px;
+}
+.kpi-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.kpi-clickable:hover {
+  border-color: var(--itsm-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
 }
 .kpi-card.danger .kpi-value { color: var(--el-color-danger); }
 .kpi-card.warning .kpi-value { color: var(--el-color-warning); }

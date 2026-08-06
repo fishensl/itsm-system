@@ -63,3 +63,12 @@ def test_device_list_page_gone(admin_client):
     """回归：SSR 设备列表页已剥离（Vue /app/devices 接管）"""
     r = admin_client.get('/devices')
     assert r.status_code == 404
+
+
+def test_change_password_redirects_to_spa(admin_client):
+    """SSR 改密页已剥离：旧入口 /me/change_password 302 → SPA 工作台（弹窗改密）"""
+    r = admin_client.get('/me/change_password')
+    assert r.status_code == 302
+    assert r.headers.get('Location', '').endswith('/app/')
+    r = admin_client.post('/me/change_password', data={'old_password': 'x', 'new_password': 'y'})
+    assert r.status_code == 302

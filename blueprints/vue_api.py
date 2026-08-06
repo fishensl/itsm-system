@@ -315,17 +315,24 @@ def api_dashboard_overview():
             })
 
     # ---- 统计卡（按角色） ----
-    def card(label, value, sub, icon, accent):
-        return {'label': label, 'value': value, 'sub': sub, 'icon': _map_icon(icon), 'accent': accent}
+    def card(label, value, sub, icon, accent, url):
+        return {'label': label, 'value': value, 'sub': sub, 'icon': _map_icon(icon),
+                'accent': accent, 'url': url}
 
-    metrics = [card('客户总数', counts['customer'], f"{counts['region']} 个地区", 'bi-people', '#2563eb'),
-               card('设备总数', counts['device'], '全部设备', 'bi-hdd-rack', '#059669'),
-               card('巡检记录', counts['inspection'], '全部巡检', 'bi-clipboard-check', '#7c3aed'),
-               card('工单总数', counts['ticket'], '含历史故障', 'bi-ticket-detailed', '#f59e0b'),
-               card('知识条目', counts['kb'], '故障案例与手册', 'bi-book', '#0891b2'),
-               card('备件档案', counts['spare'], '备件管理', 'bi-archive', '#16a34a'),
-               card('商机跟进', counts['opp'], '销售管线', 'bi-lightbulb', '#475569'),
-               card('合同总数', counts['contract'], '执行跟踪', 'bi-file-earmark-lock', '#ea580c')]
+    metrics = [card('客户总数', counts['customer'], f"{counts['region']} 个地区", 'bi-people', '#2563eb',
+                    '/app/customers'),
+               card('设备总数', counts['device'], '全部设备', 'bi-hdd-rack', '#059669', '/app/devices'),
+               card('巡检记录', counts['inspection'], '全部巡检', 'bi-clipboard-check', '#7c3aed',
+                    '/app/inspections'),
+               card('工单总数', counts['ticket'], '含历史故障', 'bi-ticket-detailed', '#f59e0b',
+                    '/app/tickets'),
+               card('知识条目', counts['kb'], '故障案例与手册', 'bi-book', '#0891b2',
+                    '/app/knowledge-base?category=故障案例'),
+               card('备件档案', counts['spare'], '备件管理', 'bi-archive', '#16a34a', '/app/spare-parts'),
+               card('商机跟进', counts['opp'], '销售管线', 'bi-lightbulb', '#475569',
+                    '/app/sales?tab=opps'),
+               card('合同总数', counts['contract'], '执行跟踪', 'bi-file-earmark-lock', '#ea580c',
+                    '/app/sales?tab=contracts')]
 
     # ---- 快捷入口 ----
     if role == 'admin':

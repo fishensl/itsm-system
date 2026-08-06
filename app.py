@@ -161,6 +161,8 @@ def register_routes(app):
     app.add_url_rule('/', 'index', dashboard.index)
     app.add_url_rule('/login', 'login', auth.login, methods=['GET', 'POST'])
     app.add_url_rule('/logout', 'logout', auth.logout)
+    app.add_url_rule('/me/change_password', 'me_change_password', auth.me_change_password,
+                     methods=['GET', 'POST'])
     app.add_url_rule('/system/repair-schema', 'repair_schema', system.repair_schema)
     app.add_url_rule('/system/drawio-diag', 'drawio_diag', system.drawio_diag)
     app.add_url_rule('/system/ui-version', 'system_ui_version', system.system_ui_version,
