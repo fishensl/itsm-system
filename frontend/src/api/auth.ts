@@ -48,7 +48,7 @@ export function changePassword(oldPassword: string, newPassword: string) {
 // ==================== Dashboard ====================
 export interface DashboardData {
   counts: Record<string, number>
-  metrics: Array<{ label: string; value: number; sub: string; icon: string; accent: string }>
+  metrics: Array<{ label: string; value: number; sub: string; icon: string; accent: string; url?: string }>
   quick_entries: Array<{ url: string; title: string; sub: string; icon: string }>
   my_tasks: Array<{ type_label: string; type_color: string; title: string; sub: string; url: string; time: string }>
   expiring_devices: Array<{ id: number; device_name: string; customer_name: string; license_expiry: string; remaining_days: number }>

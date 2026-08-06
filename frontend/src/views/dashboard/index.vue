@@ -12,7 +12,11 @@
         :sm="8"
         :md="4"
       >
-        <div class="metric-card">
+        <div
+          class="metric-card"
+          :class="{ 'metric-clickable': !!m.url }"
+          @click="m.url && go(m.url)"
+        >
           <div
             class="metric-icon"
             :style="{ background: m.accent + '22', color: m.accent }"
@@ -32,6 +36,9 @@
               {{ m.sub }}
             </div>
           </div>
+          <el-icon v-if="m.url" class="metric-arrow" :size="14">
+            <ArrowRight />
+          </el-icon>
         </div>
       </el-col>
     </el-row>
@@ -189,6 +196,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ArrowRight } from '@element-plus/icons-vue'
 import { fetchDashboard, type DashboardData } from '@/api/auth'
 import { OVERALL_STATUS_TAG } from '@/utils/status'
 
@@ -237,6 +245,26 @@ onMounted(async () => {
   border-radius: 10px;
   padding: 14px;
   margin-bottom: 12px;
+}
+.metric-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  position: relative;
+}
+.metric-clickable:hover {
+  border-color: var(--itsm-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+.metric-arrow {
+  margin-left: auto;
+  color: var(--itsm-text-muted);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.metric-clickable:hover .metric-arrow {
+  color: var(--itsm-primary);
+  transform: translateX(2px);
 }
 .metric-icon {
   width: 40px;
