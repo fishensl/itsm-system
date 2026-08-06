@@ -239,7 +239,7 @@ def api_dashboard_overview():
                 'sub': f"{customer_map.get(t.customer_id, '-')} · {t.priority} · {t.status}",
                 'url': f'/app/tickets/{t.id}',
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
-                'sort_time': t.created_at.timestamp() if t.created_at else 0,
+                'sort_time': _sort_epoch(t.created_at),
             })
         # 巡检待办：与任务看板同规则角色自动匹配（V23 并入我的待办）——
         # 有派发权看全部（含未指派）；主管看本部门；工程师只看自己的
@@ -257,7 +257,7 @@ def api_dashboard_overview():
                 'url': '/app/task-schedule',
                 'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' +
                         (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
-                'sort_time': _task_time.timestamp() if _task_time else 0,
+                'sort_time': _sort_epoch(_task_time),
             })
         my_faults = Fault.query.filter(Fault.result != '已解决').order_by(Fault.fault_time.desc()).limit(5).all()
         for f in my_faults:
@@ -267,7 +267,7 @@ def api_dashboard_overview():
                 'sub': f"{customer_map.get(f.customer_id, '-')} · {f.fault_type or '-'}",
                 'url': '/app/faults',
                 'time': f.fault_time.strftime('%m-%d %H:%M') if f.fault_time else '',
-                'sort_time': f.fault_time.timestamp() if f.fault_time else 0,
+                'sort_time': _sort_epoch(f.fault_time),
             })
     elif role == 'sales':
         my_opps = Opportunity.query.filter(
@@ -1063,6 +1063,16 @@ def api_global_search():
 
 # ==================== 任务看板（巡检任务） ====================
 _TASK_STATUS_TAG = {'待执行': 'danger', '执行中': 'warning', '已完成': 'success', '已取消': 'info'}
+
+
+def _sort_epoch(v):
+    """datetime/date → 可比较 epoch 秒（PG 的 Date 列返回 date，无 .timestamp()）；None → 0"""
+    if v is None:
+        return 0
+    from datetime import datetime as _dt
+    if isinstance(v, _dt):
+        return v.timestamp()
+    return _dt(v.year, v.month, v.day).timestamp()
 
 
 def _apply_task_scope(query, user):
@@ -2601,3 +2611,4 @@ def api_category_delete(cid):
     db.session.delete(cat)
     db.session.commit()
     return ok(None)
+
