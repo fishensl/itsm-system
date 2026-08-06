@@ -239,6 +239,7 @@ def api_dashboard_overview():
                 'sub': f"{customer_map.get(t.customer_id, '-')} · {t.priority} · {t.status}",
                 'url': f'/app/tickets/{t.id}',
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
+                'sort_time': t.created_at.timestamp() if t.created_at else 0,
             })
         # 巡检待办：与任务看板同规则角色自动匹配（V23 并入我的待办）——
         # 有派发权看全部（含未指派）；主管看本部门；工程师只看自己的
@@ -248,6 +249,7 @@ def api_dashboard_overview():
             current_user,
         )[0].order_by(InspectionTask.id.desc()).limit(5).all()
         for t in my_insp:
+            _task_time = t.planned_start or t.planned_end or t.created_at
             my_tasks.append({
                 'type_label': '巡检', 'type_color': 'primary',
                 'title': t.title,
@@ -255,6 +257,7 @@ def api_dashboard_overview():
                 'url': '/app/task-schedule',
                 'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' +
                         (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
+                'sort_time': _task_time.timestamp() if _task_time else 0,
             })
         my_faults = Fault.query.filter(Fault.result != '已解决').order_by(Fault.fault_time.desc()).limit(5).all()
         for f in my_faults:
@@ -264,6 +267,7 @@ def api_dashboard_overview():
                 'sub': f"{customer_map.get(f.customer_id, '-')} · {f.fault_type or '-'}",
                 'url': '/app/faults',
                 'time': f.fault_time.strftime('%m-%d %H:%M') if f.fault_time else '',
+                'sort_time': f.fault_time.timestamp() if f.fault_time else 0,
             })
     elif role == 'sales':
         my_opps = Opportunity.query.filter(
@@ -288,6 +292,11 @@ def api_dashboard_overview():
                 'url': '/app/sales?tab=contracts',
                 'time': c.end_date.strftime('%Y-%m-%d') if c.end_date else '-',
             })
+    # 合并列表按最近时间倒序（工单/巡检/故障混合展示），再截断
+    if role in ('admin', 'operator') or has_permission('task:schedule'):
+        my_tasks.sort(key=lambda x: x.get('sort_time') or 0, reverse=True)
+        for _t in my_tasks:
+            _t.pop('sort_time', None)
     my_tasks = my_tasks[:12]
 
     # ---- 即将到期授权 ----
