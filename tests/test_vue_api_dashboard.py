@@ -114,17 +114,34 @@ class TestDashboardTaskScope:
         assert {'待办工单', '待办故障', '巡检任务'} <= titles
 
     def test_sorted_by_recent_time(self, admin_client, app):
-        """合并列表按最近时间倒序（新任务在前）；PG 下 planned_start 为 date 类型也须可排序"""
+        """合并列表按紧迫度：巡检按截止升序（最紧迫置顶），工单/故障最新在前"""
         from datetime import datetime, timedelta, date
         cid = _mk_customer(app)
         with app.app_context():
-            from models import Ticket
+            from models import Ticket, Fault
             db.session.add(Ticket(number='WO-TEST-002', title='十天前的工单', customer_id=cid,
                                   assigned_to='admin', status='待处理', priority='中',
                                   created_at=datetime.utcnow() - timedelta(days=10)))
+            db.session.add(Fault(title='二十天前的故障', customer_id=cid, result='处理中',
+                                 fault_time=datetime.utcnow() - timedelta(days=20)))
             db.session.commit()
-        _mk_task(app, '今天的巡检任务', cid, status='待执行', planned_start=date.today())
+        # 巡检任务：计划今天截止（最紧迫）→ 应置顶
+        _mk_task(app, '今天截止的巡检', cid, status='待执行', planned_start=date.today(),
+                 planned_end=date.today())
         r = admin_client.get('/api/dashboard/overview')
         titles = [t['title'] for t in r.get_json()['data']['my_tasks']]
-        assert '今天的巡检任务' in titles and '十天前的工单' in titles
-        assert titles.index('今天的巡检任务') < titles.index('十天前的工单')
+        assert titles.index('今天截止的巡检') < titles.index('十天前的工单')
+        assert titles.index('十天前的工单') < titles.index('二十天前的故障')
+
+    def test_task_deadline_ascending(self, admin_client, app):
+        """巡检任务按截止时间升序：09-30 截止的在 12-31 之前"""
+        from datetime import date
+        cid = _mk_customer(app)
+        _mk_task(app, '季度任务', cid, status='待执行',
+                 planned_start=date(2026, 7, 1), planned_end=date(2026, 9, 30))
+        _mk_task(app, '年度任务', cid, status='待执行',
+                 planned_start=date(2026, 12, 1), planned_end=date(2026, 12, 31))
+        r = admin_client.get('/api/dashboard/overview')
+        titles = [t['title'] for t in r.get_json()['data']['my_tasks']]
+        assert '季度任务' in titles and '年度任务' in titles
+        assert titles.index('季度任务') < titles.index('年度任务')

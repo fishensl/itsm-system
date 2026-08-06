@@ -239,7 +239,8 @@ def api_dashboard_overview():
                 'sub': f"{customer_map.get(t.customer_id, '-')} · {t.priority} · {t.status}",
                 'url': f'/app/tickets/{t.id}',
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
-                'sort_time': _sort_epoch(t.created_at),
+                # FAR-时间 升序 = 最新在前，且与任务截止时间同值域可混合排序
+                'sort_time': _FAR_EPOCH - _sort_epoch(t.created_at),
             })
         # 巡检待办：与任务看板同规则角色自动匹配（V23 并入我的待办）——
         # 有派发权看全部（含未指派）；主管看本部门；工程师只看自己的
@@ -249,7 +250,6 @@ def api_dashboard_overview():
             current_user,
         )[0].order_by(InspectionTask.id.desc()).limit(5).all()
         for t in my_insp:
-            _task_time = t.planned_start or t.planned_end or t.created_at
             my_tasks.append({
                 'type_label': '巡检', 'type_color': 'primary',
                 'title': t.title,
@@ -257,7 +257,7 @@ def api_dashboard_overview():
                 'url': '/app/task-schedule',
                 'time': (t.planned_start.strftime('%m-%d') if t.planned_start else '') + '~' +
                         (t.planned_end.strftime('%m-%d') if t.planned_end else ''),
-                'sort_time': _sort_epoch(_task_time),
+                'sort_time': _sort_epoch(t.planned_end),  # 截止时间升序：最紧迫/已过期置顶
             })
         my_faults = Fault.query.filter(Fault.result != '已解决').order_by(Fault.fault_time.desc()).limit(5).all()
         for f in my_faults:
@@ -267,7 +267,8 @@ def api_dashboard_overview():
                 'sub': f"{customer_map.get(f.customer_id, '-')} · {f.fault_type or '-'}",
                 'url': '/app/faults',
                 'time': f.fault_time.strftime('%m-%d %H:%M') if f.fault_time else '',
-                'sort_time': _sort_epoch(f.fault_time),
+                # FAR-时间 升序 = 最新在前，与任务截止时间同值域可混合排序
+                'sort_time': _FAR_EPOCH - _sort_epoch(f.fault_time),
             })
     elif role == 'sales':
         my_opps = Opportunity.query.filter(
@@ -292,9 +293,10 @@ def api_dashboard_overview():
                 'url': '/app/sales?tab=contracts',
                 'time': c.end_date.strftime('%Y-%m-%d') if c.end_date else '-',
             })
-    # 合并列表按最近时间倒序（工单/巡检/故障混合展示），再截断
+    # 合并列表按紧迫度排序（升序）：巡检按计划截止时间（最紧迫/已过期置顶），
+    # 工单/故障用 FAR-时间（最新在前，与任务截止同值域混合）；无时间的沉底
     if role in ('admin', 'operator') or has_permission('task:schedule'):
-        my_tasks.sort(key=lambda x: x.get('sort_time') or 0, reverse=True)
+        my_tasks.sort(key=lambda x: x.get('sort_time') or _FAR_EPOCH)
         for _t in my_tasks:
             _t.pop('sort_time', None)
     my_tasks = my_tasks[:12]
@@ -1065,10 +1067,13 @@ def api_global_search():
 _TASK_STATUS_TAG = {'待执行': 'danger', '执行中': 'warning', '已完成': 'success', '已取消': 'info'}
 
 
+_FAR_EPOCH = 4102444800  # 2100-01-01 哨兵：无时间项的待办沉底（升序排序时排最后）
+
+
 def _sort_epoch(v):
-    """datetime/date → 可比较 epoch 秒（PG 的 Date 列返回 date，无 .timestamp()）；None → 0"""
+    """datetime/date → 可比较 epoch 秒（PG 的 Date 列返回 date，无 .timestamp()）；None → 哨兵"""
     if v is None:
-        return 0
+        return _FAR_EPOCH
     from datetime import datetime as _dt
     if isinstance(v, _dt):
         return v.timestamp()
