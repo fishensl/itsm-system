@@ -58,8 +58,8 @@ class TestIndexByRole:
 
 
 class TestInspectorTaskMatch:
-    def test_assigned_to_user_id_match(self, op_client, app, seed):
-        """巡检待办按 assigned_to_user_id 精确匹配：未指派的任务不出现在我的待办"""
+    def test_assigned_scope_for_dispatch(self, op_client, app, seed):
+        """V23：巡检待办按角色自动匹配——有派发权的 op 看全部待执行任务（含未指派）"""
         with app.app_context():
             op = User.query.filter_by(username='op').first()
             decoy = InspectionTask(title='干扰任务', customer_id=seed['customer_id'],
@@ -74,7 +74,7 @@ class TestInspectorTaskMatch:
         tasks = r.get_json()['data']['my_tasks']
         titles = [t['title'] for t in tasks]
         assert '我的任务' in titles
-        assert '干扰任务' not in titles
+        assert '干扰任务' in titles  # 未指派但待执行：派发权角色可见
 
 
 class TestFirmwareList:

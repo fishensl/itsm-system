@@ -32,69 +32,44 @@
       :fetch-data="fetchKnowledgeList"
       :query="query"
       row-key="id"
-      @row-click="openDetail"
     />
 
-    <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" :title="detail ? `#${detail.id} · ${detail.title}` : ''"
-      size="620px" destroy-on-close>
-      <div v-if="detail">
+    <!-- 查看正文 -->
+    <el-dialog v-model="contentVisible" :title="content?.title || '正文'" width="640px" top="5vh"
+      destroy-on-close>
+      <div v-if="content">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="分类">
-            <el-tag size="small" type="primary">{{ detail.category || '未分类' }}</el-tag>
+            <el-tag size="small" type="primary">{{ content.category || '未分类' }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="发布状态">
-            <el-tag size="small" :type="detail.is_published ? 'success' : 'info'">
-              {{ detail.published_label }}
+            <el-tag size="small" :type="content.is_published ? 'success' : 'info'">
+              {{ content.published_label }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="创建人">{{ detail.created_by || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ detail.created_at || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="查看次数">{{ detail.view_count }}</el-descriptions-item>
-          <el-descriptions-item label="有用数">{{ detail.helpful_count }}</el-descriptions-item>
+          <el-descriptions-item label="创建人">{{ content.created_by || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ content.created_at || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="查看次数">{{ content.view_count }}</el-descriptions-item>
+          <el-descriptions-item label="有用数">{{ content.helpful_count }}</el-descriptions-item>
         </el-descriptions>
 
         <el-divider content-position="left">标签</el-divider>
-        <div v-if="detail.tags">
-          <el-tag v-for="t in detail.tags.split(/[,，\s]+/).filter(Boolean)" :key="t" size="small"
+        <div v-if="content.tags">
+          <el-tag v-for="t in content.tags.split(/[,，\s]+/).filter(Boolean)" :key="t" size="small"
             class="tag-chip" effect="plain">{{ t }}</el-tag>
         </div>
         <p v-else class="detail-text">-</p>
 
         <el-divider content-position="left">内容</el-divider>
-        <div class="kb-content" v-html="detail.content || '<p>-</p>'" />
-
-        <el-divider content-position="left">附件（{{ detail.attachments?.length || 0 }}）</el-divider>
-        <div v-if="detail.attachments?.length" class="att-list">
-          <div v-for="a in detail.attachments" :key="a.id" class="att-item">
-            <el-icon :size="16" :color="ATT_ICON_COLOR[a.file_ext] || '#909399'">
-              <Document />
-            </el-icon>
-            <span class="att-name" :title="a.file_name">{{ a.file_name }}</span>
-            <span class="att-meta">{{ fmtSize(a.file_size) }} · {{ a.uploaded_by }}</span>
-            <div class="att-ops">
-              <el-button size="small" link type="primary" :icon="View" @click="openPreview(a)">
-                预览
-              </el-button>
-              <el-button size="small" link type="primary" :icon="Download"
-                @click="openDownload(knowledgeAttachmentDownloadUrl(detail!.id, a.id))">
-                下载
-              </el-button>
-              <el-button v-if="user.hasPerm('kb:edit')" size="small" link type="danger" :icon="Delete"
-                @click="onDeleteAttachment(a)">
-                删除
-              </el-button>
-            </div>
-          </div>
-        </div>
-        <p v-else class="detail-text">暂无附件</p>
+        <div class="kb-content" v-html="content.content || '<p>-</p>'" />
       </div>
-    </el-drawer>
+    </el-dialog>
 
-    <!-- 附件在线预览 -->
+    <!-- 附件在线预览（点击列表附件文件名直接打开） -->
     <el-dialog v-model="previewVisible" :title="previewAtt?.file_name || '附件预览'" width="780px" top="5vh"
       destroy-on-close>
-      <FilePreview v-if="previewAtt" :url="knowledgeAttachmentPreviewUrl(detail?.id || 0, previewAtt.id)"
+      <FilePreview v-if="previewAtt && previewKbId"
+        :url="knowledgeAttachmentPreviewUrl(previewKbId, previewAtt.id)"
         :file-name="previewAtt.file_name" />
     </el-dialog>
 
@@ -163,8 +138,8 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadUserFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { Plus, Search, Download, View, Delete, Upload, Document } from '@element-plus/icons-vue'
+import { ref, reactive, computed, onMounted, watch, h } from 'vue'
+import { Plus, Search, Upload, Document, Delete } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import type { UploadRawFile } from 'element-plus/es/components/upload'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -188,19 +163,20 @@ const query = reactive<Record<string, unknown>>({ search: '', category: '', is_p
 const tableRef = ref()
 
 const columns = computed<DataColumn[]>(() => [
-  { key: 'title', label: '标题', type: 'link', minWidth: 220, asTitle: true,
-    link: (r) => `/app/knowledge-base/${r.id}` },
+  { key: 'title', label: '标题', minWidth: 220, asTitle: true },
   { key: 'category', label: '分类', width: 100, type: 'tag', asTag: true, tagMap: CATEGORY_TAG },
+  { key: 'attachments', label: '附件', minWidth: 200, type: 'custom',
+    render: (row) => renderAttachments(row) },
   { key: 'view_count', label: '查看数', width: 80 },
   { key: 'helpful_count', label: '有用数', width: 80 },
   { key: 'published_label', label: '发布状态', width: 90, type: 'tag',
     tagMap: { 已发布: 'success', 未发布: 'info' } },
   { key: 'created_by', label: '创建人', width: 100 },
   { key: 'created_at', label: '创建时间', width: 130 },
-  { key: 'actions', label: '操作', width: 140, type: 'action', fixed: 'right',
+  { key: 'actions', label: '操作', width: 200, type: 'action', fixed: 'right',
     actions: [
-      { label: '查看', type: 'primary', link: true, perm: 'kb:view', icon: 'View',
-        onClick: (row) => openDetail(row) },
+      { label: '查看正文', type: 'primary', link: true, perm: 'kb:view', icon: 'View',
+        onClick: (row) => openContent(row as unknown as KnowledgeItem) },
       { label: '编辑', type: 'primary', link: true, perm: 'kb:edit', icon: 'Edit',
         onClick: (row) => openEdit(row as unknown as KnowledgeItem) },
       { label: '删除', type: 'danger', link: true, perm: 'kb:delete', icon: 'Delete',
@@ -208,22 +184,16 @@ const columns = computed<DataColumn[]>(() => [
     ] },
 ])
 
-// 详情
-const detailVisible = ref(false)
-const detail = ref<KnowledgeItem | null>(null)
+// 查看正文（顺带浏览量 +1）
+const contentVisible = ref(false)
+const content = ref<KnowledgeItem | null>(null)
 
-async function openDetail(row: Record<string, unknown>) {
+async function openContent(row: KnowledgeItem) {
   try {
-    detail.value = await fetchKnowledge(row.id as number)
-    detailVisible.value = true
+    content.value = await fetchKnowledge(row.id)
+    contentVisible.value = true
   } catch { /* toast */ }
 }
-
-// 支持 /app/knowledge-base/:id 直达（全局搜索跳转）
-onMounted(() => {
-  const id = Number(route.params.id)
-  if (id && !Number.isNaN(id)) openDetail({ id })
-})
 
 async function onDelete(k: KnowledgeItem) {
   try {
@@ -232,7 +202,6 @@ async function onDelete(k: KnowledgeItem) {
   try {
     await deleteKnowledge(k.id)
     ui.toast('已删除', 'success')
-    detailVisible.value = false
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -301,11 +270,6 @@ async function save() {
 }
 
 // ==================== 附件 ====================
-const ATT_ICON_COLOR: Record<string, string> = {
-  '.pdf': '#f56c6c', '.doc': '#409eff', '.docx': '#409eff',
-  '.xls': '#67c23a', '.xlsx': '#67c23a', '.txt': '#909399',
-}
-
 function fmtSize(n: number) {
   if (!n) return '-'
   if (n < 1024) return `${n} B`
@@ -317,28 +281,52 @@ function openDownload(url: string) {
   window.open(url, '_blank')
 }
 
-// 详情附件预览
+// 附件在线预览（列表内点击文件名直接打开，不再经过详情抽屉）
 const previewVisible = ref(false)
 const previewAtt = ref<KnowledgeAttachment | null>(null)
+const previewKbId = ref<number | null>(null)
 
-function openPreview(a: KnowledgeAttachment) {
+function openPreview(a: KnowledgeAttachment, kbId: number) {
   previewAtt.value = a
+  previewKbId.value = kbId
   previewVisible.value = true
 }
 
-async function onDeleteAttachment(a: KnowledgeAttachment) {
-  if (!detail.value) return
+async function onDeleteAttachment(a: KnowledgeAttachment, kbId: number) {
   try {
     await ElMessageBox.confirm(`确定删除附件「${a.file_name}」吗？`, '删除确认', { type: 'warning' })
   } catch { return }
   try {
-    await deleteKnowledgeAttachment(detail.value.id, a.id)
+    await deleteKnowledgeAttachment(kbId, a.id)
     ui.toast('附件已删除', 'success')
-    detail.value.attachments = detail.value.attachments?.filter((x) => x.id !== a.id)
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
+}
+
+/** 附件列自定义渲染：文件名点击预览，行内 下载/删除 */
+function renderAttachments(row: Record<string, unknown>) {
+  const atts = (row.attachments as KnowledgeAttachment[] | undefined) || []
+  if (!atts.length) return '-'
+  const kbId = row.id as number
+  return h('div', { class: 'att-inline' }, atts.map((a) => h('div', { class: 'att-inline-row' }, [
+    h('span', {
+      class: 'att-inline-name', title: a.file_name,
+      onClick: (e: MouseEvent) => { e.stopPropagation(); openPreview(a, kbId) },
+    }, a.file_name),
+    h('span', {
+      class: 'att-inline-op', title: '下载',
+      onClick: (e: MouseEvent) => {
+        e.stopPropagation()
+        openDownload(knowledgeAttachmentDownloadUrl(kbId, a.id))
+      },
+    }, '下载'),
+    h('span', {
+      class: 'att-inline-op att-inline-del', title: '删除',
+      onClick: (e: MouseEvent) => { e.stopPropagation(); onDeleteAttachment(a, kbId) },
+    }, '删除'),
+  ])))
 }
 
 // 表单附件：待传列表 + 已有附件
@@ -398,4 +386,21 @@ onMounted(() => {
 .att-ops { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
 .form-att-list { margin-top: 8px; }
 .att-upload { display: block; }
+</style>
+
+<!-- 附件列内联渲染（h() VNode 无 scoped 标记，需全局样式） -->
+<style>
+.att-inline { display: flex; flex-direction: column; gap: 2px; }
+.att-inline-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.att-inline-name {
+  cursor: pointer; color: var(--itsm-primary, #2563eb); font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
+}
+.att-inline-name:hover { text-decoration: underline; }
+.att-inline-op {
+  cursor: pointer; font-size: 11px; color: var(--itsm-text-muted);
+  flex-shrink: 0; padding: 0 2px;
+}
+.att-inline-op:hover { color: var(--itsm-primary, #2563eb); }
+.att-inline-del:hover { color: #f56c6c; }
 </style>
