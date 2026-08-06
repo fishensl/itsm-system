@@ -83,6 +83,22 @@
               <el-input v-model="form.email" />
             </el-form-item>
           </el-col>
+          <el-col :xs="24">
+            <el-form-item label="负责区域">
+              <el-tree-select
+                v-model="form.region_ids"
+                :data="regionTree"
+                :props="{ label: 'label', children: 'children' }"
+                multiple
+                show-checkbox
+                check-strictly
+                node-key="id"
+                check-on-click-node
+                class="w-full"
+                placeholder="多选负责区域（地市/区县），驻场工程师新建工单默认过滤对应区域客户"
+              />
+            </el-form-item>
+          </el-col>
           <el-col v-if="!form.id" :xs="24" :sm="12">
             <el-form-item label="初始密码">
               <el-input v-model="form.password" type="password" show-password />
@@ -174,6 +190,7 @@ import {
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
   type UserItem, type DepartmentItem,
 } from '@/api/system'
+import { fetchRegions, type RegionItem } from '@/api/regions'
 
 const ui = useUiStore()
 interface DeptRow {
@@ -189,6 +206,20 @@ const depts = ref<DeptRow[]>([])
 const allUsers = ref<{ id: number; name: string }[]>([])
 const roles = ref<string[]>([])
 const tableRef = ref()
+
+// 负责区域树（地市 → 区县，多选）
+const regionTree = ref<{ id: number; label: string; children: { id: number; label: string }[] }[]>([])
+
+async function loadRegions() {
+  try {
+    const regions = await fetchRegions()
+    regionTree.value = regions.map((r: RegionItem) => ({
+      id: r.id,
+      label: r.name,
+      children: (r.children || []).map((c) => ({ id: c.id, label: c.name })),
+    }))
+  } catch { /* toast */ }
+}
 
 // 侧栏入口（/app/system/users?tab=departments 等）滚动定位对应区块
 const route = useRoute()
@@ -235,6 +266,7 @@ const userColumns = computed(() => [
   { key: 'role', label: '角色', width: 100, type: 'tag',
     tagMap: ROLE_TAG, valueMap: ROLE_LABELS },
   { key: 'department_name', label: '部门', minWidth: 100 },
+  { key: 'region_names', label: '负责区域', minWidth: 130 },
   { key: 'is_active', label: '状态', width: 80, type: 'tag', asTag: true,
     tagMap: { true: 'success', false: 'info' }, valueMap: ACTIVE_LABELS },
   { key: 'phone', label: '电话', minWidth: 110 },
@@ -297,14 +329,15 @@ async function doResetPwd() {
 
 function openCreate() {
   form.value = { username: '', realname: '', role: 'viewer', department_id: null,
-    phone: '', email: '', password: '', is_active: true, certifications: [] }
+    phone: '', email: '', password: '', is_active: true, certifications: [], region_ids: [] }
   formVisible.value = true
 }
 
 function openEdit(u: UserItem) {
   form.value = { id: u.id, username: u.username, realname: u.realname, role: u.role,
     department_id: u.department_id, phone: u.phone, email: u.email,
-    password: '', is_active: u.is_active, certifications: [...(u.certifications || [])] }
+    password: '', is_active: u.is_active, certifications: [...(u.certifications || [])],
+    region_ids: [...(u.region_ids || [])] }
   formVisible.value = true
 }
 
@@ -386,6 +419,7 @@ async function onDeptDelete(d: DepartmentItem) {
 
 onMounted(() => {
   load()
+  loadRegions()
 })
 </script>
 

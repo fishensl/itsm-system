@@ -195,7 +195,7 @@ export interface InspectionTaskOption {
 }
 
 export interface InspectionDicts {
-  customers: { id: number; name: string }[]
+  customers: { id: number; name: string; region_id: number | null }[]
   inspectors: { user_id: number; name: string }[]
   tasks: InspectionTaskOption[]
   overall_statuses: string[]

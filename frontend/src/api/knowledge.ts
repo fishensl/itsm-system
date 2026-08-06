@@ -1,6 +1,15 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types'
 
+export interface KnowledgeAttachment {
+  id: number
+  file_name: string
+  file_ext: string
+  file_size: number
+  uploaded_by: string
+  created_at: string
+}
+
 export interface KnowledgeItem {
   id: number
   title: string
@@ -13,6 +22,7 @@ export interface KnowledgeItem {
   tags: string
   created_at: string
   content?: string
+  attachments?: KnowledgeAttachment[]
 }
 
 export interface KnowledgeQuery {
@@ -50,6 +60,31 @@ export function updateKnowledge(id: number, data: Record<string, unknown>) {
 
 export function deleteKnowledge(id: number) {
   return request<null>({ url: `/api/knowledge-base/${id}`, method: 'DELETE' })
+}
+
+/** 附件：上传（multipart 多文件字段 files） */
+export function uploadKnowledgeAttachments(kbId: number, files: File[]) {
+  const fd = new FormData()
+  files.forEach((f) => fd.append('files', f))
+  return request<{ added: number; attachments: KnowledgeAttachment[] }>({
+    url: `/api/knowledge-base/${kbId}/attachments`,
+    method: 'POST',
+    data: fd,
+  })
+}
+
+export function deleteKnowledgeAttachment(kbId: number, attId: number) {
+  return request<null>({ url: `/api/knowledge-base/${kbId}/attachments/${attId}`, method: 'DELETE' })
+}
+
+/** 附件在线预览（内联文件流，FilePreview 组件渲染） */
+export function knowledgeAttachmentPreviewUrl(kbId: number, attId: number) {
+  return `/api/knowledge-base/${kbId}/attachments/${attId}/preview`
+}
+
+/** 附件下载（原文件名） */
+export function knowledgeAttachmentDownloadUrl(kbId: number, attId: number) {
+  return `/api/knowledge-base/${kbId}/attachments/${attId}/download`
 }
 
 export interface KnowledgeDicts {

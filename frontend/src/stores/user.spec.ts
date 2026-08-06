@@ -12,6 +12,7 @@ describe('user store', () => {
       realname: '管理员',
       role: 'admin',
       department_id: null,
+      region_ids: [],
       permissions: [],
     }
     expect(store.hasPerm('anything:xxx')).toBe(true)
@@ -27,6 +28,7 @@ describe('user store', () => {
       realname: '查看者',
       role: 'viewer',
       department_id: null,
+      region_ids: [],
       permissions: ['device:view', 'ticket:view'],
     }
     expect(store.hasPerm('device:view')).toBe(true)
@@ -34,3 +36,4 @@ describe('user store', () => {
     expect(store.hasPerm(undefined)).toBe(true)
   })
 })
+

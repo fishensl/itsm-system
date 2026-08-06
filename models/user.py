@@ -26,6 +26,14 @@ class Department(db.Model):
     head = db.relationship('User', backref='headed_department', foreign_keys=[head_id], lazy=True)
 
 
+# 多对多：用户负责区域（工程师按区域过滤客户；区域见 models/customer.Region）
+user_regions = db.Table(
+    'user_regions',
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+    db.Column('region_id', db.Integer, db.ForeignKey('regions.id'), primary_key=True),
+)
+
+
 class User(UserMixin, db.Model):
     """系统用户（V13：人员主数据 — 新增 phone/email/certifications）"""
     __tablename__ = 'users'
@@ -44,6 +52,9 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     department_rel = db.relationship('Department', backref='members', foreign_keys=[department_id])
+    # 负责区域（多对多）：驻场工程师默认操作过滤到对应区域客户
+    regions = db.relationship('Region', secondary=user_regions, backref='region_users',
+                              order_by='Region.sort_order, Region.id')
 
     def set_password(self, raw_password):
         self.password = generate_password_hash(raw_password)

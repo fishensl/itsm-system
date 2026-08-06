@@ -63,8 +63,40 @@
 
         <el-divider content-position="left">内容</el-divider>
         <div class="kb-content" v-html="detail.content || '<p>-</p>'" />
+
+        <el-divider content-position="left">附件（{{ detail.attachments?.length || 0 }}）</el-divider>
+        <div v-if="detail.attachments?.length" class="att-list">
+          <div v-for="a in detail.attachments" :key="a.id" class="att-item">
+            <el-icon :size="16" :color="ATT_ICON_COLOR[a.file_ext] || '#909399'">
+              <Document />
+            </el-icon>
+            <span class="att-name" :title="a.file_name">{{ a.file_name }}</span>
+            <span class="att-meta">{{ fmtSize(a.file_size) }} · {{ a.uploaded_by }}</span>
+            <div class="att-ops">
+              <el-button size="small" link type="primary" :icon="View" @click="openPreview(a)">
+                预览
+              </el-button>
+              <el-button size="small" link type="primary" :icon="Download"
+                @click="openDownload(knowledgeAttachmentDownloadUrl(detail!.id, a.id))">
+                下载
+              </el-button>
+              <el-button v-if="user.hasPerm('kb:edit')" size="small" link type="danger" :icon="Delete"
+                @click="onDeleteAttachment(a)">
+                删除
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <p v-else class="detail-text">暂无附件</p>
       </div>
     </el-drawer>
+
+    <!-- 附件在线预览 -->
+    <el-dialog v-model="previewVisible" :title="previewAtt?.file_name || '附件预览'" width="780px" top="5vh"
+      destroy-on-close>
+      <FilePreview v-if="previewAtt" :url="knowledgeAttachmentPreviewUrl(detail?.id || 0, previewAtt.id)"
+        :file-name="previewAtt.file_name" />
+    </el-dialog>
 
     <!-- 新建/编辑知识 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑知识' : '新建知识'" width="680px" top="5vh"
@@ -90,6 +122,32 @@
         <el-form-item label="内容">
           <el-input v-model="form.content" type="textarea" :rows="10" placeholder="支持 HTML 内容" />
         </el-form-item>
+        <el-form-item label="附件">
+          <el-upload
+            v-model:file-list="pendingFiles"
+            :auto-upload="false"
+            :multiple="true"
+            :limit="10"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.txt"
+            :on-exceed="onUploadExceed"
+            class="att-upload"
+          >
+            <el-button :icon="Upload">选择文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">PDF/Word/Excel/图片/TXT，最多 10 个（保存时上传）</div>
+            </template>
+          </el-upload>
+          <div v-if="form.id && existingAtts.length" class="att-list form-att-list">
+            <div v-for="a in existingAtts" :key="a.id" class="att-item">
+              <el-icon :size="16" color="#909399"><Document /></el-icon>
+              <span class="att-name">{{ a.file_name }}</span>
+              <span class="att-meta">{{ fmtSize(a.file_size) }}</span>
+              <el-button size="small" link type="danger" :icon="Delete" @click="onRemoveExisting(a)">
+                移除
+              </el-button>
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item label="发布">
           <el-switch v-model="form.is_published" active-text="发布" inactive-text="草稿" />
         </el-form-item>
@@ -104,16 +162,21 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import type { UploadUserFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Download, View, Delete, Upload, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
+import type { UploadRawFile } from 'element-plus/es/components/upload'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchKnowledgeList, fetchKnowledge, createKnowledge, updateKnowledge, deleteKnowledge,
-  fetchKnowledgeDicts, KNOWLEDGE_CATEGORY_TAG as CATEGORY_TAG,
-  type KnowledgeItem, type KnowledgeDicts,
+  fetchKnowledgeDicts, uploadKnowledgeAttachments, deleteKnowledgeAttachment,
+  knowledgeAttachmentPreviewUrl, knowledgeAttachmentDownloadUrl,
+  KNOWLEDGE_CATEGORY_TAG as CATEGORY_TAG,
+  type KnowledgeItem, type KnowledgeDicts, type KnowledgeAttachment,
 } from '@/api/knowledge'
 
 const user = useUserStore()
@@ -191,6 +254,8 @@ function blankForm() {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  pendingFiles.value = []
+  existingAtts.value = []
   formVisible.value = true
 }
 
@@ -202,6 +267,8 @@ async function openEdit(k: KnowledgeItem) {
       tags: detailData.tags || '', content: detailData.content || '',
       is_published: detailData.is_published,
     })
+    pendingFiles.value = []
+    existingAtts.value = detailData.attachments || []
     formVisible.value = true
   } catch { /* toast */ }
 }
@@ -210,12 +277,19 @@ async function save() {
   try { await formRef.value?.validate() } catch { return }
   saving.value = true
   try {
-    if (form.id) {
-      await updateKnowledge(form.id as number, { ...form })
+    let kbId = form.id as number | null
+    if (kbId) {
+      await updateKnowledge(kbId, { ...form })
       ui.toast('已保存', 'success')
     } else {
-      await createKnowledge({ ...form })
+      const created = await createKnowledge({ ...form })
+      kbId = created.id
       ui.toast('知识条目已创建', 'success')
+    }
+    // 附件：保存后逐批上传待传文件
+    const files = pendingFiles.value.map((f) => f.raw).filter((f): f is UploadRawFile => !!f)
+    if (files.length && kbId) {
+      await uploadKnowledgeAttachments(kbId, files)
     }
     formVisible.value = false
     tableRef.value?.refresh()
@@ -223,6 +297,66 @@ async function save() {
     ui.toast((e as Error).message, 'error')
   } finally {
     saving.value = false
+  }
+}
+
+// ==================== 附件 ====================
+const ATT_ICON_COLOR: Record<string, string> = {
+  '.pdf': '#f56c6c', '.doc': '#409eff', '.docx': '#409eff',
+  '.xls': '#67c23a', '.xlsx': '#67c23a', '.txt': '#909399',
+}
+
+function fmtSize(n: number) {
+  if (!n) return '-'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function openDownload(url: string) {
+  window.open(url, '_blank')
+}
+
+// 详情附件预览
+const previewVisible = ref(false)
+const previewAtt = ref<KnowledgeAttachment | null>(null)
+
+function openPreview(a: KnowledgeAttachment) {
+  previewAtt.value = a
+  previewVisible.value = true
+}
+
+async function onDeleteAttachment(a: KnowledgeAttachment) {
+  if (!detail.value) return
+  try {
+    await ElMessageBox.confirm(`确定删除附件「${a.file_name}」吗？`, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await deleteKnowledgeAttachment(detail.value.id, a.id)
+    ui.toast('附件已删除', 'success')
+    detail.value.attachments = detail.value.attachments?.filter((x) => x.id !== a.id)
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+// 表单附件：待传列表 + 已有附件
+const pendingFiles = ref<UploadUserFile[]>([])
+const existingAtts = ref<KnowledgeAttachment[]>([])
+
+function onUploadExceed() {
+  ui.toast('最多选择 10 个附件', 'warning')
+}
+
+async function onRemoveExisting(a: KnowledgeAttachment) {
+  if (!form.id) return
+  try {
+    await deleteKnowledgeAttachment(form.id as number, a.id)
+    existingAtts.value = existingAtts.value.filter((x) => x.id !== a.id)
+    ui.toast('附件已移除', 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
   }
 }
 
@@ -254,4 +388,14 @@ onMounted(() => {
 .detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
 .tag-chip { margin-right: 6px; margin-bottom: 4px; }
 .kb-content { font-size: 13px; line-height: 1.7; word-break: break-all; }
+.att-list { display: flex; flex-direction: column; gap: 4px; }
+.att-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border: 1px solid var(--itsm-border); border-radius: 6px; font-size: 13px;
+}
+.att-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.att-meta { color: var(--itsm-text-muted); font-size: 12px; }
+.att-ops { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+.form-att-list { margin-top: 8px; }
+.att-upload { display: block; }
 </style>

@@ -147,6 +147,7 @@ def _user_payload(user):
         'realname': user.realname or user.username,
         'role': user.role or 'viewer',
         'department_id': user.department_id,
+        'region_ids': [r.id for r in user.regions],
         'permissions': get_user_permissions(user),
     }
 
@@ -1469,7 +1470,8 @@ def api_ticket_report_latest(ticket_id):
 @require_permission('ticket:view')
 def api_ticket_dicts():
     from models import Customer as _C, FaultType as _FT, Device as _D
-    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    customers = [{'id': c.id, 'name': c.name, 'region_id': c.region_id}
+                 for c in _C.query.order_by(_C.name).all()]
     fault_types = [{'id': f.id, 'name': f.name}
                    for f in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
     statuses = ['待派单', '已派单', '已接单', '处理中', '待审核', '已验收', '已关闭']
@@ -2378,7 +2380,8 @@ def _send_report_file(rel_path):
 @require_permission('inspection:view')
 def api_inspection_dicts():
     from models import Customer as _C, Inspector as _I, InspectionTask as _IT
-    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    customers = [{'id': c.id, 'name': c.name, 'region_id': c.region_id}
+                 for c in _C.query.order_by(_C.name).all()]
     inspectors = [{'user_id': ins.user_id, 'name': ins.name}
                   for ins in _I.query.filter_by(is_active=True).order_by(_I.id).all()]
     tasks = []

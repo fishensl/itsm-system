@@ -11,6 +11,8 @@ export interface UserItem {
   phone: string
   email: string
   certifications?: string[]
+  region_ids?: number[]
+  region_names?: string[]
   created_at: string
 }
 

@@ -85,7 +85,7 @@
           <el-col :xs="24" :sm="12">
             <el-form-item label="客户">
               <el-select v-model="form.customer_id" filterable clearable class="w-full">
-                <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
+                <el-option v-for="c in regionCustomers" :key="c.id" :label="c.name" :value="c.id" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -158,6 +158,15 @@ const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<FaultDicts | null>(null)
 
+/** 客户下拉：驻场工程师（配置了负责区域）仅显示对应区域客户；区域无客户时兜底全部 */
+const regionCustomers = computed(() => {
+  const custs = dicts.value?.customers || []
+  const rids = user.user?.region_ids || []
+  if (!rids.length) return custs
+  const filtered = custs.filter((c) => c.region_id !== null && rids.includes(c.region_id))
+  return filtered.length ? filtered : custs
+})
+
 const query = reactive<Record<string, unknown>>({ search: '', fault_type: '', result: '' })
 const tableRef = ref()
 
@@ -225,6 +234,9 @@ function blankForm() {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
+  const first = regionCustomers.value[0]
+  if (first && !form.customer_id) form.customer_id = first.id
   formVisible.value = true
 }
 
