@@ -10,6 +10,45 @@
     </div>
 
     <el-tabs v-model="activeTab">
+      <!-- 角色列表 -->
+      <el-tab-pane label="角色列表" name="list">
+        <el-card shadow="never">
+          <el-table v-loading="loading" :data="roleRows" size="small" border>
+            <el-table-column prop="name" label="名称" min-width="120" />
+            <el-table-column prop="code" label="代码" min-width="120">
+              <template #default="{ row }">
+                <code>{{ row.code }}</code>
+                <el-tag v-if="row.is_system" size="small" type="info" class="ml-2">内置</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="sort_order" label="排序" width="70" />
+            <el-table-column label="启用" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.is_active ? 'success' : 'info'">
+                  {{ row.is_active ? '启用' : '停用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="user_count" label="用户数" width="80" />
+            <el-table-column label="权限数" width="80">
+              <template #default="{ row }">
+                {{ row.permissions?.length ?? 0 }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="130" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="user.hasPerm('permission:edit')" size="small" link type="primary"
+                  @click="openRoleEdit(row)">编辑</el-button>
+                <el-button v-if="user.hasPerm('permission:edit') && !row.is_system" size="small"
+                  link type="danger" @click="onRoleDelete(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!loading && !roleRows.length" description="暂无角色" :image-size="60" />
+        </el-card>
+      </el-tab-pane>
+
       <!-- 角色权限矩阵 -->
       <el-tab-pane label="角色权限" name="matrix">
         <el-card shadow="never">
@@ -18,7 +57,7 @@
               <thead>
                 <tr>
                   <th class="sticky-col">权限</th>
-                  <th v-for="r in data?.roles || []" :key="r.code" class="role-col">
+                  <th v-for="r in activeRoles" :key="r.code" class="role-col">
                     {{ r.name }}
                   </th>
                 </tr>
@@ -26,7 +65,7 @@
               <tbody>
                 <template v-for="(group, gi) in groupedPerms" :key="gi">
                   <tr class="group-row">
-                    <td class="sticky-col" :colspan="(data?.roles?.length || 0) + 1">{{ group.name }}</td>
+                    <td class="sticky-col" :colspan="activeRoles.length + 1">{{ group.name }}</td>
                   </tr>
                   <tr v-for="p in group.items" :key="p.code">
                     <td class="sticky-col">
@@ -35,7 +74,7 @@
                         <code class="perm-code">{{ p.code }}</code>
                       </div>
                     </td>
-                    <td v-for="r in data?.roles || []" :key="r.code" class="role-col"
+                    <td v-for="r in activeRoles" :key="r.code" class="role-col"
                       :class="{ admin: r.code === 'admin' }">
                       <template v-if="r.code === 'admin'">
                         <el-icon color="#67c23a"><CircleCheck /></el-icon>
@@ -52,7 +91,7 @@
               </tbody>
             </table>
           </div>
-          <el-empty v-if="!loading && !data?.roles?.length" description="暂无角色" :image-size="60" />
+          <el-empty v-if="!loading && !activeRoles.length" description="暂无启用角色" :image-size="60" />
         </el-card>
       </el-tab-pane>
 
@@ -129,10 +168,11 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, CircleCheck } from '@element-plus/icons-vue'
 import {
-  fetchRoles, createRole, updateRole, saveRolePermissions,
+  fetchRoles, createRole, updateRole, deleteRole, saveRolePermissions,
   fetchUserPermissions, saveUserPermissions, fetchUsers,
   type RoleListData, type RoleItem, type UserPermissionOverride,
 } from '@/api/system'
@@ -164,6 +204,9 @@ const groupedPerms = computed(() => {
     items: g.items,
   }))
 })
+
+const roleRows = computed(() => data.value?.roles || [])
+const activeRoles = computed(() => roleRows.value.filter((r) => r.is_active))
 
 const roleFormVisible = ref(false)
 const savingRole = ref(false)
@@ -205,6 +248,30 @@ async function togglePerm(role: RoleItem, code: string, on: boolean) {
 function openRoleCreate() {
   Object.assign(roleForm, { id: null, code: '', name: '', description: '', sort_order: 0, is_active: true })
   roleFormVisible.value = true
+}
+
+function openRoleEdit(role: RoleItem) {
+  Object.assign(roleForm, {
+    id: role.id, code: role.code, name: role.name, description: role.description || '',
+    sort_order: role.sort_order, is_active: !!role.is_active,
+  })
+  roleFormVisible.value = true
+}
+
+async function onRoleDelete(role: RoleItem) {
+  const tip = role.user_count > 0
+    ? `角色「${role.name}」还有 ${role.user_count} 个活跃用户，删除后这些用户将失去该角色权限，确定删除吗？`
+    : `确定删除角色「${role.name}」吗？`
+  try {
+    await ElMessageBox.confirm(tip, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await deleteRole(role.id)
+    ui.toast('角色已删除', 'success')
+    load()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
 }
 
 async function saveRole() {
@@ -298,4 +365,5 @@ onMounted(() => {
 .perm-code { font-size: 10px; color: var(--itsm-text-muted); }
 .filter-row { display: flex; gap: 8px; align-items: center; }
 .mt-3 { margin-top: 12px; }
+.ml-2 { margin-left: 8px; }
 </style>

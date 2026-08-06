@@ -74,6 +74,40 @@ class TestUserApi:
         r = c.get('/api/auth/me')
         assert r.get_json()['data']['region_ids'] == []
 
+    def test_customer_ids_roundtrip(self, admin_client, app):
+        """工程师直接关联客户（多对多）：创建/更新/列表/me 全链路"""
+        with app.app_context():
+            from models import Customer
+            c1 = Customer(name='关联客户A')
+            c2 = Customer(name='关联客户B')
+            db.session.add_all([c1, c2])
+            db.session.commit()
+            c1_id, c2_id = c1.id, c2.id
+        # 创建带关联客户
+        r = admin_client.post('/api/users', json={
+            'username': 'eng2', 'password': 'pass123', 'realname': '驻场工程师',
+            'role': 'operator', 'customer_ids': [c1_id, c2_id]})
+        assert r.status_code == 200
+        with app.app_context():
+            u = User.query.filter_by(username='eng2').first()
+            assert {x.id for x in u.customers} == {c1_id, c2_id}
+            uid = u.id
+        # 列表回显
+        r = admin_client.get('/api/users')
+        row = next(x for x in r.get_json()['data']['users'] if x['username'] == 'eng2')
+        assert row['customer_ids'] == [c1_id, c2_id]
+        assert row['customer_names'] == ['关联客户A', '关联客户B']
+        # 更新清空
+        r = admin_client.put(f'/api/users/{uid}', json={'username': 'eng2', 'customer_ids': []})
+        assert r.status_code == 200
+        with app.app_context():
+            assert User.query.get(uid).customers == []
+        # me 回显
+        c = app.test_client()
+        c.post('/login', data={'username': 'eng2', 'password': 'pass123'})
+        r = c.get('/api/auth/me')
+        assert r.get_json()['data']['customer_ids'] == []
+
     def test_cannot_delete_self(self, admin_client):
         r = admin_client.delete('/api/users/1')
         assert r.status_code == 400

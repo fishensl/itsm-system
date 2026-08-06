@@ -322,9 +322,11 @@ const filteredDevices = computed(() => {
   return list.filter((d) => d.customer_id === form.customer_id)
 })
 
-/** 客户下拉：驻场工程师（配置了负责区域）仅显示对应区域客户；区域无客户时兜底全部 */
+/** 客户下拉：优先按直接关联客户过滤；无直接关联时按负责区域过滤；再兜底全部 */
 const regionCustomers = computed(() => {
   const custs = dicts.value?.customers || []
+  const cids = user.user?.customer_ids || []
+  if (cids.length) return custs.filter((c) => cids.includes(c.id))
   const rids = user.user?.region_ids || []
   if (!rids.length) return custs
   const filtered = custs.filter((c) => c.region_id !== null && rids.includes(c.region_id))

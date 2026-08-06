@@ -1,9 +1,33 @@
 # -*- coding: utf-8 -*-
-"""P2 任务看板 Vue API：分组看板 / 状态流转 / 权限"""
+"""P2 任务看板 Vue API：分组看板 / 状态流转 / 权限 / 角色自动匹配"""
 import pytest
 from datetime import date, timedelta
 
-from models import db, Customer, InspectionTask, User
+from models import db, Customer, Department, InspectionTask, User, UserPermission
+
+
+def _mk_engineer(app, username='eng'):
+    """operator 角色 + 用户级拒绝 task:dispatch → 无派发权的普通工程师"""
+    with app.app_context():
+        u = User.create_with_password(
+            username=username, password='test123456', realname=username, role='operator')
+        db.session.add(u)
+        db.session.flush()
+        db.session.add(UserPermission(user_id=u.id, permission_code='task:dispatch',
+                                      grant_type='deny'))
+        db.session.commit()
+        uid = u.id
+    c = app.test_client()
+    c.post('/login', data={'username': username, 'password': 'test123456'})
+    return c, uid
+
+
+def _mk_task(app, title, customer_id, **kw):
+    with app.app_context():
+        t = InspectionTask(title=title, task_type='计划', customer_id=customer_id, **kw)
+        db.session.add(t)
+        db.session.commit()
+        return t.id
 
 
 @pytest.fixture()
@@ -68,6 +92,83 @@ class TestTaskBoard:
         body = r.get_json()
         assert body['code'] == 0
         assert len(body['data']['customers']) >= 1
+
+
+class TestTaskBoardRoleScope:
+    """V22 角色自动匹配：无派发权工程师只见自己 / 主管见部门 / 派发权见全部"""
+
+    def test_engineer_sees_only_own(self, app, seed):
+        with app.app_context():
+            op = User.query.filter_by(username='op').first()
+            op_id = op.id
+        c, uid = _mk_engineer(app)
+        _mk_task(app, '工程师任务', seed['c'], status='待执行', assigned_to_user_id=uid)
+        _mk_task(app, '别人任务', seed['c'], status='执行中', assigned_to_user_id=op_id)
+        r = c.get('/api/task-board')
+        data = r.get_json()['data']
+        assert data['scope'] == 'mine'
+        titles = [t['title'] for t in data['groups']['待执行']]
+        assert titles == ['工程师任务']
+
+    def test_engineer_ignores_assignee_filter(self, app, seed):
+        """无派发权工程师无法通过 assignee 筛选看别人的任务"""
+        c, uid = _mk_engineer(app)
+        _mk_task(app, '工程师任务', seed['c'], status='待执行', assigned_to_user_id=uid)
+        with app.app_context():
+            op = User.query.filter_by(username='op').first()
+        r = c.get('/api/task-board', query_string={'assignee_id': op.id})
+        assert r.get_json()['data']['total'] == 0
+
+    def test_supervisor_sees_dept(self, app, seed):
+        """部门主管（无派发权）：本部门任务 + 未指派 + 自己派发，看不到外部门"""
+        with app.app_context():
+            dept = Department(name='一区运维')
+            db.session.add(dept)
+            db.session.flush()
+            sup = User.create_with_password(
+                username='sup', password='test123456', realname='主管',
+                role='operator', department_id=dept.id)
+            member = User.create_with_password(
+                username='member', password='test123456', realname='组员',
+                role='operator', department_id=dept.id)
+            db.session.add_all([sup, member])
+            db.session.flush()
+            dept.head_id = sup.id
+            db.session.add(UserPermission(user_id=sup.id, permission_code='task:dispatch',
+                                          grant_type='deny'))
+            db.session.commit()
+            member_id, sup_id = member.id, sup.id
+            op_id = User.query.filter_by(username='op').first().id
+        _mk_task(app, '部门任务', seed['c'], status='待执行', assigned_to_user_id=member_id)
+        _mk_task(app, '未指派任务', seed['c'], status='待执行')
+        _mk_task(app, '自己派发任务', seed['c'], status='待执行', dispatched_by=sup_id)
+        _mk_task(app, '外部门任务', seed['c'], status='待执行', assigned_to_user_id=op_id)
+        c = app.test_client()
+        c.post('/login', data={'username': 'sup', 'password': 'test123456'})
+        r = c.get('/api/task-board')
+        data = r.get_json()['data']
+        assert data['scope'] == 'dept'
+        titles = {t['title'] for st in data['groups'].values() for t in st}
+        assert {'部门任务', '未指派任务', '自己派发任务'} <= titles
+        assert '外部门任务' not in titles
+        assert '应急巡检B' not in titles
+
+    def test_dicts_scoped_to_direct_customers(self, app, seed):
+        """无派发权工程师的客户下拉 = 直接关联客户（非全量）"""
+        with app.app_context():
+            c2 = Customer(name='外区客户')
+            db.session.add(c2)
+            db.session.commit()
+            c2_id = c2.id
+        c, uid = _mk_engineer(app)
+        with app.app_context():
+            u = User.query.get(uid)
+            u.customers = Customer.query.filter(Customer.id == seed['c']).all()
+            db.session.commit()
+        r = c.get('/api/dicts/task-board')
+        customers = r.get_json()['data']['customers']
+        assert [x['id'] for x in customers] == [seed['c']]
+        assert c2_id not in [x['id'] for x in customers]
 
 
 class TestTaskStatusFlow:

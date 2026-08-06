@@ -6,7 +6,7 @@ schema 演进由 Alembic（migrations/）接管，模型仅声明当前结构。
 from models.base import db  # noqa: F401
 from models.user import (  # noqa: F401
     Department, User, CustomerCategory, FormDraft, UserDashboardPreference,
-    UserPermission, Permission, Role, RolePermission, user_regions)
+    UserPermission, Permission, Role, RolePermission, user_regions, customer_engineers)
 from models.customer import Region, Customer  # noqa: F401
 from models.device import (  # noqa: F401
     Device, DeviceFirmware, DeviceCredential, DeviceInterface, CustomField,

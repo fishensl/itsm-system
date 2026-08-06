@@ -33,6 +33,15 @@ user_regions = db.Table(
     db.Column('region_id', db.Integer, db.ForeignKey('regions.id'), primary_key=True),
 )
 
+# 多对多：工程师直接关联客户（用户管理内维护；区域关联保留为兜底过滤）
+customer_engineers = db.Table(
+    'customer_engineers',
+    db.Column('customer_id', db.Integer, db.ForeignKey('customers.id', ondelete='CASCADE'),
+              primary_key=True),
+    db.Column('engineer_id', db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+              primary_key=True),
+)
+
 
 class User(UserMixin, db.Model):
     """系统用户（V13：人员主数据 — 新增 phone/email/certifications）"""
@@ -55,6 +64,10 @@ class User(UserMixin, db.Model):
     # 负责区域（多对多）：驻场工程师默认操作过滤到对应区域客户
     regions = db.relationship('Region', secondary=user_regions, backref='region_users',
                               order_by='Region.sort_order, Region.id')
+    # 直接关联客户（多对多）：用户管理里按客户勾选，创建工单/巡检/故障时优先过滤
+    customers = db.relationship('Customer', secondary=customer_engineers,
+                                backref=db.backref('engineer_users', lazy='select'),
+                                order_by='Customer.name')
 
     def set_password(self, raw_password):
         self.password = generate_password_hash(raw_password)
