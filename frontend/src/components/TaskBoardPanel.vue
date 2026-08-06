@@ -1,33 +1,28 @@
-﻿<template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2 class="page-title">任务看板</h2>
-      <div class="header-actions">
-        <el-button size="small" :icon="Refresh" @click="reload">刷新</el-button>
-      </div>
+<template>
+  <div class="task-board-panel">
+    <!-- 筛选（compact 模式下默认隐藏，可用 showFilters 显式开启） -->
+    <div v-if="showFilters" class="filter-row">
+      <el-select v-model="query.customer_id" placeholder="客户" clearable filterable class="filter-item"
+        @change="reload">
+        <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
+      </el-select>
+      <el-select v-model="query.assignee_id" placeholder="负责人" clearable class="filter-item"
+        @change="reload">
+        <el-option v-for="a in dicts?.assignees || []" :key="a.id" :label="a.name" :value="a.id" />
+      </el-select>
+      <el-checkbox v-model="showCancelled" @change="reload">含已取消</el-checkbox>
+      <span v-if="board?.scope" class="scope-tag">
+        <el-tag size="small" :type="scopeTagType" effect="plain">{{ board.scope_label }}</el-tag>
+      </span>
+      <span class="board-summary">
+        待执行 <b>{{ board?.pending ?? 0 }}</b> · 执行中 <b>{{ board?.running ?? 0 }}</b> ·
+        已完成 <b>{{ board?.done ?? 0 }}</b>
+      </span>
+      <el-button size="small" :icon="Refresh" circle plain @click="reload" />
     </div>
 
-    <!-- 筛选 -->
-    <el-card shadow="never" class="filter-card">
-      <div class="filter-row">
-        <el-select v-model="query.customer_id" placeholder="客户" clearable filterable class="filter-item"
-          @change="reload">
-          <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-        <el-select v-model="query.assignee_id" placeholder="负责人" clearable class="filter-item"
-          @change="reload">
-          <el-option v-for="a in dicts?.assignees || []" :key="a.id" :label="a.name" :value="a.id" />
-        </el-select>
-        <el-checkbox v-model="showCancelled" @change="reload">含已取消</el-checkbox>
-        <span class="board-summary">
-          待执行 <b>{{ board?.pending ?? 0 }}</b> · 执行中 <b>{{ board?.running ?? 0 }}</b> ·
-          已完成 <b>{{ board?.done ?? 0 }}</b>
-        </span>
-      </div>
-    </el-card>
-
     <!-- 看板 -->
-    <div v-loading="loading" class="board">
+    <div v-loading="loading" class="board" :class="{ 'board-compact': compact }">
       <div v-for="st in statusOrder" :key="st" class="board-col">
         <div class="board-col-header" :class="`col-${statusClass(st)}`">
           <span>{{ st }}</span>
@@ -73,7 +68,7 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -81,6 +76,14 @@ import { TASK_STATUS } from '@/utils/status'
 import {
   fetchTaskBoard, setTaskStatus, fetchTaskBoardDicts, type TaskBoard, type TaskBoardDicts,
 } from '@/api/taskBoard'
+
+const props = withDefaults(defineProps<{
+  compact?: boolean
+  showFilters?: boolean
+}>(), {
+  compact: false,
+  showFilters: true,
+})
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -91,6 +94,12 @@ const showCancelled = ref(false)
 
 const query = reactive<Record<string, unknown>>({ customer_id: undefined, assignee_id: undefined })
 const statusOrder = [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]
+
+const scopeTagType = computed(() => ({
+  all: 'success',
+  dept: 'primary',
+  mine: 'warning',
+})[board.value?.scope || 'all'] as 'success' | 'primary' | 'warning')
 
 function statusClass(st: string) {
   return {
@@ -130,6 +139,8 @@ async function changeStatus(t: { id: number; title: string }, status: string) {
   }
 }
 
+defineExpose({ reload })
+
 onMounted(() => {
   reload()
   fetchTaskBoardDicts().then((d) => (dicts.value = d))
@@ -137,11 +148,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.filter-card { margin-bottom: 12px; }
 .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .filter-item { width: 160px; max-width: 100%; }
+.scope-tag { flex-shrink: 0; }
 .board-summary { margin-left: auto; font-size: 12px; color: var(--itsm-text-muted); }
 .board { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
+.board-compact .board-col { min-width: 210px; }
 .board-col {
   flex: 1;
   min-width: 260px;
@@ -168,7 +180,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   padding: 8px;
-  max-height: calc(100vh - 240px);
+  max-height: 420px;
   overflow-y: auto;
 }
 .board-card {

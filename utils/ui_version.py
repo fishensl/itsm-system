@@ -16,7 +16,6 @@ _VUE_URL_MAP = {
     '/inspections': '/app/inspections',
     '/inspectors': '/app/inspectors',
     '/task-schedule/': '/app/task-schedule',
-    '/task-board': '/app/task-board',
     '/task-templates': '/app/task-templates',
     '/device-check-templates': '/app/device-check-templates',
     '/customers': '/app/customers',

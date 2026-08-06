@@ -13,6 +13,7 @@ describe('user store', () => {
       role: 'admin',
       department_id: null,
       region_ids: [],
+      customer_ids: [],
       permissions: [],
     }
     expect(store.hasPerm('anything:xxx')).toBe(true)
@@ -29,6 +30,7 @@ describe('user store', () => {
       role: 'viewer',
       department_id: null,
       region_ids: [],
+      customer_ids: [],
       permissions: ['device:view', 'ticket:view'],
     }
     expect(store.hasPerm('device:view')).toBe(true)

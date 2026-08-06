@@ -13,6 +13,8 @@ export interface UserItem {
   certifications?: string[]
   region_ids?: number[]
   region_names?: string[]
+  customer_ids?: number[]
+  customer_names?: string[]
   created_at: string
 }
 
@@ -263,6 +265,7 @@ export interface RoleItem {
   is_system: boolean
   is_active: boolean
   sort_order: number
+  user_count: number
   permissions: string[]
 }
 

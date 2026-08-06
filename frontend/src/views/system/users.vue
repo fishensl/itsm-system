@@ -99,6 +99,21 @@
               />
             </el-form-item>
           </el-col>
+          <el-col :xs="24">
+            <el-form-item label="关联客户">
+              <el-select
+                v-model="form.customer_ids"
+                multiple
+                filterable
+                clearable
+                collapse-tags
+                class="w-full"
+                placeholder="多选该工程师直接负责的客户（搜索选择），不选则按负责区域过滤"
+              >
+                <el-option v-for="c in customerOptions" :key="c.id" :label="c.name" :value="c.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
           <el-col v-if="!form.id" :xs="24" :sm="12">
             <el-form-item label="初始密码">
               <el-input v-model="form.password" type="password" show-password />
@@ -191,6 +206,7 @@ import {
   type UserItem, type DepartmentItem,
 } from '@/api/system'
 import { fetchRegions, type RegionItem } from '@/api/regions'
+import { fetchCustomers } from '@/api/customers'
 
 const ui = useUiStore()
 interface DeptRow {
@@ -206,6 +222,16 @@ const depts = ref<DeptRow[]>([])
 const allUsers = ref<{ id: number; name: string }[]>([])
 const roles = ref<string[]>([])
 const tableRef = ref()
+
+// 关联客户选项（全量，供搜索勾选）
+const customerOptions = ref<{ id: number; name: string }[]>([])
+
+async function loadCustomers() {
+  try {
+    const d = await fetchCustomers({ page: 1, page_size: 1000 })
+    customerOptions.value = d.items.map((c) => ({ id: c.id, name: c.name }))
+  } catch { /* toast */ }
+}
 
 // 负责区域树（地市 → 区县，多选）
 const regionTree = ref<{ id: number; label: string; children: { id: number; label: string }[] }[]>([])
@@ -267,6 +293,7 @@ const userColumns = computed(() => [
     tagMap: ROLE_TAG, valueMap: ROLE_LABELS },
   { key: 'department_name', label: '部门', minWidth: 100 },
   { key: 'region_names', label: '负责区域', minWidth: 130 },
+  { key: 'customer_names', label: '关联客户', minWidth: 130 },
   { key: 'is_active', label: '状态', width: 80, type: 'tag', asTag: true,
     tagMap: { true: 'success', false: 'info' }, valueMap: ACTIVE_LABELS },
   { key: 'phone', label: '电话', minWidth: 110 },
@@ -329,7 +356,8 @@ async function doResetPwd() {
 
 function openCreate() {
   form.value = { username: '', realname: '', role: 'viewer', department_id: null,
-    phone: '', email: '', password: '', is_active: true, certifications: [], region_ids: [] }
+    phone: '', email: '', password: '', is_active: true, certifications: [], region_ids: [],
+    customer_ids: [] }
   formVisible.value = true
 }
 
@@ -337,7 +365,7 @@ function openEdit(u: UserItem) {
   form.value = { id: u.id, username: u.username, realname: u.realname, role: u.role,
     department_id: u.department_id, phone: u.phone, email: u.email,
     password: '', is_active: u.is_active, certifications: [...(u.certifications || [])],
-    region_ids: [...(u.region_ids || [])] }
+    region_ids: [...(u.region_ids || [])], customer_ids: [...(u.customer_ids || [])] }
   formVisible.value = true
 }
 
@@ -420,6 +448,7 @@ async function onDeptDelete(d: DepartmentItem) {
 onMounted(() => {
   load()
   loadRegions()
+  loadCustomers()
 })
 </script>
 

@@ -148,6 +148,7 @@ def _user_payload(user):
         'role': user.role or 'viewer',
         'department_id': user.department_id,
         'region_ids': [r.id for r in user.regions],
+        'customer_ids': [c.id for c in user.customers],
         'permissions': get_user_permissions(user),
     }
 
@@ -1081,9 +1082,15 @@ def _task_payload(t, customer_map=None):
 @login_required
 @require_permission('task:schedule')
 def api_task_board():
-    """任务看板：按状态分组；逾期任务标记；支持客户/负责人筛选"""
-    from models import InspectionTask as _IT, Customer as _C
+    """任务看板：按状态分组；逾期任务标记；支持客户/负责人筛选。
+
+    角色自动匹配（V22）：有 task:dispatch 看全部；部门主管（无派发权）只看本部门
+    （含未指派与本人派发）；普通工程师只看指派给自己的任务。
+    """
+    from models import InspectionTask as _IT, Customer as _C, User as _U
     from sqlalchemy.orm import joinedload as _jl
+    from sqlalchemy import or_ as _or_
+    from utils.permission import has_permission as _hp, is_supervisor as _sup
 
     customer_id = request.args.get('customer_id', type=int)
     assignee_id = request.args.get('assignee_id', type=int)
@@ -1098,6 +1105,25 @@ def api_task_board():
         q = q.filter(_IT.assigned_to_user_id == assignee_id)
     if not show_cancelled:
         q = q.filter(_IT.status != '已取消')
+
+    # 角色自动匹配：非派发权用户强制收窄数据范围（显式筛选仅起进一步收窄作用）
+    me = current_user
+    scope = 'all'
+    if not _hp('task:dispatch'):
+        if (_sup(me) and me.department_id):
+            dept_user_ids = [u.id for u in
+                             _U.query.filter_by(department_id=me.department_id).all()]
+            if dept_user_ids:
+                q = q.filter(_or_(
+                    _IT.assigned_to_user_id.in_(dept_user_ids),
+                    _IT.assigned_to_user_id.is_(None),
+                    _IT.dispatched_by == me.id,
+                ))
+            scope = 'dept'
+        else:
+            q = q.filter(_IT.assigned_to_user_id == me.id)
+            scope = 'mine'
+
     tasks = q.order_by(_IT.planned_start.asc().nullslast(), _IT.id.desc()).all()
 
     customer_map = {c.id: c.name for c in _C.query.all()}
@@ -1114,6 +1140,8 @@ def api_task_board():
         'running': len(groups['执行中']),
         'reviewing': len(groups['待审核']),
         'done': len(groups['已完成']),
+        'scope': scope,
+        'scope_label': {'all': '全部任务', 'dept': '部门任务', 'mine': '我的任务'}[scope],
     })
 
 
@@ -1141,10 +1169,39 @@ def api_task_board_status(task_id):
 @require_permission('task:schedule')
 def api_task_board_dicts():
     from models import Customer as _C, User as _U, InspectionTask as _IT
-    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
-    assignees = [{'id': u.id, 'name': u.realname or u.username}
-                 for u in _U.query.filter_by(is_active=True).order_by(_U.realname).all()
-                 if _IT.query.filter_by(assigned_to_user_id=u.id).first()]
+    from sqlalchemy import or_ as _or_
+    from utils.permission import has_permission as _hp, is_supervisor as _sup
+
+    me = current_user
+    # 客户下拉：派发权看全部；否则优先直接关联客户，无关联时按负责区域过滤
+    if _hp('task:dispatch'):
+        customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    else:
+        cust_ids = [c.id for c in me.customers]
+        region_ids = [r.id for r in me.regions]
+        qc = _C.query.order_by(_C.name)
+        if cust_ids or region_ids:
+            conds = []
+            if cust_ids:
+                conds.append(_C.id.in_(cust_ids))
+            if region_ids:
+                conds.append(_C.region_id.in_(region_ids))
+            qc = qc.filter(_or_(*conds))
+        customers = [{'id': c.id, 'name': c.name} for c in qc.all()]
+
+    # 负责人下拉：派发权看全部有任务用户；主管看部门成员；否则仅自己
+    if _hp('task:dispatch'):
+        uq = _U.query.filter_by(is_active=True).order_by(_U.realname)
+        assignee_users = [u for u in uq.all()
+                          if _IT.query.filter_by(assigned_to_user_id=u.id).first()]
+    elif _sup(me) and me.department_id:
+        dept_ids = [u.id for u in _U.query.filter_by(department_id=me.department_id).all()]
+        assignee_users = [u for u in _U.query.filter(
+            _U.id.in_(dept_ids), _U.is_active.is_(True)).order_by(_U.realname).all()
+            if _IT.query.filter_by(assigned_to_user_id=u.id).first()]
+    else:
+        assignee_users = [me] if _IT.query.filter_by(assigned_to_user_id=me.id).first() else []
+    assignees = [{'id': u.id, 'name': u.realname or u.username} for u in assignee_users]
     return ok({'customers': customers, 'assignees': assignees})
 def _ticket_payload(t, customer_map=None):
     from services.ticket_service import ticket_completeness

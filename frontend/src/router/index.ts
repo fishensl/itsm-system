@@ -88,12 +88,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工单详情', perm: 'ticket:view' },
       },
       {
-        path: 'task-board',
-        name: 'task-board',
-        component: () => import('@/views/taskBoard/index.vue'),
-        meta: { title: '任务看板', perm: 'task:schedule' },
-      },
-      {
         path: 'task-schedule',
         name: 'task-schedule',
         component: () => import('@/views/taskSchedule/index.vue'),

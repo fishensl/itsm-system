@@ -117,6 +117,21 @@ def api_user_list():
         region_names = {r.id: r.name for r in Region.query.all()}
     else:
         region_names = {}
+    # 用户直接关联客户：一次 IN 预加载
+    cust_map = {}
+    cust_names = {}
+    if users:
+        from models import Customer, customer_engineers as _ce
+        uids = [u.id for u in users]
+        rows = db.session.execute(
+            db.select(_ce.c.engineer_id, _ce.c.customer_id)
+            .where(_ce.c.engineer_id.in_(uids))
+            .order_by(_ce.c.customer_id)).all()
+        for uid, cid in rows:
+            cust_map.setdefault(uid, []).append(cid)
+        if cust_map:
+            all_cids = {cid for cids in cust_map.values() for cid in cids}
+            cust_names = {c.id: c.name for c in Customer.query.filter(Customer.id.in_(all_cids))}
     return ok({
         'users': [{
             'id': u.id, 'username': u.username, 'realname': u.realname or '',
@@ -126,6 +141,8 @@ def api_user_list():
             'certifications': u.cert_list(),
             'region_ids': region_map.get(u.id, []),
             'region_names': [region_names.get(rid, '') for rid in region_map.get(u.id, [])],
+            'customer_ids': cust_map.get(u.id, []),
+            'customer_names': [cust_names.get(cid, '') for cid in cust_map.get(u.id, [])],
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],
         'departments': [{'id': d.id, 'name': d.name}
@@ -162,6 +179,10 @@ def api_user_create():
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
             [int(x) for x in data['region_ids']])).all()
+    if data.get('customer_ids') is not None:
+        from models import Customer
+        u.customers = Customer.query.filter(Customer.id.in_(
+            [int(x) for x in data['customer_ids']])).all() if data['customer_ids'] else []
     db.session.add(u)
     db.session.commit()
     audit_log('user:create', 'user', u.id, f'创建用户 {username}')
@@ -194,6 +215,10 @@ def api_user_update(user_id):
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
             [int(x) for x in data['region_ids']])).all() if data['region_ids'] else []
+    if 'customer_ids' in data:
+        from models import Customer
+        u.customers = Customer.query.filter(Customer.id.in_(
+            [int(x) for x in data['customer_ids']])).all() if data['customer_ids'] else []
     password = data.get('password') or ''
     if password:
         u.set_password(password)
@@ -625,9 +650,12 @@ def _role_permission_map(role):
 @login_required
 @require_permission('permission:view')
 def api_roles_list():
-    from models import Role
+    from models import Role, User
     from utils.permission import PERMISSION_MAP
-    roles = Role.query.filter_by(is_active=True).order_by(Role.sort_order, Role.id).all()
+    # 含停用角色：停用后可再编辑启用；矩阵/下拉用 active_only 过滤
+    roles = Role.query.order_by(Role.sort_order, Role.id).all()
+    user_counts = dict(db.session.execute(
+        db.select(User.role, db.func.count()).group_by(User.role)).all())
     return ok({
         'perm_map': [{'code': k, 'label': v} for k, v in PERMISSION_MAP.items()],
         'roles': [
@@ -635,6 +663,7 @@ def api_roles_list():
                 'id': r.id, 'code': r.code, 'name': r.name, 'description': r.description or '',
                 'is_system': bool(r.is_system), 'is_active': bool(r.is_active),
                 'sort_order': r.sort_order or 0,
+                'user_count': int(user_counts.get(r.code, 0)),
                 'permissions': sorted(_role_permission_map(r)),
             }
             for r in roles

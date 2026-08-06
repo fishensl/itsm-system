@@ -28,6 +28,7 @@ export interface CurrentUser {
   role: string
   department_id: number | null
   region_ids: number[]
+  customer_ids: number[]
   permissions: string[]
 }
 

@@ -25,6 +25,8 @@ export interface TaskBoard {
   running: number
   reviewing: number
   done: number
+  scope: 'all' | 'dept' | 'mine'
+  scope_label: string
 }
 
 export interface TaskBoardQuery {
