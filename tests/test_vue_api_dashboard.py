@@ -112,3 +112,19 @@ class TestDashboardTaskScope:
         assert {'工单', '故障', '巡检'} <= types
         titles = {t['title'] for t in tasks}
         assert {'待办工单', '待办故障', '巡检任务'} <= titles
+
+    def test_sorted_by_recent_time(self, admin_client, app):
+        """合并列表按最近时间倒序（新任务在前）"""
+        from datetime import datetime, timedelta
+        cid = _mk_customer(app)
+        with app.app_context():
+            from models import Ticket
+            db.session.add(Ticket(number='WO-TEST-002', title='十天前的工单', customer_id=cid,
+                                  assigned_to='admin', status='待处理', priority='中',
+                                  created_at=datetime.utcnow() - timedelta(days=10)))
+            db.session.commit()
+        _mk_task(app, '今天的巡检任务', cid, status='待执行')
+        r = admin_client.get('/api/dashboard/overview')
+        titles = [t['title'] for t in r.get_json()['data']['my_tasks']]
+        assert '今天的巡检任务' in titles and '十天前的工单' in titles
+        assert titles.index('今天的巡检任务') < titles.index('十天前的工单')
