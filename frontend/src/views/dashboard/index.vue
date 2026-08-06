@@ -153,14 +153,6 @@
       </el-col>
     </el-row>
 
-    <!-- 任务看板（工作台一部分；按角色自动匹配数据范围） -->
-    <el-card v-if="user.hasPerm('task:schedule')" shadow="never" class="section-card mt-3">
-      <template #header>
-        <div class="section-header"><span>任务看板</span></div>
-      </template>
-      <TaskBoardPanel compact :show-filters="true" />
-    </el-card>
-
     <!-- 最近巡检 + 设备类型分布 -->
     <el-row :gutter="12" class="mt-3">
       <el-col :xs="24" :md="14">
@@ -207,12 +199,9 @@ import { useRouter } from 'vue-router'
 import { ArrowRight } from '@element-plus/icons-vue'
 import { fetchDashboard, type DashboardData } from '@/api/auth'
 import { OVERALL_STATUS_TAG } from '@/utils/status'
-import { useUserStore } from '@/stores/user'
-import TaskBoardPanel from '@/components/TaskBoardPanel.vue'
 
 const OVERALL_TAG = OVERALL_STATUS_TAG
 const router = useRouter()
-const user = useUserStore()
 const data = ref<DashboardData | null>(null)
 const loading = ref(false)
 

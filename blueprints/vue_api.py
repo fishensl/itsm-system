@@ -227,7 +227,7 @@ def api_dashboard_overview():
     customer_map = {c.id: c.name for c in Customer.query.all()}
     my_tasks = []
 
-    if role in ('admin', 'operator'):
+    if role in ('admin', 'operator') or has_permission('task:schedule'):
         my_tickets = Ticket.query.filter(
             Ticket.assigned_to.in_([me_realname, me.username]),
             ~Ticket.status.in_(['已验收', '已关闭'])
@@ -240,12 +240,13 @@ def api_dashboard_overview():
                 'url': f'/app/tickets/{t.id}',
                 'time': t.created_at.strftime('%m-%d %H:%M') if t.created_at else '',
             })
-        # V21: 巡检待办按 assigned_to_user_id 匹配（弃用旧 inspector_ids 双轨）；
-        # 状态含待审核（上传报告后待管理员审核的任务也出现在工程师待办）
-        my_insp = InspectionTask.query.filter(
-            InspectionTask.assigned_to_user_id == me.id,
-            InspectionTask.status.in_(['待执行', '执行中', '待审核'])
-        ).order_by(InspectionTask.id.desc()).limit(5).all()
+        # 巡检待办：与任务看板同规则角色自动匹配（V23 并入我的待办）——
+        # 有派发权看全部（含未指派）；主管看本部门；工程师只看自己的
+        my_insp = _apply_task_scope(
+            InspectionTask.query.filter(
+                InspectionTask.status.in_(['待执行', '执行中', '待审核'])),
+            current_user,
+        )[0].order_by(InspectionTask.id.desc()).limit(5).all()
         for t in my_insp:
             my_tasks.append({
                 'type_label': '巡检', 'type_color': 'primary',
@@ -287,7 +288,7 @@ def api_dashboard_overview():
                 'url': '/app/sales?tab=contracts',
                 'time': c.end_date.strftime('%Y-%m-%d') if c.end_date else '-',
             })
-    my_tasks = my_tasks[:8]
+    my_tasks = my_tasks[:12]
 
     # ---- 即将到期授权 ----
     today = date.today()
@@ -1055,6 +1056,32 @@ def api_global_search():
 _TASK_STATUS_TAG = {'待执行': 'danger', '执行中': 'warning', '已完成': 'success', '已取消': 'info'}
 
 
+def _apply_task_scope(query, user):
+    """任务数据角色自动匹配（看板 / 工作台待办共用）：
+    - 有 task:dispatch → 全部（含未指派）
+    - 部门主管（无派发权）→ 本部门任务 + 未指派 + 本人派发
+    - 其余（普通工程师）→ 仅指派给自己的任务
+    返回 (query, scope: 'all'|'dept'|'mine')
+    """
+    from models import InspectionTask as _IT, User as _U
+    from sqlalchemy import or_ as _or_
+    from utils.permission import has_permission as _hp, is_supervisor as _sup
+
+    if _hp('task:dispatch'):
+        return query, 'all'
+    if _sup(user) and getattr(user, 'department_id', None):
+        dept_user_ids = [u.id for u in
+                         _U.query.filter_by(department_id=user.department_id).all()]
+        if dept_user_ids:
+            query = query.filter(_or_(
+                _IT.assigned_to_user_id.in_(dept_user_ids),
+                _IT.assigned_to_user_id.is_(None),
+                _IT.dispatched_by == user.id,
+            ))
+        return query, 'dept'
+    return query.filter(_IT.assigned_to_user_id == user.id), 'mine'
+
+
 def _task_payload(t, customer_map=None):
     from datetime import date
     today = date.today()
@@ -1087,10 +1114,8 @@ def api_task_board():
     角色自动匹配（V22）：有 task:dispatch 看全部；部门主管（无派发权）只看本部门
     （含未指派与本人派发）；普通工程师只看指派给自己的任务。
     """
-    from models import InspectionTask as _IT, Customer as _C, User as _U
+    from models import InspectionTask as _IT, Customer as _C
     from sqlalchemy.orm import joinedload as _jl
-    from sqlalchemy import or_ as _or_
-    from utils.permission import has_permission as _hp, is_supervisor as _sup
 
     customer_id = request.args.get('customer_id', type=int)
     assignee_id = request.args.get('assignee_id', type=int)
@@ -1107,22 +1132,7 @@ def api_task_board():
         q = q.filter(_IT.status != '已取消')
 
     # 角色自动匹配：非派发权用户强制收窄数据范围（显式筛选仅起进一步收窄作用）
-    me = current_user
-    scope = 'all'
-    if not _hp('task:dispatch'):
-        if (_sup(me) and me.department_id):
-            dept_user_ids = [u.id for u in
-                             _U.query.filter_by(department_id=me.department_id).all()]
-            if dept_user_ids:
-                q = q.filter(_or_(
-                    _IT.assigned_to_user_id.in_(dept_user_ids),
-                    _IT.assigned_to_user_id.is_(None),
-                    _IT.dispatched_by == me.id,
-                ))
-            scope = 'dept'
-        else:
-            q = q.filter(_IT.assigned_to_user_id == me.id)
-            scope = 'mine'
+    q, scope = _apply_task_scope(q, current_user)
 
     tasks = q.order_by(_IT.planned_start.asc().nullslast(), _IT.id.desc()).all()
 

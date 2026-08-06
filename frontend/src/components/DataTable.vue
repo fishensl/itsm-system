@@ -30,6 +30,8 @@
             <router-link v-else-if="col.type === 'link'" :to="toRouterPath(col.link?.(row) ?? '#')" class="row-link">
               {{ displayValue(row, col) ?? '-' }}
             </router-link>
+            <!-- 自定义渲染（render 返回字符串或 VNode） -->
+            <CustomCell v-else-if="col.type === 'custom'" :render="() => col.render?.(row)" />
             <!-- 操作按钮组 -->
             <div v-else-if="col.type === 'action'" class="row-actions" @click.stop>
               <el-button
@@ -93,7 +95,10 @@
             <div class="card-fields">
               <span v-for="col in bodyCols" :key="col.key" class="card-field">
                 <span class="card-field-label">{{ col.label }}：</span>
-                <span class="card-field-value">{{ displayValue(row, col) ?? '-' }}</span>
+                <span class="card-field-value">
+                  <CustomCell v-if="col.type === 'custom'" :render="() => col.render?.(row)" />
+                  <template v-else>{{ displayValue(row, col) ?? '-' }}</template>
+                </span>
               </span>
             </div>
           </div>
@@ -132,9 +137,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, defineComponent, type VNode } from 'vue'
 import type { PageResult } from '@/types'
 import { toRouterPath } from '@/utils/sidebarNav'
+
+/** 自定义单元格渲染（type='custom'）：render 返回字符串或 VNode */
+const CustomCell = defineComponent({
+  props: { render: { type: Function, default: null } },
+  setup(props) {
+    return () => {
+      const r = (props as { render?: () => string | VNode | undefined }).render
+      return r ? r() : null
+    }
+  },
+})
 
 export interface DataAction<T = Record<string, any>> {
   label?: string
@@ -150,12 +166,14 @@ export interface DataAction<T = Record<string, any>> {
 export interface DataColumn<T = Record<string, any>> {
   key: string
   label: string
-  type?: 'text' | 'tag' | 'link' | 'action' | 'money' | 'date'
+  type?: 'text' | 'tag' | 'link' | 'action' | 'money' | 'date' | 'custom'
   width?: number
   minWidth?: number
   fixed?: boolean | 'left' | 'right'
   align?: 'left' | 'center' | 'right'
   ellipsis?: boolean
+  /** type='custom'：自定义单元格渲染（返回字符串或 VNode），桌面表格与移动端卡片通用 */
+  render?: (row: T) => string | VNode | undefined
   /** tag 类型的颜色映射：值 → el-tag type */
   tagMap?: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'>
   /** 显示文本映射：值 → 中文文本（布尔/枚举英文值显示层翻译，tag/text/link 列通用） */
