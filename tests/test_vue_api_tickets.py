@@ -130,6 +130,23 @@ class TestTicketDicts:
         assert '待派单' in body['data']['statuses']
         assert '紧急' in body['data']['priorities']
 
+    def test_customers_include_region_id(self, op_client, app):
+        """客户字典携带 region_id，供驻场工程师按负责区域过滤/预选"""
+        with app.app_context():
+            from models import Region
+            r = Region(name='字典市'); db.session.add(r); db.session.flush()
+            c = Customer(name='区域客户', region_id=r.id)
+            db.session.add(c); db.session.commit()
+            rid = r.id
+        data = op_client.get('/api/dicts/tickets').get_json()['data']
+        row = next(x for x in data['customers'] if x['name'] == '区域客户')
+        assert row['region_id'] == rid
+        # faults / inspections 字典同构
+        for url in ('/api/dicts/faults', '/api/dicts/inspections'):
+            data = op_client.get(url).get_json()['data']
+            row = next(x for x in data['customers'] if x['name'] == '区域客户')
+            assert row['region_id'] == rid
+
 
 class TestTicketVersionedSubmit:
     """V21 工单闭环：提交(带处理报告文件) → 建版本 → 审核意见挂版本 → 退回重提版本递增"""

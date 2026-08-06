@@ -111,7 +111,7 @@ export function fetchTicketVersions(id: number) {
 }
 
 export interface TicketDicts {
-  customers: { id: number; name: string }[]
+  customers: { id: number; name: string; region_id: number | null }[]
   fault_types: { id: number; name: string }[]
   statuses: string[]
   priorities: string[]

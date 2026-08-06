@@ -54,7 +54,7 @@ export function deleteFault(id: number) {
 
 export interface FaultDicts {
   fault_types: { id: number; name: string }[]
-  customers: { id: number; name: string }[]
+  customers: { id: number; name: string; region_id: number | null }[]
   results: string[]
 }
 

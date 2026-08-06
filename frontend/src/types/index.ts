@@ -27,6 +27,7 @@ export interface CurrentUser {
   realname: string
   role: string
   department_id: number | null
+  region_ids: number[]
   permissions: string[]
 }
 

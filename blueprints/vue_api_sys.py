@@ -7,7 +7,7 @@ from flask import request, current_app
 from flask_login import login_required, current_user
 
 from blueprints.vue_api import vue_api_bp, ok, fail
-from models import db, Role
+from models import db, Role, user_regions
 from utils.permission import require_permission, admin_required
 
 
@@ -104,6 +104,19 @@ def api_user_list():
     dept_map = {d.id: d.name for d in Department.query.all()}
     roles = [r.code for r in Role.query.filter_by(is_active=True)
              .order_by(Role.sort_order, Role.id).all()]
+    # 用户负责区域：一次 IN 预加载（多对多），避免逐用户 N+1
+    region_map = {}
+    if users:
+        from models import Region
+        uids = [u.id for u in users]
+        rows = db.session.execute(
+            db.select(user_regions.c.user_id, user_regions.c.region_id)
+            .where(user_regions.c.user_id.in_(uids))).all()
+        for uid, rid in rows:
+            region_map.setdefault(uid, []).append(rid)
+        region_names = {r.id: r.name for r in Region.query.all()}
+    else:
+        region_names = {}
     return ok({
         'users': [{
             'id': u.id, 'username': u.username, 'realname': u.realname or '',
@@ -111,6 +124,8 @@ def api_user_list():
             'department_name': dept_map.get(u.department_id, ''),
             'is_active': bool(u.is_active), 'phone': u.phone or '', 'email': u.email or '',
             'certifications': u.cert_list(),
+            'region_ids': region_map.get(u.id, []),
+            'region_names': [region_names.get(rid, '') for rid in region_map.get(u.id, [])],
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],
         'departments': [{'id': d.id, 'name': d.name}
@@ -143,6 +158,10 @@ def api_user_create():
     u.is_active = bool(data.get('is_active', True))
     if data.get('certifications') is not None:
         u.set_cert_list(list(data['certifications']))
+    if data.get('region_ids'):
+        from models import Region
+        u.regions = Region.query.filter(Region.id.in_(
+            [int(x) for x in data['region_ids']])).all()
     db.session.add(u)
     db.session.commit()
     audit_log('user:create', 'user', u.id, f'创建用户 {username}')
@@ -171,6 +190,10 @@ def api_user_update(user_id):
     u.email = (data.get('email') or '').strip()
     if data.get('certifications') is not None:
         u.set_cert_list(list(data['certifications']))
+    if 'region_ids' in data:
+        from models import Region
+        u.regions = Region.query.filter(Region.id.in_(
+            [int(x) for x in data['region_ids']])).all() if data['region_ids'] else []
     password = data.get('password') or ''
     if password:
         u.set_password(password)

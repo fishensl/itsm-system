@@ -41,6 +41,39 @@ class TestUserApi:
         r = admin_client.post('/api/users', json={'username': 'admin'})
         assert r.status_code == 400
 
+    def test_region_ids_roundtrip(self, admin_client, app):
+        """用户负责区域（多选）：创建/更新/列表/me 全链路"""
+        with app.app_context():
+            from models import Region
+            city = Region(name='测试市'); db.session.add(city); db.session.flush()
+            dist = Region(name='测试区', parent_id=city.id)
+            db.session.add(dist); db.session.commit()
+            city_id, dist_id = city.id, dist.id
+        # 创建带区域
+        r = admin_client.post('/api/users', json={
+            'username': 'eng1', 'password': 'pass123', 'realname': '驻场工程师',
+            'role': 'operator', 'region_ids': [city_id, dist_id]})
+        assert r.status_code == 200
+        with app.app_context():
+            u = User.query.filter_by(username='eng1').first()
+            assert {x.id for x in u.regions} == {city_id, dist_id}
+            uid = u.id
+        # 列表回显
+        r = admin_client.get('/api/users')
+        row = next(x for x in r.get_json()['data']['users'] if x['username'] == 'eng1')
+        assert row['region_ids'] == [city_id, dist_id]
+        assert row['region_names'] == ['测试市', '测试区']
+        # 更新清空
+        r = admin_client.put(f'/api/users/{uid}', json={'username': 'eng1', 'region_ids': []})
+        assert r.status_code == 200
+        with app.app_context():
+            assert User.query.get(uid).regions == []
+        # me 回显
+        c = app.test_client()
+        c.post('/login', data={'username': 'eng1', 'password': 'pass123'})
+        r = c.get('/api/auth/me')
+        assert r.get_json()['data']['region_ids'] == []
+
     def test_cannot_delete_self(self, admin_client):
         r = admin_client.delete('/api/users/1')
         assert r.status_code == 400

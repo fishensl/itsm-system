@@ -7,7 +7,7 @@
 import os
 from datetime import datetime, timedelta
 
-from flask import request, current_app
+from flask import request, current_app, send_from_directory, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text as sa_text, or_
 from sqlalchemy.orm import joinedload
@@ -20,10 +20,69 @@ from utils.permission import require_permission
 # ==================== 知识库 ====================
 KB_CATEGORIES = ['故障案例', '设备手册', '内部规范', '巡检经验']
 
+# V7 知识库附件保存目录（目录由 create_app 的 _ensure_runtime_dirs 统一创建）
+KB_ATTACH_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             'static', 'uploads', 'knowledge')
+ALLOWED_KB_EXTS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx',
+                   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.txt'}
 
-def _kb_payload(k):
+
+def _save_kb_attachments(files, kb_id):
+    """保存知识库多个附件，返回 [(file_name, file_path, ext, size), ...]"""
+    import uuid as _uuid
+    saved = []
+    if not files:
+        return saved
+    sub_dir = os.path.join(KB_ATTACH_DIR, str(kb_id))
+    os.makedirs(sub_dir, exist_ok=True)
+    for f in files:
+        if not f or not f.filename:
+            continue
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in ALLOWED_KB_EXTS:
+            continue
+        safe_name = f'{_uuid.uuid4().hex}{ext}'
+        full = os.path.join(sub_dir, safe_name)
+        f.save(full)
+        rel_path = f'uploads/knowledge/{kb_id}/{safe_name}'
+        saved.append((f.filename, rel_path, ext, os.path.getsize(full)))
+    return saved
+
+
+def _get_kb_attachment(kb_id, att_id):
+    """取附件并校验归属（跨条目访问一律 404）"""
+    from models import KnowledgeAttachment as _KA
+    att = _KA.query.get_or_404(att_id)
+    if att.knowledge_id != kb_id:
+        abort(404)
+    return att
+
+
+def _kb_attachment_fullpath(att):
+    """附件物理路径（realpath 校验必须落在 KB 目录内，防路径穿越）"""
+    full = os.path.realpath(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', att.file_path))
+    base = os.path.realpath(KB_ATTACH_DIR)
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return None
+    return full
+
+
+def _kb_attachments_payload(atts):
+    return [{
+        'id': a.id,
+        'file_name': a.file_name,
+        'file_ext': a.file_ext or '',
+        'file_size': a.file_size or 0,
+        'uploaded_by': a.uploaded_by or '',
+        'created_at': a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '',
+    } for a in atts]
+
+
+def _kb_payload(k, attachments=None):
     # is_published 存量可能为 NULL：NULL 按「已发布」处理（与模型 default=True 语义一致）
     published = k.is_published is not False
+    atts = list(k.attachments) if attachments is None else list(attachments)
     return {
         'id': k.id,
         'title': k.title,
@@ -35,6 +94,7 @@ def _kb_payload(k):
         'published_label': '已发布' if published else '未发布',
         'tags': k.tags or '',
         'created_at': k.created_at.strftime('%Y-%m-%d %H:%M') if k.created_at else '',
+        'attachments': _kb_attachments_payload(atts),
     }
 
 
@@ -63,7 +123,15 @@ def api_kb_list():
             q = q.filter(_KB.is_published == False)
     total = q.count()
     rows = q.order_by(_KB.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return ok({'items': [_kb_payload(k) for k in rows],
+    # 附件一次 IN 查询分组（dynamic 关系无法 eager load，避免逐行 N+1）
+    att_map = {}
+    if rows:
+        from models import KnowledgeAttachment as _KA
+        kb_ids = [k.id for k in rows]
+        att_map = {kid: [] for kid in kb_ids}
+        for a in _KA.query.filter(_KA.knowledge_id.in_(kb_ids)).order_by(_KA.id).all():
+            att_map.setdefault(a.knowledge_id, []).append(a)
+    return ok({'items': [_kb_payload(k, att_map.get(k.id, [])) for k in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -143,7 +211,84 @@ def api_kb_delete(kb_id):
     current_app.logger.info(
         '知识条目删除审计(Vue): 用户[%s] 删除[%s](id=%s), IP=%s',
         current_user.username, k.title, k.id, request.remote_addr)
+    # 先删磁盘物理附件（ORM 级联只删 DB 行）
+    for att in list(k.attachments.all()):
+        full = _kb_attachment_fullpath(att)
+        if full:
+            try:
+                os.remove(full)
+            except OSError:
+                pass
+    try:
+        os.rmdir(os.path.join(KB_ATTACH_DIR, str(k.id)))
+    except OSError:
+        pass
     db.session.delete(k)
+    db.session.commit()
+    return ok(None)
+
+
+# ==================== 知识库附件（V7 恢复：上传/预览/下载/删除） ====================
+@vue_api_bp.route('/api/knowledge-base/<int:kb_id>/attachments', methods=['POST'])
+@login_required
+@require_permission('kb:edit')
+def api_kb_attachment_upload(kb_id):
+    """知识条目附件上传（multipart 多文件字段 files；扩展名白名单 + uuid 落盘）"""
+    from models import KnowledgeBase as _KB, KnowledgeAttachment as _KA
+    _KB.query.get_or_404(kb_id)
+    files = request.files.getlist('files')
+    if not files:
+        return fail('未选择文件', 400)
+    saved = _save_kb_attachments(files, kb_id)
+    if not saved:
+        return fail('没有可保存的附件（文件类型仅支持：PDF/Word/Excel/图片/TXT）', 400)
+    me = current_user.realname or current_user.username
+    for fname, fpath, ext, size in saved:
+        db.session.add(_KA(knowledge_id=kb_id, file_name=fname, file_path=fpath,
+                           file_ext=ext, file_size=size, uploaded_by=me))
+    db.session.commit()
+    atts = _KA.query.filter_by(knowledge_id=kb_id).order_by(_KA.id).all()
+    return ok({'added': len(saved), 'attachments': _kb_attachments_payload(atts)})
+
+
+@vue_api_bp.route('/api/knowledge-base/<int:kb_id>/attachments/<int:att_id>/preview', methods=['GET'])
+@login_required
+@require_permission('kb:view')
+def api_kb_attachment_preview(kb_id, att_id):
+    """附件在线预览（内联返回，前端 FilePreview 按扩展名渲染 PDF/图片/docx/txt）"""
+    att = _get_kb_attachment(kb_id, att_id)
+    full = _kb_attachment_fullpath(att)
+    if full is None:
+        abort(404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full))
+
+
+@vue_api_bp.route('/api/knowledge-base/<int:kb_id>/attachments/<int:att_id>/download', methods=['GET'])
+@login_required
+@require_permission('kb:view')
+def api_kb_attachment_download(kb_id, att_id):
+    """附件下载（原文件名）"""
+    att = _get_kb_attachment(kb_id, att_id)
+    full = _kb_attachment_fullpath(att)
+    if full is None:
+        abort(404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full),
+                               as_attachment=True, download_name=att.file_name)
+
+
+@vue_api_bp.route('/api/knowledge-base/<int:kb_id>/attachments/<int:att_id>', methods=['DELETE'])
+@login_required
+@require_permission('kb:edit')
+def api_kb_attachment_delete(kb_id, att_id):
+    """删除附件（物理文件 + DB 行）"""
+    att = _get_kb_attachment(kb_id, att_id)
+    full = _kb_attachment_fullpath(att)
+    if full:
+        try:
+            os.remove(full)
+        except OSError:
+            pass
+    db.session.delete(att)
     db.session.commit()
     return ok(None)
 
@@ -268,7 +413,8 @@ def api_fault_dicts():
     from models import FaultType as _FT, Customer as _C
     fault_types = [{'id': t.id, 'name': t.name}
                    for t in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
-    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    customers = [{'id': c.id, 'name': c.name, 'region_id': c.region_id}
+                 for c in _C.query.order_by(_C.name).all()]
     results = ['已解决', '待观察', '未解决']
     return ok({'fault_types': fault_types, 'customers': customers, 'results': results})
 

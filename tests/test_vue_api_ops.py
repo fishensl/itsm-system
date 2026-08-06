@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """P3 知识库 / 故障 / 报告 Vue API：列表/详情/增删改/字典/权限/聚合"""
+import io
+import os
 from datetime import datetime
 
 import pytest
@@ -138,6 +140,91 @@ class TestKbUpdateDelete:
         assert r.status_code == 403
         with app.app_context():
             assert KnowledgeBase.query.get(kb_seed['k1']) is not None
+
+
+class TestKbAttachments:
+    def _upload(self, client, kb_id):
+        return client.post(f'/api/knowledge-base/{kb_id}/attachments',
+                           data={'files': [
+                               (io.BytesIO(b'%PDF-1.4 fake pdf'), '指南.pdf'),
+                               (io.BytesIO(b'PNG fake'), '拓扑图.png'),
+                               (io.BytesIO(b'not allowed'), '脚本.sh'),
+                           ]},
+                           content_type='multipart/form-data')
+
+    def test_upload_and_list_in_payload(self, op_client, kb_seed, app):
+        r = self._upload(op_client, kb_seed['k1'])
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['code'] == 0
+        assert body['data']['added'] == 2  # .sh 被白名单拒绝
+        with app.app_context():
+            from models import KnowledgeAttachment
+            atts = KnowledgeAttachment.query.filter_by(knowledge_id=kb_seed['k1']).all()
+            assert len(atts) == 2
+            # 磁盘文件已落盘
+            assert all(os.path.isfile(os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'static', a.file_path)) for a in atts)
+        # 详情 payload 含附件
+        r = op_client.get(f"/api/knowledge-base/{kb_seed['k1']}")
+        atts = r.get_json()['data']['attachments']
+        assert len(atts) == 2
+        assert {a['file_name'] for a in atts} == {'指南.pdf', '拓扑图.png'}
+
+    def test_preview_and_download(self, op_client, kb_seed, app):
+        self._upload(op_client, kb_seed['k1'])
+        with app.app_context():
+            from models import KnowledgeAttachment
+            att = KnowledgeAttachment.query.filter_by(knowledge_id=kb_seed['k1']).first()
+            att_id = att.id
+        r = op_client.get(f"/api/knowledge-base/{kb_seed['k1']}/attachments/{att_id}/preview")
+        assert r.status_code == 200
+        assert r.data == b'%PDF-1.4 fake pdf'
+        r = op_client.get(f"/api/knowledge-base/{kb_seed['k1']}/attachments/{att_id}/download")
+        assert r.status_code == 200
+        assert r.data == b'%PDF-1.4 fake pdf'
+
+    def test_cross_entry_attachment_404(self, op_client, kb_seed, app):
+        """A 条目的附件不能通过 B 条目访问"""
+        self._upload(op_client, kb_seed['k1'])
+        with app.app_context():
+            from models import KnowledgeAttachment
+            att_id = KnowledgeAttachment.query.filter_by(knowledge_id=kb_seed['k1']).first().id
+        r = op_client.get(f"/api/knowledge-base/{kb_seed['k2']}/attachments/{att_id}/preview")
+        assert r.status_code == 404
+
+    def test_upload_requires_edit_perm(self, viewer_client, kb_seed):
+        r = viewer_client.post(f"/api/knowledge-base/{kb_seed['k1']}/attachments",
+                               data={'files': [(io.BytesIO(b'x'), 'a.pdf')]},
+                               content_type='multipart/form-data')
+        assert r.status_code == 403
+
+    def test_delete_attachment_removes_file(self, op_client, kb_seed, app):
+        self._upload(op_client, kb_seed['k1'])
+        with app.app_context():
+            from models import KnowledgeAttachment
+            att = KnowledgeAttachment.query.filter_by(knowledge_id=kb_seed['k1']).first()
+            att_id, full = att.id, att.file_path
+        r = op_client.delete(f"/api/knowledge-base/{kb_seed['k1']}/attachments/{att_id}")
+        assert r.status_code == 200
+        with app.app_context():
+            from models import KnowledgeAttachment
+            assert KnowledgeAttachment.query.get(att_id) is None
+        assert not os.path.isfile(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', full))
+
+    def test_delete_kb_cleans_physical_files(self, admin_client, kb_seed, app):
+        self._upload(admin_client, kb_seed['k1'])
+        with app.app_context():
+            from models import KnowledgeAttachment
+            paths = [a.file_path for a in
+                     KnowledgeAttachment.query.filter_by(knowledge_id=kb_seed['k1']).all()]
+            assert paths
+        r = admin_client.delete(f"/api/knowledge-base/{kb_seed['k1']}")
+        assert r.status_code == 200
+        base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static')
+        assert all(not os.path.isfile(os.path.join(base, p)) for p in paths)
 
 
 class TestKbDicts:
