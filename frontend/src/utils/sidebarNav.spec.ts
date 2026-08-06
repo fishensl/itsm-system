@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { sidebarTarget, isRouteActive } from '@/utils/sidebarNav'
+import { sidebarTarget, isRouteActive, toRouterPath } from '@/utils/sidebarNav'
+
+describe('toRouterPath', () => {
+  it('/app 前缀 → 内部路由路径（router-link 专用）', () => {
+    expect(toRouterPath('/app/knowledge-base/5')).toBe('/knowledge-base/5')
+    expect(toRouterPath('/app/tickets/12')).toBe('/tickets/12')
+    expect(toRouterPath('/app/devices/3')).toBe('/devices/3')
+    expect(toRouterPath('/app/')).toBe('/')
+    expect(toRouterPath('/app')).toBe('/')
+  })
+
+  it('保留 query 参数', () => {
+    expect(toRouterPath('/app/knowledge-base?category=故障处置')).toBe('/knowledge-base?category=故障处置')
+    expect(toRouterPath('/app/spare-parts?tab=stocks')).toBe('/spare-parts?tab=stocks')
+  })
+
+  it('非 /app 路径原样返回', () => {
+    expect(toRouterPath('/customers/1')).toBe('/customers/1')
+    expect(toRouterPath('#')).toBe('#')
+  })
+})
 
 describe('sidebarTarget', () => {
   it('已迁移路径 → SPA 跳转（原样路径）', () => {

@@ -27,7 +27,7 @@
               {{ displayValue(row, col) ?? '-' }}
             </el-tag>
             <!-- 链接 -->
-            <router-link v-else-if="col.type === 'link'" :to="col.link?.(row) ?? '#'" class="row-link">
+            <router-link v-else-if="col.type === 'link'" :to="toRouterPath(col.link?.(row) ?? '#')" class="row-link">
               {{ displayValue(row, col) ?? '-' }}
             </router-link>
             <!-- 操作按钮组 -->
@@ -134,6 +134,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import type { PageResult } from '@/types'
+import { toRouterPath } from '@/utils/sidebarNav'
 
 export interface DataAction<T = Record<string, any>> {
   label?: string

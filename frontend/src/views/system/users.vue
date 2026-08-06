@@ -62,7 +62,7 @@
           <el-col :xs="24" :sm="12">
             <el-form-item label="角色">
               <el-select v-model="form.role" class="w-full">
-                <el-option v-for="r in roles" :key="r" :label="ROLE_LABELS[r] || r" :value="r" />
+                <el-option v-for="r in roles" :key="r" :label="roleLabelMap[r] || r" :value="r" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -221,7 +221,11 @@ const users = ref<UserItem[]>([])
 const depts = ref<DeptRow[]>([])
 const allUsers = ref<{ id: number; name: string }[]>([])
 const roles = ref<string[]>([])
+const roleNames = ref<Record<string, string>>({})
 const tableRef = ref()
+
+/** 角色名称映射（内置 + 自定义角色），列表列/下拉统一用名称展示 */
+const roleLabelMap = computed(() => ({ ...ROLE_LABELS, ...roleNames.value }))
 
 // 关联客户选项（全量，供搜索勾选）
 const customerOptions = ref<{ id: number; name: string }[]>([])
@@ -272,6 +276,7 @@ async function load() {
   users.value = data.users
   depts.value = (data.departments as unknown as DeptRow[])
   roles.value = data.roles
+  roleNames.value = data.role_names || {}
   const deptData = await fetchDepartments()
   allUsers.value = deptData.users
 }
@@ -289,8 +294,8 @@ const loadUsers = async (params: Record<string, unknown>): Promise<PageResult<Re
 const userColumns = computed(() => [
   { key: 'username', label: '用户名', minWidth: 110, asTitle: true },
   { key: 'realname', label: '姓名', width: 90 },
-  { key: 'role', label: '角色', width: 100, type: 'tag',
-    tagMap: ROLE_TAG, valueMap: ROLE_LABELS },
+  { key: 'role', label: '角色', width: 110, type: 'tag',
+    tagMap: ROLE_TAG, valueMap: roleLabelMap },
   { key: 'department_name', label: '部门', minWidth: 100 },
   { key: 'region_names', label: '负责区域', minWidth: 130 },
   { key: 'customer_names', label: '关联客户', minWidth: 130 },

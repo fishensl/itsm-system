@@ -5,6 +5,7 @@ export interface UserItem {
   username: string
   realname: string
   role: string
+  role_name?: string
   department_id: number | null
   department_name: string
   is_active: boolean
@@ -22,6 +23,7 @@ export interface UserListData {
   users: UserItem[]
   departments: { id: number; name: string }[]
   roles: string[]
+  role_names?: Record<string, string>
   total?: number
   page?: number
   page_size?: number
