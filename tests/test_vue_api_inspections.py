@@ -204,11 +204,53 @@ class TestInspectionUploadReportFlow:
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
         assert r.status_code == 200
-        # 已完成任务拒绝
+        # 已完成任务允许补传（生成巡检记录，任务状态保持已完成）
         r = op_client.post(f'/api/inspections/task/{tid_done}/report',
-                           data={'report_file': _dummy_file()},
+                           data={'report_file': _dummy_file(), 'conclusion': '补传报告'},
                            content_type='multipart/form-data')
-        assert r.status_code == 400
+        assert r.status_code == 200, r.get_json()
+        body = r.get_json()['data']
+        assert body['task_status'] == '已完成'  # 补传不改变任务状态
+        with app.app_context():
+            t4 = db.session.get(InspectionTask, tid_done)
+            assert t4.status == '已完成'
+            i = Inspection.query.filter_by(task_id=tid_done).first()
+            assert i is not None  # 巡检记录已生成
+            assert i.review_status == '待审核'
+            assert i.submitted_report.startswith('uploads/inspection_reports/')
+            v = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).first()
+            assert v is not None and v.review_status == '待审核'
+
+    def test_upload_redo_after_done_keeps_task_done(self, op_client, app, seed):
+        """已完成任务已有已通过记录 → 补传新版本走审核，任务仍保持已完成"""
+        from datetime import date as _date
+        with app.app_context():
+            t5 = InspectionTask(title='已完成补传任务', customer_id=seed['c'], status='已完成')
+            db.session.add(t5)
+            db.session.flush()
+            i = Inspection(title='已完成补传任务', customer_id=seed['c'], task_id=t5.id,
+                           inspection_date=_date(2026, 8, 1), inspector_name='测试',
+                           overall_status='正常', review_status='已通过',
+                           submitted_report='uploads/inspection_reports/old.pdf')
+            db.session.add(i)
+            db.session.commit()
+            tid = t5.id
+            iid = i.id
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'report_file': _dummy_file(), 'conclusion': '补充资料'},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        assert r.get_json()['data']['task_status'] == '已完成'
+        with app.app_context():
+            assert db.session.get(InspectionTask, tid).status == '已完成'
+            i = Inspection.query.get(iid)
+            assert i.review_status == '待审核'  # 新版本重新提交审核
+            assert i.submitted_report.startswith('uploads/inspection_reports/')
+            # 新版本
+            vs = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=iid)\
+                .order_by(SubmissionVersion.version_no.desc()).all()
+            assert vs and vs[0].version_no == 1
+            assert vs[0].review_status == '待审核'
 
     def test_upload_rejects_other_engineer(self, op_client, admin_client, app, seed):
         with app.app_context():

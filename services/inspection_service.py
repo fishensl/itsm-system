@@ -224,8 +224,8 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     from .submission_version_service import add_asset
 
     task = InspectionTask.query.get_or_404(task_id)
-    if task.status not in (TASK_RUNNING, TASK_REVIEWING, TASK_PENDING):
-        raise ServiceError('任务状态「%s」不允许上传报告（仅执行中/待审核中的任务可上传）' % task.status)
+    if task.status not in (TASK_RUNNING, TASK_REVIEWING, TASK_PENDING, TASK_DONE):
+        raise ServiceError('任务状态「%s」不允许上传报告（仅执行中/待审核/待执行/已完成的任务可上传）' % task.status)
 
     if not force and task.assigned_to_user_id and current_user_id \
             and int(task.assigned_to_user_id) != int(current_user_id):
@@ -249,7 +249,7 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
         if pending and pending.review_status == REVIEW_PENDING:
             raise ServiceError('该任务已有「待审核」版本（版本 %d），请等待审核结果后再上传' % pending.version_no)
     else:
-        if task.status not in (TASK_RUNNING, TASK_PENDING):
+        if task.status not in (TASK_RUNNING, TASK_PENDING, TASK_DONE):
             raise ServiceError('任务「%s」状态不能创建巡检记录' % task.status)
         inspection = Inspection(
             title=task.title,
@@ -272,7 +272,7 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
         submitted_by_user_id=current_user_id,
         review_status=REVIEW_PENDING if submit_review else '',
     )
-    inspection.submitted_report = report_path
+    inspection.submitted_report = report_path if report_path else inspection.submitted_report
     inspection.review_status = REVIEW_PENDING
     inspection.overall_status = REVIEW_PENDING
     inspection.conclusion = conclusion or ''
