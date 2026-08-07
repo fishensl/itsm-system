@@ -432,14 +432,14 @@ function assetLabel(key: string) {
 const uploadHint = computed(() => {
   const st = detail.value?.status
   if (st === TASK_STATUS.REVIEWING) return '任务正在审核中，请等待审核结果后再上传'
-  if (st === TASK_STATUS.DONE) return '任务已完成，如需补充请先改回执行中'
+  if (st === TASK_STATUS.DONE) return '任务已完成，可补传报告/资料（补传不改变任务状态）'
   if (st === TASK_STATUS.CANCELLED) return '任务已取消，不可上传'
   if (record.value?.review_status === REVIEW_STATUS.PENDING) return '已有报告在审核中，请等待审核结果'
   return ''
 })
 const canUpload = computed(() =>
   user.hasPerm('inspection:edit') && !!detail.value &&
-  ([TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING] as string[]).includes(detail.value.status),
+  ([TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE] as string[]).includes(detail.value.status),
 )
 
 const kpiCards = computed(() => {
