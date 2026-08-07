@@ -68,7 +68,8 @@
       <el-descriptions v-if="detail" :column="2" border size="small">
         <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="类型">{{ detail.device_type || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="品牌/型号">{{ detail.brand }} {{ detail.model }}</el-descriptions-item>
+        <el-descriptions-item label="品牌">{{ detail.brand || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="型号">{{ detail.model || '-' }}</el-descriptions-item>
         <el-descriptions-item label="序列号">{{ detail.serial_number || '-' }}</el-descriptions-item>
         <el-descriptions-item label="IP:端口">
           <code>{{ detail.ip_address }}:{{ detail.port }}</code>
@@ -450,7 +451,9 @@ const columns = computed<DataColumn[]>(() => [
     link: (r) => `/app/devices/${r.id}` },
   { key: 'device_type', label: '类型', width: 90 },
   { key: 'customer_name', label: '客户', minWidth: 100 },
-  { key: 'brand', label: '品牌/型号', minWidth: 130,
+  { key: 'brand', label: '品牌', minWidth: 100,
+    cellClass: () => 'cell-muted' },
+  { key: 'model', label: '型号', minWidth: 120,
     cellClass: () => 'cell-muted' },
   { key: 'ip_address', label: 'IP:端口', minWidth: 130 },
   { key: 'os_version', label: '系统版本', minWidth: 110 },
