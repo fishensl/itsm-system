@@ -1,5 +1,11 @@
 <template>
   <div class="data-table">
+    <!-- 列设置工具条（可选启用） -->
+    <div v-if="columnSettings" class="table-toolbar">
+      <el-button size="small" text type="primary" :icon="Setting" @click="settingsVisible = true">
+        列设置
+      </el-button>
+    </div>
     <!-- 桌面/平板：表格 -->
     <div v-if="!isMobile" class="table-wrap">
       <el-table
@@ -12,7 +18,7 @@
         @row-click="onRowClick"
       >
         <el-table-column
-          v-for="col in columns"
+          v-for="col in renderCols"
           :key="col.key"
           :label="col.label"
           :width="col.width"
@@ -133,11 +139,34 @@
         />
       </div>
     </div>
+
+    <!-- 列设置弹窗 -->
+    <el-dialog v-model="settingsVisible" :title="columnSettings?.title || '列设置'" width="420px" top="10vh"
+      destroy-on-close>
+      <div class="col-setting-list">
+        <div v-for="(c, idx) in settingCols" :key="c.key" class="col-setting-row">
+          <el-checkbox :model-value="c.visible" :disabled="isActionCol(c)"
+            @change="(v: string | number | boolean) => toggleCol(c.key, Boolean(v))" />
+          <span class="col-setting-name" :class="{ 'text-muted': !c.visible }">{{ c.label }}</span>
+          <span class="col-setting-actions">
+            <el-button size="small" text :icon="ArrowUp" :disabled="idx === 0" @click="moveCol(idx, -1)" />
+            <el-button size="small" text :icon="ArrowDown" :disabled="idx === settingCols.length - 1"
+              @click="moveCol(idx, 1)" />
+          </span>
+        </div>
+        <el-empty v-if="!settingCols.length" description="无可配置列" :image-size="50" />
+      </div>
+      <template #footer>
+        <el-button @click="resetColSettings">恢复默认</el-button>
+        <el-button @click="settingsVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, defineComponent, type VNode } from 'vue'
+import { Setting, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import type { PageResult } from '@/types'
 import { toRouterPath } from '@/utils/sidebarNav'
 
@@ -197,6 +226,8 @@ const props = withDefaults(
     emptyText?: string
     maxHeight?: number | string
     immediate?: boolean
+    /** 列设置（可选启用）：storageKey 为 localStorage 键；不传则无列设置功能 */
+    columnSettings?: { storageKey: string; title?: string }
   }>(),
   {
     rowKey: 'id',
@@ -214,14 +245,97 @@ const pageSize = ref(20)
 const loading = ref(false)
 const isMobile = ref(false)
 
+// ==================== 列设置（显示/隐藏 + 顺序，localStorage 持久化） ====================
+const settingsVisible = ref(false)
+/** 用户配置的可见列顺序（不含操作列，操作列强制显示在末尾） */
+const colOrder = ref<string[] | null>(null)
+
+function isActionCol(c: DataColumn) {
+  return c.type === 'action'
+}
+
+function loadColSettings() {
+  if (!props.columnSettings) return
+  try {
+    const raw = localStorage.getItem(props.columnSettings.storageKey)
+    colOrder.value = raw ? JSON.parse(raw) : null
+  } catch {
+    colOrder.value = null
+  }
+}
+
+function saveColSettings() {
+  if (!props.columnSettings) return
+  try {
+    localStorage.setItem(props.columnSettings.storageKey, JSON.stringify(colOrder.value || []))
+  } catch { /* localStorage 不可用时静默 */ }
+}
+
+/** 实际渲染列：用户顺序 + 可见性；新增列自动追加；操作列固定末尾且不可隐藏 */
+const renderCols = computed<DataColumn[]>(() => {
+  const all = props.columns
+  if (!props.columnSettings || !colOrder.value) return all
+  const body = all.filter((c) => !isActionCol(c))
+  const actions = all.filter((c) => isActionCol(c))
+  const ordered: DataColumn[] = []
+  for (const key of colOrder.value) {
+    const hit = body.find((c) => c.key === key)
+    if (hit && !ordered.includes(hit)) ordered.push(hit)
+  }
+  for (const c of body) {
+    if (!ordered.includes(c)) ordered.push(c)
+  }
+  return [...ordered, ...actions]
+})
+
+const settingCols = computed(() => {
+  const body = props.columns.filter((c) => !isActionCol(c))
+  const order = colOrder.value || body.map((c) => c.key)
+  return order
+    .map((key) => {
+      const col = body.find((c) => c.key === key)
+      return col ? { ...col, visible: !colOrder.value || colOrder.value.includes(col.key) } : null
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .concat(body.filter((c) => !order.includes(c.key)).map((c) => ({ ...c, visible: false })))
+})
+
+function toggleCol(key: string, visible: boolean) {
+  if (!colOrder.value) colOrder.value = props.columns.filter((c) => !isActionCol(c)).map((c) => c.key)
+  const set = new Set(colOrder.value)
+  if (visible) set.add(key)
+  else set.delete(key)
+  colOrder.value = props.columns.filter((c) => !isActionCol(c))
+    .filter((c) => set.has(c.key)).map((c) => c.key)
+  saveColSettings()
+}
+
+function moveCol(idx: number, dir: -1 | 1) {
+  const arr = settingCols.value.map((c) => c.key)
+  const j = idx + dir
+  if (j < 0 || j >= arr.length) return
+  ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
+  colOrder.value = arr
+  saveColSettings()
+}
+
+function resetColSettings() {
+  colOrder.value = null
+  saveColSettings()
+}
+
+onMounted(() => {
+  loadColSettings()
+})
+
 // 筛选变化防抖：文本输入击键不立即发请求，避免每敲一键一次 API 调用
 let queryTimer: ReturnType<typeof setTimeout> | null = null
 
-const titleCol = computed(() => props.columns.find((c) => c.asTitle))
-const tagCol = computed(() => props.columns.find((c) => c.asTag))
-const actionCol = computed(() => props.columns.find((c) => c.type === 'action'))
+const titleCol = computed(() => renderCols.value.find((c) => c.asTitle))
+const tagCol = computed(() => renderCols.value.find((c) => c.asTag))
+const actionCol = computed(() => renderCols.value.find((c) => c.type === 'action'))
 const bodyCols = computed(() =>
-  props.columns.filter((c) => c.type !== 'action' && c !== titleCol.value && c !== tagCol.value),
+  renderCols.value.filter((c) => c.type !== 'action' && c !== titleCol.value && c !== tagCol.value),
 )
 
 function tagType(row: Record<string, any>, col: DataColumn) {
@@ -314,6 +428,34 @@ const hasPerm = (code?: string) => useUserStore().hasPerm(code)
 <style scoped>
 .table-wrap {
   overflow-x: auto;
+}
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.col-setting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 55vh;
+  overflow: auto;
+}
+.col-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--itsm-border);
+  border-radius: 6px;
+}
+.col-setting-name {
+  flex: 1;
+  font-size: 13px;
+}
+.col-setting-actions {
+  display: flex;
+  gap: 2px;
 }
 .table-pagination {
   display: flex;

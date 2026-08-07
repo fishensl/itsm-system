@@ -96,6 +96,7 @@
         :fetch-data="fetchDevices"
         :query="query"
         row-key="id"
+        :column-settings="{ storageKey: 'device-table-columns' }"
         @row-click="openDetail"
       />
     </template>
@@ -451,39 +452,46 @@ function onCustomerFilterChange() {
   tableRef.value?.refresh()
 }
 
-const columns = computed<DataColumn[]>(() => [
-  { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
-    link: (r) => `/app/devices/${r.id}` },
-  { key: 'device_type', label: '类型', width: 90 },
-  { key: 'customer_name', label: '客户', minWidth: 100 },
-  { key: 'brand', label: '品牌', minWidth: 100,
-    cellClass: () => 'cell-muted' },
-  { key: 'model', label: '型号', minWidth: 120,
-    cellClass: () => 'cell-muted' },
-  { key: 'serial_number', label: '序列号', minWidth: 130,
-    cellClass: () => 'cell-muted' },
-  { key: 'ip_address', label: 'IP:端口', minWidth: 130 },
-  { key: 'os_version', label: '系统版本', minWidth: 110 },
-  { key: 'rule_version', label: '规则库版本', minWidth: 110 },
-  { key: 'location', label: '安装位置', minWidth: 120,
-    cellClass: () => 'cell-muted' },
-  { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
-    tagMap: { 'true': 'success', 'false': 'info' }, valueMap: IN_USE_LABELS },
-  { key: 'license_remaining_days', label: '授权', minWidth: 110,
-    cellClass: (r) => {
-      const d = r.license_remaining_days as number | null
-      if (d != null && d < 0) return 'cell-danger'
-      if (d != null && d <= 30) return 'cell-warn'
-      return ''
-    } },
-  { key: 'actions', label: '操作', width: 120, type: 'action', fixed: 'right',
-    actions: [
-      { label: '编辑', type: 'primary', link: true, perm: 'device:edit', icon: 'Edit',
-        onClick: (row) => openEdit(row as unknown as Device) },
-      { label: '删除', type: 'danger', link: true, perm: 'device:delete', icon: 'Delete',
-        onClick: (row) => onDelete(row as unknown as Device) },
-    ] },
-])
+const columns = computed<DataColumn[]>(() => {
+  const cols: DataColumn[] = [
+    { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
+      link: (r) => `/app/devices/${r.id}` },
+    { key: 'device_type', label: '类型', width: 90 },
+    { key: 'customer_name', label: '客户', minWidth: 100 },
+    { key: 'brand', label: '品牌', minWidth: 100,
+      cellClass: () => 'cell-muted' },
+    { key: 'model', label: '型号', minWidth: 120,
+      cellClass: () => 'cell-muted' },
+    { key: 'serial_number', label: '序列号', minWidth: 130,
+      cellClass: () => 'cell-muted' },
+    { key: 'ip_address', label: 'IP:端口', minWidth: 130 },
+    { key: 'os_version', label: '系统版本', minWidth: 110 },
+    { key: 'rule_version', label: '规则库版本', minWidth: 110 },
+    { key: 'location', label: '安装位置', minWidth: 120,
+      cellClass: () => 'cell-muted' },
+    { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
+      tagMap: { 'true': 'success', 'false': 'info' }, valueMap: IN_USE_LABELS },
+    { key: 'license_remaining_days', label: '授权', minWidth: 110,
+      cellClass: (r) => {
+        const d = r.license_remaining_days as number | null
+        if (d != null && d < 0) return 'cell-danger'
+        if (d != null && d <= 30) return 'cell-warn'
+        return ''
+      } },
+    { key: 'actions', label: '操作', width: 120, type: 'action', fixed: 'right',
+      actions: [
+        { label: '编辑', type: 'primary', link: true, perm: 'device:edit', icon: 'Edit',
+          onClick: (row) => openEdit(row as unknown as Device) },
+        { label: '删除', type: 'danger', link: true, perm: 'device:delete', icon: 'Delete',
+          onClick: (row) => onDelete(row as unknown as Device) },
+      ] },
+  ]
+  // 锁定单个客户时范围条已显示客户名，隐藏「客户」列避免重复
+  if (query.customer_id) {
+    return cols.filter((c) => c.key !== 'customer_name')
+  }
+  return cols
+})
 
 // ==================== 地区折叠树（市 → 客户） ====================
 const tree = ref<DeviceTreeGroup[]>([])
