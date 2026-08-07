@@ -176,50 +176,69 @@
       </template>
     </el-dialog>
 
-    <!-- 详情 -->
-    <el-drawer v-model="detailVisible" :title="detail ? detail.title : ''" size="520px">
+    <!-- 详情（居中弹窗，网格密集布局） -->
+    <el-dialog v-model="detailVisible" :title="detail ? detail.title : ''" width="780px" top="6vh"
+      destroy-on-close>
       <template v-if="detail">
-        <el-form label-width="90px">
-          <el-form-item label="状态">
-            <el-select v-if="detail.status !== '待审核'" :model-value="detail.status" size="small" style="width: 160px"
-              @change="(v: string) => quickUpdate({ status: v })">
-              <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
-            </el-select>
-            <el-tag v-else size="small" type="warning">待审核（报告审核中，不可手工改状态）</el-tag>
-          </el-form-item>
-          <el-form-item label="负责人">
-            <el-select :model-value="detail.assignee_id" clearable filterable size="small" style="width: 160px"
-              @change="(v: number | undefined) => quickUpdate({ assignee_id: v ?? null })">
-              <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="客户">{{ detail.customer_name || '-' }}</el-form-item>
-          <el-form-item label="计划时间">
-            <el-date-picker :model-value="detail.planned_start" type="date" value-format="YYYY-MM-DD"
-              size="small" style="width: 140px" @change="(v: string) => quickUpdate({ planned_start: v || null })" />
-            <span class="mx-1">~</span>
-            <el-date-picker :model-value="detail.planned_end" type="date" value-format="YYYY-MM-DD"
-              size="small" style="width: 140px" @change="(v: string) => quickUpdate({ planned_end: v || null })" />
-          </el-form-item>
-          <el-form-item label="预估人天">
-            <el-input-number :model-value="detail.estimated_effort ?? undefined" :min="0" :step="0.5" size="small"
-              style="width: 120px" @change="(v: number | undefined) => quickUpdate({ estimated_effort: v ?? null })" />
-          </el-form-item>
-          <el-form-item label="实际人天">
-            <el-input-number :model-value="detail.actual_effort ?? undefined" :min="0" :step="0.5" size="small"
-              style="width: 120px" @change="(v: number | undefined) => quickUpdate({ actual_effort: v ?? null })" />
-          </el-form-item>
-          <el-form-item label="来源">{{ detail.source || '-' }}</el-form-item>
-          <el-form-item label="备注">
-            <el-input :model-value="detail.remark" type="textarea" :rows="2" size="small"
-              @blur="(e: FocusEvent) => quickUpdate({ remark: (e.target as HTMLInputElement).value })" />
-          </el-form-item>
+        <el-form label-width="72px" label-position="left">
+          <el-row :gutter="16">
+            <el-col :xs="24" :sm="8">
+              <el-form-item label="状态">
+                <el-select v-if="detail.status !== '待审核'" :model-value="detail.status" size="small"
+                  style="width: 100%" @change="(v: string) => quickUpdate({ status: v })">
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+                </el-select>
+                <el-tag v-else size="small" type="warning">待审核（报告审核中，不可手工改状态）</el-tag>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item label="负责人">
+                <el-select :model-value="detail.assignee_id" clearable filterable size="small" style="width: 100%"
+                  @change="(v: number | undefined) => quickUpdate({ assignee_id: v ?? null })">
+                  <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item label="来源">{{ detail.source || '-' }}</el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item label="客户">{{ detail.customer_name || '-' }}</el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="16">
+              <el-form-item label="计划时间">
+                <el-date-picker :model-value="detail.planned_start" type="date" value-format="YYYY-MM-DD"
+                  size="small" style="width: 45%" @change="(v: string) => quickUpdate({ planned_start: v || null })" />
+                <span class="mx-1">~</span>
+                <el-date-picker :model-value="detail.planned_end" type="date" value-format="YYYY-MM-DD"
+                  size="small" style="width: 45%" @change="(v: string) => quickUpdate({ planned_end: v || null })" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item label="预估人天">
+                <el-input-number :model-value="detail.estimated_effort ?? undefined" :min="0" :step="0.5" size="small"
+                  style="width: 100%" @change="(v: number | undefined) => quickUpdate({ estimated_effort: v ?? null })" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8">
+              <el-form-item label="实际人天">
+                <el-input-number :model-value="detail.actual_effort ?? undefined" :min="0" :step="0.5" size="small"
+                  style="width: 100%" @change="(v: number | undefined) => quickUpdate({ actual_effort: v ?? null })" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="16">
+              <el-form-item label="备注">
+                <el-input :model-value="detail.remark" type="textarea" :rows="2" size="small"
+                  @blur="(e: FocusEvent) => quickUpdate({ remark: (e.target as HTMLInputElement).value })" />
+              </el-form-item>
+            </el-col>
+          </el-row>
         </el-form>
 
         <!-- 关联巡检记录（V21 闭环） -->
         <el-divider content-position="left">巡检记录</el-divider>
         <div v-if="record" class="record-block">
-          <el-descriptions :column="2" size="small" border>
+          <el-descriptions :column="4" size="small" border>
             <el-descriptions-item label="审核状态">
               <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">{{ record.review_status }}</el-tag>
             </el-descriptions-item>
@@ -243,9 +262,11 @@
           </el-button>
         </el-empty>
 
-        <el-button type="danger" plain :loading="deleting" @click="onDelete(detail)" class="mt-2">删除任务</el-button>
+        <div class="detail-footer">
+          <el-button type="danger" plain :loading="deleting" @click="onDelete(detail)">删除任务</el-button>
+        </div>
       </template>
-    </el-drawer>
+    </el-dialog>
 
     <!-- 现场报告预览弹窗 -->
     <el-dialog v-model="reportPreviewVisible" title="现场报告预览" width="900px" top="5vh" destroy-on-close>
@@ -801,6 +822,7 @@ onMounted(reload)
 .col-body { padding: 6px 10px 12px; min-height: 80px; }
 .record-block { margin-bottom: 10px; }
 .record-conclusion { font-size: 13px; margin: 8px 0; white-space: pre-wrap; }
+.detail-footer { display: flex; justify-content: flex-end; margin-top: 12px; }
 .upload-hint { color: var(--el-color-warning); font-size: 12px; }
 .preview-body { min-height: 420px; }
 .preview-name { float: left; font-size: 12px; color: var(--el-text-color-secondary); line-height: 32px; }

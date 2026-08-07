@@ -24,55 +24,23 @@
       </div>
     </el-card>
 
-    <!-- 列表 -->
+    <!-- 列表（点击行内展开详情） -->
     <DataTable
       ref="tableRef"
       :columns="columns"
       :fetch-data="fetchFaults"
       :query="query"
       row-key="id"
-      @row-click="openDetail"
-    />
-
-    <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" :title="detail ? `#${detail.id} · ${detail.title}` : ''"
-      size="620px" destroy-on-close>
-      <div v-if="detail">
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="故障时间">{{ detail.fault_time || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="处理人">{{ detail.handler || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="故障类型">{{ detail.fault_type || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="处理结果">
-            <el-tag size="small" :type="FAULT_RESULT_TAG[detail.result] || 'danger'">
-              {{ detail.result || '-' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="恢复时间">{{ detail.recovery_time || '-' }}</el-descriptions-item>
-        </el-descriptions>
-
-        <el-divider content-position="left">故障描述</el-divider>
-        <p class="detail-text">{{ detail.fault_description || '-' }}</p>
-
-        <el-divider content-position="left">故障原因</el-divider>
-        <p class="detail-text">{{ detail.fault_cause || '-' }}</p>
-
-        <el-divider content-position="left">解决方案</el-divider>
-        <p class="detail-text">{{ detail.solution || '-' }}</p>
-
-        <el-divider content-position="left">影响范围</el-divider>
-        <p class="detail-text">{{ detail.impact_range || '-' }}</p>
-
-        <!-- 操作 -->
-        <el-divider content-position="left">操作</el-divider>
-        <div class="action-bar">
-          <el-button v-if="user.hasPerm('fault:edit')" size="small" type="primary" plain
-            @click="openEdit(detail)">编辑</el-button>
-          <el-button v-if="user.hasPerm('fault:delete')" size="small" type="danger" plain
-            @click="onDelete(detail)">删除</el-button>
-        </div>
-      </div>
-    </el-drawer>
+      expandable
+    >
+      <template #expand="{ row }">
+        <FaultExpandRow
+          :row="row"
+          @edit="openEdit(row as unknown as Fault)"
+          @delete="onDelete(row as unknown as Fault)"
+        />
+      </template>
+    </DataTable>
 
     <!-- 新建/编辑故障 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑故障' : '新建故障'" width="680px" top="5vh"
@@ -147,6 +115,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import FaultExpandRow from './FaultExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -184,24 +153,13 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'actions', label: '操作', width: 140, type: 'action', fixed: 'right',
     actions: [
       { label: '查看', type: 'primary', link: true, perm: 'fault:view', icon: 'View',
-        onClick: (row) => openDetail(row) },
+        onClick: (row) => tableRef.value?.toggleExpand(row) },
       { label: '编辑', type: 'primary', link: true, perm: 'fault:edit', icon: 'Edit',
         onClick: (row) => openEdit(row as unknown as Fault) },
       { label: '删除', type: 'danger', link: true, perm: 'fault:delete', icon: 'Delete',
         onClick: (row) => onDelete(row as unknown as Fault) },
     ] },
 ])
-
-// 详情
-const detailVisible = ref(false)
-const detail = ref<Fault | null>(null)
-
-async function openDetail(row: Record<string, unknown>) {
-  try {
-    detail.value = await fetchFault(row.id as number)
-    detailVisible.value = true
-  } catch { /* toast */ }
-}
 
 async function onDelete(f: Fault) {
   try {
@@ -210,7 +168,6 @@ async function onDelete(f: Fault) {
   try {
     await deleteFault(f.id)
     ui.toast('已删除', 'success')
-    detailVisible.value = false
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -293,6 +250,4 @@ onMounted(() => {
 .filter-item { width: 130px; max-width: 100%; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
-.detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
-.action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 </style>

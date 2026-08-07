@@ -35,145 +35,27 @@
       </div>
     </el-card>
 
-    <!-- 列表 -->
+    <!-- 列表（点击行内展开详情） -->
     <DataTable
       ref="tableRef"
       :columns="columns"
       :fetch-data="fetchTickets"
       :query="query"
       row-key="id"
-      @row-click="openDetail"
-    />
-
-    <!-- 详情弹窗 -->
-    <el-drawer v-model="detailVisible" :title="detail ? `${detail.number} · ${detail.title}` : ''"
-      size="620px" destroy-on-close>
-      <div v-if="detail">
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="状态">
-            <el-tag size="small" :type="TICKET_STATUS_TAG[detail.status] || 'info'">{{ detail.status }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="优先级">
-            <el-tag size="small" :type="detail.priority === '紧急' ? 'danger' : 'warning'">{{ detail.priority }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="关联设备">
-            <router-link v-if="detail.related_device_id" :to="`/devices/${detail.related_device_id}`"
-              class="row-link">{{ detail.related_device_name || '#' }}</router-link>
-            <span v-else>-</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="处理人">{{ detail.assigned_to || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建人">{{ detail.created_by || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
-          <el-descriptions-item label="来源">{{ detail.source_type || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="严重级别">{{ detail.severity_level || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="处理报告">
-            <el-link v-if="detail.report_file" type="primary" :underline="false" @click="downloadLatest">
-              {{ detail.report_name || '下载' }}
-            </el-link>
-            <span v-else class="text-muted">无</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="资料完整">
-            <el-tag size="small" :type="detail.complete ? 'success' : 'warning'">
-              {{ detail.complete ? '完整' : '缺:' + (detail.missing_fields || []).join('、') }}
-            </el-tag>
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <el-divider content-position="left">描述</el-divider>
-        <p class="detail-text">{{ detail.description || '-' }}</p>
-
-        <template v-if="detail.diagnosis || detail.solution">
-          <el-divider content-position="left">处理方案</el-divider>
-          <p class="detail-text"><b>诊断：</b>{{ detail.diagnosis || '-' }}</p>
-          <p class="detail-text"><b>方案：</b>{{ detail.solution || '-' }}</p>
-        </template>
-
-        <!-- 审核意见（退回原因醒目展示） -->
-        <template v-if="detail.audit_comment">
-          <el-divider content-position="left">审核意见</el-divider>
-          <p class="detail-text review-comment">{{ detail.audit_comment }}</p>
-          <p class="review-meta">
-            审核人：{{ detail.audit_by || '-' }} · {{ detail.audit_at || '-' }}
-            <el-tag size="small" :type="detail.audit_status === '通过' ? 'success' : 'danger'" class="audit-tag">
-              {{ detail.audit_status }}
-            </el-tag>
-          </p>
-        </template>
-
-        <!-- 提交审核记录时间线 -->
-        <el-divider content-position="left">提交审核记录（每次提交 + 每轮审核）</el-divider>
-        <VersionTimeline :versions="versions" entity-type="ticket" />
-
-        <!-- 状态机操作 -->
-        <el-divider content-position="left">操作</el-divider>
-        <div class="action-bar">
-          <template v-if="detail.status === TICKET_STATUS.PENDING_ASSIGN">
-            <el-input v-model="assignee" placeholder="处理人姓名" class="assign-input" size="small" />
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" @click="doAction('assign')">
-              派单
-            </el-button>
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="warning" @click="doAction('close')">
-              关闭
-            </el-button>
-          </template>
-          <template v-else-if="detail.status === TICKET_STATUS.ASSIGNED || detail.status === TICKET_STATUS.ACCEPTED">
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="success" @click="doAction('accept')">
-              接单（开始处理）
-            </el-button>
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="info" plain @click="doAction('reassign')">
-              撤回重派
-            </el-button>
-          </template>
-          <template v-else-if="detail.status === TICKET_STATUS.PROCESSING">
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" @click="openSubmit">
-              提交审核
-            </el-button>
-          </template>
-          <template v-else-if="detail.status === TICKET_STATUS.SUBMITTED">
-            <el-button v-if="user.hasPerm('ticket:review')" size="small" type="success" @click="openAudit(true)">
-              审核通过
-            </el-button>
-            <el-button v-if="user.hasPerm('ticket:review')" size="small" type="danger" @click="openAudit(false)">
-              退回修改
-            </el-button>
-          </template>
-          <template v-else-if="detail.status === TICKET_STATUS.CHECKED">
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="success" @click="doAction('accept_check', true)">
-              验收通过（关闭）
-            </el-button>
-            <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="warning" @click="doAction('accept_check', false)">
-              退回处理
-            </el-button>
-          </template>
-          <el-button v-if="user.hasPerm('ticket:edit') && detail.status !== TICKET_STATUS.CLOSED" size="small" type="info"
-            plain @click="doAction('close')">关闭工单</el-button>
-          <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" plain @click="openEdit(detail)">
-            编辑
-          </el-button>
-          <el-button
-            v-if="user.hasPerm('kb:add') && ([TICKET_STATUS.CLOSED, TICKET_STATUS.CHECKED] as string[]).includes(detail.status)"
-            size="small" type="success" plain @click="onArchive">归档为知识库案例</el-button>
-          <el-button v-if="user.hasPerm('ticket:delete')" size="small" type="danger" plain @click="onDelete">
-            删除
-          </el-button>
-        </div>
-
-        <!-- 日志时间轴 -->
-        <el-divider content-position="left">操作日志</el-divider>
-        <el-timeline v-if="detail.logs?.length">
-          <el-timeline-item v-for="(log, i) in detail.logs" :key="i" :timestamp="log.created_at" placement="top"
-            size="small">
-            <div class="log-item">
-              <b>{{ log.action }}</b>
-              <span class="log-op">{{ log.operator }}</span>
-              <div v-if="log.comment" class="log-comment">{{ log.comment }}</div>
-            </div>
-          </el-timeline-item>
-        </el-timeline>
-        <el-empty v-else description="暂无日志" :image-size="50" />
-      </div>
-    </el-drawer>
+      expandable
+    >
+      <template #expand="{ row }">
+        <TicketExpandRow
+          :row="row"
+          @action="(a: string, assigneeVal?: string, approved?: boolean) => doAction(row as unknown as Ticket, a, assigneeVal, approved)"
+          @audit="(approved: boolean) => openAudit(row as unknown as Ticket, approved)"
+          @submit="openSubmit(row as unknown as Ticket)"
+          @edit="openEdit(row as unknown as Ticket)"
+          @archive="onArchive(row as unknown as Ticket)"
+          @delete="onDelete(row as unknown as Ticket)"
+        />
+      </template>
+    </DataTable>
 
     <!-- 提交审核（处理报告 + 诊断/方案 + 提交备注） -->
     <el-dialog v-model="submitVisible" title="提交审核" width="560px" destroy-on-close>
@@ -299,16 +181,16 @@ import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search, Download, FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
-import VersionTimeline from '@/components/VersionTimeline.vue'
+import TicketExpandRow from './TicketExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchTickets, fetchTicket, createTicket, updateTicket, deleteTicket, ticketAction,
-  ticketActionSubmit, fetchTicketVersions, versionReportUrl, ticketExportUrl,
+  ticketActionSubmit, fetchTicketVersions, ticketExportUrl,
   ticketReportsZipUrl, fetchTicketDicts, TICKET_STATUS_TAG, archiveTicketAsCase,
   type Ticket, type TicketDicts,
 } from '@/api/tickets'
-import { TICKET_STATUS, TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
+import { TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
 import type { SubmissionVersion as SV } from '@/api/inspections'
 
 const user = useUserStore()
@@ -352,69 +234,51 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'actions', label: '操作', width: 90, type: 'action', fixed: 'right',
     actions: [
       { label: '处理', type: 'primary', link: true, perm: 'ticket:view', icon: 'View',
-        onClick: (row) => openDetail(row) },
+        onClick: (row) => tableRef.value?.toggleExpand(row) },
       { label: '删除', type: 'danger', link: true, perm: 'ticket:delete', icon: 'Delete',
         onClick: (row) => onDelete(row as unknown as Ticket) },
     ] },
 ])
 
-// 详情
-const detailVisible = ref(false)
+// 当前操作目标工单 + 详情数据（审核/提交弹窗共用）
+const actionRow = ref<Ticket | null>(null)
 const detail = ref<Ticket | null>(null)
 const versions = ref<SV[]>([])
-const assignee = ref('')
 
-async function openDetail(row: Record<string, unknown>) {
-  try {
-    const [full, vers] = await Promise.all([
-      fetchTicket(row.id as number),
-      fetchTicketVersions(row.id as number),
-    ])
-    detail.value = full
-    versions.value = vers
-    assignee.value = full.assigned_to || ''
-    detailVisible.value = true
-  } catch { /* toast */ }
+async function loadTarget(row: Ticket) {
+  const [full, vers] = await Promise.all([
+    fetchTicket(row.id),
+    fetchTicketVersions(row.id),
+  ])
+  detail.value = full
+  versions.value = vers
 }
 
-async function refreshDetail() {
-  if (!detail.value) return
-  try {
-    const [full, vers] = await Promise.all([
-      fetchTicket(detail.value.id),
-      fetchTicketVersions(detail.value.id),
-    ])
-    detail.value = full
-    versions.value = vers
-  } catch { /* toast */ }
-}
-
-function downloadLatest() {
-  const latest = versions.value.slice().reverse().find((v) => v.report_file)
-  if (!latest) return
-  window.open(versionReportUrl('ticket', latest.id), '_blank')
-}
-
-async function doAction(action: string, approved?: boolean) {
-  if (!detail.value) return
+async function doAction(row: Ticket, action: string, assigneeVal?: string, approved?: boolean) {
+  actionRow.value = row
   const payload: { action: string; assignee?: string; approved?: boolean } = { action }
   if (action === 'assign') {
-    if (!assignee.value.trim()) { ui.toast('请填写处理人', 'warning'); return }
-    payload.assignee = assignee.value.trim()
+    if (!assigneeVal?.trim()) { ui.toast('请填写处理人', 'warning'); return }
+    payload.assignee = assigneeVal.trim()
   }
   if (typeof approved === 'boolean') payload.approved = approved
   try {
-    await ticketAction(detail.value.id, payload)
+    await ticketAction(row.id, payload)
     ui.toast('操作成功', 'success')
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
 
-function openAudit(approved: boolean) {
-  if (!detail.value) return
+async function openAudit(row: Ticket, approved: boolean) {
+  actionRow.value = row
+  try {
+    await loadTarget(row)
+  } catch {
+    ui.toast('加载详情失败', 'error')
+    return
+  }
   auditApproved.value = approved
   auditRemark.value = ''
   auditRequirements.value = ''
@@ -443,7 +307,6 @@ async function doAudit() {
     })
     ui.toast(`${auditApproved.value ? '审核通过' : '退回修改'}成功`, 'success')
     auditVisible.value = false
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -466,7 +329,14 @@ const auditRemark = ref('')
 const auditRequirements = ref('')
 const auditing = ref(false)
 
-function openSubmit() {
+async function openSubmit(row: Ticket) {
+  actionRow.value = row
+  try {
+    await loadTarget(row)
+  } catch {
+    ui.toast('加载详情失败', 'error')
+    return
+  }
   submitFile.value = null
   submitForm.diagnosis = ''
   submitForm.solution = ''
@@ -496,7 +366,6 @@ async function doSubmit() {
     await ticketActionSubmit(detail.value.id, fd)
     ui.toast('已提交审核（生成提交记录）', 'success')
     submitVisible.value = false
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -512,7 +381,7 @@ async function onDelete(t: Ticket) {
   try {
     await deleteTicket(t.id)
     ui.toast('已删除', 'success')
-    detailVisible.value = false
+    if (detail.value?.id === t.id) detail.value = null
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -555,7 +424,6 @@ async function save() {
       await updateTicket(form.id as number, { ...form })
       ui.toast('工单已更新', 'success')
       formVisible.value = false
-      await refreshDetail()
     } else {
       const res = await createTicket({ ...form })
       ui.toast(`工单 ${res.number} 已创建${form.dispatch_mode === 'self_accept' ? '，已由你接单' : ''}`, 'success')
@@ -569,14 +437,13 @@ async function save() {
   }
 }
 
-async function onArchive() {
-  if (!detail.value) return
+async function onArchive(t: Ticket) {
   try {
     await ElMessageBox.confirm('归档后生成知识库案例（内容来自诊断/方案/描述），继续吗？', '归档确认',
       { type: 'info' })
   } catch { return }
   try {
-    const res = await archiveTicketAsCase(detail.value.id)
+    const res = await archiveTicketAsCase(t.id)
     ui.toast(`已归档为知识库案例 #${res.id}`, 'success')
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -621,14 +488,4 @@ onMounted(() => {
 .date-range { width: 240px; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
-.detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
-.review-comment { color: var(--el-color-danger); font-weight: 600; white-space: pre-wrap; }
-.review-meta { font-size: 12px; color: var(--itsm-text-muted); display: flex; align-items: center; gap: 6px; }
-.audit-tag { margin-left: 4px; }
-.action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.assign-input { width: 160px; }
-.log-item { font-size: 13px; }
-.log-op { color: var(--itsm-text-muted); margin-left: 8px; font-size: 12px; }
-.log-comment { color: var(--itsm-text-muted); font-size: 12px; margin-top: 2px; }
-.text-muted { color: var(--itsm-text-muted); }
 </style>

@@ -29,78 +29,12 @@
             :fetch-data="fetchSpareParts"
             :query="partQuery"
             row-key="id"
-            @row-click="openPartDetail"
-          />
-
-          <!-- 备件详情抽屉 -->
-          <el-drawer v-model="partDetailVisible" :title="partDetail ? partDetail.name : ''" size="620px"
-            destroy-on-close>
-            <template v-if="partDetail">
-              <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="编码">{{ partDetail.code || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="分类">{{ partDetail.category || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="品牌">{{ partDetail.brand || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="型号">{{ partDetail.model || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="规格">{{ partDetail.specification || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="单位">{{ partDetail.unit || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="厂家">{{ partDetail.manufacturer || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="序列号">{{ partDetail.serial_number || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="参考价">
-                  {{ Number(partDetail.reference_price || 0).toLocaleString() }}
-                </el-descriptions-item>
-                <el-descriptions-item label="保修期(月)">{{ partDetail.warranty_months || 0 }}</el-descriptions-item>
-                <el-descriptions-item label="安全库存">{{ partDetail.min_stock }}</el-descriptions-item>
-                <el-descriptions-item label="总库存">
-                  <el-tag size="small" :type="partDetail.stock_alert ? 'danger' : 'success'">
-                    {{ partDetail.total_stock }}
-                  </el-tag>
-                </el-descriptions-item>
-                <el-descriptions-item label="备注" :span="2">{{ partDetail.remark || '-' }}</el-descriptions-item>
-              </el-descriptions>
-
-              <el-divider content-position="left">库存明细</el-divider>
-              <el-table v-if="partDetail.stocks?.length" :data="partDetail.stocks" size="small" border>
-                <el-table-column prop="location" label="库位" min-width="120" />
-                <el-table-column prop="quantity" label="数量" width="80" />
-                <el-table-column prop="unit_price" label="单价" width="100">
-                  <template #default="{ row }">{{ Number(row.unit_price || 0).toLocaleString() }}</template>
-                </el-table-column>
-                <el-table-column prop="updated_at" label="更新时间" width="140" />
-              </el-table>
-              <el-empty v-else description="暂无库存" :image-size="50" />
-
-              <el-divider content-position="left">采购入库</el-divider>
-              <el-table v-if="partDetail.purchases?.length" :data="partDetail.purchases" size="small" border>
-                <el-table-column prop="supplier_name" label="供应商" min-width="110" />
-                <el-table-column prop="quantity" label="数量" width="70" />
-                <el-table-column prop="total" label="总额" width="100">
-                  <template #default="{ row }">{{ Number(row.total || 0).toLocaleString() }}</template>
-                </el-table-column>
-                <el-table-column prop="purchase_date" label="日期" width="100" />
-                <el-table-column prop="operator" label="经办人" width="90" />
-              </el-table>
-              <el-empty v-else description="暂无采购记录" :image-size="50" />
-
-              <el-divider content-position="left">销售出库</el-divider>
-              <el-table v-if="partDetail.sales?.length" :data="partDetail.sales" size="small" border>
-                <el-table-column prop="customer_name" label="客户" min-width="110" />
-                <el-table-column prop="quantity" label="数量" width="70" />
-                <el-table-column prop="total" label="总额" width="100">
-                  <template #default="{ row }">{{ Number(row.total || 0).toLocaleString() }}</template>
-                </el-table-column>
-                <el-table-column prop="sales_date" label="日期" width="100" />
-                <el-table-column prop="operator" label="经办人" width="90" />
-              </el-table>
-              <el-empty v-else description="暂无销售记录" :image-size="50" />
-
-              <div class="drawer-actions">
-                <el-button v-if="user.hasPerm('spare:edit')" type="primary" @click="openPartEdit(partDetail)">
-                  编辑
-                </el-button>
-                <el-button @click="partDetailVisible = false">关闭</el-button>
-              </div>
+            expandable
+          >
+            <template #expand="{ row }">
+              <PartExpandRow :row="row" @edit="openPartEdit(row as unknown as SparePart)" />
             </template>
-          </el-drawer>
+          </DataTable>
 
           <!-- 备件新增/编辑 -->
           <el-dialog v-model="partFormVisible" :title="partForm.id ? '编辑备件' : '新增备件'" width="680px" top="5vh"
@@ -333,10 +267,11 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Plus, Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import PartExpandRow from './PartExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
-  fetchSpareParts, fetchSparePart, createSparePart, updateSparePart, deleteSparePart,
+  fetchSpareParts, createSparePart, updateSparePart, deleteSparePart,
   fetchSpareStocks, createSpareStock, updateSpareStock, deleteSpareStock,
   fetchPurchaseOrders, createPurchaseOrder, deletePurchaseOrder,
   fetchSalesOrders, createSalesOrder, deleteSalesOrder,
@@ -400,16 +335,6 @@ const partColumns = computed<DataColumn[]>(() => [
     ] },
 ])
 
-const partDetailVisible = ref(false)
-const partDetail = ref<SparePart | null>(null)
-
-async function openPartDetail(row: Record<string, unknown>) {
-  try {
-    partDetail.value = await fetchSparePart(row.id as number)
-    partDetailVisible.value = true
-  } catch { /* toast */ }
-}
-
 interface PartFormModel {
   id?: number
   name: string
@@ -455,7 +380,6 @@ function openPartEdit(p: SparePart) {
     warranty_months: p.warranty_months, manufacturer: p.manufacturer,
     serial_number: p.serial_number, remark: p.remark,
   })
-  partDetailVisible.value = false
   partFormVisible.value = true
 }
 
@@ -487,7 +411,6 @@ async function onPartDelete(p: SparePart) {
   try {
     await deleteSparePart(p.id)
     ui.toast('已删除', 'success')
-    partDetailVisible.value = false
     reload('part')
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -752,6 +675,5 @@ onMounted(() => {
 .filter-search { width: 220px; max-width: 100%; }
 .filter-item { width: 130px; max-width: 100%; }
 .w-full { width: 100%; }
-.drawer-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 .alert-stock { color: var(--el-color-danger); font-weight: 600; }
 </style>
