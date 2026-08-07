@@ -166,6 +166,26 @@ def delete_device(device_id):
     return cid
 
 
+def sync_customer_device_count(customer_id):
+    """刷新客户 device_count 冗余字段与自动定级（统一入口，全量口径）。
+
+    口径 = devices 表实际行数（含停用/不在用设备），与删除客户时的
+    c.devices.count() 拦截校验一致，避免「UI 设备数」与删除校验矛盾。
+    内部 commit，幂等可重复调用；返回最新设备数。
+    """
+    if not customer_id:
+        return 0
+    from services.customer_service import _calculate_tier
+    cnt = Device.query.filter_by(customer_id=customer_id).count()
+    c = Customer.query.get(customer_id)
+    if c:
+        c.device_count = cnt
+        if not c.level or c.level not in ('核心', '重点', '常规'):
+            c.level = _calculate_tier(cnt, bool(c.has_onsite), bool(c.has_drill))
+        db.session.commit()
+    return cnt
+
+
 # 保留旧式（customer_name 字符串）
 @transaction
 def create_device(data):

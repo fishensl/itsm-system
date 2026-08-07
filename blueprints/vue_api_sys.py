@@ -393,6 +393,35 @@ def api_system_overview():
     return ok({'stats': stats, 'recent_users': recent_users, 'version': version,
                'deploy': collect_deployment_info()})
 
+
+@vue_api_bp.route('/api/system/repair-device-counts', methods=['POST'])
+@login_required
+@require_permission('system:repair')
+def api_repair_device_counts():
+    """全客户重算 device_count/等级（修复冗余快照与 devices 表不一致，如幽灵设备残留）。
+
+    口径与删除校验一致（devices 表实际行数）。返回修复明细，写审计日志。
+    """
+    from models import Customer as _Cust, Device as _Dev
+    from services.device_service import sync_customer_device_count
+    rows = []
+    for c in _Cust.query.order_by(_Cust.id).all():
+        real = _Dev.query.filter_by(customer_id=c.id).count()
+        if c.device_count != real:
+            rows.append({'customer_id': c.id, 'name': c.name,
+                         'before': c.device_count or 0, 'after': real})
+    for r in rows:
+        try:
+            sync_customer_device_count(r['customer_id'])
+        except Exception:
+            db.session.rollback()
+    if rows:
+        audit_log('system:repair_device_counts', 'system', None,
+                  f'修复 {len(rows)} 个客户设备数: ' +
+                  '; '.join(f"{r['name']}({r['before']}→{r['after']})" for r in rows[:20]))
+    return ok({'fixed': len(rows), 'details': rows[:50],
+               'total_customers': _Cust.query.count()})
+
 # ==================== 侧栏自定义 ====================
 @vue_api_bp.route('/api/system/sidebar', methods=['GET'])
 @login_required

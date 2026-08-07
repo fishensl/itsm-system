@@ -143,6 +143,19 @@ export function fetchSystemOverview() {
   return request<SystemOverview>({ url: '/api/system/overview', method: 'GET' })
 }
 
+export interface RepairDeviceCountsResult {
+  fixed: number
+  details: Array<{ customer_id: number; name: string; before: number; after: number }>
+  total_customers: number
+}
+
+export function repairDeviceCounts() {
+  return request<RepairDeviceCountsResult>({
+    url: '/api/system/repair-device-counts',
+    method: 'POST',
+  })
+}
+
 export function fetchUiVersion() {
   return request<{ version: 'vue' | 'ssr'; vue_migrated_count: number }>({
     url: '/api/system/ui-version',

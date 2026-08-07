@@ -111,16 +111,10 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
             created += 1
 
     db.session.commit()
-    # 刷新客户 device_count/等级冗余（与设备 CRUD 路径一致，资产导入不再漏刷新）
+    # 刷新客户 device_count/等级冗余（统一入口，全量口径：与删除校验/设备 CRUD 一致）
     try:
-        from services.customer_service import _calculate_tier
-        from models import Customer as _Cust
-        cnt = Device.query.filter_by(customer_id=customer.id, is_in_use=True).count()
-        c = _Cust.query.get(customer.id)
-        if c:
-            c.device_count = cnt
-            c.level = _calculate_tier(cnt, bool(c.has_onsite), bool(c.has_drill))
-            db.session.commit()
+        from services.device_service import sync_customer_device_count
+        sync_customer_device_count(customer.id)
     except Exception:
         db.session.rollback()
     return {'created': created, 'updated': updated, 'skipped': skipped,

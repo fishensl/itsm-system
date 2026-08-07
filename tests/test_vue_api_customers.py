@@ -216,6 +216,28 @@ class TestCustomerCrud:
         with app.app_context():
             assert Customer.query.get(seed['c1']) is not None
 
+    def test_delete_after_ghost_device_unlinked(self, admin_client, seed, app):
+        """「设备数快照残留/幽灵设备」场景：解除残留引用后客户可删除"""
+        from services.device_service import sync_customer_device_count
+        with app.app_context():
+            db.session.add(Device(customer_id=seed['c1'], device_name='幽灵设备'))
+            db.session.commit()
+            c = Customer.query.get(seed['c1'])
+            c.device_count = 0  # 快照与 devices 表不一致（幽灵设备不可见）
+            db.session.commit()
+        r = admin_client.delete(f"/api/customers/{seed['c1']}")
+        assert r.status_code == 400  # 真实 devices 表仍有残留 → 拦截
+        # 修复：置空幽灵设备引用 + 重算快照（与 check_customer_refs --unlink 同路径）
+        with app.app_context():
+            for d in Device.query.filter_by(customer_id=seed['c1']).all():
+                d.customer_id = None
+            db.session.commit()
+            sync_customer_device_count(seed['c1'])
+        r = admin_client.delete(f"/api/customers/{seed['c1']}")
+        assert r.status_code == 200
+        with app.app_context():
+            assert Customer.query.get(seed['c1']) is None
+
 
 class TestCustomerDicts:
     def test_dicts_shape(self, op_client, seed):

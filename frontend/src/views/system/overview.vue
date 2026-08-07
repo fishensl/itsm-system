@@ -44,7 +44,13 @@
       :description="resources?.error || '请安装 psutil'" />
 
     <!-- 2. 业务数据统计 -->
-    <h6 class="module-title"><el-icon><DataAnalysis /></el-icon>业务数据统计</h6>
+    <h6 class="module-title">
+      <el-icon><DataAnalysis /></el-icon>业务数据统计
+      <el-button v-if="user.hasPerm('system:repair')" size="small" plain :loading="repairing"
+        style="margin-left: auto" @click="onRepairCounts">
+        修复设备数
+      </el-button>
+    </h6>
     <el-row :gutter="12">
       <el-col v-for="s in statCards" :key="s.label" :xs="12" :sm="6" :md="3">
         <div class="stat-card">
@@ -130,13 +136,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Odometer, DataAnalysis, Box } from '@element-plus/icons-vue'
-import { fetchSystemOverview, fetchUiVersion, setUiVersion, type SystemOverview } from '@/api/system'
+import {
+  fetchSystemOverview, fetchUiVersion, setUiVersion, repairDeviceCounts,
+  type SystemOverview,
+} from '@/api/system'
 import { useUiStore } from '@/stores/ui'
+import { useUserStore } from '@/stores/user'
 import { ROLE_LABELS } from '@/utils/labels'
 
 const ui = useUiStore()
+const user = useUserStore()
 const overview = ref<SystemOverview | null>(null)
 const uiVersion = ref<'vue' | 'ssr'>('ssr')
+const repairing = ref(false)
 
 async function onUiSwitch() {
   const target = uiVersion.value === 'vue' ? 'ssr' : 'vue'
@@ -146,6 +158,24 @@ async function onUiSwitch() {
     ui.toast(`默认界面已切换为 ${res.version === 'vue' ? 'Vue' : 'SSR'}，刷新后生效`, 'success')
   } catch (e) {
     ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function onRepairCounts() {
+  repairing.value = true
+  try {
+    const res = await repairDeviceCounts()
+    if (res.fixed > 0) {
+      ui.toast(`已修复 ${res.fixed} 个客户的设备数统计`, 'success')
+    } else {
+      ui.toast('设备数统计一致，无需修复', 'success')
+    }
+    const ov = await fetchSystemOverview()
+    overview.value = ov
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    repairing.value = false
   }
 }
 
