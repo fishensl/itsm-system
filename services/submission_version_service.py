@@ -6,6 +6,7 @@
 全部版本永久保留，单条记录即可复查完整提交与审核历史。
 """
 import json
+import os
 from datetime import datetime
 
 from models import db, SubmissionVersion, SubmissionAsset
@@ -120,15 +121,66 @@ def latest_pending_version(entity_type, entity_id):
         .order_by(SubmissionVersion.version_no.desc()).first()
 
 
+def report_display_name(entity_type, customer_name, task_title, storage_name, version_no=None, approved=False):
+    """报告可读文件名：{任务标题}报告{NN}.{ext}，审核通过（定稿）去掉序号。
+
+    - 任务标题未含客户名时拼接客户前缀（如「鄱阳县水利局5月例行巡检报告01.docx」）
+    - 审核中/已退回：带两位版本序号（01/02/...）；审核通过（定稿）：无序号
+    - 存储名仅用于取扩展名（存储名可能是清洗后的短名/不可读）
+    返回纯文件名（不含路径）。
+    """
+    ext = os.path.splitext(storage_name or '')[1]
+    base = task_title or ''
+    if customer_name and base and not base.startswith(customer_name):
+        base = f'{customer_name}{base}'
+    label = '处理报告' if entity_type == 'ticket' else '报告'
+    name = f'{base}{label}'
+    if not approved and version_no:
+        name += f'{int(version_no):02d}'
+    if ext:
+        name += ext
+    if len(name) > 100:
+        name = name[:100 - len(ext)] + ext
+    return name or storage_name or '报告'
+
+
+def version_context(entity_type, entity_id):
+    """查询版本所属实体的客户名/标题（inspection→task→customer；ticket→customer）"""
+    customer_name = ''
+    title = ''
+    if entity_type == 'ticket':
+        from models import Ticket
+        t = Ticket.query.get(entity_id)
+        if t:
+            title = t.title or ''
+            customer_name = t.customer_rel.name if t.customer_rel else ''
+    else:
+        from models import Inspection
+        i = Inspection.query.get(entity_id)
+        if i:
+            title = i.title or ''
+            task = i.task_rel
+            if task:
+                title = task.title or title
+                customer_name = task.customer_rel.name if task.customer_rel else ''
+            else:
+                customer_name = i.customer_rel.name if i.customer_rel else ''
+    return customer_name, title
+
+
 def _version_payload(v):
     from utils.json_fields import parse_json
     submitter = v.submitter_rel
     reviewer = v.reviewer_rel
+    storage_name = (v.report_file or '').split('/')[-1] or ''
+    customer_name, title = version_context(v.entity_type, v.entity_id)
+    approved = v.review_status == '已通过'
     return {
         'id': v.id,
         'version_no': v.version_no,
         'report_file': bool(v.report_file),
-        'report_name': (v.report_file or '').split('/')[-1] or '',
+        'report_name': report_display_name(v.entity_type, customer_name, title,
+                                           storage_name, v.version_no, approved),
         'content': parse_json(v.content_json, {}, 'submission_versions.content_json'),
         'submitted_by_name': (submitter.realname or submitter.username) if submitter else '',
         'submitted_at': v.submitted_at.strftime('%Y-%m-%d %H:%M') if v.submitted_at else '',
