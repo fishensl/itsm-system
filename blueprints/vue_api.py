@@ -510,6 +510,74 @@ def api_device_list():
     })
 
 
+@vue_api_bp.route('/api/devices/tree', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_tree():
+    """设备三级折叠树：市 → 客户 → 设备
+
+    未关联客户的设备归「未关联客户」组（最后）；关联客户但无地区归「未分配地区」。
+    与列表接口共用筛选参数（search/brand/device_type/is_in_use）。
+    """
+    from models import Device as _D, Customer as _C, Region as _R
+    search = (request.args.get('search') or '').strip()
+    brand = (request.args.get('brand') or '').strip()
+    device_type = (request.args.get('device_type') or '').strip()
+    is_in_use = request.args.get('is_in_use', type=int)
+    q = _D.query
+    if search:
+        q = q.filter(_D.device_name.contains(search) |
+                     _D.ip_address.contains(search) |
+                     _D.brand.contains(search))
+    if brand:
+        q = q.filter(_D.brand == brand)
+    if device_type:
+        q = q.filter(_D.device_type == device_type)
+    if is_in_use is not None:
+        q = q.filter(_D.is_in_use == bool(is_in_use))
+    devices = q.order_by(_D.id.desc()).all()
+    customers = {c.id: c for c in _C.query.all()}
+    regions = {r.id: r for r in _R.query.all()}
+    customer_map = {c.id: c.name for c in customers.values()}
+
+    def city_of(c):
+        r = regions.get(c.region_id)
+        if r:
+            if r.parent_id:
+                p = regions.get(r.parent_id)
+                return p.name if p else r.name
+            return r.name
+        return c.city or ''
+
+    cities = {}   # city -> {customer_id: {name, devices}}
+    unassigned = []  # 未关联客户设备
+    for d in devices:
+        payload = _device_payload(d, customer_map)
+        c = customers.get(d.customer_id)
+        if not c:
+            unassigned.append(payload)
+            continue
+        cg = cities.setdefault(city_of(c), {})
+        cg.setdefault(c.id, {'id': c.id, 'name': c.name, 'devices': []})['devices'].append(payload)
+
+    tree = []
+    for city, cg in cities.items():
+        children = sorted(
+            ({'id': cid, 'name': info['name'], 'device_count': len(info['devices']),
+              'children': info['devices']} for cid, info in cg.items()),
+            key=lambda x: x['name'])
+        tree.append({'id': None, 'name': city or '未分配地区', 'region': True,
+                     'customer_count': len(children),
+                     'device_count': sum(len(x['children']) for x in children),
+                     'children': children})
+    tree.sort(key=lambda g: (g['name'] == '未分配地区', g['name']))
+    if unassigned:
+        tree.append({'id': None, 'name': '未关联客户', 'region': False,
+                     'customer_count': 0, 'device_count': len(unassigned),
+                     'children': unassigned})
+    return ok({'tree': tree, 'total': len(devices)})
+
+
 @vue_api_bp.route('/api/v2/devices/export', methods=['POST'])
 @login_required
 @require_permission('device:view')
@@ -1778,6 +1846,56 @@ def api_customer_list():
     category_map = {cc.id: cc.name for cc in _CC.query.all()}
     return ok({'items': [_customer_payload(c, region_map, category_map) for c in rows],
                'total': total, 'page': page, 'page_size': page_size})
+
+
+@vue_api_bp.route('/api/customers/tree', methods=['GET'])
+@login_required
+@require_permission('customer:view')
+def api_customer_tree():
+    """客户两级折叠树：市 → 客户（区县客户并入市组，行内附 district 区县名）
+
+    与列表接口共用筛选参数（search/level/category_id），筛选结果仍按市分组。
+    """
+    from models import Customer as _C, Region as _R, CustomerCategory as _CC
+    search = (request.args.get('search') or '').strip()
+    level = (request.args.get('level') or '').strip()
+    category_id = request.args.get('category_id', type=int)
+    q = _C.query
+    if search:
+        q = q.filter(_C.name.contains(search) |
+                     _C.contact_person.contains(search) |
+                     _C.phone.contains(search))
+    if level:
+        q = q.filter(_C.level == level)
+    if category_id:
+        q = q.filter(_C.category_id == category_id)
+    customers = q.order_by(_C.id.desc()).all()
+    regions = {r.id: r for r in _R.query.all()}
+    region_map = {r.id: r.name for r in _R.query.all()}
+    category_map = {cc.id: cc.name for cc in _CC.query.all()}
+
+    groups = {}
+    for c in customers:
+        city, district = '', ''
+        r = regions.get(c.region_id)
+        if r:
+            if r.parent_id:
+                p = regions.get(r.parent_id)
+                city = p.name if p else r.name
+                district = r.name
+            else:
+                city = r.name
+        elif c.city:
+            city = c.city  # 冗余字段兜底
+        payload = _customer_payload(c, region_map, category_map)
+        payload['district'] = district
+        groups.setdefault(city, []).append(payload)
+
+    tree = [{'id': None, 'name': name or '未分配地区', 'region': True,
+             'customer_count': len(items), 'children': items}
+            for name, items in groups.items()]
+    tree.sort(key=lambda g: (g['name'] == '未分配地区', g['name']))
+    return ok({'tree': tree, 'total': len(customers)})
 
 
 @vue_api_bp.route('/api/customers/<int:customer_id>', methods=['GET'])

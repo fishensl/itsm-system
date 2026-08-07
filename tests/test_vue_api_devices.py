@@ -177,3 +177,44 @@ class TestDeviceDicts:
         assert '华为' in data['brands']
         assert any(t['name'] == '交换机' for t in data['device_types'])
         assert len(data['customers']) >= 2
+
+    def test_tree_three_levels(self, op_client, seed, app):
+        """设备树：市 → 客户 → 设备 三级；未关联客户设备独立成组
+
+        注：测试环境 SQLite SingletonThreadPool 同线程连接快照问题，
+        不修改已有对象（新建客户/设备后请求），避免读到旧值。
+        """
+        from models import Region
+        with app.app_context():
+            city = Region(name='杭州市')
+            db.session.add(city)
+            db.session.flush()
+            c3 = Customer(name='设备API客户C', region_id=city.id, city='杭州市')
+            db.session.add(c3)
+            db.session.flush()
+            db.session.add(Device(customer_id=c3.id, device_name='SW-NEW',
+                                  device_type='交换机', brand='H3C', is_in_use=True))
+            db.session.add(Device(customer_id=None, device_name='无主设备'))
+            db.session.commit()
+        r = op_client.get('/api/devices/tree')
+        assert r.status_code == 200
+        data = r.get_json()['data']
+        assert data['total'] == 4  # SW-A + FW-B + SW-NEW + 无主设备
+        city_group = next(g for g in data['tree'] if g['name'] == '杭州市')
+        assert city_group['device_count'] == 1
+        cust_child = city_group['children'][0]
+        assert cust_child['name'] == '设备API客户C'
+        assert cust_child['children'][0]['device_name'] == 'SW-NEW'
+        unassigned = next(g for g in data['tree'] if g['name'] == '未关联客户')
+        assert unassigned['device_count'] == 1
+        assert unassigned['children'][0]['device_name'] == '无主设备'
+        assert data['tree'][-1]['name'] == '未关联客户'  # 最后
+
+    def test_tree_filter(self, op_client, seed):
+        r = op_client.get('/api/devices/tree', query_string={'device_type': '防火墙'})
+        data = r.get_json()['data']
+        assert data['total'] == 1
+        # 客户 B 无地区 → 未分配地区组
+        unassigned = next(g for g in data['tree'] if g['name'] == '未分配地区')
+        assert unassigned['children'][0]['name'] == '设备API客户B'
+        assert unassigned['children'][0]['children'][0]['device_name'] == 'FW-B'

@@ -101,3 +101,13 @@ export function uploadTopology(formData: FormData) {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+
+export interface TopologyTemplate {
+  name: string
+  file: string
+  url: string
+}
+
+export function fetchTopologyTemplates() {
+  return request<{ items: TopologyTemplate[] }>({ url: '/api/topologies/templates', method: 'GET' })
+}

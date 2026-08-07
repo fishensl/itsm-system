@@ -74,6 +74,22 @@ export function fetchCustomers(params: CustomerQuery) {
   return request<PageResult<Customer>>({ url: '/api/customers', method: 'GET', params })
 }
 
+export interface CustomerTreeGroup {
+  id: number | null
+  name: string
+  region: boolean
+  customer_count: number
+  children: Array<Customer & { district: string }>
+}
+
+export function fetchCustomerTree(params?: Pick<CustomerQuery, 'search' | 'level' | 'category_id'>) {
+  return request<{ tree: CustomerTreeGroup[]; total: number }>({
+    url: '/api/customers/tree',
+    method: 'GET',
+    params,
+  })
+}
+
 export function exportCustomers() {
   return request<{ filename: string; content: string }>({
     url: '/api/v2/customers/export',

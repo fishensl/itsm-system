@@ -64,6 +64,9 @@
             {% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
         </select>
         <input id="topoDesc" class="form-control form-control-sm flex-grow-1" placeholder="描述（可选）" style="min-width:120px">
+        <select id="tplSelect" class="form-select form-select-sm" style="max-width:150px">
+            <option value="">模板…</option>
+        </select>
         <span id="saveStatus" class="text-muted"></span>
         {% if has_perm('topology:add') or has_perm('topology:edit') %}
         <button id="btnSave" class="btn btn-sm btn-primary"><i class="bi-save"></i> 保存</button>
@@ -115,6 +118,7 @@
     var IMPORT_NAME = {{ import_name|tojson if import_name else 'null' }};
     var IMPORT_CUSTOMER = {{ import_customer_id|tojson if import_customer_id else 'null' }};
     var IMPORT_REGION = {{ import_region_id|tojson if import_region_id else 'null' }};
+    var TEMPLATE_PARAM = {{ request.args.get('template', '')|tojson if request.args.get('template') else 'null' }};
     var STENCIL_URLS = {{ stencil_urls|tojson }};
     var iframe = document.getElementById('drawioFrame');
     var pendingExport = null;       // 当前正在处理的导出格式
@@ -187,6 +191,54 @@
         if (IMPORT_REGION) document.getElementById('topoRegion').value = IMPORT_REGION;
 
         // 图标库由 iframe 的 clibs URL 参数加载（已生效）。
+
+        // 模板列表（下拉加载 / ?template= 自动加载）
+        fetch('/api/topologies/templates')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.ok) return;
+                var sel = document.getElementById('tplSelect');
+                if (!sel) return;
+                data.items.forEach(function(t) {
+                    var opt = document.createElement('option');
+                    opt.value = t.url;
+                    opt.textContent = t.name;
+                    sel.appendChild(opt);
+                });
+                // ?template=name 自动加载
+                if (TEMPLATE_PARAM) {
+                    var hit = data.items.filter(function(t) {
+                        return t.name === TEMPLATE_PARAM || t.file === TEMPLATE_PARAM;
+                    })[0];
+                    if (hit) {
+                        loadTemplateXml(hit.url, hit.name);
+                        sel.value = hit.url;
+                    } else {
+                        showToast('模板不存在: ' + TEMPLATE_PARAM, 'danger');
+                    }
+                }
+            })
+            .catch(function(e) { console.warn('[tpl] 模板列表加载失败', e); });
+        var tplSel = document.getElementById('tplSelect');
+        if (tplSel) tplSel.addEventListener('change', function() {
+            var url = this.value;
+            if (!url) return;
+            if (!DIAGRAM_ID && !document.getElementById('topoName').value) {
+                var name = this.options[this.selectedIndex].textContent;
+                document.getElementById('topoName').value = '模板-' + name;
+            }
+            loadTemplateXml(url, this.options[this.selectedIndex].textContent);
+            this.value = '';
+        });
+        function loadTemplateXml(url, name) {
+            fetch(url)
+                .then(function(r) { return r.text(); })
+                .then(function(xml) {
+                    post({action: 'load', xml: xml});
+                    showToast('已加载模板「' + name + '」，保存后另存为新拓扑图', 'success');
+                })
+                .catch(function(e) { showToast('加载模板失败: ' + e, 'danger'); });
+        }
 
         if (IMPORT_TYPE === 'visio') {
             // Visio 导入：drawio 已从 &url= 加载文件，不发送 load（会覆盖）

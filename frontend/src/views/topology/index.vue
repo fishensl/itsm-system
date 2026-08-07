@@ -9,6 +9,9 @@
         <el-button v-if="user.hasPerm('topology:add')" type="primary" :icon="EditPen" @click="newDraw">
           在线绘制
         </el-button>
+        <el-button v-if="user.hasPerm('topology:add')" plain :icon="Files" @click="openTemplateDialog">
+          从模板新建
+        </el-button>
         <el-button :icon="Fold" @click="activeNames = []">收起全部</el-button>
       </div>
     </div>
@@ -142,6 +145,18 @@
         <el-button type="primary" :loading="editing" @click="saveEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 从模板新建弹窗 -->
+    <el-dialog v-model="tplDialogVisible" title="从模板新建拓扑图" width="480px" top="10vh" destroy-on-close>
+      <div v-loading="tplLoading" class="tpl-list">
+        <div v-for="t in templates" :key="t.file" class="tpl-item" @click="openFromTemplate(t)">
+          <el-icon color="#2563eb"><Files /></el-icon>
+          <span class="tpl-name">{{ t.name }}</span>
+          <el-tag size="small" type="info">.drawio</el-tag>
+        </div>
+        <el-empty v-if="!tplLoading && !templates.length" description="暂无模板" :image-size="50" />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -153,8 +168,8 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchTopologies, fetchTopology, updateTopology, deleteTopology,
-  fetchTopologyDicts, uploadTopology,
-  type TopologyItem, type TopologyFile, type TopologyDicts,
+  fetchTopologyDicts, uploadTopology, fetchTopologyTemplates,
+  type TopologyItem, type TopologyFile, type TopologyDicts, type TopologyTemplate,
 } from '@/api/topology'
 
 const user = useUserStore()
@@ -216,6 +231,30 @@ function openEditor(id: number) {
 
 function newDraw() {
   window.open('/topologies/editor/0', '_blank')
+}
+
+// ==================== 从模板新建 ====================
+const tplDialogVisible = ref(false)
+const tplLoading = ref(false)
+const templates = ref<TopologyTemplate[]>([])
+
+async function openTemplateDialog() {
+  tplDialogVisible.value = true
+  tplLoading.value = true
+  try {
+    const res = await fetchTopologyTemplates()
+    templates.value = res.items
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+    templates.value = []
+  } finally {
+    tplLoading.value = false
+  }
+}
+
+function openFromTemplate(t: TopologyTemplate) {
+  tplDialogVisible.value = false
+  window.open(`/topologies/editor/0?template=${encodeURIComponent(t.file)}`, '_blank')
 }
 
 function importEdit(f: TopologyFile) {
@@ -426,4 +465,11 @@ onMounted(() => {
 .fi-visio { color: var(--el-color-primary); }
 .fi-other { color: var(--el-color-info); }
 .fi-import { color: var(--el-color-info); }
+.tpl-list { display: flex; flex-direction: column; gap: 8px; min-height: 80px; }
+.tpl-item {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--itsm-border); border-radius: 8px; cursor: pointer;
+}
+.tpl-item:hover { background: var(--el-fill-color-light); border-color: var(--el-color-primary); }
+.tpl-name { font-size: 13px; font-weight: 600; }
 </style>

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">客户管理</h2>
@@ -44,15 +44,37 @@
       </div>
     </el-card>
 
-    <!-- 列表 -->
-    <DataTable
-      ref="tableRef"
-      :columns="columns"
-      :fetch-data="fetchCustomers"
-      :query="query"
-      row-key="id"
-      @row-click="openDetail"
-    />
+    <!-- 列表（按地区折叠：市 → 客户） -->
+    <el-card shadow="never" v-loading="treeLoading">
+      <GroupTree
+        :nodes="tree"
+        :leaf-depth="1"
+        badge-key="customer_count"
+        :default-expanded="hasFilter ? 1 : 0"
+        @leaf-click="openDetail"
+      >
+        <template #leaf="{ node }">
+          <div class="tree-block cust-leaf" @click="openDetail(node as Customer)">
+            <el-icon color="#2563eb"><Location /></el-icon>
+            <span class="tree-name">{{ node.name }}</span>
+            <span v-if="node.district" class="tree-district">{{ node.district }}</span>
+            <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[node.level] || 'info'" class="ml-2">
+              {{ CUSTOMER_LEVEL_LABELS[node.level] || node.level }}
+            </el-tag>
+            <el-tag v-if="(node.device_count ?? 0) > 0" size="small" type="info">
+              设备 {{ node.device_count }}
+            </el-tag>
+            <span class="row-actions" @click.stop>
+              <el-button v-if="user.hasPerm('customer:edit')" size="small" link type="primary"
+                @click="openEdit(node as Customer)">编辑</el-button>
+              <el-button v-if="user.hasPerm('customer:delete')" size="small" link type="danger"
+                @click="onDelete(node as Customer)">删除</el-button>
+            </span>
+          </div>
+        </template>
+      </GroupTree>
+      <el-empty v-if="!treeLoading && !tree.length" description="暂无客户" :image-size="60" />
+    </el-card>
 
     <!-- 详情抽屉 -->
     <el-drawer v-model="detailVisible" :title="detail ? detail.name : ''" size="560px" destroy-on-close>
@@ -210,16 +232,16 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, Download, Upload, UploadFilled } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, UploadFilled, Location } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
-import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import GroupTree from '@/components/GroupTree.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
-  fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
-  fetchCustomerDicts, exportCustomers, importCustomers,
+  fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
+  fetchCustomerDicts, fetchCustomerTree, exportCustomers, importCustomers,
   CUSTOMER_LEVEL_TAG, CUSTOMER_LEVEL_LABELS,
-  type Customer, type CustomerDicts, type CustomerForm, type RegionItem,
+  type Customer, type CustomerDicts, type CustomerForm, type CustomerTreeGroup, type RegionItem,
 } from '@/api/customers'
 
 const route = useRoute()
@@ -278,7 +300,7 @@ async function doImport() {
     }
     ui.toast(msg, res.unknown_categories.length ? 'warning' : 'success')
     importVisible.value = false
-    tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -309,34 +331,36 @@ const regionOptions = computed(() => {
 })
 
 const query = reactive<Record<string, unknown>>({ search: '', level: '', category_id: undefined })
-const tableRef = ref()
 
-const columns = computed<DataColumn[]>(() => [
-  { key: 'name', label: '客户名称', type: 'link', minWidth: 180, asTitle: true,
-    link: (r) => `/app/customers/${r.id}` },
-  { key: 'contact_person', label: '联系人', width: 100 },
-  { key: 'phone', label: '电话', minWidth: 120 },
-  { key: 'level', label: '等级', width: 80, type: 'tag', asTag: true,
-    tagMap: CUSTOMER_LEVEL_TAG, valueMap: CUSTOMER_LEVEL_LABELS },
-  { key: 'city', label: '城市', minWidth: 100 },
-  { key: 'device_count', label: '设备数', width: 80 },
-  { key: 'has_onsite_label', label: '驻场', width: 70 },
-  { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right',
-    actions: [
-      { label: '编辑', type: 'primary', link: true, perm: 'customer:edit', icon: 'Edit',
-        onClick: (row) => openEdit(row as unknown as Customer) },
-      { label: '删除', type: 'danger', link: true, perm: 'customer:delete', icon: 'Delete',
-        onClick: (row) => onDelete(row as unknown as Customer) },
-    ] },
-])
+// ==================== 地区折叠树 ====================
+const tree = ref<CustomerTreeGroup[]>([])
+const treeLoading = ref(false)
+const hasFilter = computed(() =>
+  Boolean(query.search || query.level || query.category_id))
+
+async function loadTree() {
+  treeLoading.value = true
+  try {
+    const res = await fetchCustomerTree({
+      search: query.search as string || undefined,
+      level: query.level as string || undefined,
+      category_id: query.category_id as number | undefined,
+    })
+    tree.value = res.tree
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    treeLoading.value = false
+  }
+}
 
 // 详情
 const detailVisible = ref(false)
 const detail = ref<Customer | null>(null)
 
-async function openDetail(row: Record<string, unknown>) {
+async function openDetail(row: { id: number }) {
   try {
-    detail.value = await fetchCustomer(row.id as number)
+    detail.value = await fetchCustomer(row.id)
     detailVisible.value = true
   } catch { /* toast */ }
 }
@@ -427,7 +451,7 @@ async function save() {
       ui.toast('客户已创建', 'success')
     }
     formVisible.value = false
-    tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -443,16 +467,17 @@ async function onDelete(c: Customer) {
     await deleteCustomer(c.id)
     ui.toast('已删除', 'success')
     detailVisible.value = false
-    tableRef.value?.refresh()
+    loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
 
-function reload() { tableRef.value?.refresh() }
+function reload() { loadTree() }
 
 onMounted(() => {
   fetchCustomerDicts().then((d) => (dicts.value = d))
+  loadTree()
 })
 </script>
 
@@ -464,4 +489,13 @@ onMounted(() => {
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
 .drawer-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.cust-leaf {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  font-size: 13px; cursor: pointer; border: 1px solid var(--itsm-border);
+  border-radius: 8px; margin-bottom: 8px;
+}
+.cust-leaf:hover { background: var(--el-fill-color-light); }
+.ml-2 { margin-left: 4px; }
+.tree-name { font-weight: 600; flex-shrink: 0; }
+.tree-district { font-size: 12px; color: var(--itsm-text-muted); font-weight: 400; }
 </style>

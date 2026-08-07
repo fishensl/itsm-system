@@ -27,6 +27,22 @@ def topology_list():
 
 
 # ============================ 在线编辑（drawio 集成） ============================
+@topology_bp.route('/api/topologies/templates')
+@login_required
+@require_permission('topology:add')
+def api_template_list():
+    """在线拓扑模板列表（static/templates/*.drawio，编辑器下拉加载）"""
+    import glob
+    tpl_dir = os.path.join(current_app.root_path, 'static', 'templates')
+    items = []
+    if os.path.isdir(tpl_dir):
+        for f in sorted(glob.glob(os.path.join(tpl_dir, '*.drawio'))):
+            fname = os.path.basename(f)
+            items.append({'name': fname[:-len('.drawio')], 'file': fname,
+                          'url': url_for('static', filename='templates/' + fname)})
+    return jsonify({'ok': True, 'items': items})
+
+
 @topology_bp.route('/topologies/editor/<int:id>')
 @login_required
 @require_permission('topology:view')
