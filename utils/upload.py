@@ -3,7 +3,6 @@
 import os
 import re
 import tempfile
-from werkzeug.utils import secure_filename
 
 
 # 允许的 Excel 扩展名
@@ -14,6 +13,17 @@ ALLOWED_IMAGE_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
 MAX_IMPORT_ROWS = 5000
 # 文件名安全正则：中文/英文/数字/常见分隔符
 SAFE_FILENAME_RE = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
+
+
+def _sanitize_filename(fname):
+    """安全文件名清洗：保留中文/英文/数字，替换非法字符，防路径穿越。
+
+    werkzeug secure_filename 会丢弃全部非 ASCII 字符（中文文件名被删成空），
+    导致上传的「巡检报告2026.docx」保存成「2026.docx」。改为仅替换非法字符。
+    """
+    name = re.sub(SAFE_FILENAME_RE, '_', fname or '').strip().replace(' ', '_')
+    name = name[:150]
+    return name or 'upload'
 
 
 def validate_upload(f, allowed_ext, max_size_mb=20):
@@ -30,8 +40,8 @@ def validate_upload(f, allowed_ext, max_size_mb=20):
     if ext not in allowed_ext:
         return False, f'不支持的文件类型: {ext}（允许: {", ".join(sorted(allowed_ext))}）', None
 
-    # 2) 文件名安全处理
-    safe_name = secure_filename(fname) or 'upload' + ext
+    # 2) 文件名安全处理（保留中文，替换非法字符）
+    safe_name = _sanitize_filename(fname)
     # 阻止 path traversal
     if '..' in safe_name or safe_name.startswith('.'):
         return False, '文件名不合法', None
