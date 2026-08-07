@@ -265,6 +265,12 @@ def delete_customer(customer_id):
         raise ServiceError(f'客户 "{c.name}" 仍有关联项目，无法删除')
     if SalesOrder.query.filter_by(customer_id=customer_id).first():
         raise ServiceError(f'客户 "{c.name}" 仍有关联备件销售单，无法删除')
+    # 巡检任务 customer_id 为 NOT NULL（PG），无法置空：有关联任务必须先行删除/转移
+    from models import InspectionTask
+    task_cnt = InspectionTask.query.filter_by(customer_id=customer_id).count()
+    if task_cnt:
+        raise ServiceError(f'客户 "{c.name}" 仍有关联巡检任务 {task_cnt} 条（计划/已完成），'
+                           f'请先删除或转移后再删除客户')
     if RackInstall.query.join(Rack, Rack.id == RackInstall.rack_id)\
             .filter(Rack.customer_id == customer_id).first():
         raise ServiceError(f'客户 "{c.name}" 仍有上架机柜记录，无法删除')

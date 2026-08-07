@@ -59,6 +59,12 @@ def collect_refs(c):
     _chk(Contract, '合同')
     _chk(Project, '项目')
     _chk(SalesOrder, '备件销售单')
+    # 巡检任务 customer_id NOT NULL（PG 无法置空）→ 阻塞，需先删除/转移
+    from models import InspectionTask
+    task_cnt = InspectionTask.query.filter_by(customer_id=cid).count()
+    if task_cnt:
+        blocking.append(f'巡检任务: {task_cnt} 条（customer_id 非空约束，无法置空，'
+                        f'需先删除或转移到其他客户）')
     _chk(Rack, '机柜')
     if RackInstall.query.join(Rack, Rack.id == RackInstall.rack_id)\
             .filter(Rack.customer_id == cid).count():

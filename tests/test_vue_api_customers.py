@@ -216,6 +216,24 @@ class TestCustomerCrud:
         with app.app_context():
             assert Customer.query.get(seed['c1']) is not None
 
+    def test_delete_blocked_with_inspection_tasks(self, admin_client, seed, app):
+        """巡检任务 customer_id 为 NOT NULL（PG 无法置空）→ 删除须先处理任务，拒绝并明确提示"""
+        from models import InspectionTask
+        with app.app_context():
+            db.session.add(InspectionTask(customer_id=seed['c1'], title='5月例行巡检'))
+            db.session.commit()
+        r = admin_client.delete(f"/api/customers/{seed['c1']}")
+        assert r.status_code == 400
+        body = r.get_json()
+        assert '巡检任务' in body.get('message', '')
+        with app.app_context():
+            assert Customer.query.get(seed['c1']) is not None
+            # 任务不能被置空（NOT NULL 语义）→ 删除任务后客户才可删
+            db.session.query(InspectionTask).filter_by(customer_id=seed['c1']).delete()
+            db.session.commit()
+        r = admin_client.delete(f"/api/customers/{seed['c1']}")
+        assert r.status_code == 200
+
     def test_delete_after_ghost_device_unlinked(self, admin_client, seed, app):
         """「设备数快照残留/幽灵设备」场景：解除残留引用后客户可删除"""
         from services.device_service import sync_customer_device_count
