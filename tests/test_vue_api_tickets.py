@@ -214,6 +214,9 @@ class TestTicketVersionedSubmit:
         assert body[0]['revision_requirements'] == '请补充变更窗口与回退方案后重新提交'
         assert body[0]['submitted_by_name'] == 'op'
         assert body[1]['version_no'] == 2
+        # 报告可读名：客户+工单标题+处理报告+序号；v1 未传报告文件（无扩展名），v2 有
+        assert body[0]['report_name'] == '工单API客户测试工单处理报告01'
+        assert body[1]['report_name'] == '工单API客户测试工单处理报告02.docx'
 
     def test_submit_requires_processing(self, op_client, seed):
         """待派单直接提交审核 → 400"""

@@ -383,6 +383,11 @@ class TestInspectionUploadReportFlow:
         r = op_client.get(f'/api/inspections/report/{vid}')
         assert r.status_code == 200
         assert r.data == b'content'
+        # 下载文件名为可读拼接名（客户+任务+报告01），UTF-8 filename*（URL 编码，解码断言）
+        from urllib.parse import unquote
+        cd = r.headers.get('Content-Disposition', '')
+        assert "filename*=UTF-8''" in cd
+        assert '巡检API客户核心机房月度巡检任务报告01.docx' in unquote(cd)
         # 路径穿越：report_file 含 ../ 的版本 → 404
         with app.app_context():
             bad = SubmissionVersion(entity_type='inspection', entity_id=seed['i1'], version_no=99,
@@ -392,6 +397,61 @@ class TestInspectionUploadReportFlow:
             bad_id = bad.id
         r = op_client.get(f'/api/inspections/report/{bad_id}')
         assert r.status_code == 404 or r.get_json()['code'] == 1
+
+    def test_report_display_name_rules(self, op_client, seed, app):
+        """报告可读名：任务标题+报告+两位序号；客户前缀去重；审核通过定稿去序号"""
+        # 任务标题不含客户名 → 拼客户前缀；v1 带序号 01
+        r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
+                           data={'report_file': _dummy_file()},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200
+        r = op_client.get(f"/api/inspections/{seed['i1']}/versions")
+        body = r.get_json()['data']
+        assert body[0]['report_name'] == '巡检API客户核心机房月度巡检任务报告01.docx'
+        # inspection payload submitted_report_name 同步（最新版本名）
+        r = op_client.get(f"/api/inspections/{seed['i1']}")
+        detail = r.get_json()['data']
+        assert detail['submitted_report_name'] == '巡检API客户核心机房月度巡检任务报告01.docx'
+        # 审核通过（定稿）→ 去序号
+        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+            'approved': True, 'remark': '通过'})
+        assert r.status_code == 200
+        r = op_client.get(f"/api/inspections/{seed['i1']}/versions")
+        body = r.get_json()['data']
+        assert body[0]['review_status'] == '已通过'
+        assert body[0]['report_name'] == '巡检API客户核心机房月度巡检任务报告.docx'
+        # 定稿后补传第 2 轮 → 02（仍带序号，未定稿）
+        r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
+                           data={'report_file': _dummy_file('second.docx')},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200
+        r = op_client.get(f"/api/inspections/{seed['i1']}/versions")
+        body = r.get_json()['data']
+        assert [v['version_no'] for v in body] == [1, 2]
+        assert body[1]['report_name'] == '巡检API客户核心机房月度巡检任务报告02.docx'
+
+    def test_report_display_name_dedup_customer_prefix(self, op_client, app):
+        """任务标题已含客户名 → 不重复拼接客户前缀"""
+        from models import Customer as _C
+        with app.app_context():
+            c = _C(name='定稿客户')
+            db.session.add(c)
+            db.session.flush()
+            t = InspectionTask(title='定稿客户2026年第3季度巡检', customer_id=c.id,
+                               status='执行中', assigned_to_user_id=User.query.filter_by(username='op').first().id)
+            db.session.add(t)
+            db.session.commit()
+            tid = t.id
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'report_file': _dummy_file()},
+                           content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            i = Inspection.query.filter_by(task_id=tid).first()
+            iid = i.id
+        r = op_client.get(f'/api/inspections/{iid}/versions')
+        body = r.get_json()['data']
+        assert body[0]['report_name'] == '定稿客户2026年第3季度巡检报告01.docx'
 
     def test_upload_requires_login(self, client, seed):
         r = client.post(f"/api/inspections/task/{seed['t1']}/report",

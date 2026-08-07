@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Vue SPA 专用 API 蓝图（/api/*）
 
 设计约束：
@@ -1310,8 +1310,23 @@ def api_task_board_dicts():
 def _ticket_payload(t, customer_map=None):
     from services.ticket_service import ticket_completeness
     from models import Device as _D
+    from services.submission_version_service import report_display_name
     complete, missing = ticket_completeness(t)
     related_device = _D.query.get(t.related_device_id) if t.related_device_id else None
+    customer_name = (customer_map or {}).get(t.customer_id, '')
+    # 处理报告名：按最新版本拼接（定稿去序号）
+    report_name = ''
+    if t.report_file:
+        from models import SubmissionVersion as _SV
+        latest = _SV.query.filter_by(entity_type='ticket', entity_id=t.id) \
+            .order_by(_SV.version_no.desc()).first()
+        if latest:
+            report_name = report_display_name(
+                'ticket', customer_name, t.title or '',
+                (t.report_file or '').split('/')[-1],
+                latest.version_no, latest.review_status == '已通过')
+        else:
+            report_name = (t.report_file or '').split('/')[-1]
     return {
         'id': t.id,
         'number': t.number,
@@ -1319,7 +1334,7 @@ def _ticket_payload(t, customer_map=None):
         'status': t.status,
         'priority': t.priority,
         'customer_id': t.customer_id,
-        'customer_name': (customer_map or {}).get(t.customer_id, ''),
+        'customer_name': customer_name,
         'related_device_id': t.related_device_id,
         'related_device_name': related_device.device_name if related_device else '',
         'assigned_to': t.assigned_to or '',
@@ -1338,7 +1353,7 @@ def _ticket_payload(t, customer_map=None):
         'accept_status': t.accept_status or '',
         'accept_comment': t.accept_comment or '',
         'report_file': bool(t.report_file),
-        'report_name': (t.report_file or '').split('/')[-1] or '',
+        'report_name': report_name,
         'complete': complete,
         'missing_fields': missing,
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
@@ -2004,15 +2019,30 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
     """巡检序列化。注意 review_status 的 ''(草稿) 在 API 边界归一为 '草稿'（过滤时反向映射）"""
     from utils.json_fields import parse_json
     from services.inspection_service import inspection_completeness
+    from services.submission_version_service import report_display_name
     complete, missing = inspection_completeness(i)
+    task_title = (task_map or {}).get(i.task_id) or (i.task_rel.title if i.task_rel else '') or ''
+    customer_name = (customer_map or {}).get(i.customer_id, '')
+    # 现场报告名：按最新版本号拼接（定稿去序号），无版本回退存储名
+    submitted_name = ''
+    if i.submitted_report:
+        from models import SubmissionVersion as _SV
+        latest = _SV.query.filter_by(entity_type='inspection', entity_id=i.id) \
+            .order_by(_SV.version_no.desc()).first()
+        if latest:
+            submitted_name = report_display_name(
+                'inspection', customer_name, task_title,
+                (i.submitted_report or '').split('/')[-1],
+                latest.version_no, latest.review_status == '已通过')
+        else:
+            submitted_name = (i.submitted_report or '').split('/')[-1]
     payload = {
         'id': i.id,
         'title': i.title,
         'customer_id': i.customer_id,
-        'customer_name': (customer_map or {}).get(i.customer_id, ''),
+        'customer_name': customer_name,
         'task_id': i.task_id,
-        'task_title': (task_map or {}).get(i.task_id)
-                      or (i.task_rel.title if i.task_rel else '') or '',
+        'task_title': task_title,
         'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
         'overall_status': i.overall_status or '',
         'review_status': i.review_status or '草稿',
@@ -2022,7 +2052,7 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
         'report_label': '有' if i.report_file else '无',
         'report_file_name': (i.report_file or '').split('/')[-1] or '',
         'submitted_report': bool(i.submitted_report),
-        'submitted_report_name': (i.submitted_report or '').split('/')[-1] or '',
+        'submitted_report_name': submitted_name,
         'complete': complete,
         'missing_fields': missing,
         'location': i.location or '',
@@ -2557,33 +2587,51 @@ def api_inspection_report_latest(inspection_id):
 @login_required
 @require_permission('inspection:view')
 def api_inspection_report_download(version_id):
-    """下载某版上传的现场报告（防路径穿越）"""
+    """下载某版上传的现场报告（防路径穿越；文件名按客户+任务拼接，定稿去序号）"""
     from models import SubmissionVersion as _SV
+    from services.submission_version_service import report_display_name, version_context
     v = _SV.query.get_or_404(version_id)
     if v.entity_type != 'inspection' or not v.report_file:
         return fail('报告不存在', 404)
-    return _send_report_file(v.report_file)
+    customer_name, title = version_context('inspection', v.entity_id)
+    storage_name = (v.report_file or '').split('/')[-1] or ''
+    download_name = report_display_name('inspection', customer_name, title,
+                                        storage_name, v.version_no, v.review_status == '已通过')
+    return _send_report_file(v.report_file, download_name=download_name)
 
 
 @vue_api_bp.route('/api/tickets/report/<int:version_id>', methods=['GET'])
 @login_required
 @require_permission('ticket:view')
 def api_ticket_report_download(version_id):
-    """下载某版上传的工单处理报告（防路径穿越）"""
+    """下载某版上传的工单处理报告（防路径穿越；文件名按客户+工单拼接，定稿去序号）"""
     from models import SubmissionVersion as _SV
+    from services.submission_version_service import report_display_name, version_context
     v = _SV.query.get_or_404(version_id)
     if v.entity_type != 'ticket' or not v.report_file:
         return fail('报告不存在', 404)
-    return _send_report_file(v.report_file)
+    customer_name, title = version_context('ticket', v.entity_id)
+    storage_name = (v.report_file or '').split('/')[-1] or ''
+    download_name = report_display_name('ticket', customer_name, title,
+                                        storage_name, v.version_no, v.review_status == '已通过')
+    return _send_report_file(v.report_file, download_name=download_name)
 
 
-def _send_report_file(rel_path):
-    """安全下载 static/uploads/ 下的报告文件：realpath 校验防路径穿越"""
+def _send_report_file(rel_path, download_name=None):
+    """安全下载 static/uploads/ 下的报告文件：realpath 校验防路径穿越。
+
+    download_name 提供时以该可读文件名作为附件下载名（UTF-8 filename*）。
+    """
+    from urllib.parse import quote
     full = os.path.realpath(os.path.join('static', rel_path))
     base = os.path.realpath(os.path.join('static', 'uploads'))
     if not full.startswith(base + os.sep) or not os.path.isfile(full):
         return fail('文件不存在', 404)
-    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+    resp = send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+    if download_name:
+        resp.headers['Content-Disposition'] = \
+            f"attachment; filename*=UTF-8''{quote(download_name)}"
+    return resp
 
 
 @vue_api_bp.route('/api/dicts/inspections', methods=['GET'])
