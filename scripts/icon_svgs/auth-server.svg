@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <rect x="16" y="10" width="48" height="60" rx="6" fill="#2563EB"/>
+  <rect x="16" y="10" width="48" height="13" rx="6" fill="#1D4ED8"/>
+  <circle cx="30" cy="16.5" r="2" fill="#93C5FD"/>
+  <circle cx="38" cy="16.5" r="2" fill="#93C5FD"/>
+  <rect x="23" y="30" width="34" height="6" rx="3" fill="#93C5FD"/>
+  <rect x="23" y="42" width="34" height="6" rx="3" fill="#93C5FD"/>
+  <rect x="23" y="54" width="34" height="6" rx="3" fill="#93C5FD"/>
+  <text x="40" y="78" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#1e3a8a" text-anchor="middle">认证服务器</text>
+</svg>

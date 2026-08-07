@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <ellipse cx="40" cy="18" rx="26" ry="10" fill="#0050EF"/>
+  <path d="M14 18 v26 c0 5.5 11.6 10 26 10 s26 -4.5 26 -10 V18" fill="#3D7BFF"/>
+  <path d="M14 31 v13 c0 5.5 11.6 10 26 10 s26 -4.5 26 -10 V31" fill="#7FA8FF"/>
+  <text x="40" y="38" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#ffffff" text-anchor="middle">MySQL</text>
+  <text x="40" y="58" font-family="Arial, sans-serif" font-size="8" fill="#1e3a8a" text-anchor="middle">DB-MySQL</text>
+</svg>

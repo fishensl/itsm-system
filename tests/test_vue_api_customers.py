@@ -44,6 +44,38 @@ class TestCustomerList:
                     'city', 'address', 'has_onsite', 'device_count',
                     'category_name', 'region_name']).issubset(item.keys())
 
+    def test_tree_shape(self, op_client, seed):
+        """客户树：市 → 客户 两级；区县客户并入市组并带 district"""
+        r = op_client.get('/api/customers/tree')
+        assert r.status_code == 200
+        data = r.get_json()['data']
+        assert data['total'] == 2
+        assert len(data['tree']) == 1  # 都是杭州市
+        city_group = data['tree'][0]
+        assert city_group['name'] == '杭州市'
+        assert city_group['customer_count'] == 2
+        by_name = {c['name']: c for c in city_group['children']}
+        assert by_name['API客户A']['district'] == '西湖区'  # 区县客户
+        assert by_name['API客户B']['district'] == ''       # 市级客户
+        assert by_name['API客户A']['device_count'] == 5
+
+    def test_tree_filter_and_unassigned(self, op_client, seed, app):
+        """树接口筛选 + 无地区客户归「未分配地区」"""
+        with app.app_context():
+            db.session.add(Customer(name='无地区客户', contact_person='王', level='常规'))
+            db.session.commit()
+        r = op_client.get('/api/customers/tree', query_string={'level': '常规'})
+        data = r.get_json()['data']
+        assert data['total'] == 2  # API客户B(常规) + 无地区客户
+        # level=常规：API客户B + 无地区客户
+        names = [g['name'] for g in data['tree']]
+        assert '杭州市' in names
+        assert '未分配地区' in names
+        unassigned = next(g for g in data['tree'] if g['name'] == '未分配地区')
+        assert unassigned['children'][0]['name'] == '无地区客户'
+        # 未分配地区组排最后
+        assert names[-1] == '未分配地区'
+
     def test_list_names_joined(self, op_client, seed):
         data = op_client.get('/api/customers').get_json()['data']
         by_id = {i['id']: i for i in data['items']}

@@ -61,10 +61,35 @@ export interface DeviceQuery {
   model?: string
   device_type?: string
   customer_id?: number
+  is_in_use?: number
 }
 
 export function fetchDevices(params: DeviceQuery) {
   return request<PageResult<Device>>({ url: '/api/devices', method: 'GET', params })
+}
+
+export interface DeviceTreeCustomer {
+  id: number
+  name: string
+  device_count: number
+  children: Device[]
+}
+
+export interface DeviceTreeGroup {
+  id: number | null
+  name: string
+  region: boolean
+  customer_count: number
+  device_count: number
+  children: DeviceTreeCustomer[] | Device[]
+}
+
+export function fetchDeviceTree(params?: Pick<DeviceQuery, 'search' | 'brand' | 'device_type' | 'is_in_use'>) {
+  return request<{ tree: DeviceTreeGroup[]; total: number }>({
+    url: '/api/devices/tree',
+    method: 'GET',
+    params,
+  })
 }
 
 export function fetchDevice(id: number) {
