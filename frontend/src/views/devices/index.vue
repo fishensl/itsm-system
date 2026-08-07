@@ -46,40 +46,59 @@
         <el-select v-model="query.device_type" placeholder="类型" clearable class="filter-item" @change="reload">
           <el-option v-for="t in deviceTypes" :key="t.name" :label="t.name" :value="t.name" />
         </el-select>
+        <el-select v-if="mode === 'table'" v-model="query.customer_id" placeholder="客户" clearable filterable
+          class="filter-item" @change="onCustomerFilterChange">
+          <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
       </div>
     </el-card>
 
-    <!-- 列表（按地区折叠：市 → 客户 → 设备） -->
-    <el-card shadow="never" v-loading="treeLoading">
+    <!-- 树模式：按地区折叠（市 → 客户），点击客户进入表格模式 -->
+    <el-card v-if="mode === 'tree'" shadow="never" v-loading="treeLoading">
       <GroupTree
         :nodes="tree"
-        :leaf-depth="2"
+        :leaf-depth="1"
         badge-key="device_count"
-        :default-expanded="hasFilter ? 2 : 0"
-        @leaf-click="openDetail"
+        :default-expanded="hasFilter ? 1 : 0"
+        @leaf-click="enterTable"
       >
         <template #leaf="{ node }">
-          <div class="tree-block dev-leaf" @click="openDetail(node as Device)">
-            <el-icon color="#4b5563"><Cpu /></el-icon>
-            <span class="tree-name">{{ node.device_name }}</span>
-            <el-tag size="small" type="info">{{ node.device_type || '其他' }}</el-tag>
-            <span v-if="node.brand || node.model" class="dev-model">{{ node.brand }} {{ node.model }}</span>
-            <span v-if="node.ip_address" class="dev-ip">{{ node.ip_address }}:{{ node.port }}</span>
-            <el-tag size="small" :type="node.is_in_use ? 'success' : 'info'">
-              {{ node.is_in_use ? '在用' : '停用' }}
-            </el-tag>
+          <div class="tree-block cust-leaf" @click="enterTable(node)">
+            <el-icon color="#2563eb"><OfficeBuilding /></el-icon>
+            <span class="tree-name">{{ node.name }}</span>
+            <el-tag size="small" type="info">设备 {{ node.device_count ?? 0 }}</el-tag>
             <span class="row-actions" @click.stop>
-              <el-button v-if="user.hasPerm('device:edit')" size="small" link type="primary"
-                @click="openEdit(node as Device)">编辑</el-button>
-              <el-button v-if="user.hasPerm('device:delete')" size="small" link type="danger"
-                @click="onDelete(node as Device)">删除</el-button>
+              <el-button size="small" link type="primary" @click="enterTable(node)">查看设备</el-button>
             </span>
           </div>
         </template>
       </GroupTree>
       <el-empty v-if="!treeLoading && !tree.length" description="暂无设备" :image-size="60" />
     </el-card>
+
+    <!-- 表格模式：当前客户完整设备表格 -->
+    <template v-else>
+      <el-card shadow="never" class="scope-bar">
+        <div class="scope-row">
+          <el-tag type="primary" effect="plain">
+            客户：{{ tableCustomer?.name || '全部客户' }}
+          </el-tag>
+          <span class="text-muted">共 {{ tableTotal }} 台设备</span>
+          <el-button size="small" text type="primary" :icon="Back" @click="backToTree">
+            返回地区折叠视图
+          </el-button>
+        </div>
+      </el-card>
+      <DataTable
+        ref="tableRef"
+        :columns="columns"
+        :fetch-data="fetchDevices"
+        :query="query"
+        row-key="id"
+        @row-click="openDetail"
+      />
+    </template>
 
     <!-- 详情弹窗 -->
     <el-dialog v-model="detailVisible" :title="detail?.device_name || '设备详情'" width="680px">
@@ -373,13 +392,16 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, View, Download, Upload, UploadFilled, Cpu } from '@element-plus/icons-vue'
+import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { IN_USE_LABELS } from '@/utils/labels'
 import { toRouterPath } from '@/utils/sidebarNav'
 import {
-  fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
+  fetchDevices, fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
   fetchDeviceConfigBackups, fetchDeviceConfigBackupContent, deviceConfigBackupDownloadUrl,
   fetchDeviceRelated, exportDevices, importDevices, createConfigBackup, deleteConfigBackup,
   rollbackConfigBackup, fetchConfigBackupDiff, fetchPasswordHistory, type DiffLine,
@@ -388,16 +410,82 @@ import {
   type PasswordHistoryItem,
 } from '@/api/devices'
 
+const route = useRoute()
 const user = useUserStore()
 const ui = useUiStore()
 
 // 筛选 + 字典数据
-const query = reactive<Record<string, unknown>>({ search: '', brand: '', device_type: '' })
+const query = reactive<Record<string, unknown>>({ search: '', brand: '', device_type: '', customer_id: undefined })
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
 
-// ==================== 地区折叠树（市 → 客户 → 设备） ====================
+// ==================== 双模式：树（市→客户） / 表格（完整字段） ====================
+const mode = ref<'tree' | 'table'>('tree')
+const tableCustomer = ref<{ id: number | null; name: string } | null>(null)
+const tableTotal = ref(0)
+const tableRef = ref()
+
+function enterTable(node: Record<string, unknown>) {
+  const id = node.id as number | null ?? null
+  tableCustomer.value = { id, name: node.name as string || (id == null ? '未关联客户' : '') }
+  query.customer_id = id ?? undefined
+  mode.value = 'table'
+  tableTotal.value = Number(node.device_count) || 0
+  // DataTable 首次挂载后刷新
+  setTimeout(() => tableRef.value?.refresh(), 0)
+}
+
+function backToTree() {
+  mode.value = 'tree'
+  query.customer_id = undefined
+  tableCustomer.value = null
+  loadTree()
+}
+
+function onCustomerFilterChange() {
+  const cid = query.customer_id as number | undefined
+  tableCustomer.value = cid
+    ? { id: cid, name: customers.value.find((c) => c.id === cid)?.name || `客户 #${cid}` }
+    : { id: null, name: '全部客户' }
+  tableRef.value?.refresh()
+}
+
+const columns = computed<DataColumn[]>(() => [
+  { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
+    link: (r) => `/app/devices/${r.id}` },
+  { key: 'device_type', label: '类型', width: 90 },
+  { key: 'customer_name', label: '客户', minWidth: 100 },
+  { key: 'brand', label: '品牌', minWidth: 100,
+    cellClass: () => 'cell-muted' },
+  { key: 'model', label: '型号', minWidth: 120,
+    cellClass: () => 'cell-muted' },
+  { key: 'serial_number', label: '序列号', minWidth: 130,
+    cellClass: () => 'cell-muted' },
+  { key: 'ip_address', label: 'IP:端口', minWidth: 130 },
+  { key: 'os_version', label: '系统版本', minWidth: 110 },
+  { key: 'rule_version', label: '规则库版本', minWidth: 110 },
+  { key: 'location', label: '安装位置', minWidth: 120,
+    cellClass: () => 'cell-muted' },
+  { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
+    tagMap: { 'true': 'success', 'false': 'info' }, valueMap: IN_USE_LABELS },
+  { key: 'license_remaining_days', label: '授权', minWidth: 110,
+    cellClass: (r) => {
+      const d = r.license_remaining_days as number | null
+      if (d != null && d < 0) return 'cell-danger'
+      if (d != null && d <= 30) return 'cell-warn'
+      return ''
+    } },
+  { key: 'actions', label: '操作', width: 120, type: 'action', fixed: 'right',
+    actions: [
+      { label: '编辑', type: 'primary', link: true, perm: 'device:edit', icon: 'Edit',
+        onClick: (row) => openEdit(row as unknown as Device) },
+      { label: '删除', type: 'danger', link: true, perm: 'device:delete', icon: 'Delete',
+        onClick: (row) => onDelete(row as unknown as Device) },
+    ] },
+])
+
+// ==================== 地区折叠树（市 → 客户） ====================
 const tree = ref<DeviceTreeGroup[]>([])
 const treeLoading = ref(false)
 const hasFilter = computed(() =>
@@ -449,6 +537,7 @@ async function doExport() {
   try {
     const res = await exportDevices({
       search: query.search as string,
+      customer_id: query.customer_id as number | undefined,
     })
     saveBase64(res.content, res.filename)
     ui.toast('导出成功', 'success')
@@ -493,8 +582,8 @@ const relatedTickets = ref<RelatedTicket[]>([])
 const relatedInspections = ref<RelatedInspection[]>([])
 const relatedLoading = ref(false)
 
-async function openDetail(row: { id: number }) {
-  const id = row.id
+async function openDetail(row: Record<string, unknown>) {
+  const id = row.id as number
   try {
     detail.value = await fetchDevice(id)
     pwdVisible.value = false
@@ -726,7 +815,7 @@ async function save() {
       ui.toast('设备已创建', 'success')
     }
     formVisible.value = false
-    loadTree()
+    reload()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -743,14 +832,18 @@ async function onDelete(d: Device) {
   try {
     await deleteDevice(d.id)
     ui.toast('已删除', 'success')
-    loadTree()
+    reload()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
 
 function reload() {
-  loadTree()
+  if (mode.value === 'table') {
+    tableRef.value?.refresh()
+  } else {
+    loadTree()
+  }
 }
 
 // 初始化字典
@@ -759,8 +852,18 @@ fetchDeviceDicts().then((d) => {
   brands.value = d.brands
   deviceTypes.value = d.device_types
   customers.value = d.customers
+  // ?customer_id=X 直达表格模式（全局搜索/书签跳转）
+  const cid = Number(route.query.customer_id)
+  if (cid && !Number.isNaN(cid) && cid > 0) {
+    const c = d.customers.find((x: { id: number; name: string }) => x.id === cid)
+    tableCustomer.value = { id: cid, name: c?.name || `客户 #${cid}` }
+    query.customer_id = cid
+    mode.value = 'table'
+    setTimeout(() => tableRef.value?.refresh(), 0)
+  } else {
+    loadTree()
+  }
 })
-loadTree()
 </script>
 
 <style scoped>
@@ -806,15 +909,16 @@ loadTree()
 .cell-muted {
   color: var(--itsm-text-muted);
 }
-.dev-leaf {
+.cust-leaf {
   display: flex; align-items: center; gap: 8px; padding: 9px 12px;
   font-size: 13px; cursor: pointer; border: 1px solid var(--itsm-border);
   border-radius: 8px; margin-bottom: 8px;
 }
-.dev-leaf:hover { background: var(--el-fill-color-light); }
-.dev-leaf .tree-name { font-weight: 600; flex-shrink: 0; }
-.dev-model { color: var(--itsm-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dev-ip { font-family: var(--font-mono, Consolas, monospace); font-size: 12px; color: var(--el-color-primary); }
+.cust-leaf:hover { background: var(--el-fill-color-light); }
+.cust-leaf .tree-name { font-weight: 600; flex-shrink: 0; }
+.scope-bar { margin-bottom: 12px; }
+.scope-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.text-muted { color: var(--itsm-text-muted); font-size: 12px; }
 .cell-danger {
   color: #f56c6c;
   font-weight: 600;
