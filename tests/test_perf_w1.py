@@ -106,20 +106,20 @@ class TestRackApis:
 
 
 class TestReportCenter:
-    def test_default_window_excludes_old_records(self, op_client, seed):
+    def test_default_window_excludes_old_records(self, op_client, seed, report_dirs):
         """无过滤条件默认近 12 个月：三年前的巡检不出现在报告中心 API"""
         r = op_client.get('/api/reports')
         assert r.status_code == 200
         data = r.get_json()['data']
-        titles = [i['title'] for b in data['data_order'] for i in b['items']['inspection']]
+        titles = [i['title'] for i in data['items'] if i['type'] == 'inspection']
         assert 'Q2巡检' in titles
         assert '三年前巡检' not in titles
 
-    def test_explicit_date_range_shows_old(self, op_client, seed):
+    def test_explicit_date_range_shows_old(self, op_client, seed, report_dirs):
         old = (date.today() - timedelta(days=1200)).isoformat()
         r = op_client.get(f'/api/reports?date_from={old}')
         data = r.get_json()['data']
-        titles = [i['title'] for b in data['data_order'] for i in b['items']['inspection']]
+        titles = [i['title'] for i in data['items'] if i['type'] == 'inspection']
         assert '三年前巡检' in titles
 
     def test_tab_filter(self, op_client, seed):

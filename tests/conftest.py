@@ -132,3 +132,16 @@ def viewer_client(app):
     c = app.test_client()
     login(c, 'viewer')
     return c
+
+
+@pytest.fixture()
+def report_dirs(tmp_path, monkeypatch):
+    """报告中心磁盘目录隔离：reports/ 与 static/uploads 指向临时目录，避免读到真实运行时文件"""
+    from blueprints import vue_api_ops as _ops
+    rdir = tmp_path / 'reports'
+    udir = tmp_path / 'uploads'
+    rdir.mkdir(parents=True, exist_ok=True)
+    udir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(_ops, 'REPORTS_DIR', str(rdir))
+    monkeypatch.setattr(_ops, 'UPLOADS_DIR', str(udir))
+    return {'reports': str(rdir), 'uploads': str(udir)}

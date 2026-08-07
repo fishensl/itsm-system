@@ -6,7 +6,27 @@
 
 ---
 
-## [v2.3.2] — 2026-08-05
+## [v2.4] — 2026-08-07
+
+### 报告中心重构：客户分桶 → 列表式（巡检/故障/工单/报告文件统一聚合）
+
+- **列表式展示**：`/app/reports` 由「客户折叠面板」改为与巡检记录/故障记录一致的
+  DataTable 列表（类型 tag / 标题（巡检·工单可跳详情）/ 客户 / 日期 / 状态 / 报告文件 / 操作），
+  分页 + 标题搜索，移动端自动卡片化；页头保留「覆盖客户 / 记录总数」统计（随 tab 与筛选联动）
+- **修复「有报告却显示无报告」**：文件反查索引原先只认正式 Word 报告
+  （`reports/` 目录 + `report_file` 列），现扩展覆盖工程师上传的现场报告
+  （`submitted_report` + `submission_versions.report_file` + `static/uploads/inspection_reports|ticket_reports` 扫描），
+  记录行携带报告文件名与下载链接，报告文件行归属客户
+- **`/api/reports` 重写**：返回分页统一列表 `{items, total, stats}`（DataTable 契约）；
+  巡检行正式报告优先、现场报告兜底；工单/故障行解析处理报告；
+  新增安全下载端点 `GET /api/reports/file/<path>`（realpath 防路径穿越）；
+  客户/日期筛选统一作用于四类行（原文件桶不受客户过滤的不一致已修正）；
+  删除报告仅限 `reports/` 根目录文件（复用 `POST /reports/delete/<name>`，`deletable` 标记）
+- **测试**：TestReports 重写（列表契约/分页/筛选/搜索/现场报告归属/正式报告行/下载防穿越），
+  新增 conftest `report_dirs` 夹具隔离磁盘目录；修复 `report_seed` 夹具 yield 在
+  app_context 内导致请求复用过期 identity map 的隐患；全量 591 用例通过 + ruff 干净
+
+---
 
 ### 修复：update.sh git pull 卡死 + 全链路多通道
 

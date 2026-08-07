@@ -353,6 +353,8 @@ class TestFaultDicts:
 # ==================== 报告中心 ====================
 @pytest.fixture()
 def report_seed(app):
+    """注意：yield 必须在 app_context 外——否则旧上下文/会话贯穿整个用例，
+    请求会复用同一会话命中过期的 identity map（读到提交前的旧值）"""
     with app.app_context():
         c1 = Customer(name='报告客户A')
         c2 = Customer(name='报告客户B')
@@ -366,54 +368,56 @@ def report_seed(app):
                       priority='高', status='处理中', created_at=datetime.utcnow())
         db.session.add_all([old, insp, flt, tkt])
         db.session.commit()
-        yield {'c1': c1.id, 'c2': c2.id, 'insp': insp.id, 'fault': flt.id, 'ticket': tkt.id}
+        seed = {'c1': c1.id, 'c2': c2.id, 'insp': insp.id, 'fault': flt.id, 'ticket': tkt.id}
+    yield seed
 
 
 class TestReports:
-    def test_shape(self, op_client, report_seed):
+    def test_shape(self, op_client, report_seed, report_dirs):
+        """统一列表契约：{items, total, stats}；12 个月窗口内三类记录聚合"""
         r = op_client.get('/api/reports')
         body = r.get_json()
         assert body['code'] == 0
         data = body['data']
-        names = [b['name'] for b in data['data_order']]
+        assert data['total'] >= 3  # 近期巡检 + 近期故障 + 近期工单（两年前被窗口排除）
+        names = {i['customer_name'] for i in data['items']}
         assert '报告客户A' in names and '报告客户B' in names
-        c1 = next(b for b in data['data_order'] if b['name'] == '报告客户A')
-        assert c1['counts']['inspection'] == 1  # 两年前的被 12 个月窗口排除
-        assert c1['counts']['fault'] == 1
-        assert c1['items']['inspection'][0]['id'] == report_seed['insp']
-        assert set(data['tab_stats']) == {'all', 'inspection', 'fault', 'ticket', 'file'}
-        assert data['tab_stats']['all']['total'] >= 2
+        assert data['stats']['total'] == data['total']
+        assert data['stats']['customers'] >= 2
+        insp = [i for i in data['items'] if i['type'] == 'inspection']
+        assert [i['title'] for i in insp] == ['近期巡检']
+        assert all(i['has_report'] is False for i in insp)
 
-    def test_old_record_excluded_by_default_window(self, op_client, report_seed, app):
-        with app.app_context():
-            insp = Inspection.query.filter_by(title='两年前巡检').first()
-            assert insp is not None
+    def test_old_record_excluded_by_default_window(self, op_client, report_seed, report_dirs):
         data = op_client.get('/api/reports').get_json()['data']
-        for b in data['data_order']:
-            for item in b['items']['inspection']:
-                assert item['title'] != '两年前巡检'
+        titles = [i['title'] for i in data['items'] if i['type'] == 'inspection']
+        assert '两年前巡检' not in titles
 
-    def test_explicit_date_range_includes_old(self, op_client, report_seed):
+    def test_explicit_date_range_includes_old(self, op_client, report_seed, report_dirs):
         data = op_client.get('/api/reports', query_string={
             'date_from': '2019-01-01', 'date_to': '2021-12-31'}).get_json()['data']
-        found = [b for b in data['data_order'] if b['name'] == '报告客户A']
-        assert found and any(i['title'] == '两年前巡检' for i in found[0]['items']['inspection'])
+        titles = [i['title'] for i in data['items'] if i['type'] == 'inspection']
+        assert '两年前巡检' in titles
 
-    def test_tab_filter(self, op_client, report_seed):
+    def test_tab_filter(self, op_client, report_seed, report_dirs):
         data = op_client.get('/api/reports', query_string={'tab': 'ticket'}).get_json()['data']
-        names = [b['name'] for b in data['data_order']]
-        assert names == ['报告客户B']
-        assert data['tab_stats']['ticket']['total'] == 1
-        assert data['tab_stats']['inspection']['total'] == 0
+        assert [i['type'] for i in data['items']] == ['ticket']
+        assert [i['title'] for i in data['items']] == ['WO-REP-001 · 近期工单']
+        assert data['total'] == 1
+        assert data['stats']['total'] == 1
 
-    def test_customer_filter(self, op_client, report_seed):
-        """客户筛选影响巡检/故障/工单；文件桶与 SSR 一致不受客户过滤"""
-        data = op_client.get('/api/reports', query_string={'customer_id': report_seed['c1']}).get_json()['data']
-        names = [b['name'] for b in data['data_order']]
-        assert '报告客户A' in names
-        assert '报告客户B' not in names
+    def test_customer_filter(self, op_client, report_seed, report_dirs):
+        """客户筛选统一作用于巡检/故障/工单/报告文件"""
+        data = op_client.get('/api/reports', query_string={
+            'customer_id': report_seed['c1']}).get_json()['data']
+        names = {i['customer_name'] for i in data['items']}
+        assert names == {'报告客户A'}
 
-    def test_group_capped_at_100(self, op_client, app):
+    def test_search(self, op_client, report_seed, report_dirs):
+        data = op_client.get('/api/reports', query_string={'search': '近期故障'}).get_json()['data']
+        assert [i['title'] for i in data['items']] == ['近期故障']
+
+    def test_pagination(self, op_client, app, report_dirs):
         with app.app_context():
             c = Customer(name='海量客户')
             db.session.add(c)
@@ -423,10 +427,80 @@ class TestReports:
                 for i in range(110)
             ])
             db.session.commit()
-        data = op_client.get('/api/reports').get_json()['data']
-        b = next(x for x in data['data_order'] if x['name'] == '海量客户')
-        assert b['counts']['fault'] == 110
-        assert len(b['items']['fault']) == 100
+        data = op_client.get('/api/reports', query_string={'page_size': 20, 'page': 1}).get_json()['data']
+        assert data['total'] == 110
+        assert len(data['items']) == 20
+        assert data['items'][0]['title'] == '故障109'  # 时间倒序
+        last = op_client.get('/api/reports', query_string={'page_size': 20, 'page': 6}).get_json()['data']
+        assert len(last['items']) == 10
+
+    def test_submitted_report_included(self, op_client, report_seed, app, report_dirs):
+        """工程师上传的现场报告（submitted_report + 提交版本）参与反查：
+        记录行 has_report=true，文件 tab 出现该文件并归属客户"""
+        from models import SubmissionVersion as _SV
+        rel = 'uploads/inspection_reports/rep1/site.docx'
+        full = os.path.join(report_dirs['uploads'], 'inspection_reports', 'rep1', 'site.docx')
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, 'wb') as fp:
+            fp.write(b'site report')
+        try:
+            with app.app_context():
+                insp = Inspection.query.get(report_seed['insp'])
+                insp.submitted_report = rel
+                db.session.add(_SV(entity_type='inspection', entity_id=insp.id,
+                                   version_no=1, report_file=rel))
+                db.session.commit()
+            data = op_client.get('/api/reports', query_string={'tab': 'inspection'}).get_json()['data']
+            row = next(i for i in data['items'] if i['id'] == report_seed['insp'])
+            assert row['has_report'] is True
+            assert row['report_name'] == 'site.docx'
+            assert row['report_url'].startswith('/api/reports/file/')
+            fdata = op_client.get('/api/reports', query_string={'tab': 'file'}).get_json()['data']
+            frow = next(i for i in fdata['items'] if i['report_name'] == 'site.docx')
+            assert frow['customer_name'] == '报告客户A'
+        finally:
+            if os.path.exists(full):
+                os.remove(full)
+
+    def test_formal_report_file_row(self, op_client, report_seed, app, report_dirs):
+        """正式报告（reports/ 根目录 + report_file）→ 文件行归属客户、URL 指向 /reports/、可删除"""
+        fname = '巡检报告_报告客户A_20260802_151402.docx'
+        full = os.path.join(report_dirs['reports'], fname)
+        with open(full, 'wb') as fp:
+            fp.write(b'formal report')
+        try:
+            with app.app_context():
+                insp = Inspection.query.get(report_seed['insp'])
+                insp.report_file = fname
+                db.session.commit()
+            data = op_client.get('/api/reports', query_string={'tab': 'file'}).get_json()['data']
+            row = next(i for i in data['items'] if i['report_name'] == fname)
+            assert row['customer_name'] == '报告客户A'
+            assert row['deletable'] is True
+            assert row['report_url'].startswith('/reports/')
+        finally:
+            if os.path.exists(full):
+                os.remove(full)
+
+    def test_download_ok(self, op_client, report_dirs):
+        full = os.path.join(report_dirs['uploads'], 'inspection_reports', 'down', 'ok.docx')
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, 'wb') as fp:
+            fp.write(b'hello report')
+        r = None
+        try:
+            r = op_client.get('/api/reports/file/inspection_reports/down/ok.docx')
+            assert r.status_code == 200
+            assert r.data == b'hello report'
+        finally:
+            if r is not None:
+                r.close()  # Windows 下文件句柄未释放会导致删除失败
+            if os.path.exists(full):
+                os.remove(full)
+
+    def test_download_traversal_rejected(self, op_client, report_dirs):
+        assert op_client.get('/api/reports/file/..%2F..%2Fapp.py').status_code == 404
+        assert op_client.get('/api/reports/file/inspection_reports/nope.docx').status_code == 404
 
     def test_requires_login(self, client):
         assert client.get('/api/reports').status_code == 401
