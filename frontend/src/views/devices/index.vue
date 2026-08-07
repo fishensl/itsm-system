@@ -51,6 +51,12 @@
           <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
+        <template v-if="mode === 'table'">
+          <el-tag type="primary" effect="plain" class="scope-tag">
+            客户：{{ tableCustomer?.name || '全部客户' }} · 共 {{ tableTotal }} 台
+          </el-tag>
+          <el-button size="small" text type="primary" :icon="Back" @click="backToTree">返回</el-button>
+        </template>
       </div>
     </el-card>
 
@@ -79,17 +85,6 @@
 
     <!-- 表格模式：当前客户完整设备表格 -->
     <template v-else>
-      <el-card shadow="never" class="scope-bar">
-        <div class="scope-row">
-          <el-tag type="primary" effect="plain">
-            客户：{{ tableCustomer?.name || '全部客户' }}
-          </el-tag>
-          <span class="text-muted">共 {{ tableTotal }} 台设备</span>
-          <el-button size="small" text type="primary" :icon="Back" @click="backToTree">
-            返回地区折叠视图
-          </el-button>
-        </div>
-      </el-card>
       <DataTable
         ref="tableRef"
         :columns="columns"
@@ -924,9 +919,7 @@ fetchDeviceDicts().then((d) => {
 }
 .cust-leaf:hover { background: var(--el-fill-color-light); }
 .cust-leaf .tree-name { font-weight: 600; flex-shrink: 0; }
-.scope-bar { margin-bottom: 12px; }
-.scope-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.text-muted { color: var(--itsm-text-muted); font-size: 12px; }
+.scope-tag { font-weight: 500; }
 .cell-danger {
   color: #f56c6c;
   font-weight: 600;
