@@ -191,6 +191,42 @@ class TestInspectionUploadReportFlow:
             assert '现场巡检完成' in (v.content_json or '')
             assert '扩容计划' in (v.content_json or '')  # 提交备注随版本留档
 
+    def test_upload_assignee_is_inspector(self, admin_client, app, seed):
+        """巡检人员取任务指派工程师（管理员代传也记录真实执行人）；上传者由版本留档"""
+        with app.app_context():
+            op = User.query.filter_by(username='op').first()
+            t = InspectionTask(title='代传任务', customer_id=seed['c'], status='执行中',
+                               assigned_to_user_id=op.id)
+            db.session.add(t)
+            db.session.commit()
+            tid = t.id
+            op_id = op.id
+        r = admin_client.post(f'/api/inspections/task/{tid}/report',
+                              data={'report_file': _dummy_file()},
+                              content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            i = Inspection.query.filter_by(task_id=tid).first()
+            assert i.inspector_name == 'op'          # 指派工程师（非管理员）
+            assert i.inspector_user_id == op_id
+            v = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).first()
+            assert v.submitter_rel.username == 'admin'  # 上传者留档
+
+    def test_upload_unassigned_falls_back_to_uploader(self, admin_client, app, seed):
+        """任务未指派 → 巡检人员回退为上传者"""
+        with app.app_context():
+            t = InspectionTask(title='未指派任务', customer_id=seed['c'], status='执行中')
+            db.session.add(t)
+            db.session.commit()
+            tid = t.id
+        r = admin_client.post(f'/api/inspections/task/{tid}/report',
+                              data={'report_file': _dummy_file()},
+                              content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            i = Inspection.query.filter_by(task_id=tid).first()
+            assert i.inspector_name == 'admin'
+
     def test_upload_requires_running_task(self, op_client, app, seed):
         with app.app_context():
             t3 = InspectionTask(title='待执行任务', customer_id=seed['c'], status='待执行')
