@@ -268,8 +268,10 @@ def delete_customer(customer_id):
     if RackInstall.query.join(Rack, Rack.id == RackInstall.rack_id)\
             .filter(Rack.customer_id == customer_id).first():
         raise ServiceError(f'客户 "{c.name}" 仍有上架机柜记录，无法删除')
-    # 置空引用该客户的工单/巡检/故障，避免悬挂外键（SQLite 默认不强制 FK）
+    # 置空引用该客户的工单/巡检/故障/拓扑图，避免悬挂外键（SQLite 默认不强制 FK）
+    from models import Topology
     Ticket.query.filter_by(customer_id=customer_id).update({'customer_id': None})
     Inspection.query.filter_by(customer_id=customer_id).update({'customer_id': None})
     Fault.query.filter_by(customer_id=customer_id).update({'customer_id': None})
+    Topology.query.filter_by(customer_id=customer_id).update({'customer_id': None})
     db.session.delete(c)

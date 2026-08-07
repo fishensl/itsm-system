@@ -74,6 +74,7 @@ PERMISSION_MAP = {
     'ai:view': 'AI对接-查看', 'ai:edit': 'AI对接-编辑',
     'dashboard:reports': '数据报表-查看',
     'draft:manage': '草稿管理',
+    'system:repair': '系统设置-修复设备数',
 }
 
 ADMIN_PERMISSIONS = list(PERMISSION_MAP.keys())

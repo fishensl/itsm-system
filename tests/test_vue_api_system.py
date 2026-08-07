@@ -214,6 +214,32 @@ class TestSystemOverview:
         assert 0 < len(data['recent_users']) <= 5
         assert set(data['recent_users'][0]) == {'name', 'username', 'role'}
 
+    def test_repair_device_counts(self, admin_client, app):
+        """修复客户 device_count 冗余快照（快照与 devices 表不一致时）"""
+        from models import Customer, Device
+        with app.app_context():
+            c = Customer(name='快照残留客户')
+            db.session.add(c)
+            db.session.flush()
+            db.session.add(Device(customer_id=c.id, device_name='D1'))
+            db.session.add(Device(customer_id=c.id, device_name='D2'))
+            db.session.commit()
+            c.device_count = 99  # 人为制造不一致
+            db.session.commit()
+            cid = c.id
+        r = admin_client.post('/api/system/repair-device-counts')
+        assert r.status_code == 200
+        data = r.get_json()['data']
+        assert data['fixed'] >= 1
+        with app.app_context():
+            c = Customer.query.get(cid)
+            assert c.device_count == 2
+            assert AuditLog.query.filter_by(action='system:repair_device_counts').count() >= 1
+
+    def test_repair_requires_permission(self, op_client):
+        """operator 无 system:repair 权限码"""
+        assert op_client.post('/api/system/repair-device-counts').status_code == 403
+
     def test_overview_deploy_info(self, admin_client):
         """部署信息：系统/组件/数据库/资源占用（与 SSR 系统概览共用采集）"""
         r = admin_client.get('/api/system/overview')

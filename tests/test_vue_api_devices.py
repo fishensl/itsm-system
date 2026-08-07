@@ -107,6 +107,52 @@ class TestDeviceCrud:
         with app.app_context():
             assert Device.query.get(seed['d2']) is None
 
+    def test_delete_syncs_device_count(self, admin_client, seed, app):
+        """删除设备后客户 device_count 冗余快照同步（曾漏刷新导致客户删不掉）"""
+        with app.app_context():
+            c2 = Customer.query.get(seed['c2'])
+            c2.device_count = 1  # 模拟已同步快照（FW-B 在用）
+            db.session.commit()
+        r = admin_client.delete(f"/api/devices/{seed['d2']}")
+        assert r.status_code == 200
+        with app.app_context():
+            c2 = Customer.query.get(seed['c2'])
+            assert c2.device_count == 0
+
+
+class TestDeviceImportSync:
+    def _make_xlsx(self, rows):
+        import io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['所属客户', '设备名称', '设备类型', 'IP地址', '是否在用'])
+        for row in rows:
+            ws.append(row)
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+        return bio
+
+    def test_import_syncs_device_count(self, op_client, seed, app):
+        """批量导入后刷新受影响客户 device_count（曾漏刷新）"""
+        with app.app_context():
+            c1 = Customer.query.get(seed['c1'])
+            c1.device_count = 1  # 模拟已同步快照（SW-A）
+            db.session.commit()
+        xlsx = self._make_xlsx([
+            ['设备API客户A', 'SW-D1', '交换机', '10.0.0.4', '是'],
+            ['设备API客户A', 'SW-D2', '交换机', '10.0.0.5', '否'],
+        ])
+        r = op_client.post('/api/v2/devices/import', data={
+            'import_file': (xlsx, 'devices.xlsx')},
+            content_type='multipart/form-data')
+        assert r.status_code == 200
+        assert r.get_json()['data']['created'] == 2
+        with app.app_context():
+            c1 = Customer.query.get(seed['c1'])
+            assert c1.device_count == 3  # SW-A + SW-D1 + SW-D2（全量口径，含不在用）
+
 
 class TestRevealPassword:
     def test_reveal_with_permission(self, op_client, seed):

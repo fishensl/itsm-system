@@ -645,6 +645,13 @@ def api_v2_device_import():
                 db.session.rollback()
                 current_app.logger.exception('设备批量导入(Vue)提交失败: %s', e)
                 errors.append(f'批量提交失败：{e}')
+            else:
+                # 刷新受影响客户 device_count/等级（导入路径此前漏刷新导致计数残留）
+                for cid in {d.customer_id for d in new_devices if d.customer_id}:
+                    try:
+                        _sync_device_count(cid)
+                    except Exception:
+                        current_app.logger.exception('设备导入后刷新客户 %s 设备数失败', cid)
     finally:
         cleanup_temp_file(tmp)
     return ok({'created': created, 'errors': errors[:20], 'total_errors': len(errors)})
@@ -739,11 +746,16 @@ def api_device_delete(device_id):
     from blueprints.vue_api_sys import audit_log
     audit_log('device:delete', 'device', device_id, f'删除设备「{d.device_name}」')
     try:
-        delete_device(device_id)
+        cid = delete_device(device_id)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '设备删除失败', 400)
+    if cid:
+        try:
+            _sync_device_count(cid)
+        except Exception:
+            current_app.logger.exception('设备删除后刷新客户 %s 设备数失败', cid)
     return ok(None)
 
 
@@ -952,19 +964,9 @@ def api_device_config_backup_diff():
 
 
 def _sync_device_count(customer_id):
-    """同步客户 device_count 冗余字段（与 asset 蓝图一致）"""
-    if not customer_id:
-        return
-    from models import Customer as _C
-    from services.customer_service import _calculate_tier
-    cnt = _count_by('devices', 'customer_id', customer_id)
-    c = _C.query.get(customer_id)
-    if c:
-        c.device_count = cnt
-        auto_tier = _calculate_tier(cnt, c.has_onsite, c.has_drill)
-        if c.level not in ('核心', '重点', '常规') or not c.level:
-            c.level = auto_tier
-        db.session.commit()
+    """同步客户 device_count 冗余字段（委托统一入口 services.device_service）"""
+    from services.device_service import sync_customer_device_count
+    return sync_customer_device_count(customer_id)
 
 
 def _count_by(table, col, value):
