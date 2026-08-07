@@ -251,14 +251,22 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     else:
         if task.status not in (TASK_RUNNING, TASK_PENDING, TASK_DONE):
             raise ServiceError('任务「%s」状态不能创建巡检记录' % task.status)
+        # 巡检人员优先取任务指派工程师（管理员代传时记录真实执行人，上传者由版本留档）
+        assignee = task.assignee_rel
+        if assignee:
+            inspector_name = assignee.realname or assignee.username or current_user_name
+            inspector_user_id = task.assigned_to_user_id or current_user_id
+        else:
+            inspector_name = current_user_name
+            inspector_user_id = current_user_id
         inspection = Inspection(
             title=task.title,
             customer_id=task.customer_id,
             task_id=task.id,
             inspection_date=datetime.utcnow().date(),
-            inspector_name=current_user_name,
-            inspector=current_user_name,
-            inspector_user_id=current_user_id,
+            inspector_name=inspector_name,
+            inspector=inspector_name,
+            inspector_user_id=inspector_user_id,
             overall_status=REVIEW_PENDING,
             review_status=REVIEW_PENDING,
         )
