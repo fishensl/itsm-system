@@ -1,11 +1,5 @@
 <template>
   <div class="data-table">
-    <!-- 列设置工具条（可选启用） -->
-    <div v-if="columnSettings" class="table-toolbar">
-      <el-button size="small" text type="primary" :icon="Setting" @click="settingsVisible = true">
-        列设置
-      </el-button>
-    </div>
     <!-- 桌面/平板：表格 -->
     <div v-if="!isMobile" class="table-wrap">
       <el-table
@@ -324,6 +318,11 @@ function resetColSettings() {
   saveColSettings()
 }
 
+function openColumnSettings() {
+  if (!props.columnSettings) return
+  settingsVisible.value = true
+}
+
 onMounted(() => {
   loadColSettings()
 })
@@ -418,7 +417,7 @@ onBeforeUnmount(() => {
   if (queryTimer) clearTimeout(queryTimer)
 })
 
-defineExpose({ refresh, load })
+defineExpose({ refresh, load, openColumnSettings })
 
 // 权限判定（避免循环依赖：从全局 store 读取）
 import { useUserStore } from '@/stores/user'
@@ -428,11 +427,6 @@ const hasPerm = (code?: string) => useUserStore().hasPerm(code)
 <style scoped>
 .table-wrap {
   overflow-x: auto;
-}
-.table-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
 }
 .col-setting-list {
   display: flex;
