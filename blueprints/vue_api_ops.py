@@ -6,6 +6,7 @@
 """
 import os
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 from flask import request, current_app, send_from_directory, abort
 from flask_login import login_required, current_user
@@ -420,16 +421,175 @@ def api_fault_dicts():
 
 
 # ==================== 报告中心 ====================
-REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'reports')
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPORTS_DIR = os.path.join(_BASE_DIR, 'reports')
+UPLOADS_DIR = os.path.join(_BASE_DIR, 'static', 'uploads')
 _REPORT_TABS = ('all', 'inspection', 'fault', 'ticket', 'file')
-_REPORT_TYPES = ('inspection', 'fault', 'ticket', 'file')
+
+
+def _customer_of(rel):
+    return (rel.id, rel.name) if rel else (None, '未关联客户')
+
+
+def _date_in_window(d, date_from, date_to):
+    if not d:
+        return True
+    d = d.date() if isinstance(d, datetime) else d
+    return (not date_from or str(d) >= date_from) and (not date_to or str(d) <= date_to)
+
+
+def _as_dt(v):
+    """统一排序时间：date/datetime → datetime（None 用最小时间兜底）"""
+    if isinstance(v, datetime):
+        return v
+    if v:
+        return datetime.combine(v, datetime.min.time())
+    return datetime.min
+
+
+def _report_download(rel_path):
+    """把记录的报告路径解析为 (文件名, 下载 URL)；支持 reports/ 根目录与 static/uploads 两种存储。"""
+    if not rel_path:
+        return None
+    v = str(rel_path).strip().replace('\\', '/')
+    if not v:
+        return None
+    name = os.path.basename(v)
+    root_full = os.path.realpath(os.path.join(REPORTS_DIR, name))
+    root_base = os.path.realpath(REPORTS_DIR)
+    if root_full.startswith(root_base + os.sep) and os.path.isfile(root_full):
+        return (name, '/reports/' + quote(name))
+    if v.startswith('static/uploads/'):
+        upload_rel = v[len('static/'):]
+    elif v.startswith('uploads/'):
+        upload_rel = v
+    else:
+        upload_rel = 'uploads/' + name
+    upload_full = os.path.realpath(os.path.join(UPLOADS_DIR, upload_rel[len('uploads/'):]))
+    upload_base = os.path.realpath(UPLOADS_DIR)
+    if upload_full.startswith(upload_base + os.sep) and os.path.isfile(upload_full):
+        return (name, '/api/reports/file/' + quote(upload_rel[len('uploads/'):]))
+    return None
+
+
+def _scan_report_files(date_from, date_to, customer_id, search):
+    """扫描 reports/ 与 static/uploads 下报告目录，返回报告文件行（含归属客户）。
+
+    文件反查索引覆盖：正式报告（report_file）、工程师上传现场报告（submitted_report）、
+    提交版本留档（submission_versions.report_file）。
+    """
+    from models import Inspection as _I, Fault as _F, Ticket as _T, SubmissionVersion as _SV
+
+    def _normkey(p):
+        return os.path.normcase(os.path.normpath(p)) if p else ''
+
+    file_to_record = {}
+
+    def _index_file(v, rec):
+        v = (v or '').strip().replace('\\', '/')
+        if not v:
+            return
+        cands = {v, os.path.basename(v), _normkey(v), _normkey(os.path.basename(v))}
+        if not v.startswith('uploads/'):
+            cands.add(_normkey(os.path.join('uploads', v)))
+        for c in cands:
+            if c and c not in file_to_record:
+                file_to_record[c] = rec
+
+    def _scan_model(Mdl, cols):
+        conds = [getattr(Mdl, c).isnot(None) & (getattr(Mdl, c) != '') for c in cols]
+        for rec in Mdl.query.options(joinedload(Mdl.customer_rel)).filter(or_(*conds)).all():
+            for c in cols:
+                _index_file(getattr(rec, c), rec)
+
+    _scan_model(_I, ('report_file', 'submitted_report'))
+    _scan_model(_F, ('report_file',))
+    _scan_model(_T, ('report_file',))
+
+    # 提交版本里的历史报告文件（补漏：旧数据可能只在版本里留档）
+    sv_rows = _SV.query.filter(_SV.report_file.isnot(None), _SV.report_file != '').all()
+    if sv_rows:
+        recs = {}
+        for et, Mdl in (('inspection', _I), ('ticket', _T)):
+            ids = [r.entity_id for r in sv_rows if r.entity_type == et]
+            if not ids:
+                continue
+            for rec in Mdl.query.options(joinedload(Mdl.customer_rel)).filter(Mdl.id.in_(ids)).all():
+                recs[(et, rec.id)] = rec
+        for sv in sv_rows:
+            rec = recs.get((sv.entity_type, sv.entity_id))
+            if rec:
+                _index_file(sv.report_file, rec)
+
+    scan_dirs = [REPORTS_DIR]
+    for sub in ('inspection_reports', 'ticket_reports'):
+        d = os.path.join(UPLOADS_DIR, sub)
+        if os.path.isdir(d):
+            scan_dirs.append(d)
+
+    out = []
+    for d in scan_dirs:
+        if not os.path.isdir(d):
+            continue
+        for root, _subs, names in os.walk(d):
+            for fname in sorted(names, reverse=True):
+                full = os.path.join(root, fname)
+                if not os.path.isfile(full):
+                    continue
+                mtime = datetime.fromtimestamp(os.path.getmtime(full))
+                if not _date_in_window(mtime, date_from, date_to):
+                    continue
+                rec = file_to_record.get(_normkey(full)) or file_to_record.get(_normkey(fname))
+                if customer_id:
+                    if not rec or rec.customer_id != customer_id:
+                        continue
+                if search and search not in fname:
+                    continue
+                ftype = '巡检' if '巡检' in fname else ('故障' if '故障' in fname else '其他')
+                cid, cname = _customer_of(rec.customer_rel) if rec else (None, '未关联客户')
+                if d == REPORTS_DIR:
+                    url = '/reports/' + quote(fname)
+                else:
+                    rel = os.path.relpath(full, UPLOADS_DIR).replace(os.sep, '/')
+                    url = '/api/reports/file/' + quote(rel)
+                size = os.path.getsize(full)
+                out.append({
+                    'customer_id': cid, 'customer_name': cname,
+                    'id': full, 'type': 'file',
+                    'title': fname,
+                    'date': mtime.strftime('%Y-%m-%d %H:%M'),
+                    'status': ftype + '报告' if ftype != '其他' else '其他',
+                    'report_name': fname,
+                    'report_url': url,
+                    'has_report': True,
+                    'size_display': f'{size / 1024:.1f} KB',
+                    'deletable': d == REPORTS_DIR,
+                    '_sort_dt': mtime,
+                })
+    return out
+
+
+@vue_api_bp.route('/api/reports/file/<path:rel_path>')
+@login_required
+@require_permission('report:view')
+def api_report_file_download(rel_path):
+    """报告中心通用下载：static/uploads 下上传的报告文件（realpath 防路径穿越）"""
+    full = os.path.realpath(os.path.join(UPLOADS_DIR, rel_path))
+    base = os.path.realpath(UPLOADS_DIR)
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return fail('文件不存在', 404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
 
 
 @vue_api_bp.route('/api/reports', methods=['GET'])
 @login_required
 @require_permission('report:view')
 def api_reports():
-    """报告中心聚合：客户分桶 × 巡检/故障/工单/文件，返回 JSON（逻辑对齐 SSR report_list）"""
+    """报告中心统一列表：巡检/故障/工单/报告文件四类记录分页聚合（列表式，每行可下载报告）。
+
+    对齐 DataTable 契约返回 {items, total, stats}；文件反查索引覆盖正式报告（report_file）
+    与工程师上传现场报告（submitted_report / submission_versions），修复「有报告却显示无报告」。
+    """
     from models import Inspection as _I, Fault as _F, Ticket as _T
 
     tab = (request.args.get('tab') or 'all').strip()
@@ -438,30 +598,18 @@ def api_reports():
     date_from = (request.args.get('date_from') or '').strip()
     date_to = (request.args.get('date_to') or '').strip()
     customer_id = request.args.get('customer_id', type=int)
+    search = (request.args.get('search') or '').strip()
+    page = max(1, request.args.get('page', 1, type=int))
+    page_size = min(200, max(1, request.args.get('page_size', 20, type=int)))
 
     # 性能：首次进入（无任何过滤条件）默认只看近 12 个月，避免三表全量扫描
     if not date_from and not date_to and not customer_id:
         date_from = (datetime.now().date() - timedelta(days=365)).isoformat()
 
-    buckets = {}
+    rows = []
 
-    def _bucket(cid, name):
-        if cid not in buckets:
-            buckets[cid] = {
-                'id': cid,
-                'name': name,
-                'counts': {'inspection': 0, 'fault': 0, 'ticket': 0, 'file': 0},
-                'items': {'inspection': [], 'fault': [], 'ticket': [], 'file': []},
-            }
-        return buckets[cid]
-
-    def _push(cid, name, rt, item):
-        b = _bucket(cid, name)
-        b['counts'][rt] += 1
-        b['items'][rt].append(item)
-
-    def _customer_of(rel):
-        return (rel.id, rel.name) if rel else (None, '未关联客户')
+    def _add(cid, cname, payload):
+        rows.append({'customer_id': cid, 'customer_name': cname, **payload})
 
     if tab in ('all', 'inspection'):
         q = _I.query.options(joinedload(_I.customer_rel))
@@ -471,11 +619,21 @@ def api_reports():
             q = q.filter(_I.inspection_date <= date_to)
         if customer_id:
             q = q.filter(_I.customer_id == customer_id)
+        if search:
+            q = q.filter(_I.title.ilike(f'%{search}%'))
         for i in q.order_by(_I.inspection_date.desc(), _I.id.desc()).all():
             cid, cname = _customer_of(i.customer_rel)
-            _push(cid, cname, 'inspection', {
-                'id': i.id, 'title': i.title,
-                'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
+            rep = _report_download(i.report_file) or _report_download(i.submitted_report)
+            _add(cid, cname, {
+                'id': i.id, 'type': 'inspection',
+                'title': i.title,
+                'date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
+                'status': i.review_status or '',
+                'report_name': rep[0] if rep else '',
+                'report_url': rep[1] if rep else '',
+                'has_report': bool(rep),
+                'size_display': '',
+                '_sort_dt': _as_dt(i.inspection_date),
             })
 
     if tab in ('all', 'fault'):
@@ -486,11 +644,21 @@ def api_reports():
             q = q.filter(_F.fault_time <= date_to)
         if customer_id:
             q = q.filter(_F.customer_id == customer_id)
+        if search:
+            q = q.filter(_F.title.ilike(f'%{search}%'))
         for f in q.order_by(_F.fault_time.desc(), _F.id.desc()).all():
             cid, cname = _customer_of(f.customer_rel)
-            _push(cid, cname, 'fault', {
-                'id': f.id, 'title': f.title, 'result': f.result or '',
-                'fault_time': f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '',
+            rep = _report_download(f.report_file)
+            _add(cid, cname, {
+                'id': f.id, 'type': 'fault',
+                'title': f.title,
+                'date': f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '',
+                'status': f.result or '',
+                'report_name': rep[0] if rep else '',
+                'report_url': rep[1] if rep else '',
+                'has_report': bool(rep),
+                'size_display': '',
+                '_sort_dt': _as_dt(f.fault_time),
             })
 
     if tab in ('all', 'ticket'):
@@ -501,73 +669,35 @@ def api_reports():
             q = q.filter(_T.created_at <= date_to)
         if customer_id:
             q = q.filter(_T.customer_id == customer_id)
+        if search:
+            q = q.filter(_T.title.ilike(f'%{search}%'))
         for t in q.order_by(_T.created_at.desc(), _T.id.desc()).all():
             cid, cname = _customer_of(t.customer_rel)
-            _push(cid, cname, 'ticket', {
-                'id': t.id, 'number': t.number, 'title': t.title,
-                'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
+            rep = _report_download(t.report_file)
+            _add(cid, cname, {
+                'id': t.id, 'type': 'ticket',
+                'title': f'{t.number} · {t.title}',
+                'date': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
+                'status': t.status or '',
+                'report_name': rep[0] if rep else '',
+                'report_url': rep[1] if rep else '',
+                'has_report': bool(rep),
+                'size_display': '',
+                '_sort_dt': _as_dt(t.created_at),
             })
 
-    if tab in ('all', 'file') and os.path.isdir(REPORTS_DIR):
-        def _normkey(p):
-            return os.path.normcase(os.path.normpath(p)) if p else ''
+    if tab in ('all', 'file'):
+        rows.extend(_scan_report_files(date_from, date_to, customer_id, search))
 
-        file_to_record = {}
-        for Mdl in (_I, _F, _T):
-            for rec in Mdl.query.options(joinedload(Mdl.customer_rel)).filter(
-                    Mdl.report_file.isnot(None), Mdl.report_file != '').all():
-                v = (rec.report_file or '').strip()
-                if not v:
-                    continue
-                for c in (v, os.path.basename(v), _normkey(v), _normkey(os.path.basename(v)),
-                          _normkey(os.path.join('reports', v))):
-                    if c and c not in file_to_record:
-                        file_to_record[c] = rec
+    # 统一按时间倒序（记录按各自日期，文件按修改时间）
+    rows.sort(key=lambda r: r.get('_sort_dt') or datetime.min, reverse=True)
+    for r in rows:
+        r.pop('_sort_dt', None)
 
-        for fname in sorted(os.listdir(REPORTS_DIR), reverse=True):
-            full = os.path.join(REPORTS_DIR, fname)
-            if not os.path.isfile(full):
-                continue
-            ftype = '巡检' if '巡检' in fname else ('故障' if '故障' in fname else '其他')
-            rec = (file_to_record.get(_normkey(full)) or file_to_record.get(_normkey(fname)))
-            size = os.path.getsize(full)
-            item = {
-                'filename': fname,
-                'type': ftype + '报告' if ftype != '其他' else '其他',
-                'size_display': f'{size / 1024:.1f} KB',
-                'create_time': datetime.fromtimestamp(os.path.getmtime(full)).strftime('%Y-%m-%d %H:%M'),
-            }
-            cid, cname = _customer_of(rec.customer_rel) if rec else (None, '未关联客户')
-            _push(cid, cname, 'file', item)
-
-    # 每类型每组最多 100 条（counts 保持真实计数）
-    for b in buckets.values():
-        for rt in _REPORT_TYPES:
-            b['items'][rt] = b['items'][rt][:100]
-
-    # 排序：真实客户按 name，未关联固定末位
-    data_order = sorted([v for k, v in buckets.items() if k is not None], key=lambda x: x['name'])
-    unassigned = buckets.get(None)
-    if unassigned:
-        data_order.append(unassigned)
-
-    def _tcount(p, t):
-        return p['counts'].get(t, 0)
-
-    tab_stats = {}
-    for t in _REPORT_TABS:
-        if t == 'all':
-            tab_stats[t] = {
-                'customers': sum(1 for p in data_order if any(p['counts'].values())),
-                'total': sum(sum(p['counts'].values()) for p in data_order),
-            }
-        else:
-            tab_stats[t] = {
-                'customers': sum(1 for p in data_order if _tcount(p, t)),
-                'total': sum(_tcount(p, t) for p in data_order),
-            }
-
-    return ok({'data_order': data_order, 'tab_stats': tab_stats})
+    total = len(rows)
+    stats = {'customers': len({r['customer_id'] for r in rows}), 'total': total}
+    items = rows[(page - 1) * page_size: page * page_size]
+    return ok({'items': items, 'total': total, 'stats': stats})
 
 # ==================== 巡检人员 ====================
 @vue_api_bp.route('/api/inspectors', methods=['GET'])

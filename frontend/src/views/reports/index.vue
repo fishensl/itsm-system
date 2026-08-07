@@ -19,6 +19,8 @@
           @change="reload">
           <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
+        <el-input v-model="query.search" placeholder="搜索标题/文件名" clearable class="filter-search"
+          @keyup.enter="reload" @clear="reload" />
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
       </div>
     </el-card>
@@ -29,135 +31,108 @@
       <el-tab-pane label="巡检" name="inspection" />
       <el-tab-pane label="故障" name="fault" />
       <el-tab-pane label="工单" name="ticket" />
-      <el-tab-pane label="文件" name="file" />
+      <el-tab-pane label="报告文件" name="file" />
     </el-tabs>
 
-    <!-- 客户分桶 -->
-    <div v-loading="loading">
-      <el-collapse v-model="openPanels">
-        <el-collapse-item v-for="(bucket, i) in dataOrder" :key="i" :name="i">
-          <template #title>
-            <div class="bucket-title">
-              <span class="bucket-name">{{ bucket.name }}</span>
-              <span class="bucket-badges">
-                <el-tag v-if="bucket.counts.inspection" size="small" type="primary">巡检 {{ bucket.counts.inspection }}</el-tag>
-                <el-tag v-if="bucket.counts.fault" size="small" type="danger">故障 {{ bucket.counts.fault }}</el-tag>
-                <el-tag v-if="bucket.counts.ticket" size="small" type="warning">工单 {{ bucket.counts.ticket }}</el-tag>
-                <el-tag v-if="bucket.counts.file" size="small" type="success">报告 {{ bucket.counts.file }}</el-tag>
-                <el-tag v-else size="small" type="info">无报告</el-tag>
-              </span>
-            </div>
-          </template>
-
-          <!-- 巡检 -->
-          <template v-if="bucket.items.inspection.length">
-            <div class="bucket-section-label">巡检记录</div>
-            <div v-for="item in bucket.items.inspection" :key="'i' + item.id" class="record-row">
-              <span class="record-title">{{ item.title }}</span>
-              <span class="record-meta">{{ item.inspection_date || '-' }}</span>
-            </div>
-          </template>
-
-          <!-- 故障 -->
-          <template v-if="bucket.items.fault.length">
-            <div class="bucket-section-label">故障记录</div>
-            <div v-for="item in bucket.items.fault" :key="'f' + item.id" class="record-row">
-              <span class="record-title">{{ item.title }}</span>
-              <span class="record-meta">
-                {{ item.fault_time || '-' }}
-                <el-tag v-if="item.result" size="small" :type="FAULT_RESULT_TAG[item.result] || 'danger'">
-                  {{ item.result }}
-                </el-tag>
-              </span>
-            </div>
-          </template>
-
-          <!-- 工单 -->
-          <template v-if="bucket.items.ticket.length">
-            <div class="bucket-section-label">工单记录</div>
-            <div v-for="item in bucket.items.ticket" :key="'t' + item.id" class="record-row">
-              <span class="record-title">{{ item.number }} · {{ item.title }}</span>
-              <span class="record-meta">{{ item.created_at || '-' }}</span>
-            </div>
-          </template>
-
-          <!-- 文件报告 -->
-          <template v-if="bucket.items.file.length">
-            <div class="bucket-section-label">报告文件</div>
-            <div v-for="item in bucket.items.file" :key="item.filename" class="record-row">
-              <span class="record-title file-name">{{ item.filename }}</span>
-              <span class="record-meta">
-                {{ item.type }} · {{ item.size_display }} · {{ item.create_time }}
-                <el-button size="small" link type="primary" :icon="Download"
-                  @click="downloadFile(item.filename)">下载</el-button>
-                <el-button v-if="user.hasPerm('report:delete')" size="small" link type="danger"
-                  :icon="Delete" @click="deleteFile(item.filename)">删除</el-button>
-              </span>
-            </div>
-          </template>
-
-          <el-empty v-if="!bucket.items.inspection.length && !bucket.items.fault.length
-            && !bucket.items.ticket.length && !bucket.items.file.length"
-            description="该客户暂无记录" :image-size="40" />
-        </el-collapse-item>
-      </el-collapse>
-      <el-empty v-if="!loading && dataOrder.length === 0" description="暂无数据" :image-size="80" />
-    </div>
+    <!-- 统一列表（记录 + 报告文件，每行可下载报告） -->
+    <DataTable
+      ref="tableRef"
+      :columns="columns"
+      :fetch-data="fetchReportsData"
+      :query="query"
+      row-key="id"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, h, type VNode } from 'vue'
 import { Search, Download, Delete } from '@element-plus/icons-vue'
-import request, { http } from '@/utils/request'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { http } from '@/utils/request'
+import type { PageResult } from '@/types'
 import {
-  fetchReports, type ReportTab, type ReportBucket,
+  fetchReports, REPORT_TYPE_TAG, REPORT_TYPE_MAP, type ReportTab,
 } from '@/api/reports'
 import { fetchCustomers } from '@/api/customers'
-import { FAULT_RESULT_TAG } from '@/api/faults'
-import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
-const user = useUserStore()
 const ui = useUiStore()
 
 const tab = ref<ReportTab>('all')
-const query = reactive<Record<string, unknown>>({ date_from: '', date_to: '', customer_id: undefined })
-const dataOrder = ref<ReportBucket[]>([])
+const query = reactive<Record<string, unknown>>({
+  date_from: '', date_to: '', customer_id: undefined, search: '',
+})
 const stats = reactive<{ customers: number; total: number }>({ customers: 0, total: 0 })
-const loading = ref(false)
-const openPanels = ref<number[]>([])
+const tableRef = ref()
 
 const customers = ref<{ id: number; name: string }[]>([])
 
-async function load() {
-  loading.value = true
-  try {
-    const data = await fetchReports({
-      tab: tab.value,
-      date_from: (query.date_from as string) || undefined,
-      date_to: (query.date_to as string) || undefined,
-      customer_id: query.customer_id as number | undefined,
-    })
-    dataOrder.value = data.data_order
-    const s = data.tab_stats[tab.value]
-    stats.customers = s?.customers ?? 0
-    stats.total = s?.total ?? 0
-  } catch {
-    /* 拦截器已提示 */
-  } finally {
-    loading.value = false
-  }
+/** 状态徽章颜色：巡检审核状态 / 故障结果 / 工单状态 / 文件报告类型 */
+const STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
+  '已通过': 'success', '已退回': 'danger', '待审核': 'warning', '草稿': 'info',
+  '已解决': 'success', '待观察': 'warning', '未解决': 'danger',
+  '已完成': 'success', '已关闭': 'info', '处理中': 'primary', '待验收': 'primary',
+  '待派单': 'warning', '待接单': 'warning',
+  '巡检报告': 'primary', '故障报告': 'danger',
 }
 
-function reload() { load() }
-
-function downloadFile(filename: string) {
-  window.open(`/reports/${encodeURIComponent(filename)}`, '_blank')
+function reportCell(row: Record<string, any>): string | VNode {
+  if (!row.has_report || !row.report_url) return h('span', { class: 'report-none' }, '无')
+  return h('div', { class: 'report-cell' }, [
+    h('span', { class: 'report-name', title: row.report_name }, row.report_name),
+    h('span', { class: 'report-size' }, row.size_display ? `（${row.size_display}）` : ''),
+    h('a', { class: 'report-download', href: row.report_url, target: '_blank' }, '下载'),
+  ])
 }
 
-async function deleteFile(filename: string) {
+const columns = computed<DataColumn[]>(() => [
+  { key: 'type', label: '类型', width: 90, type: 'tag', asTag: true,
+    tagMap: REPORT_TYPE_TAG, valueMap: REPORT_TYPE_MAP },
+  { key: 'title', label: '标题 / 文件名', minWidth: 200, asTitle: true, type: 'link',
+    link: (r) => (r.type === 'inspection'
+      ? `/app/inspections/${r.id}`
+      : (r.type === 'ticket' ? `/app/tickets/${r.id}` : '')) },
+  { key: 'customer_name', label: '客户', minWidth: 100 },
+  { key: 'date', label: '日期', width: 140 },
+  { key: 'status', label: '状态', width: 90, type: 'tag', valueMap: { '': '—' }, tagMap: STATUS_TAG },
+  { key: 'report', label: '报告文件', minWidth: 180, type: 'custom', render: (row) => reportCell(row) },
+  { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right',
+    actions: [
+      { label: '下载报告', type: 'primary', link: true, icon: 'Download', perm: 'report:view',
+        disabled: (row) => !row.has_report,
+        onClick: (row) => downloadReport(row as Record<string, unknown>) },
+      { label: '删除', type: 'danger', link: true, icon: 'Delete', perm: 'report:delete',
+        disabled: (row) => row.type !== 'file' || !row.deletable,
+        onClick: (row) => deleteFile(row as Record<string, unknown>) },
+    ] },
+])
+
+/** DataTable 适配：分页拉取统一列表，同步页头统计 */
+async function fetchReportsData(params: Record<string, any>): Promise<PageResult<Record<string, any>>> {
+  const data = await fetchReports({
+    tab: tab.value,
+    date_from: (params.date_from as string) || undefined,
+    date_to: (params.date_to as string) || undefined,
+    customer_id: params.customer_id as number | undefined,
+    search: (params.search as string) || undefined,
+    page: params.page,
+    page_size: params.page_size,
+  })
+  stats.customers = data.stats.customers
+  stats.total = data.stats.total
+  return { items: data.items, total: data.total, page: params.page, page_size: params.page_size }
+}
+
+function reload() { tableRef.value?.refresh() }
+
+function downloadReport(row: Record<string, unknown>) {
+  if (row.report_url) window.open(row.report_url as string, '_blank')
+}
+
+async function deleteFile(row: Record<string, unknown>) {
+  const filename = row.title as string
   try {
     await ElMessageBox.confirm(`确定删除报告「${filename}」吗？`, '删除确认', { type: 'warning' })
   } catch { return }
@@ -165,34 +140,29 @@ async function deleteFile(filename: string) {
     // SSR 删除端点返回 redirect HTML，用裸 axios 发送（响应体不解析）
     await http.post(`/reports/delete/${encodeURIComponent(filename)}`)
     ui.toast('已删除', 'success')
-    load()
+    reload()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
 }
 
 onMounted(() => {
-  load()
   fetchCustomers({ page: 1, page_size: 100 }).then((d) => {
     customers.value = d.items.map((c) => ({ id: c.id, name: c.name }))
   }).catch(() => {})
 })
-
-watch(tab, () => { openPanels.value = [] })
 </script>
 
 <style scoped>
 .filter-card { margin-bottom: 12px; }
 .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .filter-item { width: 150px; max-width: 100%; }
+.filter-search { width: 180px; max-width: 100%; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .report-tabs { margin-bottom: 8px; }
-.bucket-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding-right: 12px; }
-.bucket-name { font-weight: 600; }
-.bucket-badges { display: flex; gap: 6px; flex-wrap: wrap; }
-.bucket-section-label { font-size: 12px; color: var(--itsm-text-muted); margin: 8px 0 4px; }
-.record-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; padding: 6px 4px; border-bottom: 1px dashed var(--itsm-border); flex-wrap: wrap; }
-.record-title { word-break: break-all; }
-.file-name { font-family: Consolas, monospace; font-size: 12px; }
-.record-meta { color: var(--itsm-text-muted); font-size: 12px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.report-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.report-name { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
+.report-size { color: var(--itsm-text-muted); font-size: 12px; }
+.report-download { color: var(--el-color-primary); font-size: 12px; }
+.report-none { color: var(--itsm-text-muted); font-size: 12px; }
 </style>
