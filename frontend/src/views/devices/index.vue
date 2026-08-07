@@ -52,6 +52,9 @@
         </el-select>
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
         <template v-if="mode === 'table'">
+          <el-button size="small" text type="primary" :icon="Setting" @click="openColSettings">
+            列设置
+          </el-button>
           <el-tag type="primary" effect="plain" class="scope-tag">
             客户：{{ tableCustomer?.name || '全部客户' }} · 共 {{ tableTotal }} 台
           </el-tag>
@@ -388,7 +391,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back } from '@element-plus/icons-vue'
+import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -437,6 +440,10 @@ function backToTree() {
   query.customer_id = undefined
   tableCustomer.value = null
   loadTree()
+}
+
+function openColSettings() {
+  tableRef.value?.openColumnSettings?.()
 }
 
 function onCustomerFilterChange() {
