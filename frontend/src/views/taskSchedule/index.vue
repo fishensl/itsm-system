@@ -227,7 +227,7 @@
             <el-descriptions-item label="巡检日期">{{ record.inspection_date || '-' }}</el-descriptions-item>
             <el-descriptions-item label="现场报告">
               <el-link v-if="record.submitted_report_name" type="primary" :underline="false"
-                @click="downloadLatestReport">下载</el-link>
+                @click="previewLatestReport">{{ record.submitted_report_name }}</el-link>
               <span v-else>-</span>
             </el-descriptions-item>
           </el-descriptions>
@@ -246,6 +246,18 @@
         <el-button type="danger" plain :loading="deleting" @click="onDelete(detail)" class="mt-2">删除任务</el-button>
       </template>
     </el-drawer>
+
+    <!-- 现场报告预览弹窗 -->
+    <el-dialog v-model="reportPreviewVisible" title="现场报告预览" width="900px" top="5vh" destroy-on-close>
+      <div class="preview-body">
+        <FilePreview v-if="reportPreviewUrl" :url="reportPreviewUrl" :file-name="reportPreviewName" />
+      </div>
+      <template #footer>
+        <span class="preview-name">{{ reportPreviewName || '' }}</span>
+        <el-button @click="reportPreviewVisible = false">关闭</el-button>
+        <el-button type="primary" :icon="Download" @click="downloadLatestReport">下载文件</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 上传提交资料（全套：报告 + 配置备份 + 拓扑图 + 资产清单） -->
     <el-dialog v-model="uploadVisible" title="上传巡检资料并提交审核" width="680px" destroy-on-close>
@@ -370,6 +382,7 @@ import {
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
   versionReportUrl, type Inspection, type SubmissionVersion } from '@/api/inspections'
 import VersionTimeline from '@/components/VersionTimeline.vue'
+import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { TASK_STATUS, REVIEW_STATUS, REVIEW_STATUS_TAG } from '@/utils/status'
@@ -612,6 +625,19 @@ function downloadLatestReport() {
   if (rid) window.open(versionReportUrl('inspection', rid), '_blank')
 }
 
+// ==================== 现场报告在线预览 ====================
+const reportPreviewVisible = ref(false)
+const reportPreviewUrl = ref('')
+const reportPreviewName = ref('')
+
+function previewLatestReport() {
+  const latest = versions.value.slice().reverse().find((v) => v.report_file)
+  if (!latest) return
+  reportPreviewUrl.value = versionReportUrl('inspection', latest.id)
+  reportPreviewName.value = latest.report_name || ''
+  reportPreviewVisible.value = true
+}
+
 async function doUpload() {
   if (!detail.value) return
   if (!uploadFile.value && !skipReasons.report.trim()) {
@@ -776,6 +802,8 @@ onMounted(reload)
 .record-block { margin-bottom: 10px; }
 .record-conclusion { font-size: 13px; margin: 8px 0; white-space: pre-wrap; }
 .upload-hint { color: var(--el-color-warning); font-size: 12px; }
+.preview-body { min-height: 420px; }
+.preview-name { float: left; font-size: 12px; color: var(--el-text-color-secondary); line-height: 32px; }
 .mt-2 { margin-top: 8px; }
 .asset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .asset-col { display: flex; flex-direction: column; gap: 8px; width: 100%; }

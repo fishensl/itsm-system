@@ -32,17 +32,25 @@
             <template v-if="v.content?.remark">
               <div class="vt-row"><span class="vt-label">提交备注</span><span class="vt-remark">{{ v.content.remark }}</span></div>
             </template>
-            <div v-if="v.report_file" class="vt-row">
+            <div v-if="v.report_file || reportAsset(v)" class="vt-row">
               <span class="vt-label">报告</span>
-              <el-link type="primary" :underline="false" @click="download(v)">
-                <el-icon style="margin-right: 2px"><Download /></el-icon>{{ v.report_name || '下载报告' }}
-              </el-link>
+              <template v-if="reportAsset(v)?.skip_reason">
+                <span class="vt-skip">未上传（原因：{{ reportAsset(v)!.skip_reason }}）</span>
+              </template>
+              <template v-else-if="v.report_file">
+                <el-link type="primary" :underline="false" @click="previewReport(v)">
+                  <el-icon style="margin-right: 2px"><View /></el-icon>{{ v.report_name || '查看报告' }}
+                </el-link>
+                <el-link type="info" :underline="false" style="margin-left: 6px" @click="download(v)">
+                  <el-icon style="margin-right: 2px"><Download /></el-icon>下载
+                </el-link>
+              </template>
+              <span v-else class="vt-none">未上传</span>
             </div>
-            <div v-else class="vt-row"><span class="vt-label">报告</span><span class="vt-none">未上传</span></div>
 
-            <!-- 提交资料明细（配置备份/拓扑图/资产清单） -->
-            <div v-if="v.assets?.length" class="vt-assets">
-              <div v-for="a in v.assets" :key="a.id" class="vt-row">
+            <!-- 提交资料明细（配置备份/拓扑图/资产清单；报告已在顶部显示，不重复） -->
+            <div v-if="nonReportAssets(v).length" class="vt-assets">
+              <div v-for="a in nonReportAssets(v)" :key="a.id" class="vt-row">
                 <span class="vt-label">{{ ASSET_LABELS[a.asset_type] || a.asset_type }}</span>
                 <template v-if="a.skip_reason">
                   <span class="vt-skip">未上传（原因：{{ a.skip_reason }}）</span>
@@ -100,12 +108,26 @@
         </div>
       </el-timeline-item>
     </el-timeline>
+
+    <!-- 报告预览弹窗 -->
+    <el-dialog v-model="previewVisible" title="报告预览" width="900px" top="5vh" destroy-on-close>
+      <div class="preview-body">
+        <FilePreview v-if="previewUrl" :url="previewUrl" :file-name="previewName" />
+      </div>
+      <template #footer>
+        <span class="preview-name">{{ previewName || '' }}</span>
+        <el-button @click="previewVisible = false">关闭</el-button>
+        <el-button type="primary" :icon="Download" @click="download(previewVersion!)">下载文件</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import { ref } from 'vue'
 import { Download, View, Share, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import FilePreview from '@/components/FilePreview.vue'
 import type { SubmissionVersion, SubmissionAsset } from '@/api/inspections'
 import { versionReportUrl, submissionAssetUrl, fetchSubmissionAssetContent } from '@/api/inspections'
 
@@ -120,6 +142,29 @@ const ASSET_LABELS: Record<string, string> = {
   config_text: '设备文本配置',
   topology: '拓扑图',
   asset_list: '资产清单',
+}
+
+/** 报告资产（豁免原因在顶层报告行展示） */
+function reportAsset(v: SubmissionVersion): SubmissionAsset | undefined {
+  return v.assets?.find((a) => a.asset_type === 'report')
+}
+
+/** 非报告提交资料（报告已在顶部显示，避免重复） */
+function nonReportAssets(v: SubmissionVersion): SubmissionAsset[] {
+  return (v.assets || []).filter((a) => a.asset_type !== 'report')
+}
+
+// ==================== 报告在线预览 ====================
+const previewVisible = ref(false)
+const previewUrl = ref('')
+const previewName = ref('')
+const previewVersion = ref<SubmissionVersion | null>(null)
+
+function previewReport(v: SubmissionVersion) {
+  previewVersion.value = v
+  previewUrl.value = versionReportUrl(props.entityType, v.id)
+  previewName.value = v.report_name || ''
+  previewVisible.value = true
 }
 
 function checkTag(st: string): 'success' | 'danger' | 'info' {
@@ -197,6 +242,8 @@ function download(v: SubmissionVersion) {
   background: var(--el-color-danger-light-9);
   border-radius: 4px;
 }
+.preview-body { min-height: 420px; }
+.preview-name { float: left; font-size: 12px; color: var(--el-text-color-secondary); line-height: 32px; }
 .vt-req-label { color: var(--el-color-danger); }
 .vt-comment { color: var(--el-text-color-primary); white-space: pre-wrap; margin: 2px 0; }
 </style>
