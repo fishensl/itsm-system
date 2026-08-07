@@ -14,7 +14,8 @@
         <template v-if="(data?.groups[cat] || []).length">
           <div class="cat-title">{{ cat }}</div>
           <div class="cat-grid">
-            <div v-for="t in data!.groups[cat]" :key="t.id" class="tpl-card">
+            <div v-for="t in data!.groups[cat]" :key="t.id" class="tpl-card"
+              :class="{ 'tpl-expanded': expandedId === t.id }">
               <div class="tpl-name">
                 {{ t.name }}
                 <el-tag v-if="!t.is_active" size="small" type="info">停用</el-tag>
@@ -24,11 +25,42 @@
                 <span>{{ t.total_sub_items }} 个检查点</span>
               </div>
               <div class="tpl-actions">
-                <el-button size="small" link type="primary" @click="openDetail(t)">查看</el-button>
+                <el-button size="small" link type="primary" @click="toggleDetail(t)">
+                  {{ expandedId === t.id ? '收起' : '查看' }}
+                </el-button>
                 <el-button v-if="user.hasPerm('inspection:edit')" size="small" link type="primary"
                   @click="openEdit(t)">编辑</el-button>
                 <el-button v-if="user.hasPerm('inspection:delete')" size="small" link type="danger"
                   @click="onDelete(t)">删除</el-button>
+              </div>
+
+              <!-- 卡片内展开详情 -->
+              <div v-if="expandedId === t.id" class="tpl-detail">
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="设备类别">{{ t.device_category || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="细分类别">{{ t.device_sub_type || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="状态">
+                    <el-tag size="small" :type="t.is_active ? 'success' : 'info'">
+                      {{ t.is_active ? '启用' : '停用' }}
+                    </el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="检查点">{{ t.total_sub_items }}</el-descriptions-item>
+                </el-descriptions>
+                <el-divider content-position="left">检查项</el-divider>
+                <div v-for="(it, i) in t.items" :key="i" class="item-block">
+                  <div class="item-title">
+                    {{ i + 1 }}. {{ it.name }}
+                    <el-tag v-if="!it.enabled" size="small" type="info">停用</el-tag>
+                  </div>
+                  <div v-if="it.description" class="item-desc">{{ it.description }}</div>
+                  <div v-if="it.sub_items?.length" class="sub-list">
+                    <div v-for="(s, j) in it.sub_items" :key="j" class="sub-item">
+                      {{ s.label || '主项' }}（{{ fieldTypeLabel(s.field_type) }}）
+                      <el-tag v-if="s.required" size="small" type="danger" class="ml-1">必填</el-tag>
+                    </div>
+                  </div>
+                </div>
+                <el-empty v-if="!t.items?.length" description="无检查项" :image-size="50" />
               </div>
             </div>
           </div>
@@ -37,37 +69,6 @@
       <el-empty v-if="!loading && !Object.keys(data?.groups || {}).length" description="暂无设备检查模板"
         :image-size="60" />
     </el-card>
-
-    <!-- 详情 -->
-    <el-drawer v-model="detailVisible" :title="detail ? detail.name : ''" size="620px" destroy-on-close>
-      <template v-if="detail">
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="设备类别">{{ detail.device_category || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="细分类别">{{ detail.device_sub_type || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag size="small" :type="detail.is_active ? 'success' : 'info'">
-              {{ detail.is_active ? '启用' : '停用' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="检查点">{{ detail.total_sub_items }}</el-descriptions-item>
-        </el-descriptions>
-        <el-divider content-position="left">检查项</el-divider>
-        <div v-for="(it, i) in detail.items" :key="i" class="item-block">
-          <div class="item-title">
-            {{ i + 1 }}. {{ it.name }}
-            <el-tag v-if="!it.enabled" size="small" type="info">停用</el-tag>
-          </div>
-          <div v-if="it.description" class="item-desc">{{ it.description }}</div>
-          <div v-if="it.sub_items?.length" class="sub-list">
-            <div v-for="(s, j) in it.sub_items" :key="j" class="sub-item">
-              {{ s.label || '主项' }}（{{ fieldTypeLabel(s.field_type) }}）
-              <el-tag v-if="s.required" size="small" type="danger" class="ml-1">必填</el-tag>
-            </div>
-          </div>
-        </div>
-        <el-empty v-if="!detail.items?.length" description="无检查项" :image-size="50" />
-      </template>
-    </el-drawer>
 
     <!-- 新增/编辑 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑设备检查模板' : '新增设备检查模板'" width="760px" destroy-on-close>
@@ -136,8 +137,7 @@ const loading = ref(false)
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
-const detailVisible = ref(false)
-const detail = ref<DeviceCheckTemplateItem | null>(null)
+const expandedId = ref<number | null>(null)
 const form = reactive<Record<string, unknown>>({
   id: null, name: '', device_category: '网络设备', device_sub_type: '', items: [], is_active: true, remark: '',
 })
@@ -175,9 +175,8 @@ function openEdit(row: DeviceCheckTemplateItem) {
   formVisible.value = true
 }
 
-function openDetail(row: DeviceCheckTemplateItem) {
-  detail.value = row
-  detailVisible.value = true
+function toggleDetail(row: DeviceCheckTemplateItem) {
+  expandedId.value = expandedId.value === row.id ? null : row.id
 }
 
 function addItem() {
@@ -241,6 +240,8 @@ onMounted(load)
 .tpl-sub { font-size: 12px; color: var(--itsm-text-muted); }
 .tpl-meta { font-size: 12px; color: var(--itsm-text-muted); }
 .tpl-actions { margin-top: auto; display: flex; gap: 4px; }
+.tpl-expanded { border-color: var(--el-color-primary); }
+.tpl-detail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--itsm-border); }
 .item-block { border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
 .item-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .item-desc { font-size: 12px; color: var(--itsm-text-muted); margin: 4px 0; }

@@ -3,6 +3,7 @@
     <!-- 桌面/平板：表格 -->
     <div v-if="!isMobile" class="table-wrap">
       <el-table
+        ref="tableEl"
         v-loading="loading"
         :data="items"
         border
@@ -11,6 +12,11 @@
         :max-height="maxHeight"
         @row-click="onRowClick"
       >
+        <el-table-column v-if="expandable" type="expand" width="36">
+          <template #default="scope">
+            <slot name="expand" :row="scope.row" />
+          </template>
+        </el-table-column>
         <el-table-column
           v-for="col in renderCols"
           :key="col.key"
@@ -116,6 +122,9 @@
               <span v-if="act.label">{{ act.label }}</span>
             </el-button>
           </div>
+          <div v-if="expandable && expandedKeys.has(String(row[rowKey]))" class="mobile-expand" @click.stop>
+            <slot name="expand" :row="row" />
+          </div>
         </div>
         <el-empty v-if="!loading && items.length === 0" :description="emptyText" :image-size="60" />
       </div>
@@ -220,6 +229,8 @@ const props = withDefaults(
     emptyText?: string
     maxHeight?: number | string
     immediate?: boolean
+    /** 行内展开详情：开启后点击行切换展开，内容渲染在 #expand 插槽 */
+    expandable?: boolean
     /** 列设置（可选启用）：storageKey 为 localStorage 键；不传则无列设置功能 */
     columnSettings?: { storageKey: string; title?: string }
   }>(),
@@ -227,6 +238,7 @@ const props = withDefaults(
     rowKey: 'id',
     emptyText: '暂无数据',
     immediate: true,
+    expandable: false,
   },
 )
 
@@ -238,6 +250,9 @@ const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 const isMobile = ref(false)
+const tableEl = ref()
+/** 移动端卡片展开的行 key 集合 */
+const expandedKeys = ref<Set<string>>(new Set())
 
 // ==================== 列设置（显示/隐藏 + 顺序，localStorage 持久化） ====================
 const settingsVisible = ref(false)
@@ -384,7 +399,26 @@ async function load() {
 }
 
 function onRowClick(row: Record<string, unknown>) {
+  if (props.expandable) {
+    const key = String(row[props.rowKey])
+    const next = new Set(expandedKeys.value)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    expandedKeys.value = next
+    tableEl.value?.toggleRowExpansion(row)
+  }
   emit('row-click', row)
+}
+
+/** 切换指定行展开（供操作列"查看"按钮等调用） */
+function toggleExpand(row: Record<string, unknown>) {
+  if (!props.expandable) return
+  const key = String(row[props.rowKey])
+  const next = new Set(expandedKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedKeys.value = next
+  tableEl.value?.toggleRowExpansion(row)
 }
 
 function refresh() {
@@ -417,7 +451,7 @@ onBeforeUnmount(() => {
   if (queryTimer) clearTimeout(queryTimer)
 })
 
-defineExpose({ refresh, load, openColumnSettings })
+defineExpose({ refresh, load, openColumnSettings, toggleExpand })
 
 // 权限判定（避免循环依赖：从全局 store 读取）
 import { useUserStore } from '@/stores/user'
@@ -527,5 +561,10 @@ const hasPerm = (code?: string) => useUserStore().hasPerm(code)
   padding-top: 10px;
   border-top: 1px dashed var(--itsm-border);
   flex-wrap: wrap;
+}
+.mobile-expand {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--itsm-border);
 }
 </style>

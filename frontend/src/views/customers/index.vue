@@ -50,92 +50,94 @@
         :nodes="tree"
         :leaf-depth="1"
         badge-key="customer_count"
-        :default-expanded="hasFilter ? 1 : 0"
-        @leaf-click="openDetail"
+        :default-expanded="hasFilter || !!route.params.id ? 2 : 0"
       >
         <template #leaf="{ node }">
-          <div class="tree-block cust-leaf" @click="openDetail(node as Customer)">
-            <el-icon color="#2563eb"><Location /></el-icon>
-            <span class="tree-name">{{ node.name }}</span>
-            <span v-if="node.district" class="tree-district">{{ node.district }}</span>
-            <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[node.level] || 'info'" class="ml-2">
-              {{ CUSTOMER_LEVEL_LABELS[node.level] || node.level }}
-            </el-tag>
-            <el-tag v-if="(node.device_count ?? 0) > 0" size="small" type="info">
-              设备 {{ node.device_count }}
-            </el-tag>
-            <span class="row-actions" @click.stop>
-              <el-button v-if="user.hasPerm('customer:edit')" size="small" link type="primary"
-                @click="openEdit(node as Customer)">编辑</el-button>
-              <el-button v-if="user.hasPerm('customer:delete')" size="small" link type="danger"
-                @click="onDelete(node as Customer)">删除</el-button>
-            </span>
+          <div class="cust-leaf-wrap">
+            <div class="tree-block cust-leaf" @click="toggleDetail(node as Customer)">
+              <el-icon color="#2563eb"><Location /></el-icon>
+              <span class="tree-name">{{ node.name }}</span>
+              <span v-if="node.district" class="tree-district">{{ node.district }}</span>
+              <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[node.level] || 'info'" class="ml-2">
+                {{ CUSTOMER_LEVEL_LABELS[node.level] || node.level }}
+              </el-tag>
+              <el-tag v-if="(node.device_count ?? 0) > 0" size="small" type="info">
+                设备 {{ node.device_count }}
+              </el-tag>
+              <span class="row-actions" @click.stop>
+                <el-button v-if="user.hasPerm('customer:edit')" size="small" link type="primary"
+                  @click="openEdit(node as Customer)">编辑</el-button>
+                <el-button v-if="user.hasPerm('customer:delete')" size="small" link type="danger"
+                  @click="onDelete(node as Customer)">删除</el-button>
+              </span>
+            </div>
+
+            <!-- 行内下展开详情 -->
+            <div v-if="expandedId === (node as Customer).id" v-loading="detailLoading" class="cust-detail">
+              <template v-if="detail">
+                <el-divider content-position="left">基本信息</el-divider>
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="等级">
+                    <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
+                      {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
+                    </el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="单位类别">{{ detail.category_name || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="所属地区">{{ detail.region_name || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="城市">{{ detail.city || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="联系人">{{ detail.contact_person || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="电话">{{ detail.phone || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="邮箱">{{ detail.email || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="来源">{{ detail.source || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="地址" :span="2">{{ detail.address || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
+                </el-descriptions>
+
+                <el-divider content-position="left">驻场信息</el-divider>
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="是否驻场">
+                    <el-tag size="small" :type="detail.has_onsite ? 'success' : 'info'">
+                      {{ detail.has_onsite ? '有' : '无' }}
+                    </el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="攻防演练">
+                    <el-tag size="small" :type="detail.has_drill ? 'warning' : 'info'">
+                      {{ detail.has_drill ? '有' : '无' }}
+                    </el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="驻场联系人">{{ detail.onsite_contact || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="驻场电话">{{ detail.onsite_phone || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="驻场办公室" :span="2">{{ detail.onsite_office || '-' }}</el-descriptions-item>
+                </el-descriptions>
+
+                <el-divider content-position="left">关联统计</el-divider>
+                <el-descriptions :column="3" border size="small">
+                  <el-descriptions-item label="设备数">{{ detail.device_count ?? 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="巡检数">{{ detail.inspection_count ?? 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="工单数">{{ detail.ticket_count ?? 0 }}</el-descriptions-item>
+                </el-descriptions>
+
+                <template v-if="detail.extra_fields?.length">
+                  <el-divider content-position="left">自定义字段</el-divider>
+                  <el-descriptions :column="1" border size="small">
+                    <el-descriptions-item v-for="f in detail.extra_fields" :key="f.name" :label="f.name">
+                      {{ f.value || '-' }}
+                    </el-descriptions-item>
+                  </el-descriptions>
+                </template>
+
+                <div class="drawer-actions">
+                  <el-button v-if="user.hasPerm('customer:edit')" type="primary" size="small"
+                    @click="openEdit(detail)">编辑</el-button>
+                  <el-button size="small" @click="collapseDetail">收起</el-button>
+                </div>
+              </template>
+            </div>
           </div>
         </template>
       </GroupTree>
       <el-empty v-if="!treeLoading && !tree.length" description="暂无客户" :image-size="60" />
     </el-card>
-
-    <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" :title="detail ? detail.name : ''" size="560px" destroy-on-close>
-      <template v-if="detail">
-        <el-divider content-position="left">基本信息</el-divider>
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="等级">
-            <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
-              {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="单位类别">{{ detail.category_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="所属地区">{{ detail.region_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="城市">{{ detail.city || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="联系人">{{ detail.contact_person || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="电话">{{ detail.phone || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="邮箱">{{ detail.email || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="来源">{{ detail.source || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="地址" :span="2">{{ detail.address || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
-        </el-descriptions>
-
-        <el-divider content-position="left">驻场信息</el-divider>
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="是否驻场">
-            <el-tag size="small" :type="detail.has_onsite ? 'success' : 'info'">
-              {{ detail.has_onsite ? '有' : '无' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="攻防演练">
-            <el-tag size="small" :type="detail.has_drill ? 'warning' : 'info'">
-              {{ detail.has_drill ? '有' : '无' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="驻场联系人">{{ detail.onsite_contact || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="驻场电话">{{ detail.onsite_phone || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="驻场办公室" :span="2">{{ detail.onsite_office || '-' }}</el-descriptions-item>
-        </el-descriptions>
-
-        <el-divider content-position="left">关联统计</el-divider>
-        <el-descriptions :column="3" border size="small">
-          <el-descriptions-item label="设备数">{{ detail.device_count ?? 0 }}</el-descriptions-item>
-          <el-descriptions-item label="巡检数">{{ detail.inspection_count ?? 0 }}</el-descriptions-item>
-          <el-descriptions-item label="工单数">{{ detail.ticket_count ?? 0 }}</el-descriptions-item>
-        </el-descriptions>
-
-        <template v-if="detail.extra_fields?.length">
-          <el-divider content-position="left">自定义字段</el-divider>
-          <el-descriptions :column="1" border size="small">
-            <el-descriptions-item v-for="f in detail.extra_fields" :key="f.name" :label="f.name">
-              {{ f.value || '-' }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </template>
-
-        <div class="drawer-actions">
-          <el-button v-if="user.hasPerm('customer:edit')" type="primary" @click="openEdit(detail)">编辑</el-button>
-          <el-button @click="detailVisible = false">关闭</el-button>
-        </div>
-      </template>
-    </el-drawer>
 
     <!-- 新建/编辑弹窗 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑客户' : '新建客户'" width="720px" top="5vh" destroy-on-close>
@@ -354,21 +356,34 @@ async function loadTree() {
   }
 }
 
-// 详情
-const detailVisible = ref(false)
+// 详情（行内下展开）
+const expandedId = ref<number | null>(null)
+const detailLoading = ref(false)
 const detail = ref<Customer | null>(null)
 
-async function openDetail(row: { id: number }) {
+async function toggleDetail(row: { id: number }) {
+  if (expandedId.value === row.id) {
+    collapseDetail()
+    return
+  }
+  expandedId.value = row.id
+  detailLoading.value = true
   try {
     detail.value = await fetchCustomer(row.id)
-    detailVisible.value = true
-  } catch { /* toast */ }
+  } catch { /* toast */ } finally {
+    detailLoading.value = false
+  }
+}
+
+function collapseDetail() {
+  expandedId.value = null
+  detail.value = null
 }
 
 // 支持 /app/customers/:id 直达（全局搜索跳转）
 onMounted(() => {
   const id = Number(route.params.id)
-  if (id && !Number.isNaN(id)) openDetail({ id })
+  if (id && !Number.isNaN(id)) toggleDetail({ id })
 })
 
 // 表单
@@ -426,7 +441,6 @@ function openEdit(c: Customer) {
     has_onsite: c.has_onsite, onsite_contact: c.onsite_contact, onsite_phone: c.onsite_phone,
     onsite_office: c.onsite_office, has_drill: c.has_drill, remark: c.remark,
   })
-  detailVisible.value = false
   formVisible.value = true
 }
 
@@ -466,7 +480,7 @@ async function onDelete(c: Customer) {
   try {
     await deleteCustomer(c.id)
     ui.toast('已删除', 'success')
-    detailVisible.value = false
+    if (expandedId.value === c.id) collapseDetail()
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -489,12 +503,22 @@ onMounted(() => {
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
 .drawer-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.cust-leaf-wrap { margin-bottom: 8px; }
 .cust-leaf {
   display: flex; align-items: center; gap: 8px; padding: 9px 12px;
   font-size: 13px; cursor: pointer; border: 1px solid var(--itsm-border);
   border-radius: 8px; margin-bottom: 8px;
 }
 .cust-leaf:hover { background: var(--el-fill-color-light); }
+.cust-detail {
+  border: 1px solid var(--itsm-border);
+  border-top: 2px solid var(--el-color-primary);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--itsm-card-bg);
+  min-height: 60px;
+}
 .ml-2 { margin-left: 4px; }
 .tree-name { font-weight: 600; flex-shrink: 0; }
 .tree-district { font-size: 12px; color: var(--itsm-text-muted); font-weight: 400; }

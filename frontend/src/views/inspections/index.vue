@@ -32,88 +32,25 @@
       </div>
     </el-card>
 
-    <!-- 列表 -->
+    <!-- 列表（点击行内展开详情） -->
     <DataTable
       ref="tableRef"
       :columns="columns"
       :fetch-data="fetchInspections"
       :query="query"
       row-key="id"
-      @row-click="openDetail"
-    />
-
-    <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" :title="detail ? `#${detail.id} · ${detail.title}` : ''"
-      size="600px" destroy-on-close>
-      <div v-if="detail">
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="总体状态">
-            <el-tag size="small" :type="OVERALL_STATUS_TAG[detail.overall_status] || 'info'">
-              {{ detail.overall_status }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="审核状态">
-            <el-tag size="small" :type="REVIEW_STATUS_TAG[detail.review_status] || 'info'">
-              {{ detail.review_status }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="关联任务">
-            {{ detail.task_title || '-' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="巡检日期">{{ detail.inspection_date || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="巡检人员">{{ detail.inspector_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="现场报告">
-            <el-link v-if="detail.submitted_report_name" type="primary" :underline="false"
-              @click="downloadLatest">下载</el-link>
-            <span v-else class="text-muted">无</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="正式报告">
-            <el-link v-if="detail.report_file && detail.report_file_name" type="primary" :underline="false"
-              @click="downloadFormal">下载</el-link>
-            <span v-else class="text-muted">未生成</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="资料完整">
-            <el-tag size="small" :type="detail.complete ? 'success' : 'warning'">
-              {{ detail.complete ? '完整' : '缺:' + (detail.missing_fields || []).join('、') }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="巡检地点">{{ detail.location || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
-        </el-descriptions>
-
-        <el-divider content-position="left">结论</el-divider>
-        <p class="detail-text">{{ detail.conclusion || '-' }}</p>
-
-        <template v-if="detail.review_comment">
-          <el-divider content-position="left">审核意见</el-divider>
-          <p class="detail-text review-comment">{{ detail.review_comment }}</p>
-        </template>
-
-        <!-- 提交审核记录时间线 -->
-        <el-divider content-position="left">提交审核记录（每次上传 + 每轮审核）</el-divider>
-        <VersionTimeline :versions="versions" entity-type="inspection" />
-
-        <!-- 审核操作 -->
-        <el-divider content-position="left">操作</el-divider>
-        <div class="action-bar">
-          <template v-if="detail.review_status === '草稿'">
-            <el-button v-if="user.hasPerm('inspection:edit')" size="small" type="primary"
-              @click="onSubmit">提交审核</el-button>
-          </template>
-          <template v-else-if="detail.review_status === '待审核'">
-            <el-button v-if="user.hasPerm('inspection:review')" size="small" type="success"
-              @click="openReview(true)">审核通过</el-button>
-            <el-button v-if="user.hasPerm('inspection:review')" size="small" type="danger"
-              @click="openReview(false)">退回修改</el-button>
-          </template>
-          <el-button v-if="user.hasPerm('inspection:edit')" size="small" type="primary" plain
-            @click="openEdit(detail)">编辑</el-button>
-          <el-button v-if="user.hasPerm('inspection:delete')" size="small" type="danger" plain
-            @click="onDelete(detail)">删除</el-button>
-        </div>
-      </div>
-    </el-drawer>
+      expandable
+    >
+      <template #expand="{ row }">
+        <InspectionExpandRow
+          :row="row"
+          @submit="onSubmit(row as unknown as Inspection)"
+          @review="(approved: boolean) => openReview(row as unknown as Inspection, approved)"
+          @edit="openEdit(row as unknown as Inspection)"
+          @delete="onDelete(row as unknown as Inspection)"
+        />
+      </template>
+    </DataTable>
 
     <!-- 审核弹窗（双栏：报告在线预览 + 检查项清单勾选） -->
     <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="1080px"
@@ -278,7 +215,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search, Download, FolderOpened, UploadFilled, MagicStick } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
-import VersionTimeline from '@/components/VersionTimeline.vue'
+import InspectionExpandRow from './InspectionExpandRow.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -329,7 +266,7 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right',
     actions: [
       { label: '查看', type: 'primary', link: true, perm: 'inspection:view', icon: 'View',
-        onClick: (row) => openDetail(row) },
+        onClick: (row) => tableRef.value?.toggleExpand(row) },
       { label: '编辑', type: 'primary', link: true, perm: 'inspection:edit', icon: 'Edit',
         onClick: (row) => openEdit(row as unknown as Inspection) },
       { label: '删除', type: 'danger', link: true, perm: 'inspection:delete', icon: 'Delete',
@@ -337,52 +274,27 @@ const columns = computed<DataColumn[]>(() => [
     ] },
 ])
 
-// 详情
-const detailVisible = ref(false)
+// 当前操作目标行（提交审核/审核弹窗等共用）
+const actionRow = ref<Inspection | null>(null)
+
+// 审核弹窗数据（打开前按目标行拉取）
 const detail = ref<Inspection | null>(null)
 const versions = ref<SubmissionVersion[]>([])
 
-async function openDetail(row: Record<string, unknown>) {
+async function loadTarget(row: Inspection) {
+  const [full, vers] = await Promise.all([
+    fetchInspection(row.id),
+    fetchInspectionVersions(row.id),
+  ])
+  detail.value = full
+  versions.value = vers
+}
+
+async function onSubmit(row: Inspection) {
+  actionRow.value = row
   try {
-    const [full, vers] = await Promise.all([
-      fetchInspection(row.id as number),
-      fetchInspectionVersions(row.id as number),
-    ])
-    detail.value = full
-    versions.value = vers
-    detailVisible.value = true
-  } catch { /* toast */ }
-}
-
-function downloadLatest() {
-  const latest = versions.value.slice().reverse().find((v) => v.report_file)
-  if (!latest || !detail.value) return
-  window.open(versionReportUrl('inspection', latest.id), '_blank')
-}
-
-function downloadFormal() {
-  if (!detail.value?.report_file_name) return
-  window.open(formalReportUrl(detail.value.report_file_name), '_blank')
-}
-
-async function refreshDetail() {
-  if (!detail.value) return
-  try {
-    const [full, vers] = await Promise.all([
-      fetchInspection(detail.value.id),
-      fetchInspectionVersions(detail.value.id),
-    ])
-    detail.value = full
-    versions.value = vers
-  } catch { /* toast */ }
-}
-
-async function onSubmit() {
-  if (!detail.value) return
-  try {
-    await submitInspection(detail.value.id)
+    await submitInspection(row.id)
     ui.toast('已提交审核', 'success')
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     const msg = (e as Error).message
@@ -411,7 +323,7 @@ function onSubmitReportChange(f: UploadFile) {
 }
 
 async function doSubmitReport() {
-  if (!detail.value) return
+  if (!actionRow.value) return
   if (!submitReportFile.value) {
     ui.toast('请选择现场报告文件', 'warning')
     return
@@ -420,10 +332,9 @@ async function doSubmitReport() {
   try {
     const fd = new FormData()
     fd.append('report_file', submitReportFile.value)
-    await submitInspection(detail.value.id, fd)
+    await submitInspection(actionRow.value.id, fd)
     ui.toast('已上传并提交审核', 'success')
     submitReportVisible.value = false
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -468,8 +379,14 @@ const formalReportUrl2 = computed(() => (formalReportName.value ? formalReportUr
 const pendingTextAsset = computed(() =>
   pendingVersion.value?.assets?.find((a) => a.asset_type === 'config_text' && a.has_content) || null)
 
-async function openReview(approved: boolean) {
-  if (!detail.value) return
+async function openReview(row: Inspection, approved: boolean) {
+  actionRow.value = row
+  try {
+    await loadTarget(row)
+  } catch {
+    ui.toast('加载详情失败', 'error')
+    return
+  }
   reviewApproved.value = approved
   reviewRemark.value = ''
   reviewRequirements.value = ''
@@ -519,7 +436,6 @@ async function doReview() {
       reviewRemark.value.trim(), reviewRequirements.value.trim(), checklist)
     ui.toast(`${reviewApproved.value ? '审核通过' : '退回修改'}成功`, 'success')
     reviewVisible.value = false
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -534,7 +450,7 @@ async function onDelete(i: Inspection) {
   try {
     await deleteInspection(i.id)
     ui.toast('已删除', 'success')
-    detailVisible.value = false
+    if (detail.value?.id === i.id) detail.value = null
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -618,7 +534,6 @@ async function save() {
       }
     }
     formVisible.value = false
-    await refreshDetail()
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -665,11 +580,7 @@ onMounted(() => {
 .date-range { width: 240px; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
-.detail-text { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
-.review-comment { color: var(--el-color-danger); font-weight: 600; }
-.action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .task-status-tag { margin-left: 6px; }
-.text-muted { color: var(--itsm-text-muted); }
 .review-layout { display: flex; gap: 14px; }
 .review-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .review-panel { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; }
