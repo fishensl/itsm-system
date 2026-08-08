@@ -56,9 +56,25 @@ OPP_STAGE_WON = '成交'
 OPP_STAGE_LOST = '失败'
 OPP_STAGES = (OPP_STAGE_INITIAL, OPP_STAGE_REQUIREMENT, OPP_STAGE_PROPOSAL,
               OPP_STAGE_NEGOTIATION, OPP_STAGE_WON, OPP_STAGE_LOST)
+# 商机阶段转换表（S6：顺序推进，终态不可回退；业务附加校验见 sales_service）
+OPP_TRANSITIONS = {
+    OPP_STAGE_INITIAL: {OPP_STAGE_REQUIREMENT, OPP_STAGE_WON, OPP_STAGE_LOST},
+    OPP_STAGE_REQUIREMENT: {OPP_STAGE_PROPOSAL, OPP_STAGE_WON, OPP_STAGE_LOST},
+    OPP_STAGE_PROPOSAL: {OPP_STAGE_NEGOTIATION, OPP_STAGE_WON, OPP_STAGE_LOST},
+    OPP_STAGE_NEGOTIATION: {OPP_STAGE_WON, OPP_STAGE_LOST},
+    OPP_STAGE_WON: set(),
+    OPP_STAGE_LOST: set(),
+}
 
 # ==================== 报价单状态 ====================
 QUOTATION_STATUSES = frozenset({'草稿', '已发送', '已接受', '已拒绝'})
+# 报价单转换表（S6：草稿→已发送→{已接受,已拒绝}；终态不可回退）
+QUOTATION_TRANSITIONS = {
+    '草稿': {'已发送', '已接受', '已拒绝'},
+    '已发送': {'已接受', '已拒绝'},
+    '已接受': set(),
+    '已拒绝': set(),
+}
 
 # ==================== 合同状态 ====================
 CONTRACT_DRAFT = '草签'
@@ -69,6 +85,14 @@ CONTRACT_TERMINATED = '已终止'
 CONTRACT_STATUSES = frozenset({
     CONTRACT_DRAFT, CONTRACT_SIGNED, CONTRACT_ACTIVE, CONTRACT_DONE, CONTRACT_TERMINATED,
 })
+# 合同状态转换表（S6：草签→已签→执行中→{已完成,已终止}；终态不可回退）
+CONTRACT_TRANSITIONS = {
+    CONTRACT_DRAFT: {CONTRACT_SIGNED, CONTRACT_ACTIVE, CONTRACT_TERMINATED},
+    CONTRACT_SIGNED: {CONTRACT_ACTIVE, CONTRACT_TERMINATED},
+    CONTRACT_ACTIVE: {CONTRACT_DONE, CONTRACT_TERMINATED},
+    CONTRACT_DONE: set(),
+    CONTRACT_TERMINATED: set(),
+}
 
 # ==================== 项目状态 ====================
 PROJECT_NOT_STARTED = '未启动'
@@ -88,3 +112,18 @@ COLLECT_STATUSES = frozenset({COLLECT_PENDING, COLLECT_RUNNING, COLLECT_SUCCESS,
 def is_valid_status(value, allowed) -> bool:
     """校验状态值是否在允许集合内（service 层写入边界使用）"""
     return value in allowed
+
+
+# ==================== 工单来源类型 ====================
+TICKET_SOURCE_MANUAL = '手动创建'
+TICKET_SOURCE_FAULT = '故障转单'
+TICKET_SOURCE_TYPES = frozenset({
+    TICKET_SOURCE_MANUAL, '客户报修', '巡检发现', '定期维护', TICKET_SOURCE_FAULT,
+})
+
+# ==================== SLA 阈值（按优先级 → 处理小时数） ====================
+SLA_HOURS_BY_PRIORITY = {'高': 4, '中': 24, '低': 72}
+SLA_DEFAULT_HOURS = 24
+
+# ==================== 巡检审核超时提醒 ====================
+REVIEW_TIMEOUT_DAYS = 3   # 提交审核后 N 天未审核 → 提醒部门主管 + admin

@@ -99,3 +99,23 @@ class StockMovement(db.Model):
     spare_part_rel = db.relationship('SparePart', backref='movements')
 
 
+class SpareBorrow(db.Model):
+    """备件借用（借出登记 → 归还回库；借出扣库存、归还回补，流水走 stock_movements）"""
+    __tablename__ = 'spare_borrows'
+    id = db.Column(db.Integer, primary_key=True)
+    spare_part_id = db.Column(db.Integer, db.ForeignKey('spare_parts.id'), nullable=False, index=True)
+    borrower = db.Column(db.String(64), nullable=False)       # 借用人
+    borrower_phone = db.Column(db.String(32), default='')
+    quantity = db.Column(db.Integer, nullable=False)          # 借出数量（>0）
+    location = db.Column(db.String(128), default='')          # 出借库位
+    borrow_date = db.Column(db.Date, default=datetime.utcnow().date, index=True)
+    expected_return_date = db.Column(db.Date, nullable=True)  # 预计归还日
+    return_date = db.Column(db.Date, nullable=True)           # 实际归还日
+    status = db.Column(db.String(16), default='借用中', index=True)  # 借用中/已归还/逾期
+    operator = db.Column(db.String(64), default='')           # 经办人
+    remark = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    spare_part_rel = db.relationship('SparePart', backref='borrows')
+
+

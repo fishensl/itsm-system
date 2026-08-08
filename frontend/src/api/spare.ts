@@ -151,3 +151,38 @@ export function exportSpareParts(params: Record<string, unknown>) {
     data: params,
   })
 }
+
+// ==================== 借用 / 归还 ====================
+export interface SpareBorrow {
+  id: number
+  spare_part_id: number
+  part_name: string
+  part_code: string
+  borrower: string
+  borrower_phone: string
+  quantity: number
+  location: string
+  borrow_date: string
+  expected_return_date: string
+  return_date: string
+  status: string
+  operator: string
+  remark: string
+  created_at: string
+}
+
+export function fetchSpareBorrows(params: Record<string, unknown>) {
+  return request<PageResult<SpareBorrow>>({
+    url: '/api/spare-borrows',
+    method: 'GET',
+    params,
+  })
+}
+
+export function createSpareBorrow(data: Record<string, unknown>) {
+  return request<{ id: number }>({ url: '/api/spare-borrows', method: 'POST', data })
+}
+
+export function returnSpareBorrow(id: number, data?: Record<string, unknown>) {
+  return request<null>({ url: `/api/spare-borrows/${id}/return`, method: 'POST', data })
+}

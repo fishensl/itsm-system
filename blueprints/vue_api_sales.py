@@ -8,6 +8,7 @@ from flask import request, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload as _jl
+from datetime import date
 
 from models import (db, SparePart, SpareStock, PurchaseOrder, SalesOrder, Customer,
                     Opportunity, Quotation, Contract, Project, InspectionTaskTemplate)
@@ -208,6 +209,78 @@ def api_spare_stock_import():
         cleanup_temp_file(tmp)
     msg = f'库存导入完成：新增 {success} 条' + (f'，累加/跳过 {skipped} 条' if skipped else '')
     return ok({'message': msg, 'success': success, 'skipped': skipped, 'errors': errors[:50]})
+
+
+# ==================== 备件借用 / 归还 ====================
+def _spare_borrow_payload(b):
+    part = b.spare_part_rel
+    today = date.today()
+    overdue = b.status == '借用中' and b.expected_return_date and b.expected_return_date < today
+    return {
+        'id': b.id,
+        'spare_part_id': b.spare_part_id,
+        'part_name': part.name if part else '',
+        'part_code': part.code if part else '',
+        'borrower': b.borrower or '',
+        'borrower_phone': b.borrower_phone or '',
+        'quantity': b.quantity or 0,
+        'location': b.location or '',
+        'borrow_date': _fmt_date(b.borrow_date),
+        'expected_return_date': _fmt_date(b.expected_return_date),
+        'return_date': _fmt_date(b.return_date),
+        'status': '逾期' if overdue else (b.status or '借用中'),
+        'operator': b.operator or '',
+        'remark': b.remark or '',
+        'created_at': _fmt_dt(b.created_at),
+    }
+
+
+@vue_api_bp.route('/api/spare-borrows', methods=['GET'])
+@login_required
+@require_permission('spare:view')
+def api_spare_borrow_list():
+    """借用列表（分页；逾期自动标记）"""
+    from services.spare_service import list_spare_borrows
+    page = request.args.get('page', 1, type=int)
+    page_size = min(request.args.get('page_size', 20, type=int), 100)
+    status = (request.args.get('status') or '').strip()
+    search = (request.args.get('search') or '').strip()
+    rows, total = list_spare_borrows(status=status, search=search, page=page, page_size=page_size)
+    return ok({'items': [_spare_borrow_payload(b) for b in rows],
+               'total': total, 'page': page, 'page_size': page_size})
+
+
+@vue_api_bp.route('/api/spare-borrows', methods=['POST'])
+@login_required
+@require_permission('spare:add')
+def api_spare_borrow_create():
+    """借出备件：扣库存 + 登记 + 流水"""
+    from services.spare_service import create_spare_borrow
+    data = request.get_json(silent=True) or {}
+    try:
+        b = create_spare_borrow(data, current_user.realname or current_user.username)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '借出失败', 400)
+    return ok({'id': b.id})
+
+
+@vue_api_bp.route('/api/spare-borrows/<int:borrow_id>/return', methods=['POST'])
+@login_required
+@require_permission('spare:edit')
+def api_spare_borrow_return(borrow_id):
+    """归还备件：回补库存 + 流水"""
+    from services.spare_service import return_spare_borrow
+    data = request.get_json(silent=True) or {}
+    try:
+        return_spare_borrow(borrow_id, current_user.realname or current_user.username,
+                            remark=data.get('remark') or '')
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '归还失败', 400)
+    return ok(None)
 
 
 @vue_api_bp.route('/api/spare-parts/<int:spare_id>', methods=['GET'])

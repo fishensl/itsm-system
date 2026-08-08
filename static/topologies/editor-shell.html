@@ -120,7 +120,10 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
         var m = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'));
         return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
     }
-    var URL_ID = parseInt(qs('id'), 10);
+    // 编辑 id 优先从路径取（/topologies/editor/<id>，Vue 打开方式，无 query）；
+    // 导入模式 /topologies/editor/0?import=<id> 走 query（id=0 新建）
+    var mPath = location.pathname.match(/\/topologies\/editor\/(\d+)$/);
+    var URL_ID = mPath ? parseInt(mPath[1], 10) : parseInt(qs('id'), 10);
     var DIAGRAM_ID = isNaN(URL_ID) ? 0 : URL_ID;
     var TEMPLATE_PARAM = qs('template');
     var IMPORT_TOPO_ID = parseInt(qs('import'), 10) || null;

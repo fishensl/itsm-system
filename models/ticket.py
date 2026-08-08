@@ -51,6 +51,7 @@ class Ticket(db.Model):
     accept_at = db.Column(db.DateTime, nullable=True)
     accept_comment = db.Column(db.Text, default='')
     service_duration = db.Column(db.Integer, default=0)
+    sla_deadline = db.Column(db.DateTime, nullable=True)  # S6: 按优先级计算的 SLA 截止时间
     report_file = db.Column(db.String(256), default='')
     created_by = db.Column(db.String(64), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

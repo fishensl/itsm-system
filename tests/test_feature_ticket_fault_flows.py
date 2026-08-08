@@ -2,7 +2,7 @@
 """功能1+2：工单录入「自己接单处置」+ 表单内快速新增故障类别"""
 import pytest
 
-from models import db, Customer, Ticket, TicketLog, FaultType
+from models import db, Customer, Ticket, TicketLog, FaultType, Fault
 
 
 @pytest.fixture()
@@ -67,3 +67,51 @@ class TestQuickAddFaultType:
     def test_anonymous_401(self, client):
         r = client.post('/api/fault-types/add', json={'name': 'X'})
         assert r.status_code == 401
+
+
+class TestFaultToTicket:
+    def test_convert_fault_to_ticket(self, op_client, customer, app):
+        """故障实时转工单：复制字段 + 桥接 ticket_id + source_type=故障转单"""
+        from models import Fault
+        with app.app_context():
+            f = Fault(title='交换机离线', customer_id=customer,
+                      fault_description='端口down，业务中断', result='待观察')
+            db.session.add(f)
+            db.session.commit()
+            fid = f.id
+        r = op_client.post(f'/api/faults/{fid}/convert', json={})
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()['data']
+        assert d['ticket_number'].startswith('WO-')
+        with app.app_context():
+            f2 = Fault.query.get(fid)
+            t = Ticket.query.get(d['ticket_id'])
+            assert f2.ticket_id == t.id
+            assert t.source_type == '故障转单'
+            assert t.title == '交换机离线'
+            assert t.description == '端口down，业务中断'
+            assert t.customer_id == customer
+
+    def test_convert_idempotent(self, op_client, customer, app):
+        """已转单的故障拒绝重复转单"""
+        with app.app_context():
+            f = Fault(title='重复转单', customer_id=customer)
+            db.session.add(f)
+            db.session.flush()
+            from services.fault_service import convert_fault_to_ticket
+            convert_fault_to_ticket(f.id, 'op')
+            db.session.commit()
+            fid = f.id
+        r = op_client.post(f'/api/faults/{fid}/convert', json={})
+        assert r.status_code == 400
+        assert '已转工单' in r.get_json()['message']
+
+    def test_convert_requires_ticket_perm(self, viewer_client, customer, app):
+        """viewer 无 ticket:add → 403"""
+        with app.app_context():
+            f = Fault(title='无权限转单', customer_id=customer)
+            db.session.add(f)
+            db.session.commit()
+            fid = f.id
+        r = viewer_client.post(f'/api/faults/{fid}/convert', json={})
+        assert r.status_code == 403

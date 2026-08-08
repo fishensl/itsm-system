@@ -21,7 +21,10 @@ class KnowledgeBase(db.Model):
     related_device_type = db.Column(db.String(64), default='')
     view_count = db.Column(db.Integer, default=0)
     helpful_count = db.Column(db.Integer, default=0)
-    is_published = db.Column(db.Boolean, default=True)
+    # S6：默认草稿（False）——发布审核流；存量 NULL/True 视为已发布（列表兼容）
+    is_published = db.Column(db.Boolean, default=False)
+    published_by = db.Column(db.String(64), default='')    # S6: 发布人
+    published_at = db.Column(db.DateTime, nullable=True)   # S6: 发布时间
     created_by = db.Column(db.String(64), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

@@ -148,6 +148,7 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchKnowledgeList, fetchKnowledge, createKnowledge, updateKnowledge, deleteKnowledge,
+  publishKnowledge,
   fetchKnowledgeDicts, uploadKnowledgeAttachments, deleteKnowledgeAttachment,
   knowledgeAttachmentPreviewUrl, knowledgeAttachmentDownloadUrl,
   KNOWLEDGE_CATEGORY_TAG as CATEGORY_TAG,
@@ -177,6 +178,9 @@ const columns = computed<DataColumn[]>(() => [
     actions: [
       { label: '查看正文', type: 'primary', link: true, perm: 'kb:view', icon: 'View',
         onClick: (row) => openContent(row as unknown as KnowledgeItem) },
+      { label: '发布', type: 'success', link: true, perm: 'kb:edit',
+        disabled: (row: { is_published?: boolean }) => Boolean(row.is_published),
+        onClick: (row) => onPublish(row as unknown as KnowledgeItem) },
       { label: '编辑', type: 'primary', link: true, perm: 'kb:edit', icon: 'Edit',
         onClick: (row) => openEdit(row as unknown as KnowledgeItem) },
       { label: '删除', type: 'danger', link: true, perm: 'kb:delete', icon: 'Delete',
@@ -208,17 +212,35 @@ async function onDelete(k: KnowledgeItem) {
   }
 }
 
+// S6 发布审核：草稿 → 发布（/下架）
+async function onPublish(k: KnowledgeItem) {
+  const publish = !k.is_published
+  try {
+    await ElMessageBox.confirm(
+      publish ? `确定发布知识「${k.title}」吗？发布后全员可见。` : `确定下架「${k.title}」吗？`,
+      publish ? '发布确认' : '下架确认', { type: 'info' })
+  } catch { return }
+  try {
+    await publishKnowledge(k.id, publish)
+    ui.toast(publish ? '已发布' : '已下架', 'success')
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
 // 新建/编辑
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
-  id: null, title: '', category: '故障案例', tags: '', content: '', is_published: true,
+  id: null, title: '', category: '故障案例', tags: '', content: '', is_published: false,
 })
 const formRules = { title: [{ required: true, message: '请输入标题', trigger: 'blur' }] }
 
 function blankForm() {
-  return { id: null, title: '', category: '故障案例', tags: '', content: '', is_published: true }
+  // S6 发布审核：新建默认草稿（false），发布走「发布」按钮
+  return { id: null, title: '', category: '故障案例', tags: '', content: '', is_published: false }
 }
 
 function openCreate() {

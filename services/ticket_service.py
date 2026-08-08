@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Ticket 工单业务服务（V21：提交版本化审核闭环）"""
-from datetime import datetime
+from datetime import datetime, timedelta
 from models import db, Ticket, TicketLog, User
 from utils.constants import TICKET_STATUSES, REVIEW_PENDING
 from .base import ServiceError, transaction
@@ -76,16 +76,21 @@ def create_ticket(data, current_user_name):
         raise ServiceError('工单标题不能为空')
     # 自动生成工单号 WO-YYYYMMDD-NNN（当日序号取最大 +1，防删除重号）
     number = _next_ticket_number()
+    priority = data.get('priority', '中')
+    # S6 SLA：按优先级计算截止时间（高=4h/中=24h/低=72h）
+    from utils.constants import SLA_HOURS_BY_PRIORITY, SLA_DEFAULT_HOURS
+    sla_hours = SLA_HOURS_BY_PRIORITY.get(priority, SLA_DEFAULT_HOURS)
     t = Ticket(
         number=number,
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        priority=data.get('priority', '中'),
+        priority=priority,
         description=data.get('description', ''),
         assigned_to=data.get('assigned_to', ''),
         related_device_id=int(data['related_device_id']) if data.get('related_device_id') else None,
         created_by=current_user_name,
         status='待派单',
+        sla_deadline=datetime.utcnow() + timedelta(hours=sla_hours),
     )
     db.session.add(t)
     try:
