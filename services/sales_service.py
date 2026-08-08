@@ -179,6 +179,13 @@ def create_contract(data, current_user_name):
         auto_generate_tasks=bool(data.get('auto_generate_tasks')),
     )
     db.session.add(c)
+    db.session.flush()
+    # V28: 客户合同服务期联动回填（执行中/已签 → 客户表 start 最小/end 最大）
+    try:
+        from utils.customer_contract import sync_from_contract
+        sync_from_contract(contract=c)
+    except Exception:
+        pass
     return c
 
 
@@ -210,6 +217,13 @@ def update_contract(contract_id, data):
     if data.get('inspection_config_present'):
         c.auto_generate_tasks = bool(data.get('auto_generate_tasks'))
     _sync_projects_on_contract_status(c, old_status)
+    db.session.flush()
+    # V28: 客户合同服务期联动回填（状态/起止日期变更后重算客户服务期）
+    try:
+        from utils.customer_contract import sync_from_contract
+        sync_from_contract(contract=c)
+    except Exception:
+        pass
     return c
 
 
@@ -227,7 +241,16 @@ def delete_contract(contract_id):
     if proj_count:
         raise ServiceError(
             f'该合同已关联 {proj_count} 个项目，请先删除项目或解除关联后再删除合同')
+    cid = c.customer_id
     db.session.delete(c)
+    db.session.flush()
+    # V28: 删除合同后重算客户服务期
+    if cid:
+        try:
+            from utils.customer_contract import sync_from_contract
+            sync_from_contract(customer_id=cid)
+        except Exception:
+            pass
 
 
 @transaction

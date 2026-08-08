@@ -486,11 +486,11 @@ def api_fault_convert(fault_id):
 @login_required
 @require_permission('fault:view')
 def api_fault_dicts():
-    from models import FaultType as _FT, Customer as _C
+    from models import FaultType as _FT
+    from utils.customer_scope import customer_dropdown_options
     fault_types = [{'id': t.id, 'name': t.name}
                    for t in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
-    customers = [{'id': c.id, 'name': c.name, 'region_id': c.region_id}
-                 for c in _C.query.order_by(_C.name).all()]
+    customers = customer_dropdown_options(current_user)
     results = ['已解决', '待观察', '未解决']
     return ok({'fault_types': fault_types, 'customers': customers, 'results': results})
 
@@ -1221,10 +1221,21 @@ def api_task_schedule_quick_add():
     from datetime import date as _date
     planned_start = _date.fromisoformat(data['planned_start']) if data.get('planned_start') else None
     planned_end = _date.fromisoformat(data['planned_end']) if data.get('planned_end') else None
+    # V28: 客户合同过期门禁 → 合同审批态（需部门主管审核放行）
+    from utils.constants import TASK_CONTRACT_REVIEW, TASK_PENDING
+    from utils.customer_contract import contract_expired as _ce
+    from models import Customer as _C
+    status = TASK_PENDING
+    exception_reason = (data.get('contract_exception_reason') or '').strip()
+    cust = _C.query.get(int(customer_id)) if customer_id else None
+    if cust is not None and _ce(cust):
+        if not exception_reason:
+            return fail('该客户合同已过期，请填写合同例外原因后提交（需部门主管审核）')
+        status = TASK_CONTRACT_REVIEW
     t = _IT(
         title=title,
         task_type=(data.get('task_type') or '计划').strip() or '计划',
-        status='待执行',
+        status=status,
         customer_id=customer_id,
         planned_start=planned_start,
         planned_end=planned_end,
@@ -1237,6 +1248,10 @@ def api_task_schedule_quick_add():
         template_category=(data.get('template_category') or '巡检').strip() or '巡检',
         remark=(data.get('remark') or '').strip(),
         created_by=(current_user.realname or current_user.username),
+        contract_exception_status='待审核' if status == TASK_CONTRACT_REVIEW else '',
+        contract_exception_reason=exception_reason,
+        contract_exception_by=(current_user.realname or current_user.username),
+        contract_exception_at=local_now() if status == TASK_CONTRACT_REVIEW else None,
     )
     db.session.add(t)
     db.session.commit()
@@ -1274,6 +1289,12 @@ def api_task_schedule_update(task_id):
                 notify(new_uid, 'inspection', f'新任务指派：{t.title}',
                        f'计划时间 {t.planned_start or "-"} ~ {t.planned_end or "-"}，请及时处理',
                        '/app/task-schedule')
+                from utils.wecom_notify import wecom_broadcast, EVENT_INSPECTION_ASSIGN
+                wecom_broadcast(EVENT_INSPECTION_ASSIGN,
+                                f'巡检任务指派：{t.title}',
+                                f'计划时间 {t.planned_start or "-"} ~ {t.planned_end or "-"}，请及时处理',
+                                '/app/task-schedule',
+                                target_user_ids=[new_uid])
             except Exception:
                 current_app.logger.warning('任务指派通知失败 task_id=%s', task_id)
     if data.get('planned_start') is not None:

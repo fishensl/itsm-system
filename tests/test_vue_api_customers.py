@@ -31,8 +31,8 @@ def seed(app):
 
 
 class TestCustomerList:
-    def test_list_shape(self, op_client, seed):
-        r = op_client.get('/api/customers')
+    def test_list_shape(self, admin_client, seed):
+        r = admin_client.get('/api/customers')
         assert r.status_code == 200
         body = r.get_json()
         assert body['code'] == 0
@@ -44,9 +44,9 @@ class TestCustomerList:
                     'city', 'address', 'has_onsite', 'device_count',
                     'category_name', 'region_name']).issubset(item.keys())
 
-    def test_tree_shape(self, op_client, seed):
+    def test_tree_shape(self, admin_client, seed):
         """客户树：市 → 客户 两级；区县客户并入市组并带 district"""
-        r = op_client.get('/api/customers/tree')
+        r = admin_client.get('/api/customers/tree')
         assert r.status_code == 200
         data = r.get_json()['data']
         assert data['total'] == 2
@@ -59,12 +59,12 @@ class TestCustomerList:
         assert by_name['API客户B']['district'] == ''       # 市级客户
         assert by_name['API客户A']['device_count'] == 5
 
-    def test_tree_filter_and_unassigned(self, op_client, seed, app):
+    def test_tree_filter_and_unassigned(self, admin_client, seed, app):
         """树接口筛选 + 无地区客户归「未分配地区」"""
         with app.app_context():
             db.session.add(Customer(name='无地区客户', contact_person='王', level='常规'))
             db.session.commit()
-        r = op_client.get('/api/customers/tree', query_string={'level': '常规'})
+        r = admin_client.get('/api/customers/tree', query_string={'level': '常规'})
         data = r.get_json()['data']
         assert data['total'] == 2  # API客户B(常规) + 无地区客户
         # level=常规：API客户B + 无地区客户
@@ -76,8 +76,8 @@ class TestCustomerList:
         # 未分配地区组排最后
         assert names[-1] == '未分配地区'
 
-    def test_list_names_joined(self, op_client, seed):
-        data = op_client.get('/api/customers').get_json()['data']
+    def test_list_names_joined(self, admin_client, seed):
+        data = admin_client.get('/api/customers').get_json()['data']
         by_id = {i['id']: i for i in data['items']}
         assert by_id[seed['c1']]['category_name'] == '水利局'
         assert by_id[seed['c1']]['region_name'] == '西湖区'
@@ -85,35 +85,35 @@ class TestCustomerList:
         assert by_id[seed['c1']]['has_onsite_label'] == '有'
         assert by_id[seed['c2']]['region_name'] == '杭州市'
 
-    def test_search_by_name(self, op_client, seed):
-        data = op_client.get('/api/customers', query_string={'search': '客户A'}).get_json()['data']
+    def test_search_by_name(self, admin_client, seed):
+        data = admin_client.get('/api/customers', query_string={'search': '客户A'}).get_json()['data']
         assert data['total'] == 1
         assert data['items'][0]['name'] == 'API客户A'
 
-    def test_search_by_contact_and_phone(self, op_client, seed):
-        data = op_client.get('/api/customers', query_string={'search': '李四'}).get_json()['data']
+    def test_search_by_contact_and_phone(self, admin_client, seed):
+        data = admin_client.get('/api/customers', query_string={'search': '李四'}).get_json()['data']
         assert data['total'] == 1
-        data = op_client.get('/api/customers', query_string={'search': '13800000001'}).get_json()['data']
-        assert data['total'] == 1
-        assert data['items'][0]['name'] == 'API客户A'
-
-    def test_filter_category(self, op_client, seed):
-        data = op_client.get('/api/customers', query_string={'category_id': seed['cat_a']}).get_json()['data']
+        data = admin_client.get('/api/customers', query_string={'search': '13800000001'}).get_json()['data']
         assert data['total'] == 1
         assert data['items'][0]['name'] == 'API客户A'
 
-    def test_filter_region(self, op_client, seed):
-        data = op_client.get('/api/customers', query_string={'region_id': seed['city']}).get_json()['data']
+    def test_filter_category(self, admin_client, seed):
+        data = admin_client.get('/api/customers', query_string={'category_id': seed['cat_a']}).get_json()['data']
+        assert data['total'] == 1
+        assert data['items'][0]['name'] == 'API客户A'
+
+    def test_filter_region(self, admin_client, seed):
+        data = admin_client.get('/api/customers', query_string={'region_id': seed['city']}).get_json()['data']
         assert data['total'] == 1
         assert data['items'][0]['name'] == 'API客户B'
 
-    def test_filter_level(self, op_client, seed):
-        data = op_client.get('/api/customers', query_string={'level': '核心'}).get_json()['data']
+    def test_filter_level(self, admin_client, seed):
+        data = admin_client.get('/api/customers', query_string={'level': '核心'}).get_json()['data']
         assert data['total'] == 1
         assert data['items'][0]['name'] == 'API客户A'
 
-    def test_pagination(self, op_client, seed):
-        data = op_client.get('/api/customers', query_string={'page': 1, 'page_size': 1}).get_json()['data']
+    def test_pagination(self, admin_client, seed):
+        data = admin_client.get('/api/customers', query_string={'page': 1, 'page_size': 1}).get_json()['data']
         assert data['total'] == 2
         assert len(data['items']) == 1
 
@@ -127,8 +127,8 @@ class TestCustomerList:
 
 
 class TestCustomerDetail:
-    def test_detail_shape(self, op_client, seed):
-        r = op_client.get(f"/api/customers/{seed['c1']}")
+    def test_detail_shape(self, admin_client, seed):
+        r = admin_client.get(f"/api/customers/{seed['c1']}")
         assert r.status_code == 200
         d = r.get_json()['data']
         assert d['name'] == 'API客户A'
@@ -142,18 +142,18 @@ class TestCustomerDetail:
         assert d['inspection_count'] == 0
         assert d['ticket_count'] == 0
 
-    def test_detail_counts(self, op_client, seed, app):
+    def test_detail_counts(self, admin_client, seed, app):
         with app.app_context():
             from models import Ticket, Inspection
             db.session.add(Ticket(number='WO-TEST-001', title='测试工单', customer_id=seed['c1']))
             db.session.add(Inspection(title='测试巡检', customer_id=seed['c1']))
             db.session.commit()
-        d = op_client.get(f"/api/customers/{seed['c1']}").get_json()['data']
+        d = admin_client.get(f"/api/customers/{seed['c1']}").get_json()['data']
         assert d['inspection_count'] == 1
         assert d['ticket_count'] == 1
 
-    def test_detail_not_found(self, op_client, seed):
-        assert op_client.get('/api/customers/99999').status_code == 404
+    def test_detail_not_found(self, admin_client, seed):
+        assert admin_client.get('/api/customers/99999').status_code == 404
 
 
 class TestCustomerCrud:

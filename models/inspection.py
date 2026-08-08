@@ -240,6 +240,11 @@ class InspectionTask(db.Model):
     completion_data_json = db.Column(db.Text, default='{}')       # 完成后存储关联数据
     template_ids_json = db.Column(db.Text, default='[]')            # V4: 多模板ID列表
     remark = db.Column(db.Text, default='')
+    # V28: 合同例外审批（客户合同过期时创建任务需部门主管审核）
+    contract_exception_status = db.Column(db.String(16), default='')  # ''/待审核/通过/拒绝
+    contract_exception_reason = db.Column(db.Text, default='')
+    contract_exception_by = db.Column(db.String(64), default='')
+    contract_exception_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     customer_rel = db.relationship('Customer', backref='inspection_tasks')

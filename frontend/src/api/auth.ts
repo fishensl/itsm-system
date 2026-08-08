@@ -52,6 +52,7 @@ export interface DashboardData {
   quick_entries: Array<{ url: string; title: string; sub: string; icon: string }>
   my_tasks: Array<{ type_label: string; type_color: string; title: string; sub: string; url: string; time: string }>
   expiring_devices: Array<{ id: number; device_name: string; customer_name: string; license_expiry: string; remaining_days: number }>
+  expiring_customers: Array<{ id: number; name: string; contract_end_date: string; remaining_days: number | null }>
   recent_inspections: Array<{ id: number; title: string; customer_name: string; inspection_date: string; overall_status: string }>
   device_type_stats: Array<[string, number]>
 }

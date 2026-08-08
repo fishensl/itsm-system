@@ -8,7 +8,16 @@
         <el-descriptions-item label="优先级">
           <el-tag size="small" :type="detail.priority === '紧急' ? 'danger' : 'warning'">{{ detail.priority }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="客户">
+          <template v-if="detail.customer">
+            <span>{{ detail.customer.name || '-' }}</span>
+            <span v-if="detail.customer.office_room || detail.customer.office" class="cust-min">
+              （{{ [detail.customer.office, detail.customer.office_room].filter(Boolean).join('·') }}）
+            </span>
+            <span v-if="detail.customer.map_location" class="cust-min">{{ detail.customer.map_location }}</span>
+          </template>
+          <span v-else>{{ detail.customer_name || '-' }}</span>
+        </el-descriptions-item>
         <el-descriptions-item label="关联设备">
           <router-link v-if="detail.related_device_id" :to="`/devices/${detail.related_device_id}`"
             class="row-link">{{ detail.related_device_name || '#' }}</router-link>
@@ -57,6 +66,44 @@
       <el-divider content-position="left">提交审核记录（每次提交 + 每轮审核）</el-divider>
       <VersionTimeline :versions="versions" entity-type="ticket" />
 
+      <!-- 合同例外审批（过期客户创建的工单） -->
+      <template v-if="detail.status === TICKET_STATUS.CONTRACT_REVIEW">
+        <el-divider content-position="left">合同例外审批</el-divider>
+        <p class="detail-text">
+          <el-tag size="small" type="warning" class="mr-2">客户合同已过期</el-tag>
+          例外原因：{{ detail.contract_exception_reason || '-' }}
+        </p>
+        <el-button v-if="canContractReview" size="small" type="success"
+          @click="emit('contract-review', true)">审核通过（安排处理）</el-button>
+        <el-button v-if="canContractReview" size="small" type="danger"
+          @click="emit('contract-review', false)">拒绝（关闭工单）</el-button>
+      </template>
+
+      <!-- 处置进展（V28） -->
+      <template v-if="detail.progresses?.length">
+        <el-divider content-position="left">处置进展</el-divider>
+        <div v-for="(p, i) in detail.progresses" :key="i" class="progress-item">
+          <div class="progress-head">
+            <span class="progress-op">{{ p.operator }}</span>
+            <span class="progress-time">{{ p.created_at }}</span>
+          </div>
+          <div v-if="p.content" class="progress-content">{{ p.content }}</div>
+          <div v-if="p.photos?.length" class="progress-photos">
+            <el-image v-for="(ph, j) in p.photos" :key="j" :src="photoUrl(ph)" :preview-src-list="p.photos.map(photoUrl)"
+              fit="cover" class="progress-photo" :preview-teleported="true" />
+          </div>
+        </div>
+      </template>
+
+      <!-- 挂起历史（V28） -->
+      <template v-if="detail.suspends?.length">
+        <el-divider content-position="left">挂起记录</el-divider>
+        <div v-for="(s, i) in detail.suspends" :key="i" class="suspend-item">
+          <span class="suspend-reason">{{ s.reason }}</span>
+          <span class="suspend-meta">{{ s.operator }} · {{ s.started_at }} ~ {{ s.ended_at || '挂起中' }}（{{ s.duration }}）</span>
+        </div>
+      </template>
+
       <!-- 状态机操作 -->
       <el-divider content-position="left">操作</el-divider>
       <div class="action-bar">
@@ -76,6 +123,14 @@
         <template v-else-if="detail.status === TICKET_STATUS.PROCESSING">
           <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary"
             @click="emit('submit')">提交审核</el-button>
+          <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="warning" plain
+            @click="emit('suspend')">挂起（等待/暂停）</el-button>
+        </template>
+        <template v-else-if="detail.status === TICKET_STATUS.SUSPENDED">
+          <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="success"
+            @click="emit('action', 'resume')">恢复处理</el-button>
+          <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary"
+            @click="emit('submit')">无法处置，提交审核</el-button>
         </template>
         <template v-else-if="detail.status === TICKET_STATUS.SUBMITTED">
           <el-button v-if="user.hasPerm('ticket:review')" size="small" type="success"
@@ -89,6 +144,8 @@
           <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="warning"
             @click="emit('action', 'accept_check', undefined, false)">退回处理</el-button>
         </template>
+        <el-button v-if="canAddProgress" size="small" type="primary" plain
+          @click="emit('progress')">添加处置进展</el-button>
         <el-button v-if="user.hasPerm('ticket:edit') && detail.status !== TICKET_STATUS.CLOSED" size="small" type="info"
           plain @click="emit('action', 'close')">关闭工单</el-button>
         <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary" plain
@@ -135,6 +192,9 @@ const emit = defineEmits<{
   (e: 'action', action: string, assignee?: string, approved?: boolean): void
   (e: 'audit', approved: boolean): void
   (e: 'submit'): void
+  (e: 'suspend'): void
+  (e: 'progress'): void
+  (e: 'contract-review', approved: boolean): void
   (e: 'edit'): void
   (e: 'archive'): void
   (e: 'delete'): void
@@ -145,6 +205,23 @@ const loading = ref(false)
 const detail = ref<Ticket | null>(null)
 const versions = ref<SV[]>([])
 const assignee = ref('')
+
+/** 合同例外审核权限：contract:review 或 admin 或部门主管 */
+const canContractReview = computed(() => {
+  if (!detail.value) return false
+  if (detail.value.status !== TICKET_STATUS.CONTRACT_REVIEW) return false
+  if (user.hasPerm('contract:review')) return true
+  return user.hasPerm('ticket:review')  // 审核岗（含 admin/主管授权）可审
+})
+
+/** 处置进展可写：处理中/已挂起/待审核状态，工程师/主管/管理员 */
+const canAddProgress = computed(() => {
+  if (!detail.value) return false
+  return ['处理中', '已挂起', '待审核'].includes(detail.value.status) &&
+    (user.hasPerm('ticket:edit') || user.hasPerm('ticket:review'))
+})
+
+const photoUrl = (path: string) => `/static/${path}`
 
 async function load() {
   loading.value = true
@@ -186,4 +263,16 @@ load()
 .log-comment { color: var(--itsm-text-muted); font-size: 12px; margin-top: 2px; }
 .text-muted { color: var(--itsm-text-muted); }
 .row-link { color: var(--el-color-primary); text-decoration: none; font-weight: 500; }
+.cust-min { color: var(--itsm-text-muted); font-size: 12px; margin-left: 6px; }
+.progress-item { margin-bottom: 10px; }
+.progress-head { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.progress-op { font-weight: 600; color: var(--itsm-primary); }
+.progress-time { color: var(--itsm-text-muted); }
+.progress-content { white-space: pre-wrap; word-break: break-all; font-size: 13px; margin-top: 4px; }
+.progress-photos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.progress-photo { width: 72px; height: 72px; border-radius: 6px; }
+.suspend-item { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; font-size: 12px; }
+.suspend-reason { font-weight: 500; font-size: 13px; }
+.suspend-meta { color: var(--itsm-text-muted); }
+.mr-2 { margin-right: 8px; }
 </style>

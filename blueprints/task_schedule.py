@@ -630,10 +630,23 @@ def quick_add():
         flash('请选择客户', 'danger')
         return redirect(request.referrer or url_for('task_schedule.index'))
 
+    # V28: 客户合同过期门禁 → 合同审批态
+    from utils.constants import TASK_CONTRACT_REVIEW, TASK_PENDING
+    from utils.customer_contract import contract_expired as _ce
+    from models import Customer as _C
+    status = TASK_PENDING
+    exception_reason = (request.form.get('contract_exception_reason') or '').strip()
+    cust = _C.query.get(customer_id) if customer_id else None
+    if cust is not None and _ce(cust):
+        if not exception_reason:
+            flash('该客户合同已过期，请填写合同例外原因后提交（需部门主管审核）', 'danger')
+            return redirect(request.referrer or url_for('task_schedule.index'))
+        status = TASK_CONTRACT_REVIEW
+
     task = InspectionTask(
         title=title,
         task_type='计划',
-        status='待执行',
+        status=status,
         priority=priority,
         customer_id=customer_id,
         assigned_to_user_id=assignee_id or None,
@@ -645,6 +658,10 @@ def quick_add():
         source='手动',
         template_category='巡检',
         created_by=(current_user.realname or current_user.username),
+        contract_exception_status='待审核' if status == TASK_CONTRACT_REVIEW else '',
+        contract_exception_reason=exception_reason,
+        contract_exception_by=(current_user.realname or current_user.username),
+        contract_exception_at=datetime.utcnow() if status == TASK_CONTRACT_REVIEW else None,
     )
     db.session.add(task)
     db.session.commit()

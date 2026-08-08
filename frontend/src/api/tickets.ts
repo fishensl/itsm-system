@@ -13,6 +13,8 @@ export interface Ticket {
   priority: string
   customer_id: number | null
   customer_name: string
+  /** 外网工单客户最小集（名称/办公室/门牌号/地图定位）；内网为 null */
+  customer: { name: string; office: string; office_room: string; map_location: string } | null
   related_device_id: number | null
   related_device_name: string
   assigned_to: string
@@ -37,7 +39,30 @@ export interface Ticket {
   assigned_at: string
   accepted_at: string
   completed_at: string
+  // V28: 挂起 / 处置进展 / 合同例外
+  suspended: boolean
+  suspended_at: string
+  suspended_seconds: number
+  contract_exception_status: string
+  contract_exception_reason: string
+  progresses: TicketProgress[]
+  suspends: TicketSuspend[]
   logs?: TicketLog[]
+}
+
+export interface TicketProgress {
+  content: string
+  photos: string[]
+  operator: string
+  created_at: string
+}
+
+export interface TicketSuspend {
+  reason: string
+  operator: string
+  started_at: string
+  ended_at: string
+  duration: string
 }
 
 export interface TicketLog {
@@ -106,12 +131,18 @@ export function ticketActionSubmit(id: number, formData: FormData) {
   return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: formData })
 }
 
+/** 添加处置进展（multipart：content + photos 多图） */
+export function ticketAddProgress(id: number, formData: FormData) {
+  return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: formData })
+}
+
 export function fetchTicketVersions(id: number) {
   return request<SubmissionVersion[]>({ url: `/api/tickets/${id}/versions`, method: 'GET' })
 }
 
 export interface TicketDicts {
-  customers: { id: number; name: string; region_id: number | null }[]
+  customers: { id: number; name: string; region_id: number | null;
+    contract_status?: string; contract_end_date?: string }[]
   fault_types: { id: number; name: string }[]
   statuses: string[]
   priorities: string[]

@@ -45,6 +45,11 @@ def _generate_for_customer_in_session(c, today, year_start, year_end, existing):
     """
     if not c.inspection_frequency:
         return 0
+    # V28: 客户合同已过期 → 不再自动生成巡检（合同期外不安排任务）
+    from utils.customer_contract import contract_expired
+    if contract_expired(c):
+        c.last_generated_date = today
+        return 0
     months = _get_frequency_delta(c.inspection_frequency)
     if not months:
         # 频率值无法识别：标记今日已处理，避免反复告警

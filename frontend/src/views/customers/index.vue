@@ -3,7 +3,7 @@
     <div class="page-header">
       <h2 class="page-title">客户管理</h2>
       <div class="header-actions">
-        <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
+        <el-button v-if="user.hasPerm('customer:export')" :icon="Download" plain @click="exportVisible = true">导出</el-button>
         <el-button v-if="user.hasPerm('customer:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('customer:add')" type="primary" :icon="Plus" @click="openCreate">
           新建客户
@@ -65,6 +65,10 @@
               <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[node.level] || 'info'" class="ml-2">
                 {{ CUSTOMER_LEVEL_LABELS[node.level] || node.level }}
               </el-tag>
+              <el-tag v-if="node.contract_status && node.contract_status !== '未设置合同'" size="small"
+                :type="CONTRACT_STATUS_TAG[node.contract_status] || 'info'">
+                {{ node.contract_status }}
+              </el-tag>
               <el-tag v-if="(node.device_count ?? 0) > 0" size="small" type="info">
                 设备 {{ node.device_count }}
               </el-tag>
@@ -95,6 +99,23 @@
                   <el-descriptions-item label="来源">{{ detail.source || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="地址" :span="2">{{ detail.address || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
+                </el-descriptions>
+
+                <el-divider content-position="left">合同服务期</el-divider>
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="合同起止">
+                    {{ detail.contract_start_date || '-' }} ~ {{ detail.contract_end_date || '-' }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="合同状态">
+                    <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
+                      {{ detail.contract_status }}
+                    </el-tag>
+                    <span v-if="detail.contract_remaining_days != null" class="ml-2 text-muted">
+                      {{ detail.contract_remaining_days < 0 ? `已过期 ${-detail.contract_remaining_days} 天` : `剩 ${detail.contract_remaining_days} 天` }}
+                    </span>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="办公室门牌号">{{ detail.office_room || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="地图定位">{{ detail.map_location || '-' }}</el-descriptions-item>
                 </el-descriptions>
 
                 <el-divider content-position="left">驻场信息</el-divider>
@@ -192,6 +213,28 @@
               <el-input v-model="form.address" />
             </el-form-item>
           </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="合同开始日期">
+              <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
+                class="w-full" placeholder="如 2026-01-01" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="合同结束日期">
+              <el-date-picker v-model="form.contract_end_date" type="date" value-format="YYYY-MM-DD"
+                class="w-full" placeholder="如 2026-12-31" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="办公室门牌号">
+              <el-input v-model="form.office_room" placeholder="如 A栋 3F-301" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="地图定位">
+              <el-input v-model="form.map_location" placeholder="经纬度或地图链接（外网工单可查看）" />
+            </el-form-item>
+          </el-col>
           <el-col :xs="24">
             <el-form-item label="驻场信息">
               <el-checkbox v-model="form.has_onsite">有驻场</el-checkbox>
@@ -248,7 +291,7 @@ import { handleExportResult } from '@/utils/export'
 import {
   fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
   fetchCustomerDicts, fetchCustomerTree, exportCustomers, importCustomers,
-  CUSTOMER_LEVEL_TAG, CUSTOMER_LEVEL_LABELS,
+  CUSTOMER_LEVEL_TAG, CUSTOMER_LEVEL_LABELS, CONTRACT_STATUS_TAG,
   type Customer, type CustomerDicts, type CustomerForm, type CustomerTreeGroup, type RegionItem,
 } from '@/api/customers'
 
@@ -397,6 +440,10 @@ interface CustomerFormModel {
   category_id: number | null
   level: string
   address: string
+  contract_start_date: string
+  contract_end_date: string
+  office_room: string
+  map_location: string
   regionPath: number[]
   has_onsite: boolean
   onsite_contact: string
@@ -414,7 +461,8 @@ const form = reactive<CustomerFormModel>(blankForm())
 function blankForm(): CustomerFormModel {
   return {
     id: undefined, name: '', contact_person: '', phone: '', email: '',
-    category_id: null, level: 'auto', address: '', regionPath: [],
+    category_id: null, level: 'auto', address: '', contract_start_date: '',
+    contract_end_date: '', office_room: '', map_location: '', regionPath: [],
     has_onsite: false, onsite_contact: '', onsite_phone: '', onsite_office: '',
     has_drill: false, remark: '',
   }
@@ -438,6 +486,8 @@ function openEdit(c: Customer) {
   Object.assign(form, blankForm(), {
     id: c.id, name: c.name, contact_person: c.contact_person, phone: c.phone, email: c.email,
     category_id: c.category_id, level: c.level || '常规', address: c.address,
+    contract_start_date: c.contract_start_date || '', contract_end_date: c.contract_end_date || '',
+    office_room: c.office_room || '', map_location: c.map_location || '',
     regionPath: regionPathOf(c.region_id),
     has_onsite: c.has_onsite, onsite_contact: c.onsite_contact, onsite_phone: c.onsite_phone,
     onsite_office: c.onsite_office, has_drill: c.has_drill, remark: c.remark,
@@ -457,6 +507,9 @@ async function save() {
       address: form.address, has_onsite: form.has_onsite,
       onsite_contact: form.onsite_contact, onsite_phone: form.onsite_phone,
       onsite_office: form.onsite_office, has_drill: form.has_drill, remark: form.remark,
+      contract_start_date: form.contract_start_date || undefined,
+      contract_end_date: form.contract_end_date || undefined,
+      office_room: form.office_room, map_location: form.map_location,
     }
     if (form.id) {
       await updateCustomer(form.id, payload)

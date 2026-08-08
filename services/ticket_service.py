@@ -2,7 +2,8 @@
 """Ticket 工单业务服务（V21：提交版本化审核闭环）"""
 from datetime import datetime, timedelta
 from models import db, Ticket, TicketLog, User
-from utils.constants import TICKET_STATUSES, REVIEW_PENDING
+from utils.constants import (TICKET_STATUSES, REVIEW_PENDING, TICKET_PENDING_ASSIGN,
+                             TICKET_SUSPENDED, TICKET_PROCESSING, TICKET_CONTRACT_REVIEW)
 from .base import ServiceError, transaction
 from .submission_version_service import add_version, review_version, latest_pending_version
 
@@ -15,10 +16,12 @@ TICKET_TRANSITIONS = {
     '待派单': {'已派单', '已关闭'},
     '已派单': {'处理中', '已接单', '待派单', '已关闭'},  # 接单即进入处理中
     '已接单': {'处理中', '已派单', '已关闭'},            # 兼容历史数据
-    '处理中': {'待审核', '已关闭'},
+    '处理中': {'待审核', '已关闭', '已挂起'},
+    '已挂起': {'处理中', '待审核'},                     # 恢复处理；不可处置则提交审核关闭
     '待审核': {'已验收', '处理中'},  # 审核不通过回退处理中
     '已验收': {'已关闭', '处理中'},  # 客户验收通过关闭，退回则回处理中
     '已关闭': {'处理中'},            # 重开（纠正性操作，调用端需管理员/主管 + 审计）
+    '合同审批': {'待派单', '已关闭'},  # 合同例外审核通过→待派单 / 拒绝→已关闭
 }
 
 
@@ -80,17 +83,35 @@ def create_ticket(data, current_user_name):
     # S6 SLA：按优先级计算截止时间（高=4h/中=24h/低=72h）
     from utils.constants import SLA_HOURS_BY_PRIORITY, SLA_DEFAULT_HOURS
     sla_hours = SLA_HOURS_BY_PRIORITY.get(priority, SLA_DEFAULT_HOURS)
+    # V28: 客户合同过期门禁 → 进入「合同审批」等待部门主管审核
+    initial_status = TICKET_PENDING_ASSIGN
+    contract_reason = (data.get('contract_exception_reason') or '').strip()
+    customer = None
+    if data.get('customer_id'):
+        from models import Customer
+        customer = Customer.query.get(int(data['customer_id']))
+    if customer is not None:
+        from utils.customer_contract import contract_expired
+        if contract_expired(customer):
+            if not contract_reason:
+                raise ServiceError('该客户合同已过期，请填写合同例外原因后提交（需部门主管审核）')
+            initial_status = TICKET_CONTRACT_REVIEW
     t = Ticket(
         number=number,
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
+        customer_name_text=(data.get('customer_name') or '').strip(),
         priority=priority,
         description=data.get('description', ''),
         assigned_to=data.get('assigned_to', ''),
         related_device_id=int(data['related_device_id']) if data.get('related_device_id') else None,
         created_by=current_user_name,
-        status='待派单',
+        status=initial_status,
         sla_deadline=datetime.utcnow() + timedelta(hours=sla_hours),
+        contract_exception_status='待审核' if initial_status == TICKET_CONTRACT_REVIEW else '',
+        contract_exception_reason=contract_reason,
+        contract_exception_by=current_user_name,
+        contract_exception_at=datetime.utcnow() if initial_status == TICKET_CONTRACT_REVIEW else None,
     )
     db.session.add(t)
     try:
@@ -119,6 +140,8 @@ def update_ticket(ticket_id, data, current_user_name):
         raise ServiceError('工单标题不能为空')
     t.title = title
     t.customer_id = int(data['customer_id']) if data.get('customer_id') else t.customer_id
+    if data.get('customer_name') is not None:
+        t.customer_name_text = (data.get('customer_name') or '').strip()
     t.priority = data.get('priority', t.priority)
     t.description = data.get('description', t.description)
     t.assigned_to = data.get('assigned_to', t.assigned_to)
@@ -173,8 +196,8 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
     note 为工程师提交备注（不便写入报告的实际说明）。
     """
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status != '处理中':
-        raise ServiceError(f'工单当前状态 "{t.status}" 不能提交审核（仅处理中可提交）')
+    if t.status not in ('处理中', '已挂起'):
+        raise ServiceError(f'工单当前状态 "{t.status}" 不能提交审核（仅处理中/已挂起可提交）')
     if diagnosis is not None:
         t.diagnosis = diagnosis
     if solution is not None:
@@ -263,3 +286,107 @@ def reopen_ticket(ticket_id, current_user_name, remark=''):
         raise ServiceError(f'仅已关闭工单可重开（当前状态 "{t.status}"）')
     _transition(t, '处理中', current_user_name, remark or '重开工单')
     return t
+
+
+# ==================== V28: 工单挂起 / 处置进展 / 合同例外审批 ====================
+
+@transaction
+def suspend_ticket(ticket_id, current_user_name, reason=''):
+    """挂起工单（采购等待/无法处置等）：暂停处置时效。
+
+    处理中 → 已挂起；记挂起段；SLA 顺延在恢复时统一计算。
+    """
+    t = Ticket.query.get_or_404(ticket_id)
+    if t.status != '处理中':
+        raise ServiceError(f'工单当前状态 "{t.status}" 不能挂起（仅处理中可挂起）')
+    reason = (reason or '').strip()
+    if not reason:
+        raise ServiceError('请填写挂起原因（如：等待采购备件到货）')
+    from models import TicketSuspend
+    db.session.add(TicketSuspend(
+        ticket_id=t.id, reason=reason, started_at=datetime.utcnow(),
+        operator=current_user_name,
+    ))
+    t.suspended_at = datetime.utcnow()
+    t.suspend_timeout_notified_at = None  # 重新挂起时清除超时提醒游标
+    _transition(t, TICKET_SUSPENDED, current_user_name, f'挂起：{reason}')
+    return t
+
+
+@transaction
+def resume_ticket(ticket_id, current_user_name, remark=''):
+    """恢复工单：累计挂起时长，SLA 截止时间顺延等量时长。
+
+    已挂起 → 处理中。
+    """
+    t = Ticket.query.get_or_404(ticket_id)
+    if t.status != TICKET_SUSPENDED:
+        raise ServiceError(f'工单当前状态 "{t.status}" 不能恢复（仅已挂起可恢复）')
+    from models import TicketSuspend
+    now = datetime.utcnow()
+    opened = TicketSuspend.query.filter_by(ticket_id=t.id, ended_at=None) \
+        .order_by(TicketSuspend.id.desc()).first()
+    suspend_secs = 0
+    if opened and opened.started_at:
+        suspend_secs = int((now - opened.started_at).total_seconds())
+        t.suspended_seconds = (t.suspended_seconds or 0) + suspend_secs
+        opened.ended_at = now
+    t.suspended_at = None
+    t.suspend_timeout_notified_at = None
+    # SLA 顺延：挂起期间不计处置时效
+    if t.sla_deadline and suspend_secs:
+        t.sla_deadline = t.sla_deadline + timedelta(seconds=suspend_secs)
+    _transition(t, TICKET_PROCESSING, current_user_name, remark or '恢复处理')
+    return t
+
+
+@transaction
+def add_progress(ticket_id, current_user_name, content='', photos=None):
+    """追加工单处置进展（工程师/主管/管理员可写；photos 为相对 static 路径列表）"""
+    t = Ticket.query.get_or_404(ticket_id)
+    content = (content or '').strip()
+    if not content and not photos:
+        raise ServiceError('请填写处置进展内容或上传现场照片')
+    from models import TicketProgress
+    from utils.json_fields import dumps_json
+    db.session.add(TicketProgress(
+        ticket_id=t.id, content=content,
+        photos_json=dumps_json([p for p in (photos or []) if p]),
+        operator=current_user_name,
+    ))
+    _record_log(t, '添加处置进展', current_user_name, content[:50])
+    return t
+
+
+@transaction
+def contract_review_ticket(ticket_id, approved, reviewer_name, comment=''):
+    """合同例外审核：通过 → 待派单（正常流转）；拒绝 → 已关闭。"""
+    t = Ticket.query.get_or_404(ticket_id)
+    if t.status != TICKET_CONTRACT_REVIEW:
+        raise ServiceError(f'工单当前状态 "{t.status}" 不能进行合同例外审核')
+    target = TICKET_PENDING_ASSIGN if approved else '已关闭'
+    t.contract_exception_status = '通过' if approved else '拒绝'
+    if comment:
+        t.contract_exception_reason = t.contract_exception_reason + f'\n审核意见：{comment}'
+    _transition(t, target, reviewer_name,
+                ('合同例外审核通过' if approved else '合同例外审核拒绝') + (f'：{comment}' if comment else ''))
+    return t
+
+
+def ticket_summary_text(t):
+    """工单完成结构化摘要（企业微信完成通知模板）"""
+    from models import Customer
+    customer_name = ''
+    if t.customer_id:
+        c = Customer.query.get(t.customer_id)
+        if c:
+            customer_name = c.name
+    if not customer_name:
+        customer_name = t.customer_name_text or ''
+    return (
+        f'客户：{customer_name}\n'
+        f'故障时间：{t.created_at.strftime("%Y-%m-%d %H:%M") if t.created_at else "-"}\n'
+        f'故障现象：{t.title or ""}\n'
+        f'跟进工程师：{t.assigned_to or "-"}\n'
+        f'处理进展：{t.solution or t.diagnosis or "已完成"}'
+    )

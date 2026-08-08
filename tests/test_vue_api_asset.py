@@ -243,8 +243,9 @@ class TestRackDevices:
 
 
 class TestRackDicts:
-    def test_customers(self, op_client, seed):
-        r = op_client.get('/api/dicts/rack')
+    def test_customers(self, admin_client, seed):
+        """机柜客户下拉（admin 全量；工程师仅关联客户）"""
+        r = admin_client.get('/api/dicts/rack')
         assert r.status_code == 200
         data = r.get_json()['data']
         names = [c['name'] for c in data['customers']]
@@ -400,8 +401,8 @@ class TestTopologyCrud:
 
 
 class TestTopologyDicts:
-    def test_customers_and_regions(self, op_client, seed):
-        r = op_client.get('/api/topologies/dicts')
+    def test_customers_and_regions(self, admin_client, seed):
+        r = admin_client.get('/api/topologies/dicts')
         assert r.status_code == 200
         data = r.get_json()['data']
         names = [c['name'] for c in data['customers']]

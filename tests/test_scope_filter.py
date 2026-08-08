@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """S6 数据隔离：apply_scope_filter 接入工单/巡检列表后，非 admin 用户数据范围收窄"""
-from models import db, User, Customer, Ticket, Inspection, Department
+from models import db, User, Customer, Department
 
 
 def _make_dept_user(app, username, realname, scope='department'):
@@ -33,9 +33,9 @@ class TestScopeFilter:
             db.session.add(c1)
             db.session.flush()
             # 本部门创建（created_by=范围工程师）
-            t_dept = create_ticket({'title': '本部门工单', 'customer_id': c1.id}, '范围工程师')
+            create_ticket({'title': '本部门工单', 'customer_id': c1.id}, '范围工程师')
             # 他人创建
-            t_other = create_ticket({'title': '他人工单', 'customer_id': c1.id}, '别人')
+            create_ticket({'title': '他人工单', 'customer_id': c1.id}, '别人')
             db.session.commit()
         client = _login_user(app, 'scope_op1')
         r = client.get('/api/tickets')

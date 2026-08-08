@@ -17,6 +17,7 @@ export interface UserItem {
   region_names?: string[]
   customer_ids?: number[]
   customer_names?: string[]
+  notify_accounts?: Record<string, string>
   created_at: string
 }
 
@@ -371,4 +372,72 @@ export function reviewExportRequest(id: number, action: 'approve' | 'reject', co
     method: 'POST',
     data: { action, comment },
   })
+}
+
+// ==================== 访问控制（V28：内网/VPN 可信网段） ====================
+export interface AccessControlData {
+  trusted_networks: string[]
+  enabled: boolean
+}
+
+export function fetchAccessControl() {
+  return request<AccessControlData>({ url: '/api/system/access-control', method: 'GET' })
+}
+
+export function saveAccessControl(trusted_networks: string[]) {
+  return request<AccessControlData>({
+    url: '/api/system/access-control',
+    method: 'PUT',
+    data: { trusted_networks },
+  })
+}
+
+// ==================== 多渠道通知（V28：渠道配置 + 通知规则） ====================
+export interface NotifyChannelItem {
+  id: number
+  channel_type: string
+  name: string
+  is_enabled: boolean
+  sort_order: number
+  config: Record<string, unknown>
+  has_secret: boolean
+}
+
+export function fetchNotifyChannels() {
+  return request<{ channels: NotifyChannelItem[] }>({ url: '/api/notify/channels', method: 'GET' })
+}
+
+export function saveNotifyChannel(channel_type: string, data: Record<string, unknown>) {
+  return request<NotifyChannelItem>({
+    url: `/api/notify/channels/${channel_type}`,
+    method: 'PUT',
+    data,
+  })
+}
+
+export function testNotifyChannel(channel_type: string, account: string, mode: string) {
+  return request<{ ok: boolean; message: string }>({
+    url: `/api/notify/channels/${channel_type}/test`,
+    method: 'POST',
+    data: { account, mode },
+  })
+}
+
+export interface NotifyRuleItem {
+  event_type: string
+  label: string
+  is_enabled: boolean
+  roles: string[]
+  users: number[]
+}
+
+export function fetchNotifyRules() {
+  return request<{ rules: NotifyRuleItem[]; event_types: { key: string; label: string }[] }>({
+    url: '/api/notify/rules',
+    method: 'GET',
+  })
+}
+
+export function saveNotifyRule(data: Record<string, unknown>) {
+  return request<null>({ url: '/api/notify/rules', method: 'POST', data })
 }
