@@ -148,9 +148,11 @@ SIDEBAR_GROUPS = [
             # 入口
             {'name': '系统概览', 'url': '/system', 'icon': 'bi-speedometer', 'perm': 'dashboard:view'},
             # 主要功能：账号（用户 → 部门 → 权限 紧邻）
-            {'name': '用户管理', 'url': '/users', 'icon': 'bi-people-fill', 'perm': 'user:view'},
+            {'name': '账号管理', 'url': '/users', 'icon': 'bi-people-fill', 'perm': 'user:view'},
             {'name': '部门管理', 'url': '/departments/', 'icon': 'bi-diagram-3', 'perm': 'department:view'},
             {'name': '权限管理', 'url': '/permissions', 'icon': 'bi-shield-lock', 'perm': 'permission:view'},
+            # 设备密码导出申请审核（admin）
+            {'name': '导出审核', 'url': '/system/export-reviews', 'icon': 'bi-file-earmark-check', 'perm': 'user:view'},
             # 集成/配置
             {'name': 'AI 对接', 'url': '/ai-config', 'icon': 'bi-robot', 'perm': 'ai:view'},
             # 巡检审核检查项清单（管理员配置）

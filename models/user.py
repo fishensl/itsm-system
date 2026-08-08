@@ -4,6 +4,7 @@ from flask_login import UserMixin
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from models.base import db
+from utils.json_fields import parse_json, dumps_json
 
 
 
@@ -50,7 +51,8 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(64), unique=True, nullable=False)
     password = db.Column(db.String(256), nullable=False)
     realname = db.Column(db.String(64), default='')
-    role = db.Column(db.String(32), default='operator')  # admin / operator / sales / viewer
+    role = db.Column(db.String(32), default='operator')  # 主角色：admin / operator / sales / viewer（兼容）
+    role_codes = db.Column(db.Text, default='[]')  # JSON 数组字符串：全部角色码（首个=主角色）
     scope = db.Column(db.String(16), default='department')  # all / department / self
     is_active = db.Column(db.Boolean, default=True)
     department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
@@ -88,14 +90,40 @@ class User(UserMixin, db.Model):
         return (self.password or '').startswith('pbkdf2:')
 
     @staticmethod
-    def create_with_password(username, password, realname='', role='operator', department_id=None):
+    def create_with_password(username, password, realname='', role='operator', department_id=None,
+                             roles=None):
+        roles = roles or ([role] if role else [])
+        primary = roles[0] if roles else 'viewer'
         return User(
             username=username,
             password=generate_password_hash(password),
             realname=realname,
-            role=role,
+            role=primary,
+            role_codes=dumps_json(roles),
             department_id=department_id,
         )
+
+    def role_codes_list(self):
+        """role_codes JSON 字符串 -> list（首个=主角色；防御空值/脏数据）"""
+        codes = parse_json(self.role_codes or '', default=None, field_name='role_codes')
+        if codes:
+            return [str(c) for c in codes]
+        role = self.role or 'viewer'
+        return [role]
+
+    def set_role_codes(self, lst):
+        """list -> JSON 字符串写入 role_codes（同时同步主角色 role）"""
+        if not lst:
+            raise ValueError('至少需要一个角色')
+        self.role_codes = dumps_json(list(dict.fromkeys(str(x) for x in lst)))
+        self.role = self.role_codes_list()[0]
+
+    def has_role(self, code):
+        return code in self.role_codes_list()
+
+    @property
+    def is_admin(self):
+        return self.has_role('admin')
 
     @property
     def is_supervisor(self):

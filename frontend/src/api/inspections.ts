@@ -214,3 +214,21 @@ export function inspectionExportUrl(params: Record<string, unknown>) {
 export function inspectionReportsZipUrl(params: Record<string, unknown>) {
   return buildQueryUrl('/inspections/reports-zip', params)
 }
+
+/** 巡检记录导出（V24：列选择 + 客户 + 巡检日期范围） */
+export function exportInspections(params: Record<string, unknown>) {
+  return request<{ filename: string; content: string }>({
+    url: '/api/inspections/export',
+    method: 'POST',
+    data: params,
+  })
+}
+
+/** 巡检资料包（V24：项目勾选 → zip，一次性下载链接） */
+export function exportInspectionBundle(params: Record<string, unknown>) {
+  return request<{ filename: string; download_url: string }>({
+    url: '/api/inspections/export-bundle',
+    method: 'POST',
+    data: params,
+  })
+}

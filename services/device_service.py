@@ -64,6 +64,7 @@ def create_device_from_form(form):
         is_in_use=form.get('is_in_use') == 'on',
         license_expiry=_parse_date(form.get('license_expiry')),
         license_start=_parse_date(form.get('license_start')),
+        build_date=_parse_date(form.get('build_date')),
         remark=form.get('remark', ''),
     )
     db.session.add(d)
@@ -123,6 +124,7 @@ def update_device_from_form(device_id, form):
     d.is_in_use = form.get('is_in_use') == 'on'
     d.license_expiry = _parse_date(form.get('license_expiry'))
     d.license_start = _parse_date(form.get('license_start'))
+    d.build_date = _parse_date(form.get('build_date'))
     d.remark = form.get('remark', '')
     return d
 

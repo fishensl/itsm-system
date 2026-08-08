@@ -84,8 +84,8 @@ OPERATOR_PERMISSIONS = [
     'customer:view', 'region:view',
     'device:view', 'device:add', 'device:edit', 'device:reveal',
     'topology:view',
-    'inspection:view', 'inspection:add', 'inspection:edit', 'inspection:review',
-    'ticket:view', 'ticket:add', 'ticket:edit', 'ticket:review',
+    'inspection:view', 'inspection:add', 'inspection:edit',
+    'ticket:view', 'ticket:add', 'ticket:edit',
     'fault:view', 'fault:add', 'fault:edit', 'fault:delete',
     'kb:view', 'kb:add', 'kb:edit',
     'task:view_dept', 'task:dispatch', 'task:schedule',
@@ -177,14 +177,16 @@ def get_user_permissions(user):
     if not user or not getattr(user, 'is_authenticated', False):
         return []
 
-    role_code = getattr(user, 'role', 'viewer') or 'viewer'
+    codes = user.role_codes_list() if hasattr(user, 'role_codes_list') else [getattr(user, 'role', 'viewer') or 'viewer']
 
-    # 1) admin 短路：直接返回 PERMISSION_MAP 全部 key
-    if role_code == 'admin':
+    # 1) admin 短路：任一角色含 admin 即返回 PERMISSION_MAP 全部 key
+    if 'admin' in codes:
         return list(PERMISSION_MAP.keys())
 
-    # 2) 角色权限（带缓存）
-    base = set(_get_cached_role_perms(role_code))
+    # 2) 多角色权限并集（各角色带缓存）
+    base = set()
+    for role_code in codes:
+        base |= set(_get_cached_role_perms(role_code))
 
     # 3) 用户级 grant/deny 覆盖（每次查，不缓存 —— 用户级操作少）
     if hasattr(user, 'extra_permissions') and user.extra_permissions:
@@ -238,9 +240,9 @@ def get_user_scope(user):
     """获取用户数据范围"""
     if not user or not getattr(user, 'is_authenticated', False):
         return 'self'
-    role = getattr(user, 'role', 'viewer')
+    is_admin = user.is_admin if hasattr(user, 'is_admin') else (getattr(user, 'role', '') == 'admin')
     scope = getattr(user, 'scope', 'department')
-    if role == 'admin' or scope == 'all':
+    if is_admin or scope == 'all':
         return 'all'
     return scope
 
@@ -349,7 +351,9 @@ def admin_required(f):
     """装饰器：要求当前用户是 admin 角色（API 请求返回 JSON）"""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role != 'admin':
+        is_admin = current_user.is_admin if hasattr(current_user, 'is_admin') else (
+            getattr(current_user, 'role', '') == 'admin')
+        if not current_user.is_authenticated or not is_admin:
             if _is_api_request():
                 return jsonify({'success': False, 'error': '需要管理员权限'}), 403
             flash('需要管理员权限', 'danger')

@@ -95,6 +95,61 @@ def api_spare_part_list():
                'total': total, 'page': page, 'page_size': page_size})
 
 
+@vue_api_bp.route('/api/spare-parts/export', methods=['POST'])
+@login_required
+@require_permission('spare:view')
+def api_spare_part_export():
+    """备件导出（base64 xlsx；columns + 创建时间范围）"""
+    import base64
+    import os
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from blueprints.vue_export import SPARE_EXPORT_COLUMNS, resolve_columns, generic_rows
+    data = request.get_json(silent=True) or {}
+    try:
+        codes = resolve_columns(SPARE_EXPORT_COLUMNS, data.get('columns'))
+    except ValueError as e:
+        return fail(str(e), 400)
+    stock_sum = db.session.query(
+        SpareStock.spare_part_id,
+        func.sum(SpareStock.quantity).label('total'),
+    ).group_by(SpareStock.spare_part_id).subquery()
+    q = db.session.query(SparePart, func.coalesce(stock_sum.c.total, 0)) \
+        .outerjoin(stock_sum, stock_sum.c.spare_part_id == SparePart.id)
+    date_from = (data.get('date_from') or '').strip()
+    date_to = (data.get('date_to') or '').strip()
+    if date_from:
+        q = q.filter(SparePart.created_at >= date_from)
+    if date_to:
+        q = q.filter(SparePart.created_at <= date_to + ' 23:59:59')
+    rows = q.order_by(SparePart.id.desc()).all()
+    stock_map = {p.id: int(t or 0) for p, t in rows}
+    headers = [dict(SPARE_EXPORT_COLUMNS)[c] for c in codes]
+
+    def cell(p, code):
+        return {
+            'code': p.code or '', 'name': p.name, 'category': p.category or '',
+            'specification': p.specification or '', 'unit': p.unit or '个',
+            'brand': p.brand or '', 'model': p.model or '',
+            'serial_number': p.serial_number or '', 'manufacturer': p.manufacturer or '',
+            'quantity': stock_map.get(p.id, 0), 'min_stock': p.min_stock or 0,
+            'remark': p.remark or '',
+            'created_at': p.created_at.strftime('%Y-%m-%d') if p.created_at else '',
+        }.get(code, '')
+
+    out_rows = generic_rows([p for p, _ in rows], codes, cell)
+    tmp_path, download_name = export_xlsx(headers, out_rows,
+                                          f'备件导出_{_date.today().isoformat()}.xlsx',
+                                          sheet_name='备件档案')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
 @vue_api_bp.route('/api/spare-parts/<int:spare_id>', methods=['GET'])
 @login_required
 @require_permission('spare:view')

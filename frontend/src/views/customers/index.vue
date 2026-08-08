@@ -3,13 +3,17 @@
     <div class="page-header">
       <h2 class="page-title">客户管理</h2>
       <div class="header-actions">
-        <el-button :icon="Download" plain @click="doExport">导出</el-button>
+        <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
         <el-button v-if="user.hasPerm('customer:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('customer:add')" type="primary" :icon="Plus" @click="openCreate">
           新建客户
         </el-button>
       </div>
     </div>
+
+    <!-- V24 导出筛选 -->
+    <ExportDialog v-model="exportVisible" module="customer" title="导出客户"
+      @submit="onExportSubmit" />
 
     <!-- 导入弹窗 -->
     <el-dialog v-model="importVisible" title="批量导入客户" width="520px" destroy-on-close>
@@ -237,6 +241,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search, Download, Upload, UploadFilled, Location } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
+import ExportDialog from '@/components/ExportDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -276,11 +281,19 @@ function saveBase64(b64: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-async function doExport() {
+// V24 导出筛选：列选择 + 创建时间范围
+const exportVisible = ref(false)
+
+async function onExportSubmit(payload: Record<string, unknown>) {
   try {
-    const res = await exportCustomers()
+    const res = await exportCustomers({
+      columns: payload.columns,
+      date_from: payload.date_from || undefined,
+      date_to: payload.date_to || undefined,
+    })
     saveBase64(res.content, res.filename)
     ui.toast('导出成功', 'success')
+    exportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }

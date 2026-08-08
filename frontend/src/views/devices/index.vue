@@ -3,13 +3,41 @@
     <div class="page-header">
       <h2 class="page-title">设备管理</h2>
       <div class="header-actions">
-        <el-button :icon="Download" plain @click="doExport">导出</el-button>
+        <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
+        <el-button :icon="Document" plain @click="loadMyRequests">我的导出申请</el-button>
         <el-button v-if="user.hasPerm('device:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('device:add')" type="primary" :icon="Plus" @click="openCreate">
           新增设备
         </el-button>
       </div>
     </div>
+
+    <!-- 导出对话框（三类预设 + 列选择 + 密码审核流） -->
+    <ExportDialog v-model="exportVisible" module="device" title="导出设备"
+      @submit="onExportSubmit" />
+
+    <!-- 我的导出申请 -->
+    <el-dialog v-model="requestsVisible" title="我的导出申请" width="760px" top="6vh" destroy-on-close>
+      <el-table v-if="exportRequests.length" :data="exportRequests" size="small" border>
+        <el-table-column prop="created_at" label="申请时间" width="140" />
+        <el-table-column prop="reason" label="申请原因" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="status_label" label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="requestStatusTag(row.status)">{{ row.status_label }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="review_comment" label="审核意见" min-width="150" show-overflow-tooltip />
+        <el-table-column label="操作" width="110">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'approved' && !row.downloaded" size="small" link
+              type="primary" @click="downloadPasswordExport(row.file_token)">下载</el-button>
+            <span v-else-if="row.downloaded" class="muted">已下载</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无导出申请" :image-size="60" />
+    </el-dialog>
 
     <!-- 导入弹窗 -->
     <el-dialog v-model="importVisible" title="批量导入设备" width="520px" destroy-on-close>
@@ -355,6 +383,12 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
+            <el-form-item label="建设时间">
+              <el-date-picker v-model="form.build_date" type="date" value-format="YYYY-MM-DD"
+                class="w-full" placeholder="建设日期" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
             <el-form-item label="授权开始">
               <el-date-picker v-model="form.license_start" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="开始日期" />
@@ -391,7 +425,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting } from '@element-plus/icons-vue'
+import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -406,8 +440,10 @@ import {
   rollbackConfigBackup, fetchConfigBackupDiff, fetchPasswordHistory, type DiffLine,
   fetchDeviceTree, type Device, type DeviceForm, type DeviceConfigBackup,
   type DeviceTreeGroup, type RelatedTicket, type RelatedInspection,
-  type PasswordHistoryItem,
+  type PasswordHistoryItem, type DeviceExportRequestItem,
+  requestDeviceExport, fetchDeviceExportRequests, exportPasswordDownloadUrl,
 } from '@/api/devices'
+import ExportDialog from '@/components/ExportDialog.vue'
 
 const route = useRoute()
 const user = useUserStore()
@@ -543,14 +579,82 @@ function saveBase64(b64: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-async function doExport() {
+// ---- V24 导出筛选：列选择 + 三预设 + 密码审核流 ----
+const exportVisible = ref(false)
+const requestsVisible = ref(false)
+const exportRequests = ref<DeviceExportRequestItem[]>([])
+
+async function onExportSubmit(payload: Record<string, unknown>) {
   try {
+    if (payload.has_password) {
+      const filters = {
+        preset: payload.preset,
+        columns: payload.columns,
+        customer_id: firstCustomerId(payload),
+        search: query.search as string || undefined,
+      }
+      await requestDeviceExport(filters, payload.reason as string || '')
+      ui.toast('申请已提交，请等待管理员审核（通知将在通过后推送）', 'success')
+      exportVisible.value = false
+      return
+    }
     const res = await exportDevices({
-      search: query.search as string,
-      customer_id: query.customer_id as number | undefined,
+      preset: payload.preset as string | undefined,
+      columns: payload.columns as string[] | undefined,
+      customer_id: firstCustomerId(payload),
+      search: query.search as string || undefined,
     })
     saveBase64(res.content, res.filename)
     ui.toast('导出成功', 'success')
+    exportVisible.value = false
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function loadMyRequests() {
+  requestsVisible.value = true
+  try {
+    const d = await fetchDeviceExportRequests('mine')
+    exportRequests.value = d.items
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+function requestStatusTag(status: string): 'warning' | 'success' | 'danger' | 'info' {
+  const map: Record<string, 'warning' | 'success' | 'danger' | 'info'> = {
+    pending: 'warning', approved: 'success', rejected: 'danger',
+  }
+  return map[status] || 'info'
+}
+
+function firstCustomerId(payload: Record<string, unknown>): number | undefined {
+  const ids = payload.customer_ids as number[] | undefined
+  return ids?.length ? ids[0] : undefined
+}
+
+async function downloadPasswordExport(token: string) {
+  try {
+    const resp = await fetch(exportPasswordDownloadUrl(token), { credentials: 'include' })
+    if (!resp.ok) {
+      const j = await resp.json().catch(() => null)
+      ui.toast(j?.message || '下载失败', 'error')
+      return
+    }
+    const pwd = resp.headers.get('X-Export-Password') || ''
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '设备密码表.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+    if (pwd) {
+      await ElMessageBox.alert(`本次导出密码：${pwd}\n\n请妥善保存，用于解压加密包`, '加密包密码',
+        { confirmButtonText: '我知道了' })
+    }
+    loadMyRequests()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
@@ -781,7 +885,7 @@ function blankForm(): DeviceForm & { id?: number } {
     id: undefined, device_name: '', customer_id: null, device_type: '', brand: '', model: '',
     serial_number: '', ip_address: '', port: 22, username: '', password: '', login_method: 'SSH',
     location: '', interface: [], os_version: '', rule_version: '', is_maintenance: false,
-    is_in_use: true, license_expiry: '', license_start: '', remark: '',
+    is_in_use: true, license_expiry: '', license_start: '', build_date: '', remark: '',
   }
 }
 
@@ -801,7 +905,7 @@ async function openEdit(d: Device) {
     port: d.port, username: d.username, login_method: d.login_method, location: d.location,
     interface: [...d.interface], os_version: d.os_version, rule_version: d.rule_version,
     is_maintenance: d.is_maintenance, is_in_use: d.is_in_use, license_expiry: d.license_expiry,
-    license_start: d.license_start, remark: d.remark,
+    license_start: d.license_start, build_date: d.build_date, remark: d.remark,
   })
   detailVisible.value = false
   formVisible.value = true

@@ -12,8 +12,9 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
+# V24 修复：原挂 6f5e4d3c2b1a 造成多 head；重挂到 c9d0e1f2a3b4 之后并入主链（upgrade 幂等）
 revision = 'a5f6e7d8c9b1'
-down_revision = '6f5e4d3c2b1a'
+down_revision = 'c9d0e1f2a3b4'
 branch_labels = None
 depends_on = None
 

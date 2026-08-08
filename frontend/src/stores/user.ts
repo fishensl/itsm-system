@@ -15,6 +15,7 @@ export const useUserStore = defineStore('user', () => {
   function hasPerm(code?: string): boolean {
     if (!code) return true
     if (!user.value) return false
+    if (user.value.roles?.includes('admin')) return true
     if (user.value.role === 'admin') return true
     return permissions.value.includes(code)
   }

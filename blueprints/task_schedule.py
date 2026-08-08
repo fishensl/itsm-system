@@ -431,7 +431,7 @@ def upload_report(task_id):
             task.id, rel_path, conclusion,
             current_user_id=current_user.id,
             current_user_name=current_user.realname or current_user.username,
-            force=(current_user.role == 'admin'),
+            force=current_user.is_admin,
             remark=remark,
         )
     except Exception as e:

@@ -119,3 +119,62 @@ class TestExportPasswordColumn:
         assert '登录密码' in headers
         pwd_idx = headers.index('登录密码')
         assert rows[0][pwd_idx] == PLAIN_PWD
+
+
+class TestV2ExportPasswordColumn:
+    """V24：v2 导出不再支持密码列直出 —— 含密码列 400，密码只走审核流"""
+
+    def test_v2_export_without_password_ok(self, op_client, device):
+        r = op_client.post('/api/v2/devices/export', json={'columns': ['name', 'sn']})
+        assert r.get_json()['code'] == 0
+        data = r.get_json()['data']
+        assert data['filename'].endswith('.xlsx')
+        assert data['content']  # base64
+
+    def test_v2_export_password_column_rejected_400(self, op_client, device):
+        """即使有 device:reveal 权限，v2 也不允许直出密码列"""
+        r = op_client.post('/api/v2/devices/export', json={'columns': ['name', 'password']})
+        assert r.status_code == 400
+        assert '审核流程' in r.get_json()['message']
+
+    def test_v2_export_password_preset_rejected(self, op_client, device):
+        r = op_client.post('/api/v2/devices/export', json={'preset': 'password'})
+        assert r.status_code == 400
+        assert '审核流程' in r.get_json()['message']
+
+    def test_v2_asset_preset_has_no_password_column(self, op_client, device):
+        import base64
+        r = op_client.post('/api/v2/devices/export', json={'preset': 'asset'})
+        data = r.get_json()['data']
+        wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(data['content'])), read_only=True)
+        header = [c.value for c in wb.active[1]]
+        assert '登录密码' not in header
+
+    def test_v2_plaintext_only_via_approval_flow(self, app, op_client, admin_client,
+                                                 device, monkeypatch, tmp_path):
+        """明文密码仅经审核流加密包下发（解密后可见明文）"""
+        from blueprints import vue_export
+        monkeypatch.setattr(vue_export, 'EXPORT_DIR', str(tmp_path))
+        device_id, _ = device
+        r = op_client.post('/api/v2/devices/export-password-request', json={
+            'filters': {'preset': 'password'}, 'reason': '安全审计'})
+        assert r.get_json()['code'] == 0
+        req_id = r.get_json()['data']['id']
+        r = admin_client.post(f'/api/v2/devices/export-password-reviews/{req_id}',
+                              json={'action': 'approve', 'comment': '同意'})
+        assert r.get_json()['code'] == 0
+        with app.app_context():
+            from models import DeviceExportRequest
+            token = db.session.get(DeviceExportRequest, req_id).file_token
+        r = op_client.get(f'/api/v2/devices/export-password-download/{token}')
+        assert r.status_code == 200
+        pwd = r.headers.get('X-Export-Password')
+        assert pwd
+        import pyzipper
+        zf = pyzipper.AESZipFile(io.BytesIO(r.data))
+        zf.setpassword(pwd.encode())
+        wb = openpyxl.load_workbook(io.BytesIO(zf.read('设备密码表.xlsx')), read_only=True)
+        header = [c.value for c in wb.active[1]]
+        rows = [[c.value for c in row] for row in wb.active.iter_rows(min_row=2)]
+        row = dict(zip(header, rows[0]))
+        assert row['登录密码'] == PLAIN_PWD

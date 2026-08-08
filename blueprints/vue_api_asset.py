@@ -42,6 +42,7 @@ def _rack_payload(r):
         'customer_id': r.customer_id,
         'customer_name': r.customer_rel.name if r.customer_rel else '',
         'name': r.name,
+        'location': r.location or '',
         'total_u': r.total_u,
         'used_u': used,
         'used_label': f'{used}/{r.total_u or 0}',
@@ -141,7 +142,7 @@ def api_rack_cabinet_create():
         return fail('机柜总 U 数必须大于 0', 400)
     r = _R(customer_id=int(data['customer_id']), name=name, total_u=total_u,
            color=data.get('color') or '#0d6efd', pdu_total_w=pdu_total_w,
-           remark=data.get('remark') or '')
+           location=(data.get('location') or '')[:128], remark=data.get('remark') or '')
     db.session.add(r)
     db.session.commit()
     return ok({'id': r.id})
@@ -179,6 +180,8 @@ def api_rack_cabinet_update(rack_id):
             return fail('额定功率必须为数字', 400)
     if 'color' in data:
         r.color = data.get('color') or r.color
+    if 'location' in data:
+        r.location = (data.get('location') or '')[:128]
     if 'remark' in data:
         r.remark = data.get('remark') or ''
     db.session.commit()
@@ -985,3 +988,195 @@ def api_firmware_delete(fw_id):
         db.session.delete(fw)
         db.session.commit()
     return ok(None)
+
+
+# ==================== 设备密码导出审核流（V24） ====================
+@vue_api_bp.route('/api/v2/devices/export-password-request', methods=['POST'])
+@login_required
+@require_permission('device:view')
+def api_device_export_password_request():
+    """提交设备密码导出申请（原因必填 + 审计 + 通知全部 admin）"""
+    from models import DeviceExportRequest
+    from blueprints.vue_export import resolve_device_columns
+    data = request.get_json(silent=True) or {}
+    reason = (data.get('reason') or '').strip()
+    if not reason:
+        return fail('请填写申请原因（必填）', 400)
+    filters = data.get('filters') or {}
+    try:
+        codes = resolve_device_columns(filters.get('preset'), filters.get('columns'))
+    except ValueError as e:
+        return fail(str(e), 400)
+    if 'password' not in codes:
+        return fail('导出项目必须包含登录密码列', 400)
+    from utils.json_fields import dumps_json
+    req = DeviceExportRequest(
+        user_id=current_user.id,
+        reason=reason[:500],
+        filters_json=dumps_json({'search': (filters.get('search') or '').strip(),
+                                 'customer_id': filters.get('customer_id'),
+                                 'preset': filters.get('preset') or '',
+                                 'columns': codes}),
+        status='pending',
+    )
+    db.session.add(req)
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:export_request', 'device', req.id, f'申请设备密码导出：{reason[:120]}')
+    try:
+        from models import User as _U
+        from utils.notifications import notify
+        for u in _U.query.filter_by(is_active=True).all():
+            if u.has_role('admin') and u.id != current_user.id:
+                notify(u.id, 'device', '新的设备密码导出申请',
+                       f'{current_user.realname or current_user.username} 申请导出设备密码（{codes.count("password") and "含密码列"}）',
+                       '/app/system/export-reviews')
+    except Exception:
+        current_app.logger.warning('设备密码导出申请通知失败')
+    return ok({'id': req.id})
+
+
+@vue_api_bp.route('/api/v2/devices/export-password-requests', methods=['GET'])
+@login_required
+@require_permission('device:view')
+def api_device_export_password_requests():
+    """导出申请列表：scope=mine 我的 / scope=all 全部（admin）"""
+    from models import DeviceExportRequest
+    scope = (request.args.get('scope') or 'mine').strip()
+    q = DeviceExportRequest.query.options(
+        joinedload(DeviceExportRequest.user_rel))
+    if scope != 'all' or not current_user.is_admin:
+        q = q.filter(DeviceExportRequest.user_id == current_user.id)
+    rows = q.order_by(DeviceExportRequest.id.desc()).limit(100).all()
+    return ok({'items': [{
+        'id': r.id,
+        'reason': r.reason or '',
+        'status': r.status,
+        'status_label': {'pending': '待审核', 'approved': '已通过', 'rejected': '已驳回'}.get(r.status, r.status),
+        'username': r.user_rel.username if r.user_rel else '',
+        'realname': r.user_rel.realname if r.user_rel else '',
+        'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+        'reviewed_at': r.reviewed_at.strftime('%Y-%m-%d %H:%M') if r.reviewed_at else '',
+        'review_comment': r.review_comment or '',
+        'file_token': r.file_token or '',
+        'downloaded': bool(r.downloaded_at),
+    } for r in rows]})
+
+
+@vue_api_bp.route('/api/v2/devices/export-password-reviews', methods=['GET'])
+@login_required
+def api_device_export_password_reviews():
+    """待审核导出申请列表（admin）"""
+    if not current_user.is_admin:
+        return fail('需要管理员权限', 403)
+    from models import DeviceExportRequest
+    rows = DeviceExportRequest.query.options(
+        joinedload(DeviceExportRequest.user_rel)) \
+        .filter_by(status='pending') \
+        .order_by(DeviceExportRequest.id.desc()).limit(100).all()
+    return ok({'items': [{
+        'id': r.id,
+        'reason': r.reason or '',
+        'username': r.user_rel.username if r.user_rel else '',
+        'realname': r.user_rel.realname if r.user_rel else '',
+        'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+    } for r in rows]})
+
+
+@vue_api_bp.route('/api/v2/devices/export-password-reviews/<int:req_id>', methods=['POST'])
+@login_required
+def api_device_export_password_review(req_id):
+    """审核导出申请：approve（预生成加密包）/ reject（驳回原因必填）"""
+    if not current_user.is_admin:
+        return fail('需要管理员权限', 403)
+    import secrets
+    from datetime import datetime
+    from blueprints.vue_export import (save_export_file, DEVICE_EXPORT_COLUMNS, device_export_rows,
+                                       build_rack_map, build_pwd_map)
+    from utils.excel_export import export_xlsx
+    from models import DeviceExportRequest, Device as _D, Customer as _C, RackInstall as _RI
+    from utils.json_fields import parse_json
+    from sqlalchemy.orm import selectinload as _sil
+    from blueprints.vue_api_sys import audit_log
+    req = DeviceExportRequest.query.get_or_404(req_id)
+    if req.status != 'pending':
+        return fail('该申请已处理', 400)
+    data = request.get_json(silent=True) or {}
+    action = (data.get('action') or '').strip()
+    comment = (data.get('comment') or '').strip()
+    if action == 'reject':
+        if not comment:
+            return fail('驳回时必须填写原因', 400)
+        req.status = 'rejected'
+        req.reviewed_by_user_id = current_user.id
+        req.reviewed_at = datetime.utcnow()
+        req.review_comment = comment[:500]
+        db.session.commit()
+        audit_log('device:export_review', 'device', req.id, f'驳回设备密码导出申请：{comment[:120]}')
+        try:
+            from utils.notifications import notify
+            notify(req.user_id, 'device', '设备密码导出申请已驳回',
+                   f'原因：{comment}', '/app/devices?tab=export-requests')
+        except Exception:
+            current_app.logger.warning('导出申请驳回通知失败')
+        return ok(None)
+    if action != 'approve':
+        return fail('action 必须为 approve 或 reject', 400)
+
+    # ---- 通过：实时取数生成含密码 xlsx → pyzipper AES 加密包 ----
+    filters = parse_json(req.filters_json, {}, 'device_export_request.filters_json') or {}
+    codes = [str(c) for c in (filters.get('columns') or [])] or [
+        c for c, _ in DEVICE_EXPORT_COLUMNS]
+    q = _D.query.options(_sil(_D.rack_installs).joinedload(_RI.rack_rel))
+    search = (filters.get('search') or '').strip()
+    if search:
+        q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
+                     _D.brand.contains(search))
+    if filters.get('customer_id'):
+        q = q.filter(_D.customer_id == int(filters['customer_id']))
+    devices = q.order_by(_D.id.desc()).all()
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    headers = [dict(DEVICE_EXPORT_COLUMNS)[c] for c in codes]
+    rows = device_export_rows(devices, codes, customer_map,
+                              build_rack_map(devices), build_pwd_map(devices))
+    tmp_path, _ = export_xlsx(headers, rows, '设备密码表.xlsx', sheet_name='设备密码表')
+    password = secrets.token_urlsafe(8)
+    token = save_export_file(tmp_path, '设备密码表.xlsx', password=password,
+                             user_id=req.user_id)
+    req.status = 'approved'
+    req.reviewed_by_user_id = current_user.id
+    req.reviewed_at = datetime.utcnow()
+    req.review_comment = comment[:500]
+    req.file_token = token
+    db.session.commit()
+    audit_log('device:export_review', 'device', req.id, f'通过设备密码导出申请（{len(devices)} 台设备）')
+    try:
+        from utils.notifications import notify
+        notify(req.user_id, 'device', '设备密码导出申请已通过',
+               f'已生成加密导出包（{len(devices)} 台设备），请在设备页「我的导出申请」中下载',
+               '/app/devices?tab=export-requests')
+    except Exception:
+        current_app.logger.warning('导出申请通过通知失败')
+    return ok(None)
+
+
+@vue_api_bp.route('/api/v2/devices/export-password-download/<token>', methods=['GET'])
+@login_required
+def api_device_export_password_download(token):
+    """一次性下载加密密码包（仅申请人/admin；响应头 X-Export-Password 下发 zip 密码；审计）"""
+    from datetime import datetime
+    from blueprints.vue_export import serve_export_file
+    from blueprints.vue_api_sys import audit_log
+    from models import DeviceExportRequest
+    req = DeviceExportRequest.query.filter_by(file_token=token).first()
+    if not req or req.status != 'approved' or req.downloaded_at:
+        return fail('下载链接不存在或已使用', 404)
+    if not (current_user.is_admin or current_user.id == req.user_id):
+        return fail('无权下载该导出包', 403)
+    resp = serve_export_file(token, current_user.id, current_user.is_admin)
+    if resp is None:
+        return fail('导出文件不存在或已失效', 404)
+    req.downloaded_at = datetime.utcnow()
+    db.session.commit()
+    audit_log('device:export_download', 'device', req.id, '下载设备密码导出包')
+    return resp

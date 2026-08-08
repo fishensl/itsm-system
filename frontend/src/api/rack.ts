@@ -6,6 +6,7 @@ export interface RackItem {
   customer_id: number | null
   customer_name: string
   name: string
+  location?: string
   total_u: number
   used_u: number
   used_label: string
@@ -40,6 +41,7 @@ export interface RackDetail extends RackItem {
 export interface RackForm {
   name: string
   customer_id?: number | null
+  location?: string
   total_u: number
   color: string
   pdu_total_w: number

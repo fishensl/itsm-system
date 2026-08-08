@@ -26,6 +26,12 @@ ROLE_DEFS = [
     ('viewer',   '查看者',      '只读权限，查看数据不能修改', 4),
 ]
 
+# 从系统角色默认权限中回收的权限码（幂等清理老库；审核岗位 V24 起不再随 operator 角色下发，
+# 审核能力 = admin + 用户级 grant，见 utils/permission.py 说明）
+REMOVE_ROLE_PERMS = {
+    'operator': ['inspection:review', 'ticket:review'],
+}
+
 
 def _category_from_code(code: str) -> str:
     """从权限 code 推断分类（如 'customer:view' -> 'customer'）"""
@@ -99,4 +105,16 @@ def _seed_all_impl() -> None:
         for code in target - existing_pair:
             db.session.add(RolePermission(role_id=role.id, permission_code=code))
         # 多余的（不在 PERMISSION_MAP 或 role 默认列表）不删（用户可能自定义过）
+    db.session.commit()
+
+    # 4. 显式回收权限（REMOVE_ROLE_PERMS）：只删系统角色上的 RolePermission 行，
+    #    不碰用户级 grant/deny（UserPermission），也不影响其他角色。
+    for role_code, remove_codes in REMOVE_ROLE_PERMS.items():
+        role = Role.query.filter_by(code=role_code).first()
+        if not role:
+            continue
+        RolePermission.query.filter(
+            RolePermission.role_id == role.id,
+            RolePermission.permission_code.in_(remove_codes),
+        ).delete(synchronize_session=False)
     db.session.commit()

@@ -61,3 +61,11 @@ export interface FaultDicts {
 export function fetchFaultDicts() {
   return request<FaultDicts>({ url: '/api/dicts/faults', method: 'GET' })
 }
+
+export function exportFaults(params: Record<string, unknown>) {
+  return request<{ filename: string; content: string }>({
+    url: '/api/faults/export',
+    method: 'POST',
+    data: params,
+  })
+}

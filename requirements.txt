@@ -15,3 +15,4 @@ cairosvg>=2.7
 svglib>=2.0
 reportlab>=4.0
 apscheduler>=3.10,<4
+pyzipper>=0.3.6

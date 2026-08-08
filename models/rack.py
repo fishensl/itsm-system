@@ -14,6 +14,7 @@ class Rack(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
     name = db.Column(db.String(64), nullable=False)         # 机柜编号/名称
+    location = db.Column(db.String(128), default='')        # 机房位置
     total_u = db.Column(db.Integer, default=42)             # 总 U 数
     color = db.Column(db.String(16), default='#0d6efd')     # 显示颜色
     pdu_total_w = db.Column(db.Integer, default=0)          # PDU 额定总功率（W）

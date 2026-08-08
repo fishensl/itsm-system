@@ -196,6 +196,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审计日志', perm: 'user:view' },
       },
       {
+        path: 'system/export-reviews',
+        name: 'sys-export-reviews',
+        component: () => import('@/views/system/exportReviews.vue'),
+        meta: { title: '导出审核', perm: 'user:view' },
+      },
+      {
         path: 'system/overview',
         name: 'sys-overview',
         component: () => import('@/views/system/overview.vue'),

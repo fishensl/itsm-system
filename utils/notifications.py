@@ -31,6 +31,34 @@ def notify_by_name(target_name, category, title, content='', link='', except_use
     notify(target.id, category, title, content, link)
 
 
+def _admin_user_ids(except_user_id=None):
+    """全部 admin 用户 id（role 或 role_codes 含 admin）"""
+    from models import User
+    users = User.query.filter_by(is_active=True).all()
+    ids = []
+    for u in users:
+        if u.has_role('admin') and u.id != except_user_id:
+            ids.append(u.id)
+    return ids
+
+
+def notify_review_submitted(department_id, category, title, content='', link='',
+                            except_user_id=None):
+    """提交审核通知：提交人所在部门的负责人（Department.head_id）+ 全部 admin。
+
+    用于工单提交审核 / 巡检提交审核 / 任务上传全套资料三处，失败静默不阻断主流程。
+    """
+    from models import Department
+    targets = []
+    if department_id:
+        dept = Department.query.get(department_id)
+        if dept and dept.head_id and dept.head_id != except_user_id:
+            targets.append(dept.head_id)
+    targets.extend(_admin_user_ids(except_user_id))
+    for uid in dict.fromkeys(targets):
+        notify(uid, category, title, content, link)
+
+
 def notify_overdue_tasks():
     """逾期任务提醒（调度器每日调用）：通知任务指派工程师"""
     from datetime import datetime

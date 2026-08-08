@@ -26,6 +26,7 @@ export interface CurrentUser {
   username: string
   realname: string
   role: string
+  roles?: string[]
   department_id: number | null
   region_ids: number[]
   customer_ids: number[]
