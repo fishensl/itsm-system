@@ -66,3 +66,51 @@ class TestBackupApi:
 
     def test_backup_config_requires_admin(self, op_client):
         assert op_client.get('/api/system/backup/config').status_code == 403
+
+    def test_import_creates_pre_backup(self, tmp_path):
+        """导入前自动备份当前数据到 BACKUP_DIR/pre_import_<ts>.zip（响应携带文件名）"""
+        import io
+        import os
+        import zipfile
+
+        # 独立 app 实例指定 BACKUP_DIR（隔离，不污染项目 backups/）
+        from app import create_app
+        app2 = create_app({
+            'TESTING': True,
+            'SECRET_KEY': 'test-secret-key-for-pytest',
+            'SQLALCHEMY_DATABASE_URI': 'sqlite://',
+            'WTF_CSRF_ENABLED': False,
+            'RATELIMIT_ENABLED': False,
+            'BACKUP_DIR': str(tmp_path),
+        })
+        with app2.app_context():
+            from models import User
+            from models.base import db as _db
+            _db.create_all()
+            _db.session.add(User.create_with_password(
+                username='admin', password='test123456', realname='管理员', role='admin'))
+            _db.session.commit()
+        client = app2.test_client()
+        client.post('/login', data={'username': 'admin', 'password': 'test123456'})
+
+        # 最小备份包（含 manifest + data.json，供导入）
+        def _make_zip() -> bytes:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, 'w') as zf:
+                zf.writestr('manifest.json',
+                            '{"format_version":1,"table_counts":{},"table_columns":{},"sha256":""}')
+                zf.writestr('data.json', '{}')
+            return buf.getvalue()
+
+        r = client.post('/api/system/backup/import', data={
+            'backup_file': (io.BytesIO(_make_zip()), 'bak.zip'),
+            'confirm': '我确认覆盖', 'restore_secret_key': '0',
+        }, content_type='multipart/form-data')
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()['data']
+        assert d['pre_import_file'] and d['pre_import_file'].startswith('pre_import_')
+        # 落盘文件存在且与响应一致
+        files = [f for f in os.listdir(str(tmp_path)) if f.startswith('pre_import_')]
+        assert len(files) == 1
+        assert files[0] == d['pre_import_file']
+        assert '导入前已自动备份' in d['message']
