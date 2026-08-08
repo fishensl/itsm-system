@@ -5,7 +5,7 @@
 import json
 import os
 
-from flask import (Flask, render_template, request, redirect, url_for,
+from flask import (Flask, request, redirect, url_for,
                    jsonify, current_app)
 from flask_login import (LoginManager)
 from flask_wtf.csrf import CSRFProtect, generate_csrf
@@ -61,89 +61,39 @@ def _set_csrf_cookie(response):
     return response
 
 
-# ==================== 全局错误处理（create_app 中 register_error_handler 注册） ====================
+# ==================== 全局错误处理（SSR 剥离后：API 返回 JSON，页面请求重定向 SPA） ====================
+def _is_api_request():
+    return '/api/' in request.path
+
+
 def err_404(e):
-    return render_template('errors/error.html', code=404,
-                           title='页面未找到', message='您访问的页面不存在或已被移除。',
-                           show_back=True), 404
+    if _is_api_request():
+        return jsonify({'success': False, 'error': '资源不存在'}), 404
+    return redirect('/app/'), 404
 
 
 def err_500(e):
     current_app.logger.exception('500 错误: %s', e)
-    return render_template('errors/error.html', code=500,
-                           title='服务器内部错误', message='抱歉，服务器处理您的请求时出错。请稍后重试或联系管理员。',
-                           show_back=True), 500
+    if _is_api_request():
+        return jsonify({'success': False, 'error': '服务器内部错误'}), 500
+    return redirect('/app/'), 500
 
 
 def err_403(e):
-    return render_template('errors/error.html', code=403,
-                           title='权限不足', message='您没有权限访问此页面。',
-                           show_back=True), 403
+    if _is_api_request():
+        return jsonify({'success': False, 'error': '权限不足'}), 403
+    return redirect('/app/'), 403
 
 
 def err_413(e):
-    return render_template('errors/error.html', code=413,
-                           title='文件过大', message='上传的文件超过系统允许的大小限制（默认 100MB）。',
-                           show_back=True), 413
+    if _is_api_request():
+        return jsonify({'success': False, 'error': '上传的文件超过系统允许的大小限制'}), 413
+    return redirect('/app/'), 413
 
 
-# 注入 csrf_token() 到所有模板（也可用 {{ csrf_token() }} 直接调用）
+# 注入 csrf_token() 到所有模板（保留：错误 JSON 与兼容端点无模板，但保持兼容）
 def inject_csrf_token():
     return {'csrf_token': generate_csrf}
-
-
-# 注入侧栏配置到所有模板
-def inject_sidebar():
-    """每个请求渲染时，根据当前用户的偏好返回侧栏分组。
-
-    vue 模式（界面版本切换）下，已迁移页面链接映射到 /app/*（未迁移保持 SSR）。
-    """
-    from utils.sidebar_config import get_user_sidebar_groups
-    from utils.ui_version import sidebar_url
-    try:
-        from flask_login import current_user
-        if current_user.is_authenticated:
-            groups = get_user_sidebar_groups(current_user)
-        else:
-            from utils.sidebar_config import get_default_groups
-            groups = [
-                {
-                    'key': g['key'],
-                    'title': g['title'],
-                    'icon': g['icon'],
-                    'enabled': True,
-                    'single_link': g.get('single_link'),
-                    'children': g.get('children', []),
-                }
-                for g in get_default_groups()
-            ]
-    except Exception:
-        from utils.sidebar_config import get_default_groups
-        groups = [
-            {
-                'key': g['key'],
-                'title': g['title'],
-                'icon': g['icon'],
-                'enabled': True,
-                'single_link': g.get('single_link'),
-                'children': g.get('children', []),
-            }
-            for g in get_default_groups()
-        ]
-    # vue 模式：侧栏链接前缀映射
-    for g in groups:
-        if g.get('single_link'):
-            g['single_link']['url'] = sidebar_url(g['single_link']['url'])
-        for c in g.get('children', []):
-            c['url'] = sidebar_url(c['url'])
-    return {'sidebar_groups': groups, 'request_path': request.path}
-
-
-def from_json_filter(value):
-    try:
-        return json.loads(value) if value else []
-    except:
-        return []
 
 
 @login_manager.user_loader
@@ -246,10 +196,8 @@ def create_app(test_config=None):
     app.register_error_handler(403, err_403)
     app.register_error_handler(413, err_413)
 
-    # 上下文处理器 / 模板过滤器
+    # 上下文处理器（SSR 剥离后仅保留 CSRF token 注入兼容）
     app.context_processor(inject_csrf_token)
-    app.context_processor(inject_sidebar)
-    app.add_template_filter(from_json_filter, 'from_json')
 
     # 主应用路由（必须先于蓝图注册，与原模块级定义顺序一致）
     register_routes(app)

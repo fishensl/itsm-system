@@ -3,7 +3,7 @@
 import os
 from datetime import date
 from flask import (request, redirect, url_for,
-                   flash, render_template, send_from_directory, jsonify, current_app)
+                   flash, send_from_directory, jsonify, current_app)
 from flask_login import (login_required, current_user)
 from models import db, UserDashboardPreference
 from utils.permission import require_permission, admin_required
@@ -103,13 +103,19 @@ def repair_schema():
     except Exception as e:
         reports.append(('flask db upgrade', '⚠ ' + str(e)[:300], 'warn'))
 
-    return render_template('system/repair_schema.html', reports=reports, upgrade_output=upgrade_output)
+    # SSR 剥离：返回 JSON（原 render_template 的 repair_schema.html 已下线）
+    return jsonify({
+        'success': True,
+        'reports': [{'name': name, 'status': status, 'detail': detail}
+                    for name, detail, status in reports],
+        'upgrade_output': upgrade_output,
+    })
 
 
 @login_required
 @admin_required
 def drawio_diag():
-    """drawio 图标库加载诊断页——探测 iframe 内部状态，定位 clibs 不生效的原因。"""
+    """drawio 图标库加载诊断（JSON：clibs 与 stencil 探测结果，替代原诊断页）"""
     import os as _os
     import glob
     from urllib.parse import quote
@@ -121,7 +127,7 @@ def drawio_diag():
                         for f in sorted(glob.glob(_os.path.join(stencil_dir, '*.drawio.xml')))]
         base = request.host_url.rstrip('/')
         clibs = ';'.join('U' + quote(base + u, safe='') for u in stencil_urls)
-    return render_template('system/drawio_diag.html', clibs=clibs, stencil_urls=stencil_urls)
+    return jsonify({'success': True, 'clibs': clibs, 'stencil_urls': stencil_urls})
 
 
 @login_required

@@ -7,7 +7,7 @@
 import os
 import base64
 
-from flask import (Blueprint, render_template, request, redirect, url_for,
+from flask import (Blueprint, request, redirect, url_for,
                    flash, jsonify, current_app)
 from flask_login import login_required, current_user
 
@@ -47,19 +47,31 @@ def api_template_list():
 @login_required
 @require_permission('topology:view')
 def topology_editor(id):
-    """在线拓扑编辑器
+    """在线拓扑编辑器（壳页化：返回静态 editor-shell.html，数据经 editor-meta API 获取）
 
     id=0 新建；id>0 编辑已有在线图。
-    查询参数 import=<topo_id>：从已上传的 Visio/drawio/图片文件导入后在线编辑（另存为新在线图）。
+    查询参数 import=<topo_id>：从已上传的 Visio/drawio/图片文件导入后在线编辑。
     """
+    from flask import send_from_directory
+    return send_from_directory(
+        os.path.join(current_app.root_path, 'static', 'topologies'),
+        'editor-shell.html')
+
+
+@topology_bp.route('/api/topologies/editor-meta')
+@login_required
+@require_permission('topology:view')
+def api_editor_meta():
+    """编辑器壳页数据：客户/地区下拉、clibs 图标库、导入信息、权限标志（替代 Jinja 注入）"""
     import glob
-    all_customers = Customer.query.order_by(Customer.name).all()
-    regions = Region.query.order_by(Region.parent_id.is_(None).desc(),
-                                    Region.parent_id, Region.sort_order, Region.id).all()
+    from urllib.parse import quote
+    all_customers = [{'id': c.id, 'name': c.name} for c in
+                     Customer.query.order_by(Customer.name).all()]
+    regions = [{'id': r.id, 'name': r.name} for r in
+               Region.query.order_by(Region.parent_id.is_(None).desc(),
+                                     Region.parent_id, Region.sort_order, Region.id).all()]
 
     # 扫描 static/stencils/*.drawio.xml 作为自定义图标库
-    # drawio clibs 格式: U<URL编码的完整地址>（U 后无冒号！URL 需 encodeURIComponent）
-    from urllib.parse import quote
     stencil_dir = os.path.join(current_app.root_path, 'static', 'stencils')
     clibs = ''
     stencil_urls = []
@@ -70,19 +82,11 @@ def topology_editor(id):
         clibs = ';'.join('U' + quote(base + u, safe='') for u in stencil_urls)
 
     # 导入模式：从已上传文件导入
-    import_url = None
-    import_name = None
-    import_customer_id = None
-    import_region_id = None
-    import_type = None  # visio | drawio | image | None
+    import_info = None
     import_topo_id = request.args.get('import', type=int)
     if import_topo_id:
         t = Topology.query.get_or_404(import_topo_id)
         if t.file_path:
-            import_url = url_for('static', filename=t.file_path)
-            import_name = t.name
-            import_customer_id = t.customer_id
-            import_region_id = t.region_id
             fp_lower = (t.file_path or '').lower()
             if fp_lower.endswith(('.vsd', '.vsdx')):
                 import_type = 'visio'
@@ -90,14 +94,29 @@ def topology_editor(id):
                 import_type = 'drawio'
             elif fp_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
                 import_type = 'image'
+            else:
+                import_type = None
+            if import_type:
+                import_info = {
+                    'url': url_for('static', filename=t.file_path),
+                    'name': t.name,
+                    'customer_id': t.customer_id,
+                    'region_id': t.region_id,
+                    'type': import_type,
+                }
 
-    return render_template('topologies/editor.html',
-                           diagram_id=id, all_customers=all_customers, regions=regions,
-                           clibs=clibs, stencil_urls=stencil_urls,
-                           import_url=import_url, import_name=import_name,
-                           import_customer_id=import_customer_id,
-                           import_region_id=import_region_id,
-                           import_type=import_type)
+    return jsonify({
+        'ok': True,
+        'diagram_id': request.args.get('id', 0, type=int),
+        'customers': all_customers,
+        'regions': regions,
+        'clibs': clibs,
+        'stencil_urls': stencil_urls,
+        'can_add': has_permission('topology:add'),
+        'can_edit': has_permission('topology:edit'),
+        'template_param': request.args.get('template', ''),
+        'import': import_info,
+    })
 
 
 @topology_bp.route('/topologies/api/diagram/<int:id>')

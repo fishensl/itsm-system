@@ -27,7 +27,26 @@ class Config:
         )
         SECRET_KEY = secrets.token_hex(32)
 
-    SQLALCHEMY_DATABASE_URI = os.environ.get('ITSM_DATABASE_URI', f'sqlite:///{os.path.join(BASE_DIR, "instance", "itsm.db")}')
+    # PG-only：主数据库为 PostgreSQL（SQLite 仅限测试/遗留迁移工具显式传入，
+    # 不再默认回落）。生产未配置 ITSM_DATABASE_URI 直接拒绝启动。
+    SQLALCHEMY_DATABASE_URI = os.environ.get('ITSM_DATABASE_URI')
+    if not SQLALCHEMY_DATABASE_URI:
+        if os.environ.get('FLASK_ENV') == 'production' or os.environ.get('ITSM_ENV') == 'production':
+            raise RuntimeError(
+                '[FATAL] ITSM_DATABASE_URI 未配置。生产环境必须设置 PostgreSQL 连接串。\n'
+                '示例：`export ITSM_DATABASE_URI=postgresql://itsm:密码@localhost:5432/itsm`\n'
+                '（SQLite 已不再作为默认，历史 SQLite 库请用 scripts/pg-migrate.sh 迁移到 PG）'
+            )
+        # 非生产（开发/测试）：显式 sqlite 仍可用（conftest 传入），缺省时给 PostgreSQL 提示
+        import warnings
+        warnings.warn(
+            '[CONFIG] 未设置 ITSM_DATABASE_URI。开发环境请配置 PostgreSQL：\n'
+            '  export ITSM_DATABASE_URI=postgresql://itsm:密码@localhost:5432/itsm\n'
+            '测试/迁移工具可显式传 sqlite:/// 路径（如 pytest conftest）。',
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(BASE_DIR, 'instance', 'itsm.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MAX_CONTENT_LENGTH = int(os.environ.get('ITSM_MAX_UPLOAD_MB', 100)) * 1024 * 1024
 

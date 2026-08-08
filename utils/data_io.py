@@ -414,12 +414,7 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
             '导入后可能存在 schema 漂移，请关注上面的表/列差异提示'
         )
 
-    is_sqlite = db.engine.dialect.name == 'sqlite'
     is_pg = db.engine.dialect.name == 'postgresql'
-
-    # SQLite 回灌期间关外键，避免按拓扑序仍撞自引用/循环约束；结束后恢复
-    if is_sqlite:
-        db.session.execute(text('PRAGMA foreign_keys=OFF'))
 
     # PG：循环/自引用外键（如 departments.head_id↔users.department_id、
     # departments.parent_id、regions.parent_id）即使按拓扑序也会在插入中途违反约束；
@@ -488,8 +483,6 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
             except Exception:
                 pass  # Windows 无效，忽略
     finally:
-        if is_sqlite:
-            db.session.execute(text('PRAGMA foreign_keys=ON'))
         if is_pg:
             # 恢复约束为立即校验（默认行为），避免影响后续正常写操作
             db.session.execute(text('SET CONSTRAINTS ALL IMMEDIATE'))
