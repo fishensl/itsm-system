@@ -42,6 +42,31 @@ DEFAULT_RULES = {
 }
 
 
+# 默认渠道（启动幂等种子；默认停用，管理员填凭据后启用）
+DEFAULT_CHANNELS = (
+    ('wecom', '企业微信', 1),
+    ('dingtalk', '钉钉', 2),
+    ('feishu', '飞书', 3),
+)
+
+
+def seed_default_notify_channels():
+    """幂等种入默认通知渠道（wecom/dingtalk/feishu，默认停用）。
+
+    渠道配置为空导致「通知渠道」页空白：启动时补齐 3 个渠道卡片，
+    管理员填写凭据并启用后即可推送。
+    """
+    from models import NotifyChannelConfig
+    for channel_type, name, order in DEFAULT_CHANNELS:
+        if NotifyChannelConfig.query.filter_by(channel_type=channel_type).first():
+            continue
+        db.session.add(NotifyChannelConfig(
+            channel_type=channel_type, name=name,
+            config_json='{}', is_enabled=False, sort_order=order,
+        ))
+    db.session.commit()
+
+
 def seed_default_notify_rules():
     """幂等种入默认通知规则（启动时调用；不覆盖已改过的规则）"""
     from utils.json_fields import dumps_json
@@ -54,6 +79,7 @@ def seed_default_notify_rules():
             is_enabled=True,
             recipients_json=dumps_json(recipients),
         ))
+    seed_default_notify_channels()
     db.session.commit()
 
 
