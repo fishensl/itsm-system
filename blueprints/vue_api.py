@@ -3233,6 +3233,66 @@ def api_v2_fault_export():
     return ok({'filename': download_name, 'content': b64})
 
 
+@vue_api_bp.route('/api/inspections/import', methods=['POST'])
+@login_required
+@require_permission('inspection:add')
+def api_v2_inspection_import():
+    """巡检记录批量导入（multipart import_file；列：客户名称/标题/巡检人员/巡检日期/巡检地点/总体状态/结论/备注）"""
+    from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from services.batch_import_service import import_inspections
+    if 'import_file' not in request.files:
+        return fail('请选择要导入的 Excel 文件', 400)
+    f = request.files['import_file']
+    ok_flag, err, _ = validate_upload(f, {'.xlsx', '.xls'}, max_size_mb=20)
+    if not ok_flag:
+        return fail(err, 400)
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    try:
+        wb, ws, err2 = open_excel(tmp, app=current_app)
+        if err2:
+            return fail(err2[0], 400)
+        success, errors, skipped = import_inspections(ws)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('巡检记录导入失败')
+        return fail(f'导入失败：{e}', 400)
+    finally:
+        cleanup_temp_file(tmp)
+    msg = f'巡检记录导入完成：新增 {success} 条'
+    return ok({'message': msg, 'success': success, 'skipped': skipped, 'errors': errors[:50]})
+
+
+@vue_api_bp.route('/api/faults/import', methods=['POST'])
+@login_required
+@require_permission('fault:add')
+def api_v2_fault_import():
+    """故障记录批量导入（multipart import_file；列：客户名称/标题/处理人/故障时间/故障类型/故障描述/故障原因/解决方案/处理结果）"""
+    from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from services.batch_import_service import import_faults
+    if 'import_file' not in request.files:
+        return fail('请选择要导入的 Excel 文件', 400)
+    f = request.files['import_file']
+    ok_flag, err, _ = validate_upload(f, {'.xlsx', '.xls'}, max_size_mb=20)
+    if not ok_flag:
+        return fail(err, 400)
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    try:
+        wb, ws, err2 = open_excel(tmp, app=current_app)
+        if err2:
+            return fail(err2[0], 400)
+        success, errors, skipped = import_faults(ws)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('故障记录导入失败')
+        return fail(f'导入失败：{e}', 400)
+    finally:
+        cleanup_temp_file(tmp)
+    msg = f'故障记录导入完成：新增 {success} 条'
+    return ok({'message': msg, 'success': success, 'skipped': skipped, 'errors': errors[:50]})
+
+
 @vue_api_bp.route('/api/v2/export-download/<token>', methods=['GET'])
 @login_required
 def api_v2_export_download(token):

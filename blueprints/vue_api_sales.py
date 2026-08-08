@@ -150,6 +150,66 @@ def api_spare_part_export():
     return ok({'filename': download_name, 'content': b64})
 
 
+@vue_api_bp.route('/api/spare-parts/import', methods=['POST'])
+@login_required
+@require_permission('spare:add')
+def api_spare_part_import():
+    """备件档案批量导入（multipart import_file；列：编码/名称/分类/规格/单位/最低库存/备注）"""
+    from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from services.batch_import_service import import_spare_parts
+    if 'import_file' not in request.files:
+        return fail('请选择要导入的 Excel 文件', 400)
+    f = request.files['import_file']
+    ok_flag, err, _ = validate_upload(f, {'.xlsx', '.xls'}, max_size_mb=20)
+    if not ok_flag:
+        return fail(err, 400)
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    try:
+        wb, ws, err2 = open_excel(tmp, app=current_app)
+        if err2:
+            return fail(err2[0], 400)
+        success, errors, skipped = import_spare_parts(ws)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('备件导入失败')
+        return fail(f'导入失败：{e}', 400)
+    finally:
+        cleanup_temp_file(tmp)
+    msg = f'备件导入完成：新增 {success} 条' + (f'，跳过重复 {skipped} 条' if skipped else '')
+    return ok({'message': msg, 'success': success, 'skipped': skipped, 'errors': errors[:50]})
+
+
+@vue_api_bp.route('/api/spare-stocks/import', methods=['POST'])
+@login_required
+@require_permission('spare:add')
+def api_spare_stock_import():
+    """库存批量导入（multipart import_file；列：备件名称/位置/数量/单价；同名库位累加）"""
+    from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from services.batch_import_service import import_spare_stocks
+    if 'import_file' not in request.files:
+        return fail('请选择要导入的 Excel 文件', 400)
+    f = request.files['import_file']
+    ok_flag, err, _ = validate_upload(f, {'.xlsx', '.xls'}, max_size_mb=20)
+    if not ok_flag:
+        return fail(err, 400)
+    tmp = save_temp_upload(f, suffix='.xlsx')
+    try:
+        wb, ws, err2 = open_excel(tmp, app=current_app)
+        if err2:
+            return fail(err2[0], 400)
+        success, errors, skipped = import_spare_stocks(ws)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('库存导入失败')
+        return fail(f'导入失败：{e}', 400)
+    finally:
+        cleanup_temp_file(tmp)
+    msg = f'库存导入完成：新增 {success} 条' + (f'，累加/跳过 {skipped} 条' if skipped else '')
+    return ok({'message': msg, 'success': success, 'skipped': skipped, 'errors': errors[:50]})
+
+
 @vue_api_bp.route('/api/spare-parts/<int:spare_id>', methods=['GET'])
 @login_required
 @require_permission('spare:view')
