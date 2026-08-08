@@ -54,6 +54,25 @@ class TestTicketLifecycle:
         assert t1.number != t2.number
         assert int(t2.number.split('-')[-1]) == int(t1.number.split('-')[-1]) + 1
 
+    def test_number_advances_after_delete(self, ctx):
+        """删除工单后新单号按「剩余最大序号 + 1」推进：不回退、不与存续工单重号"""
+        from models import db, TicketLog
+        t1 = _create(ctx, '工单A')
+        t2 = _create(ctx, '工单B')
+        seq1 = int(t1.number.split('-')[-1])
+        seq2 = int(t2.number.split('-')[-1])
+        assert seq2 == seq1 + 1
+        # 删除序号更大的 t2（当日最后一张，先清其日志）
+        TicketLog.query.filter_by(ticket_id=t2.id).delete()
+        db.session.delete(t2)
+        db.session.commit()
+        t3 = _create(ctx, '工单C')
+        seq3 = int(t3.number.split('-')[-1])
+        # 新单号 = 剩余最大序号(seq1) + 1，不回退
+        assert seq3 == seq1 + 1
+        # 存续工单号全部唯一（无碰撞）
+        assert len({t1.number, t3.number}) == 2
+
 
 class TestIllegalTransitions:
     """非法转换必须抛 ServiceError 且状态不变"""
@@ -75,6 +94,24 @@ class TestIllegalTransitions:
         assert Ticket.query.get(t.id).status == '已关闭'
         with pytest.raises(ServiceError):
             ticket_service.assign_ticket(t.id, 'op', 'admin')
+
+    def test_reopen_closed_ticket(self, ctx):
+        """已关闭工单可重开回处理中（纠正性操作）"""
+        t = _create(ctx)
+        ticket_service.close_ticket(t.id, 'admin')
+        assert Ticket.query.get(t.id).status == '已关闭'
+        ticket_service.reopen_ticket(t.id, 'admin', remark='误关重开')
+        tk = Ticket.query.get(t.id)
+        assert tk.status == '处理中'
+        # 重开后仍可继续走处理流程
+        ticket_service.submit_ticket(t.id, 'admin')
+        assert Ticket.query.get(t.id).status == '待审核'
+
+    def test_reopen_non_closed_rejected(self, ctx):
+        """非已关闭工单不可重开"""
+        t = _create(ctx)
+        with pytest.raises(ServiceError):
+            ticket_service.reopen_ticket(t.id, 'admin')
 
     def test_unknown_state_rejected(self, ctx):
         t = _create(ctx)

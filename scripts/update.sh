@@ -22,10 +22,19 @@ fi
 echo "当前版本: ${OLD_VERSION}"
 
 # ---- 1. 备份数据库 ----
+# PG 模式（ITSM_DATABASE_URI=postgresql*）调用 backup.sh 做真实 pg_dump 备份；
+# 仅 SQLite/未配置才复制 instance/itsm.db 文件（PG 下该文件可能是遗留死文件，复制无意义）。
 echo ""
 echo "[1/6] 备份数据库..."
 mkdir -p "${APP_DIR}/backups"
-if [ -f "${APP_DIR}/instance/itsm.db" ]; then
+DB_URI_VAL=""
+if [ -f "${APP_DIR}/.env" ]; then
+    DB_URI_VAL=$(grep -E '^ITSM_DATABASE_URI=' "${APP_DIR}/.env" 2>/dev/null | cut -d= -f2- || true)
+fi
+if [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == postgresql* ]]; then
+    echo "  PostgreSQL 模式，调用 backup.sh 执行 pg_dump 真实备份..."
+    bash "${APP_DIR}/scripts/backup.sh" "${APP_DIR}"
+elif [ -f "${APP_DIR}/instance/itsm.db" ]; then
     cp "${APP_DIR}/instance/itsm.db" "${APP_DIR}/backups/itsm.db.pre_update_${TIMESTAMP}"
     echo "  已保存: backups/itsm.db.pre_update_${TIMESTAMP}"
 else

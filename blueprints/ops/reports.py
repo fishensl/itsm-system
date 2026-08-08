@@ -3,7 +3,7 @@
 import os
 from flask import request, redirect, flash, send_from_directory, current_app, abort
 from flask_login import login_required, current_user
-from models import (Inspection, Ticket)
+from models import (Inspection, Ticket, Fault, SubmissionVersion)
 from utils.permission import require_permission
 from blueprints.ops import ops_bp
 
@@ -39,6 +39,9 @@ def report_delete(filename):
     fname = os.path.basename(full)
     Inspection.query.filter_by(report_file=fname).update({'report_file': ''})
     Ticket.query.filter_by(report_file=fname).update({'report_file': ''})
+    # 补清故障报告与提交版本报告的引用（此前漏清会产生 404 孤儿）
+    Fault.query.filter_by(report_file=fname).update({'report_file': ''})
+    SubmissionVersion.query.filter_by(report_file=fname).update({'report_file': ''})
     from models import db
     db.session.commit()
     from blueprints.vue_api_sys import audit_log  # noqa: E402

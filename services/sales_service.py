@@ -202,6 +202,17 @@ def update_contract(contract_id, data):
 @transaction
 def delete_contract(contract_id):
     c = Contract.query.get_or_404(contract_id)
+    # 关联保护：已生成巡检任务或关联项目的合同禁止删除，
+    # 防止 contract_id 悬挂引用（PG 强制外键下会直接报错，SQLite 会产生脏数据）
+    from models.inspection import InspectionTask
+    task_count = InspectionTask.query.filter_by(contract_id=contract_id).count()
+    if task_count:
+        raise ServiceError(
+            f'该合同已生成 {task_count} 个巡检任务，请先删除相关任务或解除关联后再删除合同')
+    proj_count = Project.query.filter_by(contract_id=contract_id).count()
+    if proj_count:
+        raise ServiceError(
+            f'该合同已关联 {proj_count} 个项目，请先删除项目或解除关联后再删除合同')
     db.session.delete(c)
 
 

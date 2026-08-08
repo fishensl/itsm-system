@@ -547,6 +547,39 @@ class TestContract:
         with app.app_context():
             assert Contract.query.get(cid) is None
 
+    def test_delete_blocked_with_tasks(self, sales_client, seed, app):
+        """合同已生成巡检任务 → 禁止删除（防悬挂 contract_id）"""
+        with app.app_context():
+            c = Contract(title='有任务的合同')
+            db.session.add(c)
+            db.session.flush()
+            t = InspectionTask(title='合同生成的任务', customer_id=seed['c1'],
+                               contract_id=c.id, status='待执行', source='合同自动生成')
+            db.session.add(t)
+            db.session.commit()
+            cid = c.id
+        r = sales_client.delete(f'/api/contracts/{cid}')
+        assert r.status_code == 400
+        assert '巡检任务' in r.get_json()['message']
+        with app.app_context():
+            assert Contract.query.get(cid) is not None  # 合同未被删除
+
+    def test_delete_blocked_with_projects(self, sales_client, seed, app):
+        """合同已关联项目 → 禁止删除"""
+        with app.app_context():
+            c = Contract(title='有项目的合同')
+            db.session.add(c)
+            db.session.flush()
+            p = Project(name='关联项目', contract_id=c.id, customer_id=seed['c1'])
+            db.session.add(p)
+            db.session.commit()
+            cid = c.id
+        r = sales_client.delete(f'/api/contracts/{cid}')
+        assert r.status_code == 400
+        assert '项目' in r.get_json()['message']
+        with app.app_context():
+            assert Contract.query.get(cid) is not None
+
 
 # ==================== 销售管线：项目 ====================
 class TestProject:
