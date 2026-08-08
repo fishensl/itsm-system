@@ -669,6 +669,8 @@ def api_backup_export_download(token):
 def api_backup_import():
     import tempfile
     import os
+    import shutil
+    from datetime import datetime as _dt
     confirm = (request.form.get('confirm') or '').strip()
     if confirm != '我确认覆盖':
         return fail('请输入"我确认覆盖"以二次确认')
@@ -679,6 +681,26 @@ def api_backup_import():
     import_password = (request.form.get('password') or '').strip() or None
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip', prefix='itsm_import_')
     os.close(tmp_fd)
+
+    # 导入前自动备份当前数据（覆盖恢复有风险：DB 回灌可回滚，但文件/密钥还原不走事务，
+    # 磁盘覆盖后无法原子回滚 → 必须先在备份目录留一份全量 zip 兜底）。
+    # 失败仅告警不阻断导入（兜底失效但导入流程不受影响）。
+    pre_import_name = ''
+    try:
+        from utils.data_io import build_export_zip
+        backup_dir = current_app.config.get('BACKUP_DIR') or os.path.join(current_app.root_path, 'backups')
+        os.makedirs(backup_dir, exist_ok=True)
+        ts = _dt.utcnow().strftime('%Y%m%d_%H%M%S')
+        pre_import_name = f'pre_import_{ts}.zip'
+        tmp_backup, _size, _manifest = build_export_zip(config_only=False)
+        shutil.move(tmp_backup, os.path.join(backup_dir, pre_import_name))
+        audit_log('backup:pre_import', 'backup', None,
+                  f'导入前自动备份当前数据到 backups/{pre_import_name}')
+        current_app.logger.info('用户 [%s] 导入前自动备份: %s', current_user.username, pre_import_name)
+    except Exception:
+        pre_import_name = ''
+        current_app.logger.warning('导入前自动备份失败（导入继续）', exc_info=True)
+
     try:
         f.save(tmp_path)
         try:
@@ -689,6 +711,8 @@ def api_backup_import():
         except Exception as e:
             db.session.rollback()
             current_app.logger.exception('导入备份失败')
+            if pre_import_name:
+                return fail(f'导入失败：{e}（已自动备份当前数据到 backups/{pre_import_name}，可据此恢复）')
             return fail(f'导入失败：{e}')
         try:
             from utils.permission import invalidate_role
@@ -705,9 +729,11 @@ def api_backup_import():
             msg += '（未还原加密密钥）'
         if result['warnings']:
             msg += '。警告：' + '；'.join(result['warnings'][:3])
+        if pre_import_name:
+            msg += f'。导入前已自动备份当前数据到 backups/{pre_import_name}'
         current_app.logger.info('用户 [%s] 导入备份：%s', current_user.username, msg)
         audit_log('backup:import', 'backup', None, '导入备份包（覆盖恢复）')
-        return ok({'message': msg})
+        return ok({'message': msg, 'pre_import_file': pre_import_name or None})
     finally:
         try:
             os.remove(tmp_path)

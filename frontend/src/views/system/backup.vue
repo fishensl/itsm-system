@@ -21,116 +21,113 @@
     </el-row>
     <div class="file-size-tip">上传文件约 <b>{{ fileSizeMb }}</b> MB（reports / uploads / static/uploads，随备份包一并导出）</div>
 
-    <!-- 2. 导出与导入 -->
-    <h6 class="module-title mt-3"><el-icon><FolderOpened /></el-icon>导出与导入</h6>
-    <el-row :gutter="12">
-      <el-col :xs="24" :md="12">
+    <!-- 2. 导出 / 导入 / 调度 三卡并排 -->
+    <el-row :gutter="12" class="mt-3">
+      <el-col :xs="24" :md="8">
         <el-card shadow="never" class="op-card">
           <template #header><span class="card-title">导出备份</span></template>
-          <el-form label-width="96px" @submit.prevent>
+          <el-form label-width="72px" label-position="left" size="small" @submit.prevent>
             <el-form-item label="范围">
-              <el-radio-group v-model="exportConfigOnly">
-                <el-radio :value="false">全量数据</el-radio>
+              <el-radio-group v-model="exportConfigOnly" class="w-full">
+                <el-radio :value="false">全量</el-radio>
                 <el-radio :value="true">仅配置</el-radio>
               </el-radio-group>
-              <div class="field-hint">全量 = 业务数据 + 配置 + 密钥 + 上传文件；仅配置 = 字典/权限/模板等，用于克隆新环境</div>
             </el-form-item>
             <el-form-item label="加密密码">
-              <el-input v-model="exportPassword" type="password" show-password placeholder="可选：整包加密（导入时需提供）" />
+              <el-input v-model="exportPassword" type="password" show-password
+                placeholder="可选，导入时需提供" />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="exporting" @click="onExport">导出备份包</el-button>
+              <span class="inline-hint">全量=数据+配置+密钥+文件</span>
             </el-form-item>
           </el-form>
         </el-card>
       </el-col>
 
-      <el-col :xs="24" :md="12">
+      <el-col :xs="24" :md="8">
         <el-card shadow="never" class="op-card">
           <template #header><span class="card-title danger-title">导入恢复</span></template>
-          <el-form label-width="96px" @submit.prevent>
+          <el-form label-width="72px" label-position="left" size="small" @submit.prevent>
             <el-form-item label="备份文件">
               <input ref="fileInput" type="file" accept=".zip" class="file-input" />
             </el-form-item>
             <el-form-item label="还原密钥">
-              <el-checkbox v-model="restoreKey">同时还原 .secret.key 加密密钥</el-checkbox>
+              <el-checkbox v-model="restoreKey">同时还原 .secret.key</el-checkbox>
             </el-form-item>
             <el-form-item label="加密密码">
-              <el-input v-model="importPassword" type="password" show-password placeholder="备份包加密密码（如有）" />
+              <el-input v-model="importPassword" type="password" show-password placeholder="如有" />
             </el-form-item>
             <el-form-item label="二次确认">
               <el-input v-model="confirmText" placeholder='输入"我确认覆盖"' />
-              <div class="warn">⚠ 导入将清空并覆盖全部现有数据，无法撤销！</div>
             </el-form-item>
             <el-form-item>
-              <el-button type="danger" plain :disabled="confirmText !== '我确认覆盖'" :loading="importing"
-                @click="onImport">执行导入</el-button>
+              <el-button type="danger" plain :disabled="confirmText !== '我确认覆盖'"
+                :loading="importing" @click="onImport">执行导入</el-button>
             </el-form-item>
           </el-form>
+          <div class="warn">⚠ 覆盖全部数据；导入前将自动备份当前数据（backups/pre_import_*.zip）</div>
         </el-card>
       </el-col>
-    </el-row>
 
-    <!-- 3. 自动备份 -->
-    <h6 class="module-title mt-3"><el-icon><Timer /></el-icon>自动备份</h6>
-    <el-row :gutter="12">
-      <el-col :xs="24" :md="12">
+      <el-col :xs="24" :md="8">
         <el-card shadow="never" class="op-card">
           <template #header><span class="card-title">调度配置</span></template>
-          <el-form label-width="96px" @submit.prevent>
+          <el-form label-width="72px" label-position="left" size="small" @submit.prevent>
             <el-form-item label="每日备份">
               <el-switch v-model="backupEnabled" />
-              <span class="field-hint">启用后由系统调度器每日自动执行 backup.sh（无需 crontab）</span>
             </el-form-item>
             <el-form-item label="备份时刻">
               <el-time-select v-model="backupTime" start="00:00" step="00:30" end="23:30"
-                placeholder="选择时刻" style="width: 140px" />
-              <span class="field-hint">建议避开业务高峰（如 03:00）</span>
+                placeholder="03:00" class="w-full" />
             </el-form-item>
             <el-form-item label="保留份数">
-              <el-input-number v-model="backupKeep" :min="1" :max="365" style="width: 140px" />
-              <span class="field-hint">份（超出自动清理最旧备份）</span>
+              <el-input-number v-model="backupKeep" :min="1" :max="365" class="w-full" />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="savingCfg" @click="onSaveConfig">保存配置</el-button>
+              <span class="inline-hint">由调度器每日执行 backup.sh</span>
             </el-form-item>
           </el-form>
         </el-card>
       </el-col>
-
-      <el-col :xs="24" :md="12">
-        <el-card shadow="never" class="op-card">
-          <template #header><span class="card-title">备份产物与恢复</span></template>
-          <el-descriptions :column="1" size="small" class="kv-desc">
-            <el-descriptions-item label="数据库备份">
-              <code>backups/itsm_pg_&lt;时间戳&gt;.dump</code>
-            </el-descriptions-item>
-            <el-descriptions-item label="密钥与文件">
-              <code>backups/itsm_meta_&lt;时间戳&gt;.tar.gz</code>
-            </el-descriptions-item>
-            <el-descriptions-item label="保留策略">
-              自动保留最近 <b>{{ backupKeep }}</b> 份
-            </el-descriptions-item>
-            <el-descriptions-item label="整机恢复">
-              <code>sudo bash scripts/restore.sh &lt;应用目录&gt; &lt;备份文件&gt;</code>
-            </el-descriptions-item>
-            <el-descriptions-item label="紧急回滚">
-              <code>sudo bash scripts/rollback.sh &lt;应用目录&gt; &lt;备份文件&gt;</code>
-            </el-descriptions-item>
-          </el-descriptions>
-          <div class="field-hint mt-2">
-            备份必须同时保存数据库与密钥（.secret.key）——丢密钥 = 全部设备/AI 密码不可解密。
-          </div>
-        </el-card>
-      </el-col>
     </el-row>
+
+    <!-- 3. 备份产物与恢复（默认收起） -->
+    <el-collapse v-model="infoOpen" class="mt-3">
+      <el-collapse-item name="info" title="备份产物与恢复（文件命名 / 整机恢复 / 紧急回滚命令）">
+        <el-descriptions :column="2" size="small" class="kv-desc" border>
+          <el-descriptions-item label="数据库备份">
+            <code>itsm_pg_&lt;时间戳&gt;.dump</code>
+          </el-descriptions-item>
+          <el-descriptions-item label="密钥与文件">
+            <code>itsm_meta_&lt;时间戳&gt;.tar.gz</code>
+          </el-descriptions-item>
+          <el-descriptions-item label="导入前备份">
+            <code>pre_import_&lt;时间戳&gt;.zip</code>
+          </el-descriptions-item>
+          <el-descriptions-item label="保留策略">
+            自动保留最近 <b>{{ backupKeep }}</b> 份
+          </el-descriptions-item>
+          <el-descriptions-item label="整机恢复">
+            <code>scripts/restore.sh &lt;目录&gt; &lt;备份&gt;</code>
+          </el-descriptions-item>
+          <el-descriptions-item label="紧急回滚">
+            <code>scripts/rollback.sh &lt;目录&gt; &lt;备份&gt;</code>
+          </el-descriptions-item>
+        </el-descriptions>
+        <div class="field-hint mt-2">
+          备份必须同时保存数据库与密钥（.secret.key）——丢密钥 = 全部设备/AI 密码不可解密。
+        </div>
+      </el-collapse-item>
+    </el-collapse>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, onMounted, computed } from 'vue'
-import { DataAnalysis, FolderOpened, Timer } from '@element-plus/icons-vue'
+import { DataAnalysis } from '@element-plus/icons-vue'
 import { exportBackup, fetchBackupStats, importBackup, fetchBackupConfig, saveBackupConfig } from '@/api/system'
 import { useUiStore } from '@/stores/ui'
 
@@ -138,6 +135,7 @@ const ui = useUiStore()
 const loading = ref(false)
 const stats = ref<Record<string, number> | null>(null)
 const fileSizeMb = ref('0')
+const infoOpen = ref([])  // 信息区默认收起
 
 const exportConfigOnly = ref(false)
 const exportPassword = ref('')
@@ -220,7 +218,7 @@ async function onImport() {
     return
   }
   try {
-    await ElMessageBox.confirm('导入将清空并覆盖全部现有数据，确定继续吗？', '危险操作', { type: 'warning' })
+    await ElMessageBox.confirm('导入将清空并覆盖全部现有数据，确定继续吗？\n（导入前将自动备份当前数据到 backups/）', '危险操作', { type: 'warning' })
   } catch { return }
   importing.value = true
   try {
@@ -230,7 +228,8 @@ async function onImport() {
     fd.append('restore_secret_key', restoreKey.value ? '1' : '0')
     if (importPassword.value) fd.append('password', importPassword.value)
     const r = await importBackup(fd)
-    ui.toast(r.message, 'success')
+    const pre = r.pre_import_file ? `（导入前已自动备份：${r.pre_import_file}）` : ''
+    ui.toast(`${r.message}${pre}`, 'success')
     load()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -259,7 +258,6 @@ onMounted(load)
 </script>
 
 <style scoped>
-/* 与「系统概览」统一：分模块标题 + 统计卡 + 等高操作卡 */
 .module-title {
   font-size: 13px;
   color: var(--itsm-text-muted);
@@ -297,17 +295,18 @@ onMounted(load)
 .mt-3 { margin-top: 12px; }
 .mt-2 { margin-top: 8px; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
+.w-full { width: 100%; }
+.file-input { width: 100%; font-size: 13px; }
+.inline-hint {
+  font-size: 12px;
+  color: var(--itsm-text-muted);
+  margin-left: 8px;
+}
+.warn { font-size: 12px; color: var(--el-color-danger); margin-top: 2px; }
 .field-hint {
   font-size: 12px;
   color: var(--itsm-text-muted);
   line-height: 1.5;
-  margin-top: 4px;
-}
-.file-input { width: 100%; }
-.warn { font-size: 12px; color: var(--el-color-danger); margin-top: 4px; }
-.kv-desc :deep(.el-descriptions__label) {
-  width: 96px;
-  color: var(--itsm-text-muted);
 }
 .kv-desc code {
   font-size: 12px;

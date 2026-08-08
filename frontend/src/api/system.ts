@@ -266,7 +266,7 @@ export function exportBackup(payload: { config_only?: boolean; password?: string
 }
 
 export function importBackup(formData: FormData) {
-  return request<{ message: string }>({
+  return request<{ message: string; pre_import_file?: string | null }>({
     url: '/api/system/backup/import',
     method: 'POST',
     data: formData,
