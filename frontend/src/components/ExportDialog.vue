@@ -135,6 +135,7 @@ const submitting = ref(false)
 const customerOptions = ref<{ id: number; name: string }[]>([])
 
 const storageKey = computed(() => `export_cols_${props.module}`)
+const presetKey = computed(() => `export_preset_${props.module}`)
 const hasPasswordColumn = computed(() => selectedCols.value.includes('password'))
 
 function selectAll() {
@@ -151,9 +152,29 @@ function resetCols() {
   }
 }
 
+/** 打开时恢复上次选择：预设 + 列；无记录则按预设默认列载入 */
+function loadSaved() {
+  const saved = localStorage.getItem(storageKey.value)
+  if (saved) {
+    try {
+      const arr = JSON.parse(saved) as string[]
+      selectedCols.value = arr.filter((k) => allColumns.value.some((c) => c.key === k))
+    } catch { selectedCols.value = [] }
+  }
+  if (props.module === 'device') {
+    const p = localStorage.getItem(presetKey.value)
+    if (p && devicePresets.some((x) => x.key === p)) preset.value = p
+  }
+  if (!selectedCols.value.length) resetCols()
+}
+
+/** 切换预设 → 自动勾选该预设的默认列集合（可再增删） */
 function onPresetChange(key: string) {
   const p = devicePresets.find((x) => x.key === key)
-  if (p) selectedCols.value = [...p.columns]
+  if (p) {
+    selectedCols.value = [...p.columns]
+    localStorage.setItem(presetKey.value, key)
+  }
 }
 
 function loadCustomers() {
@@ -166,19 +187,11 @@ watch(
   () => props.modelValue,
   (v) => {
     if (!v) return
-    const saved = localStorage.getItem(storageKey.value)
-    if (saved) {
-      try {
-        const arr = JSON.parse(saved) as string[]
-        selectedCols.value = arr.filter((k) => allColumns.value.some((c) => c.key === k))
-      } catch { selectedCols.value = [] }
-    }
-    if (!selectedCols.value.length) resetCols()
+    loadSaved()
     items.value = bundleItems.value.map((i) => i.key)
     customerIds.value = []
     dateRange.value = null
     reason.value = ''
-    if (props.module === 'device') preset.value = 'asset'
     if (hasCustomerFilter.value && !customerOptions.value.length) loadCustomers()
   },
   { immediate: true },
