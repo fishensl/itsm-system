@@ -1249,18 +1249,35 @@ def api_task_board():
 @login_required
 @require_permission('task:dispatch')
 def api_task_board_status(task_id):
-    """看板内状态流转：复用服务层状态机（校验 + local_now 时间戳维护）"""
+    """看板内状态流转：复用服务层状态机（校验 + local_now 时间戳维护）
+
+    重开（已完成/已取消 → 执行中）为纠正性操作，仅限管理员/部门主管，并写审计日志。
+    """
     from models import InspectionTask as _IT
     from services.task_schedule_service import apply_task_status
+    from utils.permission import is_supervisor
     data = request.get_json(silent=True) or {}
     status = data.get('status', '')
     t = _IT.query.get_or_404(task_id)
+    is_reopen = t.status in ('已完成', '已取消') and status == '执行中'
+    if is_reopen:
+        is_admin = getattr(current_user, 'is_admin', False)
+        if not is_admin and not is_supervisor(current_user):
+            return jsonify({'success': False, 'error': '重开已完成/已取消任务需要管理员或部门主管权限'}), 403
     try:
-        apply_task_status(t, status)
+        apply_task_status(t, status, allow_reopen=is_reopen)
     except ValueError as e:
         db.session.rollback()
         return fail(str(e), 400)
     db.session.commit()
+    if is_reopen:
+        from blueprints.vue_api_sys import audit_log
+        audit_log('task:reopen', 'inspection_task', t.id,
+                  f'任务「{t.title}」由 {t.status} 重开为执行中（操作人：'
+                  f'{current_user.realname or current_user.username}）')
+        current_app.logger.info(
+            '任务重开审计(Vue): 用户[%s] 重开任务[%s](id=%s), IP=%s',
+            current_user.username, t.title, t.id, request.remote_addr)
     return ok(None)
 
 
@@ -1536,7 +1553,7 @@ def api_ticket_action(ticket_id):
     """
     from services.ticket_service import (assign_ticket, accept_ticket, submit_ticket,
                                          audit_ticket, accept_check_ticket, close_ticket,
-                                         unassign_ticket)
+                                         unassign_ticket, reopen_ticket)
     data = request.get_json(silent=True) or {}
     if request.form:
         for k, v in request.form.items():
@@ -1545,6 +1562,13 @@ def api_ticket_action(ticket_id):
     me = current_user.realname or current_user.username
     remark = data.get('remark', '')
     report_path = ''
+    # 审核/客户验收属于审核岗动作，需 ticket:review 权限（ticket:edit 仅覆盖处理类动作，
+    # 防止工程师用编辑权限审核自己的工单）
+    if action in ('audit', 'accept_check'):
+        from utils.permission import has_permission
+        if not has_permission('ticket:review'):
+            return jsonify({'success': False, 'error': '权限不足，需要工单审核权限',
+                            'required': 'ticket:review'}), 403
     try:
         if action == 'submit' and request.files.get('report_file'):
             from utils.upload import validate_upload
@@ -1581,6 +1605,18 @@ def api_ticket_action(ticket_id):
                                 approved=approved)
         elif action == 'close':
             close_ticket(ticket_id, me, remark or '关闭工单')
+        elif action == 'reopen':
+            # 重开已关闭工单：纠正性操作，仅限管理员/部门主管 + 审计
+            from utils.permission import is_supervisor
+            if not getattr(current_user, 'is_admin', False) and not is_supervisor(current_user):
+                return jsonify({'success': False, 'error': '重开已关闭工单需要管理员或部门主管权限'}), 403
+            reopen_ticket(ticket_id, me, remark or '重开工单')
+            from blueprints.vue_api_sys import audit_log
+            audit_log('ticket:reopen', 'ticket', ticket_id,
+                      f'重开已关闭工单（操作人：{me}）')
+            current_app.logger.info(
+                '工单重开审计(Vue): 用户[%s] 重开工单[%s](id=%s), IP=%s',
+                current_user.username, ticket_id, ticket_id, request.remote_addr)
         elif action == 'reassign':
             unassign_ticket(ticket_id, me, remark or '撤回重派')
         else:
@@ -2398,6 +2434,24 @@ def api_inspection_review(inspection_id):
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '审核失败', 400)
+    # ---- 审核通过但正式报告生成失败：补审计 + 通知管理员（service 层不碰 request）----
+    if approved:
+        try:
+            from models import Inspection as _IG
+            i = _IG.query.get(inspection_id)
+            if i and i.review_status == '已通过' and not i.report_file:
+                from blueprints.vue_api_sys import audit_log
+                from utils.notifications import _admin_user_ids, notify
+                audit_log('inspection:report_failed', 'inspection', inspection_id,
+                          f'巡检记录 #{inspection_id} 审核通过但正式报告生成失败，'
+                          f'请在记录详情中点击"补生成报告"修复')
+                for uid in _admin_user_ids(except_user_id=current_user.id):
+                    notify(uid, 'inspection',
+                           f'巡检 #{inspection_id} 正式报告生成失败',
+                           f'审核已通过但 Word 报告生成失败，请在巡检记录中点击"补生成报告"修复',
+                           f'/app/inspections/{inspection_id}')
+        except Exception:
+            current_app.logger.warning('巡检报告失败审计/通知异常 inspection_id=%s', inspection_id)
     # ---- 事件源：审核结果通知提交工程师 ----
     try:
         from utils.notifications import notify
@@ -2414,6 +2468,40 @@ def api_inspection_review(inspection_id):
     except Exception:
         current_app.logger.warning('巡检审核通知失败 inspection_id=%s', inspection_id)
     return ok(None)
+
+
+@vue_api_bp.route('/api/inspections/<int:inspection_id>/regenerate-report', methods=['POST'])
+@login_required
+@require_permission('inspection:review')
+def api_inspection_regenerate_report(inspection_id):
+    """补生成正式报告：仅限已通过的巡检且 report_file 为空（审核通过时生成失败的修复入口）。
+
+    幂等：已有报告文件时拒绝（避免覆盖已定稿报告）。
+    """
+    from services.inspection_service import _generate_report_for_inspection
+    from models import Inspection as _IC
+    from utils.constants import REVIEW_APPROVED
+    i = _IC.query.get_or_404(inspection_id)
+    if i.review_status != REVIEW_APPROVED:
+        return fail('仅审核已通过的巡检记录可补生成报告', 400)
+    if i.report_file:
+        return fail(f'该记录已有正式报告（{i.report_file}），无需补生成', 400)
+    try:
+        fname = _generate_report_for_inspection(i)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('补生成巡检报告失败 inspection_id=%s', inspection_id)
+        return fail(f'报告生成失败：{str(e)[:200]}', 500)
+    if not fname:
+        return fail('报告生成器未返回文件路径，请检查服务端日志', 500)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('inspection:regenerate_report', 'inspection', inspection_id,
+              f'补生成正式报告 {fname}（操作人：{current_user.realname or current_user.username}）')
+    current_app.logger.info(
+        '巡检报告补生成审计: 用户[%s] 记录[%s](id=%s), IP=%s',
+        current_user.username, inspection_id, inspection_id, request.remote_addr)
+    return ok({'report_file': fname})
 
 
 @vue_api_bp.route('/api/inspections/assets/<int:asset_id>/download', methods=['GET'])

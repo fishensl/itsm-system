@@ -22,6 +22,16 @@ def repair_schema():
     reports = []
 
     # 关键列及其定义（表名 → (列名, SQL 类型)）— 与 models.py / 迁移保持一致
+    # 注：用方言无关的 SQLAlchemy 类型生成补列语句（DATETIME 是 SQLite 专属，
+    # PG 上必须用 TIMESTAMP，直接写死 DATETIME 会导致 PG 补列失败）
+    from sqlalchemy import types as _sat
+    _col_type_map = {
+        'FLOAT': _sat.Float(),
+        'TEXT': _sat.Text(),
+        'VARCHAR(16)': _sat.String(16),
+        'VARCHAR(512)': _sat.String(512),
+        'DATETIME': _sat.DateTime(),
+    }
     CRITICAL_COLUMNS = {
         'inspection_tasks': [
             ('estimated_effort', 'FLOAT'),
@@ -62,9 +72,14 @@ def repair_schema():
                     reports.append((f'{tbl}.{col_name}', '✅ 存在', 'ok'))
                 else:
                     # 直接补列（alembic 误判 head 时绕过迁移直接修 schema）
+                    # 用 SQLAlchemy 类型编译为当前方言的 DDL（SQLite→DATETIME / PG→TIMESTAMP）
                     try:
-                        db.session.execute(text(
-                            f'ALTER TABLE {tbl} ADD COLUMN {col_name} {col_type}'))
+                        from sqlalchemy.schema import AddColumn, Column
+                        from sqlalchemy import Table, MetaData
+                        _md = MetaData()
+                        _tbl = Table(tbl, _md)
+                        _col = Column(col_name, _col_type_map.get(col_type, _sat.Text()))
+                        db.session.execute(AddColumn(_tbl, _col))
                         db.session.commit()
                         reports.append((f'{tbl}.{col_name}', '🔧 已补列', 'ok'))
                     except Exception as add_err:

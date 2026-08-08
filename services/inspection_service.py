@@ -230,6 +230,8 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     if not force and task.assigned_to_user_id and current_user_id \
             and int(task.assigned_to_user_id) != int(current_user_id):
         raise ServiceError('只有该任务指派工程师或管理员可以上传报告')
+    # 未指派任务：允许上传（上传端点已有 inspection:edit 权限门，非任意登录用户）；
+    # 上传者身份由调用方记录（uploader/管理员代传 force），此处不再额外拦截。
 
     _check_required_assets(task, report_path=report_path, report_skip_reason=report_skip_reason,
                            config_zip_path=config_zip_path,
@@ -517,8 +519,13 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
             apply_task_status(task, TASK_DONE)
         try:
             _generate_report_for_inspection(i)
+            if not i.report_file:
+                raise RuntimeError('报告生成器返回为空路径')
         except Exception as e:
-            # 报告生成失败不阻塞审核通过，仅记日志
+            # 报告生成失败不阻塞审核通过，但必须可发现：
+            # service 层仅记日志（不在此处写审计/通知——审计依赖 request 上下文，
+            # 且其内部 rollback 会污染本事务），由路由层 api_inspection_review
+            # 检查 report_file 为空后补审计 + 通知管理员。
             try:
                 current_app.logger.exception('生成巡检报告失败 inspection_id=%s: %s', i.id, e)
             except Exception:

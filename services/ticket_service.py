@@ -18,7 +18,7 @@ TICKET_TRANSITIONS = {
     '处理中': {'待审核', '已关闭'},
     '待审核': {'已验收', '处理中'},  # 审核不通过回退处理中
     '已验收': {'已关闭', '处理中'},  # 客户验收通过关闭，退回则回处理中
-    '已关闭': set(),
+    '已关闭': {'处理中'},            # 重开（纠正性操作，调用端需管理员/主管 + 审计）
 }
 
 
@@ -52,25 +52,30 @@ def _record_log(ticket, action, by_user, remark=''):
     db.session.add(log)
 
 
+def _next_ticket_number():
+    """生成工单号 WO-YYYYMMDD-NNN（当日最大序号 +1）。
+
+    按「序号取最大」替代按 id 取最大：删除当日最后一张工单后不会重号。
+    并发同号（当日同秒并发创建）由 PG 唯一约束拦截，路由层捕获 IntegrityError 提示重试。
+    """
+    from sqlalchemy import func
+    today = datetime.now().strftime('%Y%m%d')
+    prefix = f'WO-{today}-'
+    max_seq = (db.session.query(func.max(
+        func.cast(func.substr(Ticket.number, len(prefix) + 1), db.Integer)))
+        .filter(Ticket.number.like(prefix + '%')).scalar())
+    seq = (max_seq or 0) + 1
+    return f'{prefix}{seq:03d}'
+
+
 @transaction
 def create_ticket(data, current_user_name):
     """新建工单"""
     title = (data.get('title') or '').strip()
     if not title:
         raise ServiceError('工单标题不能为空')
-    # 自动生成工单号 WO-YYYYMMDD-NNN
-    today = datetime.now().strftime('%Y%m%d')
-    prefix = f'WO-{today}-'
-    last = Ticket.query.filter(Ticket.number.like(prefix + '%'))\
-        .order_by(Ticket.id.desc()).first()
-    if last:
-        try:
-            n = int(last.number.split('-')[-1]) + 1
-        except (ValueError, IndexError):
-            n = 1
-    else:
-        n = 1
-    number = f'{prefix}{n:03d}'
+    # 自动生成工单号 WO-YYYYMMDD-NNN（当日序号取最大 +1，防删除重号）
+    number = _next_ticket_number()
     t = Ticket(
         number=number,
         title=title,
@@ -83,7 +88,19 @@ def create_ticket(data, current_user_name):
         status='待派单',
     )
     db.session.add(t)
-    db.session.flush()
+    try:
+        db.session.flush()
+    except Exception:
+        db.session.rollback()
+        # 工单号唯一约束冲突（并发创建同号）：刷新后再取号重试一次
+        try:
+            number = _next_ticket_number()
+            t.number = number
+            db.session.add(t)
+            db.session.flush()
+        except Exception:
+            db.session.rollback()
+            raise ServiceError('工单号生成冲突，请重试')
     _record_log(t, '创建工单', current_user_name, '')
     return t
 
@@ -227,4 +244,17 @@ def close_ticket(ticket_id, current_user_name, remark=''):
     """关闭工单"""
     t = Ticket.query.get_or_404(ticket_id)
     _transition(t, '已关闭', current_user_name, remark or '关闭工单')
+    return t
+
+
+@transaction
+def reopen_ticket(ticket_id, current_user_name, remark=''):
+    """重开已关闭工单（纠正性操作，调用端需管理员/主管权限 + 审计）。
+
+    已关闭 → 处理中：清空关闭时间与审核标记，重新进入处理流程。
+    """
+    t = Ticket.query.get_or_404(ticket_id)
+    if t.status != '已关闭':
+        raise ServiceError(f'仅已关闭工单可重开（当前状态 "{t.status}"）')
+    _transition(t, '处理中', current_user_name, remark or '重开工单')
     return t

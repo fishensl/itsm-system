@@ -376,11 +376,11 @@ def import_excel():
 # AJAX：改状态 / 改负责人 / 快速新建
 # ============================================================
 
-def _apply_status(task, new_status, now=None):
+def _apply_status(task, new_status, now=None, allow_reopen=False):
     """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end 时间戳。单条/批量复用。
-    校验失败抛 ValueError（由调用方转 400/flash）。"""
+    校验失败抛 ValueError（由调用方转 400/flash）。allow_reopen 语义见 check_task_transition。"""
     from services.task_schedule_service import check_task_transition
-    err = check_task_transition(task, new_status)
+    err = check_task_transition(task, new_status, allow_reopen=allow_reopen)
     if err:
         raise ValueError(err)
     now = now or local_now()
@@ -389,6 +389,9 @@ def _apply_status(task, new_status, now=None):
         task.actual_start = now
     if new_status == '已完成' and not task.actual_end:
         task.actual_end = now
+    # 重开（终态→执行中）：清空完成时间戳，重新计时
+    if new_status == '执行中' and task.actual_end:
+        task.actual_end = None
 
 
 def _apply_assignee(task, user, now=None):
@@ -716,13 +719,29 @@ def batch_status():
 
     tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
     now = local_now()
+    # 重开（已完成/已取消 → 执行中）为纠正性操作，仅限管理员/部门主管
+    reopens = [t for t in tasks if t.status in ('已完成', '已取消') and new_status == '执行中']
+    if reopens:
+        is_admin = getattr(current_user, 'is_admin', False)
+        if not is_admin and not is_supervisor(current_user):
+            db.session.rollback()
+            return jsonify(success=False,
+                           error=f'重开已完成/已取消任务（{len(reopens)} 条）需要管理员或部门主管权限'), 403
     try:
         for t in tasks:
-            _apply_status(t, new_status, now)
+            _apply_status(t, new_status, now, allow_reopen=bool(reopens))
     except ValueError as e:
         db.session.rollback()
         return jsonify(success=False, error=str(e)), 400
     db.session.commit()
+    if reopens:
+        from blueprints.vue_api_sys import audit_log
+        audit_log('task:reopen', 'inspection_task', None,
+                  f'批量重开 {len(reopens)} 个已完成/已取消任务 → 执行中（操作人：'
+                  f'{current_user.realname or current_user.username}）')
+        current_app.logger.info(
+            '任务重开审计(SSR): 用户[%s] 批量重开 %d 个任务, IP=%s',
+            current_user.username, len(reopens), request.remote_addr)
     return jsonify(success=True, count=len(tasks), status=new_status)
 
 
