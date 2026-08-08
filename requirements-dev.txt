@@ -1,3 +1,6 @@
 pytest>=8.0
 ruff>=0.6
 pip-audit>=2.7
+# S4 测试矩阵切 PG：嵌入式 PostgreSQL（本机零安装，自动下载 PG 16 二进制）。
+# 设置了 ITSM_TEST_DATABASE_URI 指向外部 PG 时无需本依赖。
+pgserver>=0.9

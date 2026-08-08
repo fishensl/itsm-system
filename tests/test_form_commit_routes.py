@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """W3-R7 写操作路由回归（SSR form_commit 路由已剥离 → Vue API /api/* 等价契约）"""
 
-from models import db, SparePart, SpareStock, Opportunity, Customer
+from models import db, SparePart, SpareStock, Opportunity, Customer, InspectionTaskTemplate
 from services import sales_service
 
 
@@ -86,11 +86,16 @@ class TestSalesRoutes:
     def test_contract_create_update_persist_inspection_fields(self, app):
         """service 层：create/update 均持久化巡检配置三字段"""
         with app.app_context():
+            # 建真实模板：PG 强制外键（SQLite 不强制可容忍悬空 task_template_id=3）
+            tpl = InspectionTaskTemplate(name='巡检模板', is_active=True)
+            db.session.add(tpl)
+            db.session.flush()
+            tpl_id = tpl.id
             c = sales_service.create_contract({
                 'title': 'X', 'inspection_frequency': '每季度',
-                'task_template_id': '3', 'auto_generate_tasks': 'on'}, 'admin')
+                'task_template_id': str(tpl_id), 'auto_generate_tasks': 'on'}, 'admin')
             assert c.inspection_frequency == '每季度'
-            assert c.task_template_id == 3
+            assert c.task_template_id == tpl_id
             assert c.auto_generate_tasks is True
             # 局部更新（无 inspection_config_present 标记）：checkbox 状态保持不变
             sales_service.update_contract(c.id, {'inspection_frequency': ''})
