@@ -29,10 +29,12 @@
           </span>
         </div>
         <div class="col-grid">
-          <el-checkbox v-for="c in allColumns" :key="c.key" :value="c.key" class="col-item"
-            :class="{ 'col-pwd': c.key === 'password' }">
-            {{ c.label }}
-          </el-checkbox>
+          <el-checkbox-group v-model="selectedCols" class="col-grid">
+            <el-checkbox v-for="c in allColumns" :key="c.key" :value="c.key" class="col-item"
+              :class="{ 'col-pwd': c.key === 'password' }">
+              {{ c.label }}
+            </el-checkbox>
+          </el-checkbox-group>
         </div>
       </template>
 
