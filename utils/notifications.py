@@ -92,3 +92,57 @@ def notify_overdue_tasks():
                '/app/task-schedule')
         sent += 1
     return sent
+
+
+def notify_review_timeout():
+    """巡检/工单审核超时提醒（调度器每日调用）。
+
+    查 SubmissionVersion.review_status='待审核' 且超过 REVIEW_TIMEOUT_DAYS 天未审的
+    记录，通知提交人部门主管 + 全部 admin（复用 notify_review_submitted 目标集）。
+    返回通知数；失败不阻断。
+    """
+    from datetime import datetime, timedelta
+    from models import SubmissionVersion, User
+    from utils.constants import REVIEW_TIMEOUT_DAYS
+
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=REVIEW_TIMEOUT_DAYS)
+        # 取最早一条待审核版本时间（version 表有 created_at），聚合按 entity 去重
+        rows = (SubmissionVersion.query
+                .filter(SubmissionVersion.review_status == '待审核',
+                        SubmissionVersion.created_at.isnot(None),
+                        SubmissionVersion.created_at < cutoff)
+                .order_by(SubmissionVersion.id)
+                .all())
+        if not rows:
+            return 0
+        # 按 entity 去重（同一工单/巡检多次退回重提只提醒一次），并找提交人部门
+        seen = set()
+        sent = 0
+        for v in rows:
+            key = (v.entity_type, v.entity_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            submitter = None
+            if v.submitted_by:
+                submitter = User.query.get(v.submitted_by)
+            dept_id = submitter.department_id if submitter else None
+            label = '巡检' if v.entity_type == 'inspection' else '工单'
+            # 通知提交人部门主管 + admin（except 提交人本人）
+            notify_review_submitted(
+                dept_id, 'review',
+                f'{label} #{v.entity_id} 审核超时',
+                f'已超过 {REVIEW_TIMEOUT_DAYS} 天未审核，请及时处理',
+                f'/app/{v.entity_type}s/{v.entity_id}' if v.entity_type == 'inspection'
+                else f'/app/tickets/{v.entity_id}',
+                except_user_id=submitter.id if submitter else None)
+            sent += 1
+        return sent
+    except Exception:
+        from flask import current_app
+        try:
+            current_app.logger.exception('审核超时提醒失败')
+        except Exception:
+            pass
+        return 0

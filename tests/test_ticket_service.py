@@ -54,6 +54,18 @@ class TestTicketLifecycle:
         assert t1.number != t2.number
         assert int(t2.number.split('-')[-1]) == int(t1.number.split('-')[-1]) + 1
 
+    def test_sla_deadline_by_priority(self, ctx):
+        """S6 SLA：按优先级计算截止时间（高=4h/中=24h/低=72h）"""
+        from datetime import datetime, timedelta
+        from utils.constants import SLA_HOURS_BY_PRIORITY
+        now = datetime.utcnow()
+        for prio, hours in SLA_HOURS_BY_PRIORITY.items():
+            t = ticket_service.create_ticket(
+                {'title': f'SLA-{prio}', 'priority': prio}, 'admin')
+            delta = t.sla_deadline - now
+            # 允许少量构建耗时误差（<2 分钟）
+            assert abs(delta.total_seconds() - hours * 3600) < 120, prio
+
     def test_number_advances_after_delete(self, ctx):
         """删除工单后新单号按「剩余最大序号 + 1」推进：不回退、不与存续工单重号"""
         from models import db, TicketLog

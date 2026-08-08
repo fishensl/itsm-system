@@ -93,6 +93,8 @@ def _kb_payload(k, attachments=None):
         'helpful_count': k.helpful_count or 0,
         'is_published': published,
         'published_label': '已发布' if published else '未发布',
+        'published_by': k.published_by or '',
+        'published_at': k.published_at.strftime('%Y-%m-%d %H:%M') if k.published_at else '',
         'tags': k.tags or '',
         'created_at': k.created_at.strftime('%Y-%m-%d %H:%M') if k.created_at else '',
         'attachments': _kb_attachments_payload(atts),
@@ -172,7 +174,8 @@ def api_kb_create():
         category=data.get('category') or '故障案例',
         content=data.get('content') or '',
         tags=data.get('tags') or '',
-        is_published=bool(data.get('is_published', True)),
+        # S6：默认草稿（False）——知识库发布审核流；显式传 is_published=true 可直发
+        is_published=bool(data.get('is_published', False)),
         created_by=current_user.realname or current_user.username,
     )
     db.session.add(k)
@@ -199,8 +202,38 @@ def api_kb_update(kb_id):
         k.tags = data.get('tags') or ''
     if 'is_published' in data:
         k.is_published = bool(data.get('is_published'))
+        if k.is_published:
+            k.published_by = current_user.realname or current_user.username
+            k.published_at = datetime.utcnow()
+        else:
+            # 下架：清发布人/时间，回到草稿
+            k.published_by = ''
+            k.published_at = None
     db.session.commit()
     return ok({'id': k.id})
+
+
+@vue_api_bp.route('/api/knowledge-base/<int:kb_id>/publish', methods=['POST'])
+@login_required
+@require_permission('kb:edit')
+def api_kb_publish(kb_id):
+    """发布/下架知识库（发布审核流：草稿→发布；幂等）"""
+    from models import KnowledgeBase as _KB
+    k = _KB.query.get_or_404(kb_id)
+    data = request.get_json(silent=True) or {}
+    publish = bool(data.get('publish', True))
+    k.is_published = publish
+    if publish:
+        k.published_by = current_user.realname or current_user.username
+        k.published_at = datetime.utcnow()
+    else:
+        k.published_by = ''
+        k.published_at = None
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('kb:publish', 'kb', kb_id,
+              f'知识库「{k.title}」{"发布" if publish else "下架"}')
+    return ok({'id': k.id, 'is_published': k.is_published})
 
 
 @vue_api_bp.route('/api/knowledge-base/<int:kb_id>', methods=['DELETE'])
@@ -302,7 +335,8 @@ def api_kb_dicts():
 
 
 # ==================== 故障记录 ====================
-def _fault_payload(f, customer_map=None):
+def _fault_payload(f, customer_map=None, ticket_map=None):
+    """ticket_map: {ticket_id: number}（列表端点批量构建，避免逐行查工单号）"""
     return {
         'id': f.id,
         'title': f.title,
@@ -313,6 +347,8 @@ def _fault_payload(f, customer_map=None):
         'fault_type': f.fault_type or '',
         'result': f.result or '',
         'impact_range': f.impact_range or '',
+        'ticket_id': f.ticket_id,          # S6: 已转工单桥接（前端显示/防重复转单）
+        'ticket_number': (ticket_map or {}).get(f.ticket_id, '') if f.ticket_id else '',
     }
 
 
@@ -329,6 +365,9 @@ def api_fault_list():
     result = (request.args.get('result') or '').strip()
 
     q = _F.query
+    # S6 数据隔离：按用户范围收窄（Fault 无 created_by/assigned 用户字段时静默不过滤）
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _F, current_user)
     if search:
         q = q.filter(_F.title.contains(search))
     if fault_type:
@@ -339,7 +378,14 @@ def api_fault_list():
     rows = q.order_by(_F.fault_time.desc(), _F.id.desc()) \
         .offset((page - 1) * page_size).limit(page_size).all()
     customer_map = {c.id: c.name for c in _C.query.all()}
-    return ok({'items': [_fault_payload(f, customer_map) for f in rows],
+    # S6: 已转工单号批量映射（避免逐行查工单号 N+1）
+    ticket_map = {}
+    tid_set = {f.ticket_id for f in rows if f.ticket_id}
+    if tid_set:
+        from models import Ticket as _TK
+        ticket_map = dict(db.session.query(_TK.id, _TK.number)
+                          .filter(_TK.id.in_(tid_set)).all())
+    return ok({'items': [_fault_payload(f, customer_map, ticket_map) for f in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -349,7 +395,13 @@ def api_fault_list():
 def api_fault_get(fault_id):
     from models import Fault as _F
     f = _F.query.get_or_404(fault_id)
-    payload = _fault_payload(f, {f.customer_id: f.customer_rel.name if f.customer_rel else ''})
+    ticket_map = {}
+    if f.ticket_id:
+        from models import Ticket as _TK
+        tk = _TK.query.get(f.ticket_id)
+        ticket_map = {f.ticket_id: tk.number} if tk else {}
+    payload = _fault_payload(f, {f.customer_id: f.customer_rel.name if f.customer_rel else ''},
+                             ticket_map)
     payload['fault_description'] = f.fault_description or ''
     payload['fault_cause'] = f.fault_cause or ''
     payload['solution'] = f.solution or ''
@@ -405,6 +457,29 @@ def api_fault_delete(fault_id):
         db.session.rollback()
         return fail(str(e) or '故障删除失败', 400)
     return ok(None)
+
+
+@vue_api_bp.route('/api/faults/<int:fault_id>/convert', methods=['POST'])
+@login_required
+@require_permission('ticket:add')
+def api_fault_convert(fault_id):
+    """故障 → 工单（实时转单；幂等：已转单拒绝）。审计 + 返回工单号。"""
+    from services.fault_service import convert_fault_to_ticket
+    from models import Fault as _F
+    f = _F.query.get_or_404(fault_id)
+    try:
+        t = convert_fault_to_ticket(fault_id, current_user.realname or current_user.username)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return fail(str(e) or '转工单失败', 400)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('fault:convert', 'fault', fault_id,
+              f'故障「{f.title}」转为工单 #{t.number}')
+    current_app.logger.info(
+        '故障转工单审计: 用户[%s] 故障[%s](id=%s) → 工单[%s](id=%s), IP=%s',
+        current_user.username, f.title, fault_id, t.number, t.id, request.remote_addr)
+    return ok({'ticket_id': t.id, 'ticket_number': t.number})
 
 
 @vue_api_bp.route('/api/dicts/faults', methods=['GET'])

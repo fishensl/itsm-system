@@ -16,6 +16,8 @@ export interface Fault {
   solution?: string
   recovery_time?: string
   created_at?: string
+  ticket_id?: number | null      // S6: 已转工单桥接
+  ticket_number?: string          // S6: 已转工单单号
 }
 
 export interface FaultQuery {
@@ -50,6 +52,13 @@ export function updateFault(id: number, data: Record<string, unknown>) {
 
 export function deleteFault(id: number) {
   return request<null>({ url: `/api/faults/${id}`, method: 'DELETE' })
+}
+
+export function convertFaultToTicket(id: number) {
+  return request<{ ticket_id: number; ticket_number: string }>({
+    url: `/api/faults/${id}/convert`,
+    method: 'POST',
+  })
 }
 
 export interface FaultDicts {

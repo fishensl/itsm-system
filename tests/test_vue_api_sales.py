@@ -375,13 +375,28 @@ class TestOpportunity:
             db.session.commit()
             oid = o.id
         r = sales_client.put(f'/api/opportunities/{oid}', json={
-            'title': '旧商机-改', 'stage': '商务谈判', 'expected_amount': 888,
+            'title': '旧商机-改', 'stage': '需求确认', 'expected_amount': 888,
         })
         assert r.status_code == 200
         with app.app_context():
             o = Opportunity.query.get(oid)
             assert o.title == '旧商机-改'
-            assert o.stage == '商务谈判'
+            assert o.stage == '需求确认'
+
+    def test_update_skips_stage_rejected(self, sales_client, seed, app):
+        """S6 转换表：商机不可跳级（初步接触 → 商务谈判 拒绝）"""
+        with app.app_context():
+            o = Opportunity(title='跳级商机', stage='初步接触')
+            db.session.add(o)
+            db.session.commit()
+            oid = o.id
+        r = sales_client.put(f'/api/opportunities/{oid}', json={
+            'stage': '商务谈判', 'expected_amount': 888,
+        })
+        assert r.status_code == 400
+        assert '不允许' in r.get_json()['message']
+        with app.app_context():
+            assert Opportunity.query.get(oid).stage == '初步接触'  # 状态未变
 
     def test_delete(self, sales_client, seed, app):
         with app.app_context():
@@ -460,6 +475,19 @@ class TestQuotation:
     def test_invalid_status_rejected(self, sales_client, seed):
         r = sales_client.post('/api/quotations', json={'number': 'Q-X', 'status': '乱写'})
         assert r.status_code == 400
+
+    def test_terminal_status_not_revertible(self, sales_client, seed, app):
+        """S6 转换表：已接受报价不可回退为草稿"""
+        with app.app_context():
+            q = Quotation(number='Q-T', status='已接受', total_amount=100)
+            db.session.add(q)
+            db.session.commit()
+            qid = q.id
+        r = sales_client.put(f'/api/quotations/{qid}', json={'status': '草稿'})
+        assert r.status_code == 400
+        assert '不允许' in r.get_json()['message']
+        with app.app_context():
+            assert Quotation.query.get(qid).status == '已接受'
 
 
 # ==================== 销售管线：合同（含自动任务生成） ====================
@@ -546,6 +574,33 @@ class TestContract:
         assert sales_client.delete(f'/api/contracts/{cid}').status_code == 200
         with app.app_context():
             assert Contract.query.get(cid) is None
+
+    def test_contract_status_transition(self, sales_client, seed, app):
+        """S6 转换表：合同须按 草签→已签→执行中 顺序推进，终态不可回退"""
+        with app.app_context():
+            c = Contract(title='转换合同', status='草签')
+            db.session.add(c)
+            db.session.commit()
+            cid = c.id
+        # 合法推进：草签→已签→执行中
+        assert sales_client.put(f'/api/contracts/{cid}', json={'status': '已签'}).status_code == 200
+        assert sales_client.put(f'/api/contracts/{cid}', json={'status': '执行中'}).status_code == 200
+        # 终态：执行中→已完成
+        assert sales_client.put(f'/api/contracts/{cid}', json={'status': '已完成'}).status_code == 200
+        # 非法回退：已完成→执行中 拒绝
+        r = sales_client.put(f'/api/contracts/{cid}', json={'status': '执行中'})
+        assert r.status_code == 400
+        assert '不允许' in r.get_json()['message']
+        with app.app_context():
+            assert Contract.query.get(cid).status == '已完成'
+        # 跳级拒绝：已签→已完成（未经过执行中）
+        with app.app_context():
+            c2 = Contract(title='跳级合同', status='已签')
+            db.session.add(c2)
+            db.session.commit()
+            cid2 = c2.id
+        r2 = sales_client.put(f'/api/contracts/{cid2}', json={'status': '已完成'})
+        assert r2.status_code == 400
 
     def test_delete_blocked_with_tasks(self, sales_client, seed, app):
         """合同已生成巡检任务 → 禁止删除（防悬挂 contract_id）"""

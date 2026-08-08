@@ -125,7 +125,7 @@ import FaultExpandRow from './FaultExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
-  fetchFaults, fetchFault, createFault, updateFault, deleteFault,
+  fetchFaults, fetchFault, createFault, updateFault, deleteFault, convertFaultToTicket,
   fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts,
 } from '@/api/faults'
 
@@ -196,6 +196,9 @@ const columns = computed<DataColumn[]>(() => [
         onClick: (row) => openEdit(row as unknown as Fault) },
       { label: '删除', type: 'danger', link: true, perm: 'fault:delete', icon: 'Delete',
         onClick: (row) => onDelete(row as unknown as Fault) },
+      { label: '转工单', type: 'warning', link: true, perm: 'ticket:add',
+        disabled: (row: { ticket_id?: number | null }) => Boolean(row.ticket_id),
+        onClick: (row) => onConvert(row as unknown as Fault) },
     ] },
 ])
 
@@ -206,6 +209,29 @@ async function onDelete(f: Fault) {
   try {
     await deleteFault(f.id)
     ui.toast('已删除', 'success')
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function onConvert(f: Fault) {
+  try {
+    await ElMessageBox.confirm(
+      f.ticket_id ? `该故障已转工单 #${f.ticket_number || ''}，是否查看？`
+                  : `确定将故障「${f.title}」转为工单吗？`, '转工单确认', { type: 'info' })
+  } catch { return }
+  try {
+    if (f.ticket_id) {
+      // 已转单 → 跳转工单
+      const num = f.ticket_number || ''
+      const res = await fetch('/api/tickets?search=' + encodeURIComponent(num)).then(r => r.json())
+      const hit = res?.data?.items?.[0]
+      if (hit?.id) { window.open(`/app/tickets/${hit.id}`, '_blank'); return }
+      ui.toast('工单不存在或已被删除，可重新转单', 'warning')
+    }
+    const d = await convertFaultToTicket(f.id)
+    ui.toast(`已转为工单 #${d.ticket_number}`, 'success')
     tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')

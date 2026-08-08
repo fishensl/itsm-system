@@ -62,6 +62,14 @@ export function deleteKnowledge(id: number) {
   return request<null>({ url: `/api/knowledge-base/${id}`, method: 'DELETE' })
 }
 
+export function publishKnowledge(id: number, publish: boolean) {
+  return request<{ id: number; is_published: boolean }>({
+    url: `/api/knowledge-base/${id}/publish`,
+    method: 'POST',
+    data: { publish },
+  })
+}
+
 /** 附件：上传（multipart 多文件字段 files） */
 export function uploadKnowledgeAttachments(kbId: number, files: File[]) {
   const fd = new FormData()

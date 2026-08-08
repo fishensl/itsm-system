@@ -1321,6 +1321,7 @@ def api_task_board_dicts():
     assignees = [{'id': u.id, 'name': u.realname or u.username} for u in assignee_users]
     return ok({'customers': customers, 'assignees': assignees})
 def _ticket_payload(t, customer_map=None):
+    from datetime import datetime
     from services.ticket_service import ticket_completeness
     from models import Device as _D
     from services.submission_version_service import report_display_name
@@ -1369,6 +1370,10 @@ def _ticket_payload(t, customer_map=None):
         'report_name': report_name,
         'complete': complete,
         'missing_fields': missing,
+        # S6 SLA：未关闭且已过截止时间 → 标记超时（列表红标提醒）
+        'sla_deadline': t.sla_deadline.strftime('%Y-%m-%d %H:%M') if t.sla_deadline else '',
+        'sla_overdue': bool(t.sla_deadline and t.status != '已关闭'
+                            and t.sla_deadline < datetime.utcnow()),
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
         'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
         'completed_at': t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '',
@@ -1403,6 +1408,9 @@ def api_ticket_list():
     incomplete_only = request.args.get('incomplete_only', type=int) == 1
 
     q = _T.query
+    # S6 数据隔离：scope != all 时按用户数据范围收窄（部门/仅自己，复用 apply_scope_filter）
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _T, current_user)
     if search:
         q = q.filter(_T.title.contains(search) | _T.number.contains(search))
     if status:
@@ -1689,7 +1697,8 @@ def api_ticket_dicts():
                  for c in _C.query.order_by(_C.name).all()]
     fault_types = [{'id': f.id, 'name': f.name}
                    for f in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
-    statuses = ['待派单', '已派单', '已接单', '处理中', '待审核', '已验收', '已关闭']
+    # S6: 移除「已接单」——不可达死状态（accept 直接转处理中），仅作历史数据兼容保留在状态机表
+    statuses = ['待派单', '已派单', '处理中', '待审核', '已验收', '已关闭']
     priorities = ['紧急', '高', '中', '低']
     devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
                for d in _D.query.order_by(_D.device_name).all()]
@@ -2163,6 +2172,9 @@ def api_inspection_list():
     incomplete_only = request.args.get('incomplete_only', type=int) == 1
 
     q = _I.query.options(_jl(_I.customer_rel))
+    # S6 数据隔离：非 all 范围按用户收窄（inspection 无 assigned_to，按 created/inspector 过滤）
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _I, current_user)
     if search:
         q = q.filter(_I.title.contains(search))
     if status:

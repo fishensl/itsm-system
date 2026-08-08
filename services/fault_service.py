@@ -66,3 +66,35 @@ def delete_fault(fault_id):
     from models import KnowledgeBase
     KnowledgeBase.query.filter_by(related_fault_id=fault_id).update({'related_fault_id': None})
     db.session.delete(f)
+
+
+@transaction
+def convert_fault_to_ticket(fault_id, current_user_name):
+    """故障 → 工单（实时转单，替代一次性迁移脚本）。
+
+    幂等：已转单（fault.ticket_id 已存在）拒绝。
+    复制故障核心字段到新工单（source_type='故障转单'），回填 Fault.ticket_id 桥接。
+    返回新工单。
+    """
+    f = Fault.query.get_or_404(fault_id)
+    if f.ticket_id:
+        from models import Ticket
+        existing = Ticket.query.get(f.ticket_id)
+        if existing:
+            raise ServiceError(f'该故障已转工单 #{existing.number}，请勿重复操作')
+        # 桥接工单已被删除：允许重新转单
+    from services.ticket_service import create_ticket
+    t = create_ticket({
+        'title': f.title or '故障工单',
+        'customer_id': f.customer_id or '',
+        'description': f.fault_description or '',
+        'priority': '中',
+    }, current_user_name)
+    # 结构化故障字段同步到工单（Ticket 无 fault_cause 字段，映射到根因分类）
+    t.source_type = '故障转单'
+    t.fault_category_level1 = f.fault_category_level1 or ''
+    t.fault_category_level2 = f.fault_category_level2 or ''
+    t.root_cause_category = f.root_cause_category or ''
+    t.solution = f.solution or ''
+    f.ticket_id = t.id
+    return t

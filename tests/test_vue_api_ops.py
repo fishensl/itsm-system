@@ -60,8 +60,14 @@ class TestKbList:
         """存量 is_published 为 NULL：视为已发布，且筛选已发布可命中"""
         with app.app_context():
             k = KnowledgeBase(title='存量无发布字段', category='内部规范',
-                              content='x', is_published=None, created_by='admin')
+                              content='x', created_by='admin')
             db.session.add(k)
+            db.session.flush()
+            # 模拟存量 NULL（S6 模型 default=False 后 ORM 不再落 NULL，用 SQL 置空）
+            from sqlalchemy import text
+            db.session.execute(
+                text('UPDATE knowledge_base SET is_published = NULL WHERE id = :id'),
+                {'id': k.id})
             db.session.commit()
             kid = k.id
         r = op_client.get(f'/api/knowledge-base/{kid}')
@@ -104,11 +110,43 @@ class TestKbCreate:
         assert r.status_code == 400
         assert r.get_json()['code'] == 1
 
-    def test_default_published(self, op_client, app):
-        r = op_client.post('/api/knowledge-base', json={'title': '默认发布'})
+    def test_default_draft(self, op_client, app):
+        """S6 发布审核流：新建默认草稿（未发布）；显式 is_published=true 可直发"""
+        r = op_client.post('/api/knowledge-base', json={'title': '默认草稿'})
         assert r.status_code == 200
         with app.app_context():
-            assert KnowledgeBase.query.filter_by(title='默认发布').first().is_published is True
+            assert KnowledgeBase.query.filter_by(title='默认草稿').first().is_published is False
+        r2 = op_client.post('/api/knowledge-base', json={'title': '直发', 'is_published': True})
+        assert r2.status_code == 200
+        with app.app_context():
+            assert KnowledgeBase.query.filter_by(title='直发').first().is_published is True
+
+
+class TestKbPublish:
+    def test_publish_flow(self, op_client, app):
+        """S6 发布审核：草稿 → publish 端点 → 已发布（记录发布人/时间）"""
+        r = op_client.post('/api/knowledge-base', json={'title': '待发布'})
+        kb_id = r.get_json()['data']['id']
+        with app.app_context():
+            assert KnowledgeBase.query.get(kb_id).is_published is False
+        r2 = op_client.post(f'/api/knowledge-base/{kb_id}/publish', json={'publish': True})
+        assert r2.status_code == 200
+        with app.app_context():
+            k = KnowledgeBase.query.get(kb_id)
+            assert k.is_published is True
+            assert k.published_by == 'op'
+            assert k.published_at is not None
+        # 下架
+        r3 = op_client.post(f'/api/knowledge-base/{kb_id}/publish', json={'publish': False})
+        assert r3.status_code == 200
+        with app.app_context():
+            k = KnowledgeBase.query.get(kb_id)
+            assert k.is_published is False
+            assert k.published_by == ''
+
+    def test_publish_requires_perm(self, viewer_client, app):
+        r = viewer_client.post('/api/knowledge-base/1/publish', json={'publish': True})
+        assert r.status_code == 403
 
 
 class TestKbUpdateDelete:

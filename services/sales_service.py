@@ -19,13 +19,23 @@ def _check_status(value, allowed, label):
     return value
 
 
+def _check_transition(current, new, table, label):
+    """通用状态转换校验：new 必须在当前状态的允许下一状态集合内。
+
+    table: dict（key=当前状态 → set(允许的下一状态)）。校验失败抛 ServiceError。
+    """
+    allowed = table.get(current, set())
+    if new != current and new not in allowed:
+        raise ServiceError(f'不允许将{label}从「{current}」变更为「{new}」')
+    return new
+
+
 def _check_opp_stage_transition(o, new_stage):
-    """商机阶段转换校验：终态不可回退；成交需金额>0；失败需说明原因（remark）"""
+    """商机阶段转换校验：转换表（顺序推进/终态不可回退）+ 业务附加校验（成交金额/失败原因）"""
     if not new_stage or new_stage == o.stage:
         return
     _check_status(new_stage, OPP_STAGES, '商机阶段')
-    if o.stage in _OPP_TERMINAL:
-        raise ServiceError(f'商机已处于「{o.stage}」终态，不能回退为「{new_stage}」')
+    _check_transition(o.stage, new_stage, _const.OPP_TRANSITIONS, '商机阶段')
     if new_stage == _const.OPP_STAGE_WON and float(o.expected_amount or 0) <= 0:
         raise ServiceError('商机标记「成交」前请填写预计成交金额（expected_amount）')
     if new_stage == _const.OPP_STAGE_LOST and not (o.remark or '').strip():
@@ -115,7 +125,9 @@ def update_quotation(quot_id, data):
         q.customer_id = int(data['customer_id'])
     q.total_amount = float(data.get('total_amount') or 0)
     if 'status' in data:
-        q.status = _check_status(data.get('status'), _const.QUOTATION_STATUSES, '报价单状态')
+        new_status = _check_status(data.get('status'), _const.QUOTATION_STATUSES, '报价单状态')
+        _check_transition(q.status, new_status, _const.QUOTATION_TRANSITIONS, '报价单状态')
+        q.status = new_status
     if 'valid_until' in data:
         q.valid_until = _parse_date(data.get('valid_until'))
     if 'items' in data or 'items_json' in data:
@@ -182,7 +194,9 @@ def update_contract(contract_id, data):
         c.opportunity_id = int(data['opportunity_id'])
     c.amount = float(data.get('amount') or 0)
     if 'status' in data:
-        c.status = _check_status(data.get('status'), _const.CONTRACT_STATUSES, '合同状态')
+        new_status = _check_status(data.get('status'), _const.CONTRACT_STATUSES, '合同状态')
+        _check_transition(c.status, new_status, _const.CONTRACT_TRANSITIONS, '合同状态')
+        c.status = new_status
     if 'start_date' in data:
         c.start_date = _parse_date(data.get('start_date'))
     if 'end_date' in data:

@@ -1,8 +1,19 @@
 # -*- coding: utf-8 -*-
-"""SparePart 备件业务服务 + 库存/采购/销售订单"""
-from datetime import datetime
-from models import db, SparePart, SpareStock, PurchaseOrder, SalesOrder, StockMovement
+"""SparePart 备件业务服务 + 库存/采购/销售订单/借用归还"""
+from datetime import datetime, date
+from models import db, SparePart, SpareStock, PurchaseOrder, SalesOrder, StockMovement, SpareBorrow
 from .base import ServiceError, transaction
+
+
+def _borrow_parse_date(v):
+    """借用日期解析：接受 date/YYYY-MM-DD 字符串"""
+    if isinstance(v, date):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    if not v:
+        return None
+    return datetime.strptime(str(v).strip(), '%Y-%m-%d').date()
 
 
 def _record_movement(spare_part_id, movement_type, quantity, operator,
@@ -225,3 +236,107 @@ def adjust_stock(stock_id, new_quantity, operator, remark=''):
                      location=stock.location or '', source_id=stock.id,
                      remark=remark or '库存盘点调整')
     return stock
+
+
+# ==================== 借用 / 归还 ====================
+def _mark_overdue_borrows():
+    """将逾期未还（预计归还日已过且未归还）的借用记录标记为「逾期」；返回标记数"""
+    today = date.today()
+    rows = SpareBorrow.query.filter(
+        SpareBorrow.status == '借用中',
+        SpareBorrow.expected_return_date.isnot(None),
+        SpareBorrow.expected_return_date < today,
+    ).all()
+    for b in rows:
+        b.status = '逾期'
+    if rows:
+        db.session.flush()
+    return len(rows)
+
+
+def list_spare_borrows(status='', search='', page=1, page_size=20):
+    """借用列表（分页；自动把过期未还标记为逾期后返回）"""
+    _mark_overdue_borrows()
+    q = SpareBorrow.query
+    if status:
+        q = q.filter(SpareBorrow.status == status)
+    if search:
+        q = q.join(SparePart).filter(
+            SparePart.name.contains(search) | SparePart.code.contains(search) |
+            SpareBorrow.borrower.contains(search))
+    total = q.count()
+    rows = q.order_by(SpareBorrow.borrow_date.desc(), SpareBorrow.id.desc()) \
+        .offset((page - 1) * page_size).limit(page_size).all()
+    return rows, total
+
+
+@transaction
+def create_spare_borrow(data, current_user_name):
+    """借出备件：行锁校验库存 → 扣减 → 建借用记录 + 写 borrow 流水"""
+    spare_id = data.get('spare_part_id')
+    if not spare_id:
+        raise ServiceError('请选择备件')
+    qty = int(data.get('quantity') or 0)
+    if qty <= 0:
+        raise ServiceError('借出数量必须大于 0')
+    borrower = (data.get('borrower') or '').strip()
+    if not borrower:
+        raise ServiceError('请填写借用人')
+    # 行锁防超借（与销售出库同模式）
+    stocks = SpareStock.query.filter(
+        SpareStock.spare_part_id == int(spare_id), SpareStock.quantity > 0
+    ).order_by(SpareStock.id).with_for_update().all()
+    total_stock = sum(st.quantity or 0 for st in stocks)
+    if total_stock < qty:
+        raise ServiceError(f'库存不足（当前 {total_stock}，需要借出 {qty}）')
+    # 从第一条有货的库位扣减
+    remaining = qty
+    location = ''
+    for st in stocks:
+        if remaining <= 0:
+            break
+        take = min(st.quantity or 0, remaining)
+        st.quantity = (st.quantity or 0) - take
+        remaining -= take
+        location = location or st.location or ''
+    b = SpareBorrow(
+        spare_part_id=int(spare_id),
+        borrower=borrower,
+        borrower_phone=(data.get('borrower_phone') or '').strip(),
+        quantity=qty,
+        location=location,
+        borrow_date=_borrow_parse_date(data.get('borrow_date')) or date.today(),
+        expected_return_date=_borrow_parse_date(data.get('expected_return_date')),
+        status='借用中',
+        operator=current_user_name,
+        remark=data.get('remark', ''),
+    )
+    db.session.add(b)
+    db.session.flush()
+    _record_movement(int(spare_id), 'borrow', -qty, current_user_name,
+                     source_id=b.id, location=location or '',
+                     remark=f'借出给 {borrower}')
+    return b
+
+
+@transaction
+def return_spare_borrow(borrow_id, current_user_name, remark=''):
+    """归还备件：回补库存 + 置已归还 + 写 borrow_return 流水"""
+    b = SpareBorrow.query.get_or_404(borrow_id)
+    if b.status == '已归还':
+        raise ServiceError('该借用记录已归还，请勿重复操作')
+    qty = b.quantity or 0
+    if qty > 0:
+        stock = SpareStock.query.filter_by(spare_part_id=b.spare_part_id) \
+            .order_by(SpareStock.id).with_for_update().first()
+        if stock:
+            stock.quantity = (stock.quantity or 0) + qty
+        else:
+            db.session.add(SpareStock(spare_part_id=b.spare_part_id,
+                                      quantity=qty, location=b.location or '默认库位'))
+        _record_movement(b.spare_part_id, 'borrow_return', qty, current_user_name,
+                         source_id=b.id, location=b.location or '',
+                         remark=remark or f'{b.borrower} 归还')
+    b.status = '已归还'
+    b.return_date = date.today()
+    return b

@@ -261,6 +261,58 @@
             </template>
           </el-dialog>
         </el-tab-pane>
+
+        <el-tab-pane label="借用管理" name="borrows" lazy>
+          <div class="tab-toolbar">
+            <div class="filter-row">
+              <el-input v-model="borrowQuery.search" placeholder="搜索备件/借用人" clearable
+                class="filter-search" @keyup.enter="reload('borrows')" @clear="reload('borrows')" />
+              <el-select v-model="borrowQuery.status" placeholder="状态" clearable class="filter-item"
+                @change="reload('borrows')">
+                <el-option label="借用中" value="借用中" />
+                <el-option label="逾期" value="逾期" />
+                <el-option label="已归还" value="已归还" />
+              </el-select>
+              <el-button type="primary" plain :icon="Search" @click="reload('borrows')">查询</el-button>
+            </div>
+            <el-button v-if="user.hasPerm('spare:add')" type="primary" :icon="Plus" @click="openBorrowCreate">
+              借出备件
+            </el-button>
+          </div>
+
+          <DataTable ref="borrowTableRef" :columns="borrowColumns" :fetch-data="fetchBorrows"
+            :query="borrowQuery" row-key="id" />
+
+          <el-dialog v-model="borrowFormVisible" title="借出备件" width="560px" top="5vh" destroy-on-close>
+            <el-form ref="borrowFormRef" :model="borrowForm" :rules="borrowFormRules" label-width="110px">
+              <el-form-item label="备件" prop="spare_part_id">
+                <el-select v-model="borrowForm.spare_part_id" filterable class="w-full">
+                  <el-option v-for="p in spareParts" :key="p.id" :label="p.name" :value="p.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="借用人" prop="borrower">
+                <el-input v-model="borrowForm.borrower" placeholder="借用人姓名" />
+              </el-form-item>
+              <el-form-item label="联系电话">
+                <el-input v-model="borrowForm.borrower_phone" />
+              </el-form-item>
+              <el-form-item label="数量" prop="quantity">
+                <el-input-number v-model="borrowForm.quantity" :min="1" class="w-full" />
+              </el-form-item>
+              <el-form-item label="预计归还">
+                <el-date-picker v-model="borrowForm.expected_return_date" type="date"
+                  value-format="YYYY-MM-DD" class="w-full" placeholder="选填" />
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input v-model="borrowForm.remark" type="textarea" :rows="2" />
+              </el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="borrowFormVisible = false">取消</el-button>
+              <el-button type="primary" :loading="saving" @click="saveBorrow">借出</el-button>
+            </template>
+          </el-dialog>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -280,8 +332,10 @@ import {
   fetchSpareStocks, createSpareStock, updateSpareStock, deleteSpareStock,
   fetchPurchaseOrders, createPurchaseOrder, deletePurchaseOrder,
   fetchSalesOrders, createSalesOrder, deleteSalesOrder,
+  fetchSpareBorrows, createSpareBorrow, returnSpareBorrow,
   fetchSpareDicts, exportSpareParts,
-  type SparePart, type SpareStock, type PurchaseOrderItem, type SalesOrderItem, type SpareDicts,
+  type SparePart, type SpareStock, type PurchaseOrderItem, type SalesOrderItem,
+  type SpareBorrow, type SpareDicts,
 } from '@/api/spare'
 import ExportDialog from '@/components/ExportDialog.vue'
 
@@ -333,7 +387,7 @@ const route = useRoute()
 watch(
   () => route.query.tab,
   (tab) => {
-    if (tab && ['stocks', 'purchases', 'sales'].includes(String(tab))) {
+    if (tab && ['stocks', 'purchases', 'sales', 'borrows'].includes(String(tab))) {
       activeTab.value = String(tab)
     }
   },
@@ -344,9 +398,11 @@ const partQuery = reactive<Record<string, unknown>>({ search: '', category: '' }
 const stockQuery = reactive<Record<string, unknown>>({ search: '' })
 const purchaseQuery = reactive<Record<string, unknown>>({ search: '' })
 const salesQuery = reactive<Record<string, unknown>>({ search: '' })
+const borrowQuery = reactive<Record<string, unknown>>({ search: '', status: '' })
 
-function reload(kind: 'part' | 'stock' | 'purchase' | 'sales') {
-  const refs = { part: partTableRef, stock: stockTableRef, purchase: purchaseTableRef, sales: salesTableRef }
+function reload(kind: 'part' | 'stock' | 'purchase' | 'sales' | 'borrows') {
+  const refs = { part: partTableRef, stock: stockTableRef, purchase: purchaseTableRef,
+    sales: salesTableRef, borrows: borrowTableRef }
   refs[kind].value?.refresh()
 }
 
@@ -635,6 +691,90 @@ const salesColumns = computed<DataColumn[]>(() => [
         onClick: (row) => onSalesDelete(row as unknown as SalesOrderItem) },
     ] },
 ])
+
+// ==================== 借用管理 ====================
+const borrowTableRef = ref()
+const borrowColumns = computed<DataColumn[]>(() => [
+  { key: 'part_name', label: '备件', minWidth: 140, asTitle: true },
+  { key: 'borrower', label: '借用人', width: 90 },
+  { key: 'borrower_phone', label: '电话', minWidth: 100 },
+  { key: 'quantity', label: '数量', width: 70 },
+  { key: 'location', label: '库位', minWidth: 90 },
+  { key: 'borrow_date', label: '借出日', width: 100, type: 'date' },
+  { key: 'expected_return_date', label: '预计归还', width: 100, type: 'date' },
+  { key: 'status', label: '状态', width: 80, type: 'tag', asTag: true,
+    tagMap: { 借用中: 'primary', 逾期: 'danger', 已归还: 'info' } },
+  { key: 'operator', label: '经办人', width: 80 },
+  { key: 'actions', label: '操作', width: 90, type: 'action', fixed: 'right',
+    actions: [
+      { label: '归还', type: 'primary', link: true, perm: 'spare:edit',
+        onClick: (row) => onBorrowReturn(row as unknown as SpareBorrow) },
+    ] },
+])
+
+function fetchBorrows(params: Record<string, unknown>) {
+  return fetchSpareBorrows({ page: params.page, page_size: params.page_size,
+    search: borrowQuery.search, status: borrowQuery.status })
+}
+
+interface BorrowFormModel {
+  spare_part_id: number | null
+  borrower: string
+  borrower_phone: string
+  quantity: number
+  expected_return_date: string
+  remark: string
+}
+
+function blankBorrowForm(): BorrowFormModel {
+  return { spare_part_id: null, borrower: '', borrower_phone: '', quantity: 1,
+    expected_return_date: '', remark: '' }
+}
+
+const borrowFormVisible = ref(false)
+const borrowFormRef = ref()
+const borrowForm = reactive<BorrowFormModel>(blankBorrowForm())
+const borrowFormRules = {
+  spare_part_id: [{ required: true, message: '请选择备件', trigger: 'change' }],
+  borrower: [{ required: true, message: '请填写借用人', trigger: 'blur' }],
+  quantity: [{ required: true, message: '请填数量', trigger: 'change' }],
+}
+
+function openBorrowCreate() {
+  Object.assign(borrowForm, blankBorrowForm())
+  borrowFormVisible.value = true
+}
+
+async function saveBorrow() {
+  await borrowFormRef.value?.validate().catch(() => { throw new Error('校验失败') })
+  saving.value = true
+  try {
+    await createSpareBorrow({ ...borrowForm })
+    ui.toast('借出成功', 'success')
+    borrowFormVisible.value = false
+    reload('borrows')
+    reload('part')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onBorrowReturn(b: SpareBorrow) {
+  try {
+    await ElMessageBox.confirm(`确认「${b.borrower}」归还 ${b.part_name} × ${b.quantity} 吗？归还将回补库存。`,
+      '归还确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await returnSpareBorrow(b.id)
+    ui.toast('已归还', 'success')
+    reload('borrows')
+    reload('part')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
 
 interface SalesFormModel {
   spare_part_id: number | null
