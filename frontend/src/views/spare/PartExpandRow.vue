@@ -1,7 +1,7 @@
 <template>
   <div v-loading="loading" class="expand-detail">
     <template v-if="detail">
-      <el-descriptions :column="4" border size="small">
+      <el-descriptions :column="cols" border size="small">
         <el-descriptions-item label="编码">{{ detail.code || '-' }}</el-descriptions-item>
         <el-descriptions-item label="分类">{{ detail.category || '-' }}</el-descriptions-item>
         <el-descriptions-item label="品牌">{{ detail.brand || '-' }}</el-descriptions-item>
@@ -68,9 +68,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { useMobile } from '@/utils/useMobile'
 import { fetchSparePart, type SparePart } from '@/api/spare'
+
+const { isMobile } = useMobile()
+// 移动端降为 2 列，避免每项 <100px
+const cols = computed(() => (isMobile.value ? 2 : 4))
 
 const props = defineProps<{ row: Record<string, unknown> }>()
 const emit = defineEmits<{ (e: 'edit'): void }>()

@@ -238,7 +238,7 @@
         <!-- 关联巡检记录（V21 闭环） -->
         <el-divider content-position="left">巡检记录</el-divider>
         <div v-if="record" class="record-block">
-          <el-descriptions :column="4" size="small" border>
+          <el-descriptions :column="cols" size="small" border>
             <el-descriptions-item label="审核状态">
               <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">{{ record.review_status }}</el-tag>
             </el-descriptions-item>
@@ -394,6 +394,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search, Download, Upload, UploadFilled, Document, Delete } from '@element-plus/icons-vue'
+import { useMobile } from '@/utils/useMobile'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
@@ -410,6 +411,8 @@ import { TASK_STATUS, REVIEW_STATUS, REVIEW_STATUS_TAG } from '@/utils/status'
 const REVIEW_TAG = REVIEW_STATUS_TAG
 
 const user = useUserStore()
+const { isMobile } = useMobile()
+const cols = computed(() => (isMobile.value ? 2 : 4))
 const ui = useUiStore()
 const data = ref<TaskScheduleData | null>(null)
 const loading = ref(false)

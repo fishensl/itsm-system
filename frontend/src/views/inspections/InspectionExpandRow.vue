@@ -1,7 +1,7 @@
 <template>
   <div v-loading="loading" class="expand-detail">
     <template v-if="detail">
-      <el-descriptions :column="2" border size="small">
+      <el-descriptions :column="cols" border size="small">
         <el-descriptions-item label="总体状态">
           <el-tag size="small" :type="OVERALL_STATUS_TAG[detail.overall_status] || 'info'">
             {{ detail.overall_status }}
@@ -68,7 +68,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
+import { useMobile } from '@/utils/useMobile'
 import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import {
@@ -76,6 +77,10 @@ import {
   versionReportUrl, formalReportUrl,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type SubmissionVersion,
 } from '@/api/inspections'
+
+const { isMobile } = useMobile()
+// 移动端降为 2 列，避免每项过窄
+const cols = computed(() => (isMobile.value ? 2 : 2))
 
 const props = defineProps<{ row: Record<string, unknown> }>()
 const emit = defineEmits<{

@@ -1,7 +1,7 @@
 <template>
   <div v-loading="loading" class="expand-detail">
     <template v-if="detail">
-      <el-descriptions :column="3" border size="small">
+      <el-descriptions :column="cols" border size="small">
         <el-descriptions-item label="状态">
           <el-tag size="small" :type="TICKET_STATUS_TAG[detail.status] || 'info'">{{ detail.status }}</el-tag>
         </el-descriptions-item>
@@ -118,11 +118,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
+import { useMobile } from '@/utils/useMobile'
 import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { fetchTicket, fetchTicketVersions, versionReportUrl, TICKET_STATUS_TAG, type Ticket } from '@/api/tickets'
 import { TICKET_STATUS } from '@/utils/status'
+
+const { isMobile } = useMobile()
+// 移动端降为 2 列
+const cols = computed(() => (isMobile.value ? 2 : 3))
 import type { SubmissionVersion as SV } from '@/api/inspections'
 
 const props = defineProps<{ row: Record<string, unknown> }>()
