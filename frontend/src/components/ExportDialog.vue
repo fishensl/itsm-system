@@ -28,14 +28,12 @@
             <el-link type="info" :underline="false" @click="resetCols">重置</el-link>
           </span>
         </div>
-        <div class="col-grid">
-          <el-checkbox-group v-model="selectedCols" class="col-grid">
-            <el-checkbox v-for="c in allColumns" :key="c.key" :value="c.key" class="col-item"
-              :class="{ 'col-pwd': c.key === 'password' }">
-              {{ c.label }}
-            </el-checkbox>
-          </el-checkbox-group>
-        </div>
+        <el-checkbox-group v-model="selectedCols" class="col-grid">
+          <el-checkbox v-for="c in allColumns" :key="c.key" :value="c.key" class="col-item"
+            :class="{ 'col-pwd': c.key === 'password' }">
+            {{ c.label }}
+          </el-checkbox>
+        </el-checkbox-group>
       </template>
 
       <!-- 客户多选 -->
@@ -249,7 +247,7 @@ function doSubmit() {
 .preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .section-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); }
 .col-actions { float: right; font-weight: 400; display: inline-flex; gap: 10px; }
-.col-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 10px; max-height: 220px; overflow: auto; }
+.col-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 10px; max-height: 220px; overflow: auto; width: 100%; }
 .col-item { margin-right: 0; }
 .col-pwd :deep(.el-checkbox__label) { color: var(--el-color-danger); font-weight: 600; }
 .pwd-flow { display: flex; flex-direction: column; gap: 8px; }
