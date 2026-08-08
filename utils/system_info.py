@@ -58,25 +58,10 @@ def _collect_db_info():
     db_info = {'engine': '-', 'version': '-', 'path': '-'}
     try:
         uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
-        if uri.startswith('sqlite:///'):
-            import sqlite3 as _sqlite3
-            db_info['engine'] = 'SQLite'
-            db_info['version'] = _sqlite3.sqlite_version
-            db_path = uri.replace('sqlite:///', '')
-            db_info['path'] = db_path
-            # 数据库文件大小
-            if os.path.isfile(db_path):
-                db_info['size_mb'] = round(os.path.getsize(db_path) / (1024 * 1024), 2)
-        elif 'mysql' in uri:
-            db_info['engine'] = 'MySQL'
-            try:
-                with db.engine.connect() as conn:
-                    r = conn.execute(db.text('SELECT VERSION()')).scalar()
-                    db_info['version'] = str(r)
-            except Exception:
-                pass
-        elif 'postgresql' in uri:
+        # PG-only：生产/开发均为 PostgreSQL（SQLite/MySQL 分支已随 SQLite 剥离移除）
+        if 'postgresql' in uri:
             db_info['engine'] = 'PostgreSQL'
+            db_info['path'] = uri.split('@')[-1] if '@' in uri else uri
             try:
                 with db.engine.connect() as conn:
                     r = conn.execute(db.text('SHOW server_version')).scalar()
