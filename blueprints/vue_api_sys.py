@@ -621,10 +621,15 @@ def api_backup_stats():
 @login_required
 @admin_required
 def api_backup_export():
+    """导出备份包：服务端落盘 reports/exports/{token}.zip，返回 token 供一次性下载。
+
+    避免大包 base64 全量回传浏览器（大数据量时内存/连接瓶颈）。
+    下载走 /api/system/backup/export-download/<token>（一次性，24h 有效，下载后自动清理）。
+    """
     from datetime import datetime
     import os
-    import base64
     from utils.data_io import build_export_zip
+    from blueprints.vue_export import save_export_file
     data = request.get_json(silent=True) or {}
     config_only = bool(data.get('config_only'))
     password = (data.get('password') or '').strip() or None
@@ -636,14 +641,25 @@ def api_backup_export():
     current_app.logger.info('用户 [%s] 导出备份包 %s（%s 字节）', current_user.username,
                             download_name, size)
     audit_log('backup:export', 'backup', None, f'导出备份包 {download_name}')
-    # 返回 base64（文件可能较大，但本地部署可控）
-    with open(tmp_path, 'rb') as fh:
-        b64 = base64.b64encode(fh.read()).decode('ascii')
-    try:
-        os.remove(tmp_path)
-    except OSError:
-        pass
-    return ok({'filename': download_name, 'content': b64})
+    # 服务端落盘 + ExportFile 登记（token 一次性下载）。
+    # 注意：build_export_zip(password=...) 已用 Fernet 整包加密（magic 头），
+    # 此处不传 password 避免叠加 pyzipper 层（双密码）；导入时用户用同一密码解密。
+    token = save_export_file(tmp_path, download_name, password=None,
+                             user_id=current_user.id)
+    return ok({'token': token, 'filename': download_name, 'size': size})
+
+
+@vue_api_bp.route('/api/system/backup/export-download/<token>', methods=['GET'])
+@login_required
+@admin_required
+def api_backup_export_download(token):
+    """一次性下载备份包（创建人/admin；响应头 X-Export-Password 下发加密包密码；审计）"""
+    from blueprints.vue_export import serve_export_file
+    resp = serve_export_file(token, current_user.id, current_user.is_admin)
+    if resp is None:
+        return fail('导出文件不存在、已下载或已失效（一次性下载，24h 内有效）', 404)
+    audit_log('backup:export_download', 'backup', None, '下载备份包')
+    return resp
 
 
 @vue_api_bp.route('/api/system/backup/import', methods=['POST'])
@@ -696,6 +712,35 @@ def api_backup_import():
             os.remove(tmp_path)
         except OSError:
             pass
+
+
+@vue_api_bp.route('/api/system/backup/config', methods=['GET'])
+@login_required
+@admin_required
+def api_backup_config_get():
+    """读自动备份配置（启用开关/时间/保留份数）"""
+    from utils.backup_config import get_backup_config
+    return ok(get_backup_config())
+
+
+@vue_api_bp.route('/api/system/backup/config', methods=['POST'])
+@login_required
+@admin_required
+def api_backup_config_save():
+    """保存自动备份配置；变更时间后重排调度器备份任务"""
+    from utils.backup_config import save_backup_config
+    data = request.get_json(silent=True) or {}
+    ok_flag, errors = save_backup_config(data)
+    if not ok_flag:
+        return fail('；'.join(errors), 400)
+    try:
+        from utils.scheduler import reschedule_backup
+        reschedule_backup()
+    except Exception:
+        current_app.logger.warning('备份任务重排失败')
+    audit_log('backup:config', 'backup', None, '更新自动备份配置')
+    current_app.logger.info('用户 [%s] 更新自动备份配置: %s', current_user.username, data)
+    return ok(None)
 
 # ==================== 权限管理 ====================
 def _role_permission_map(role):

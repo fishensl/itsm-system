@@ -258,7 +258,7 @@ export function fetchBackupStats() {
 }
 
 export function exportBackup(payload: { config_only?: boolean; password?: string }) {
-  return request<{ filename: string; content: string }>({
+  return request<{ token: string; filename: string; size: number }>({
     url: '/api/system/backup/export',
     method: 'POST',
     data: payload,
@@ -270,6 +270,27 @@ export function importBackup(formData: FormData) {
     url: '/api/system/backup/import',
     method: 'POST',
     data: formData,
+  })
+}
+
+export interface BackupConfig {
+  backup_enabled: string
+  backup_time: string
+  backup_keep: string
+}
+
+export function fetchBackupConfig() {
+  return request<BackupConfig>({
+    url: '/api/system/backup/config',
+    method: 'GET',
+  })
+}
+
+export function saveBackupConfig(payload: BackupConfig) {
+  return request<null>({
+    url: '/api/system/backup/config',
+    method: 'POST',
+    data: payload,
   })
 }
 

@@ -62,13 +62,38 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-row :gutter="12" class="mt-3">
+      <el-col :xs="24" :md="12">
+        <el-card shadow="never">
+          <template #header><b>自动备份</b></template>
+          <el-form label-width="120px" @submit.prevent>
+            <el-form-item label="每日自动备份">
+              <el-switch v-model="backupEnabled" />
+              <span class="hint">启用后由系统调度器每日自动执行 backup.sh（无需 crontab）</span>
+            </el-form-item>
+            <el-form-item label="备份时刻">
+              <el-time-select v-model="backupTime" start="00:00" step="00:30" end="23:30"
+                placeholder="选择时刻" style="width: 140px" />
+            </el-form-item>
+            <el-form-item label="保留份数">
+              <el-input-number v-model="backupKeep" :min="1" :max="365" style="width: 140px" />
+              <span class="hint">份（磁盘空间有限请勿过大）</span>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="savingCfg" @click="onSaveConfig">保存配置</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, onMounted } from 'vue'
-import { exportBackup, fetchBackupStats, importBackup } from '@/api/system'
+import { exportBackup, fetchBackupStats, importBackup, fetchBackupConfig, saveBackupConfig } from '@/api/system'
 import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
@@ -86,6 +111,12 @@ const importPassword = ref('')
 const confirmText = ref('')
 const importing = ref(false)
 
+// 自动备份配置
+const backupEnabled = ref(false)
+const backupTime = ref('03:00')
+const backupKeep = ref(30)
+const savingCfg = ref(false)
+
 const STAT_LABELS: Record<string, string> = {
   user: '用户', customer: '客户', device: '设备', ticket: '工单',
   inspection: '巡检', fault: '故障', kb: '知识库', spare: '备件', topology: '拓扑',
@@ -100,19 +131,39 @@ function load() {
     })
     .catch(() => { /* toast */ })
     .finally(() => { loading.value = false })
+  fetchBackupConfig()
+    .then((c) => {
+      backupEnabled.value = c.backup_enabled === '1'
+      backupTime.value = c.backup_time || '03:00'
+      backupKeep.value = Number(c.backup_keep) || 30
+    })
+    .catch(() => { /* toast */ })
 }
 
-function downloadFromBase64(b64: string, filename: string) {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  const blob = new Blob([bytes], { type: 'application/zip' })
-  const url = URL.createObjectURL(blob)
+async function onSaveConfig() {
+  savingCfg.value = true
+  try {
+    await saveBackupConfig({
+      backup_enabled: backupEnabled.value ? '1' : '0',
+      backup_time: backupTime.value,
+      backup_keep: String(backupKeep.value),
+    })
+    ui.toast('自动备份配置已保存', 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    savingCfg.value = false
+  }
+}
+
+function downloadByToken(token: string, filename: string) {
+  // 服务端落盘 + token 一次性下载（GET，浏览器直链，避免大包 base64 回传）
   const a = document.createElement('a')
-  a.href = url
+  a.href = `/api/system/backup/export-download/${token}`
   a.download = filename
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
 }
 
 async function onExport() {
@@ -122,8 +173,8 @@ async function onExport() {
   exporting.value = true
   try {
     const r = await exportBackup({ config_only: exportConfigOnly.value, password: exportPassword.value || undefined })
-    downloadFromBase64(r.content, r.filename)
-    ui.toast('备份包已生成', 'success')
+    downloadByToken(r.token, r.filename)
+    ui.toast('备份包已生成，请在弹出的下载中保存', 'success')
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
