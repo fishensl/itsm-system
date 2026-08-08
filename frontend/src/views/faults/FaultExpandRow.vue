@@ -1,7 +1,7 @@
 <template>
   <div v-loading="loading" class="expand-detail">
     <template v-if="detail">
-      <el-descriptions :column="3" border size="small">
+      <el-descriptions :column="cols" border size="small">
         <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="故障时间">{{ detail.fault_time || '-' }}</el-descriptions-item>
         <el-descriptions-item label="处理人">{{ detail.handler || '-' }}</el-descriptions-item>
@@ -38,9 +38,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
+import { useMobile } from '@/utils/useMobile'
 import { useUserStore } from '@/stores/user'
 import { fetchFault, FAULT_RESULT_TAG, type Fault } from '@/api/faults'
+
+const { isMobile } = useMobile()
+// 移动端降为 2 列，避免每项过窄
+const cols = computed(() => (isMobile.value ? 2 : 2))
 
 const props = defineProps<{ row: Record<string, unknown> }>()
 const emit = defineEmits<{ (e: 'edit'): void; (e: 'delete'): void }>()

@@ -621,6 +621,11 @@ onMounted(() => {
 .review-layout { display: flex; gap: 14px; }
 .review-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .review-panel { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; }
+/* S7-3 窄屏：审核弹窗左右栏改纵向堆叠（panel 固定 400px 是主要溢出源） */
+@media (max-width: 767px) {
+  .review-layout { flex-direction: column; }
+  .review-panel { width: 100%; }
+}
 .review-panel .el-form {
   max-height: 62vh; overflow-y: auto; padding-right: 4px;
 }

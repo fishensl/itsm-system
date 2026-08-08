@@ -186,11 +186,22 @@
       </div>
       <div
         class="bottom-nav-item"
+        @click="mobileSearch = true"
+      >
+        <el-icon><Search /></el-icon><span>搜索</span>
+      </div>
+      <div
+        class="bottom-nav-item"
         @click="ui.mobileSidebarOpen = true"
       >
         <el-icon><Menu /></el-icon><span>菜单</span>
       </div>
     </nav>
+
+    <!-- 移动端全屏搜索层 -->
+    <div v-if="mobileSearch" class="mobile-search-layer" @click.self="mobileSearch = false">
+      <GlobalSearch />
+    </div>
 
     <!-- 移动端通知抽屉 -->
     <el-drawer v-model="mobileNotif" title="通知" size="85%">
@@ -237,11 +248,11 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Monitor, Expand, Fold, Menu, ArrowDown, MoonNight, Sunny,
-  SwitchButton, HomeFilled, Bell,
+  SwitchButton, HomeFilled, Bell, Search,
 } from '@element-plus/icons-vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
@@ -258,6 +269,11 @@ const user = useUserStore()
 const ui = useUiStore()
 
 const mobileNotif = ref(false)
+const mobileSearch = ref(false)
+// 路由跳转后自动关闭移动端搜索层（GlobalSearch 内部 go 跳转）
+watch(() => route.fullPath, () => {
+  mobileSearch.value = false
+})
 // 展开分组：从 sessionStorage 恢复（SSR 侧栏共用键），SSR 子菜单整页跳转后不折叠
 const openGroups = ref<Set<string>>(new Set(loadOpenGroups()))
 const theme = ref<'light' | 'dark'>(localStorage.getItem('appTheme') === 'dark' ? 'dark' : 'light')
@@ -548,7 +564,17 @@ onMounted(() => {
     display: inline-flex;
   }
   .global-search {
-    display: none; /* P3 移动端做全屏搜索层 */
+    display: none; /* 移动端用全屏搜索层（mobile-search-layer）替代 */
+  }
+  /* S7-4 移动端全屏搜索层 */
+  .mobile-search-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    background: var(--itsm-bg);
+    padding: 12px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    overflow-y: auto;
   }
   .user-name {
     display: none;
