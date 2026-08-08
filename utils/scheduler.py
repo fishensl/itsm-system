@@ -139,10 +139,29 @@ def start_scheduler(app):
     if lock_path:
         import atexit
         atexit.register(_release)
+    # 注意：CronTrigger 无 .hour/.minute 属性（APScheduler 用 fields），此处直接用已计算的 bh/bm
     log.info('后台调度器已启动（每日 08:30：自动任务生成 + 逾期提醒；每日 %02d:%02d：自动备份）',
-             _scheduler.get_job('itsm-backup').trigger.hour if _scheduler.get_job('itsm-backup') else 3,
-             _scheduler.get_job('itsm-backup').trigger.minute if _scheduler.get_job('itsm-backup') else 0)
+             bh, bm)
     return s
+
+
+def _trigger_hour_minute(job):
+    """从 CronTrigger 提取 hour/minute。
+
+    APScheduler 的 CronTrigger 无 .hour/.minute 属性；字段的取值在
+    expressions[0].first（如 hour='4' → first=4）。缺省/异常返回 (None, None)。
+    """
+    try:
+        fields = {f.name: f for f in job.trigger.fields}
+
+        def _first(name):
+            f = fields.get(name)
+            if f and getattr(f, 'expressions', None) and not getattr(f, 'is_default', True):
+                return f.expressions[0].first
+            return None
+        return _first('hour'), _first('minute')
+    except Exception:
+        return None, None
 
 
 def reschedule_backup():
@@ -154,7 +173,8 @@ def reschedule_backup():
         from utils.backup_config import backup_time_trigger
         bh, bm = backup_time_trigger()
         job = _scheduler.get_job('itsm-backup')
-        if job and (job.trigger.hour != bh or job.trigger.minute != bm):
+        cur_h, cur_m = _trigger_hour_minute(job) if job else (None, None)
+        if job and (cur_h != bh or cur_m != bm):
             job.reschedule(CronTrigger(hour=bh, minute=bm))
             log.info('备份任务重排为每日 %02d:%02d', bh, bm)
     except Exception:
