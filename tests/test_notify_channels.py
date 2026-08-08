@@ -47,16 +47,38 @@ class TestRuleSeed:
             count = NotifyRule.query.filter_by(event_type=EVENT_TICKET_COMPLETED).count()
             assert count == 1
 
-
-class TestChannelDispatch:
-    def test_send_all_channels_mock(self, app, seeded, monkeypatch):
-        """已启用渠道 + 规则 sales 用户（有企微账号）→ 触发推送"""
+    def test_seed_channels_three_default_disabled(self, app, seeded):
+        """渠道种子：wecom/dingtalk/feishu 三条，默认停用（填凭据后启用）"""
         with app.app_context():
             from models import NotifyChannelConfig
-            db.session.add(NotifyChannelConfig(
-                channel_type='wecom', name='企业微信', is_enabled=True,
-                config_json='{"corpid":"ww123","agent_id":"1000002","secret_encrypted":"enc","address_by":"userid"}'))
+            rows = NotifyChannelConfig.query.order_by(NotifyChannelConfig.sort_order).all()
+            types = [r.channel_type for r in rows]
+            assert types == ['wecom', 'dingtalk', 'feishu']
+            assert all(r.is_enabled is False for r in rows)
+            assert all((r.config_json or '') == '{}' for r in rows)
+
+    def test_seed_channels_idempotent(self, app, seeded):
+        with app.app_context():
+            from models import NotifyChannelConfig
+            seed_default_notify_rules()
+            assert NotifyChannelConfig.query.count() == 3
+
+
+class TestChannelDispatch:
+    @staticmethod
+    def _enable_wecom(app, config_json):
+        """更新已种入的 wecom 渠道为启用（种子已存在，唯一约束下不能重复 INSERT）"""
+        with app.app_context():
+            from models import NotifyChannelConfig
+            row = NotifyChannelConfig.query.filter_by(channel_type='wecom').first()
+            row.is_enabled = True
+            row.config_json = config_json
             db.session.commit()
+
+    def test_send_all_channels_mock(self, app, seeded, monkeypatch):
+        """已启用渠道 + 规则 sales 用户（有企微账号）→ 触发推送"""
+        self._enable_wecom(app,
+            '{"corpid":"ww123","agent_id":"1000002","secret_encrypted":"enc","address_by":"userid"}')
         sent = []
         monkeypatch.setattr(
             'utils.notify_channels.wecom.WecomChannel.send_text',
@@ -71,11 +93,7 @@ class TestChannelDispatch:
         assert (['sales_wecom'] + [a for a, _ in sent]).count('sales_wecom') >= 1
 
     def test_dispatch_no_account_skipped(self, app, seeded, monkeypatch):
-        with app.app_context():
-            db.session.add(NotifyChannelConfig(
-                channel_type='wecom', name='企业微信', is_enabled=True,
-                config_json='{"corpid":"ww","agent_id":"1","secret_encrypted":"enc"}'))
-            db.session.commit()
+        self._enable_wecom(app, '{"corpid":"ww","agent_id":"1","secret_encrypted":"enc"}')
         sent = []
         monkeypatch.setattr(
             'utils.notify_channels.wecom.WecomChannel.send_text',
@@ -200,13 +218,8 @@ class TestDingTalkFeishuAdapters:
             assert channel_class(t) is not None
 
     def test_disabled_channels_not_dispatched(self, app, seeded, monkeypatch):
-        """未启用渠道（钉钉/飞书默认关闭）不参与分发"""
+        """未启用渠道（种子的 wecom/dingtalk/feishu 均默认停用）不参与分发"""
         from utils.notify_channels import send_all_channels
-        with app.app_context():
-            from models import NotifyChannelConfig
-            db.session.add(NotifyChannelConfig(channel_type='dingtalk', name='钉钉',
-                                              is_enabled=False, config_json='{}'))
-            db.session.commit()
         monkeypatch.setattr('utils.notify_channels.wecom.WecomChannel.send_text',
                             lambda self, a, t, c, link='': None)
         n, _ = send_all_channels(EVENT_TICKET_COMPLETED, 't', 'c', target_user_ids=[])

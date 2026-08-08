@@ -4,7 +4,7 @@
       <h2 class="page-title">通知渠道</h2>
     </div>
 
-    <el-row :gutter="12">
+    <el-row v-if="channels.length" :gutter="12">
       <el-col v-for="ch in channels" :key="ch.channel_type" :xs="24" :md="12" :lg="8">
         <el-card shadow="never" class="channel-card">
           <template #header>
@@ -75,6 +75,8 @@
         </el-card>
       </el-col>
     </el-row>
+    <el-empty v-else description="尚未配置通知渠道，系统初始化后自动出现 企业微信 / 钉钉 / 飞书 三个渠道"
+      :image-size="80" />
   </div>
 </template>
 
