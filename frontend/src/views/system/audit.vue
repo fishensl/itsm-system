@@ -30,6 +30,7 @@
       :fetch-data="fetchLogs"
       :query="tableQuery"
       row-key="id"
+      :column-settings="{ storageKey: 'cols_audit' }"
     />
   </div>
 </template>

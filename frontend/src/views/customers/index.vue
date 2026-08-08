@@ -244,6 +244,7 @@ import GroupTree from '@/components/GroupTree.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { handleExportResult } from '@/utils/export'
 import {
   fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
   fetchCustomerDicts, fetchCustomerTree, exportCustomers, importCustomers,
@@ -269,18 +270,6 @@ function downloadTemplate() {
   window.open('/exports/download-template/customer', '_blank')
 }
 
-function saveBase64(b64: string, filename: string) {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  const url = URL.createObjectURL(new Blob([bytes]))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = decodeURIComponent(filename)
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 // V24 导出筛选：列选择 + 创建时间范围
 const exportVisible = ref(false)
 
@@ -291,9 +280,8 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       date_from: payload.date_from || undefined,
       date_to: payload.date_to || undefined,
     })
-    saveBase64(res.content, res.filename)
+    handleExportResult(res, { close: () => { exportVisible.value = false } })
     ui.toast('导出成功', 'success')
-    exportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }

@@ -32,6 +32,7 @@
       :fetch-data="fetchKnowledgeList"
       :query="query"
       row-key="id"
+      :column-settings="{ storageKey: 'cols_knowledge' }"
     />
 
     <!-- 查看正文 -->

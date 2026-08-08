@@ -10,17 +10,13 @@
     </div>
 
     <el-card shadow="never">
-      <el-table v-loading="loading" :data="items" border size="default" row-key="id">
-        <el-table-column prop="name" label="类别名称" min-width="200" />
-        <el-table-column prop="sort_order" label="排序" width="100" />
-        <el-table-column v-if="user.hasPerm('category:edit')" label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" link type="danger" @click="onDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!loading && !items.length" description="暂无类别" :image-size="60" />
+      <DataTable
+        ref="tableRef"
+        :columns="columns"
+        :fetch-data="fetchPage"
+        row-key="id"
+        :column-settings="{ storageKey: 'cols_customer_categories' }"
+      />
     </el-card>
 
     <el-dialog v-model="formVisible" :title="form.id ? '编辑类别' : '新增类别'" width="420px" destroy-on-close>
@@ -42,14 +38,16 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, type CategoryItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
 const user = useUserStore()
 const ui = useUiStore()
+const tableRef = ref()
 const items = ref<CategoryItem[]>([])
 const loading = ref(false)
 const formVisible = ref(false)
@@ -57,12 +55,30 @@ const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({ id: null, name: '', sort_order: 0 })
 
+// S7-1 DataTable：列配置 + 分页包装（fetchCategories 返回裸数组）
+const columns = computed<DataColumn[]>(() => [
+  { key: 'name', label: '类别名称', minWidth: 200, asTitle: true },
+  { key: 'sort_order', label: '排序', width: 100 },
+  { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right',
+    actions: [
+      { label: '编辑', type: 'primary', link: true, perm: 'category:edit',
+        onClick: (row) => openEdit(row as unknown as CategoryItem) },
+      { label: '删除', type: 'danger', link: true, perm: 'category:edit',
+        onClick: (row) => onDelete(row as unknown as CategoryItem) },
+    ] },
+])
+
+async function fetchPage(params: Record<string, unknown>) {
+  const list = await fetchCategories()
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: list.slice(start, start + page_size), total: list.length,
+    page, page_size }
+}
+
 function load() {
-  loading.value = true
-  fetchCategories()
-    .then((d) => { items.value = d })
-    .catch(() => { /* toast */ })
-    .finally(() => { loading.value = false })
+  tableRef.value?.refresh()
 }
 
 function openCreate() {

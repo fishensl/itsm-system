@@ -23,7 +23,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="oppTableRef" :columns="oppColumns" :fetch-data="fetchOpportunities"
+          <DataTable ref="oppTableRef" :columns="oppColumns" :fetch-data="fetchOpportunities" :column-settings="{ storageKey: 'cols_sales_opps' }"
             :query="oppQuery" row-key="id" />
 
           <el-dialog v-model="oppFormVisible" :title="oppForm.id ? '编辑商机' : '新增商机'" width="620px" top="5vh"
@@ -92,7 +92,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="quotTableRef" :columns="quotColumns" :fetch-data="fetchQuotations"
+          <DataTable ref="quotTableRef" :columns="quotColumns" :fetch-data="fetchQuotations" :column-settings="{ storageKey: 'cols_sales_quot' }"
             :query="quotQuery" row-key="id" />
 
           <el-dialog v-model="quotFormVisible" :title="quotForm.id ? '编辑报价单' : '新增报价单'" width="600px" top="5vh"
@@ -178,7 +178,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="contractTableRef" :columns="contractColumns" :fetch-data="fetchContracts"
+          <DataTable ref="contractTableRef" :columns="contractColumns" :fetch-data="fetchContracts" :column-settings="{ storageKey: 'cols_sales_contracts' }"
             :query="contractQuery" row-key="id" />
 
           <el-dialog v-model="contractFormVisible" :title="contractForm.id ? '编辑合同' : '新增合同'" width="680px"
@@ -273,7 +273,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="projectTableRef" :columns="projectColumns" :fetch-data="fetchProjects"
+          <DataTable ref="projectTableRef" :columns="projectColumns" :fetch-data="fetchProjects" :column-settings="{ storageKey: 'cols_sales_projects' }"
             :query="projectQuery" row-key="id" />
 
           <el-dialog v-model="projectFormVisible" :title="projectForm.id ? '编辑项目' : '新增项目'" width="640px"

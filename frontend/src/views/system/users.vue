@@ -15,6 +15,7 @@
         :columns="userColumns"
         :fetch-data="loadUsers"
         row-key="id"
+        :column-settings="{ storageKey: 'cols_users' }"
       />
     </el-card>
 

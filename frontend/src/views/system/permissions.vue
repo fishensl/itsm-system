@@ -13,39 +13,13 @@
       <!-- 角色列表 -->
       <el-tab-pane label="角色列表" name="list">
         <el-card shadow="never">
-          <el-table v-loading="loading" :data="roleRows" size="small" border>
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column prop="code" label="代码" min-width="120">
-              <template #default="{ row }">
-                <code>{{ row.code }}</code>
-                <el-tag v-if="row.is_system" size="small" type="info" class="ml-2">内置</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="sort_order" label="排序" width="70" />
-            <el-table-column label="启用" width="80">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.is_active ? 'success' : 'info'">
-                  {{ row.is_active ? '启用' : '停用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="user_count" label="用户数" width="80" />
-            <el-table-column label="权限数" width="80">
-              <template #default="{ row }">
-                {{ row.permissions?.length ?? 0 }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="130" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="user.hasPerm('permission:edit')" size="small" link type="primary"
-                  @click="openRoleEdit(row)">编辑</el-button>
-                <el-button v-if="user.hasPerm('permission:edit') && !row.is_system" size="small"
-                  link type="danger" @click="onRoleDelete(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!loading && !roleRows.length" description="暂无角色" :image-size="60" />
+          <DataTable
+            ref="roleTableRef"
+            :columns="roleColumns"
+            :fetch-data="fetchRolePage"
+            row-key="code"
+            :column-settings="{ storageKey: 'cols_permissions_roles' }"
+          />
         </el-card>
       </el-tab-pane>
 
@@ -171,6 +145,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, CircleCheck } from '@element-plus/icons-vue'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import {
   fetchRoles, createRole, updateRole, deleteRole, saveRolePermissions,
   fetchUserPermissions, saveUserPermissions, fetchUsers,
@@ -186,6 +161,39 @@ const activeTab = ref('matrix')
 const data = ref<RoleListData | null>(null)
 const loading = ref(false)
 const saving = ref(new Set<string>())
+const roleTableRef = ref()
+
+// S7-1 角色表迁 DataTable（列配置 + 分页包装）
+const roleColumns = computed<DataColumn[]>(() => [
+  { key: 'name', label: '名称', minWidth: 120, asTitle: true },
+  { key: 'code', label: '代码', minWidth: 120,
+    render: (r) => `${r.code}${r.is_system ? '（内置）' : ''}` },
+  { key: 'description', label: '描述', minWidth: 160, render: (r) => r.description || '-' },
+  { key: 'sort_order', label: '排序', width: 70 },
+  { key: 'is_active', label: '启用', width: 80, type: 'tag',
+    tagMap: { true: 'success', false: 'info' }, render: (r) => (r.is_active ? '启用' : '停用') },
+  { key: 'user_count', label: '用户数', width: 80 },
+  { key: 'perm_count', label: '权限数', width: 80, render: (r) => r.permissions?.length ?? 0 },
+  { key: 'actions', label: '操作', width: 130, type: 'action', fixed: 'right',
+    actions: [
+      { label: '编辑', type: 'primary', link: true, perm: 'permission:edit',
+        onClick: (row) => openRoleEdit(row as unknown as RoleItem) },
+      { label: '删除', type: 'danger', link: true, perm: 'permission:edit',
+        disabled: (row: { is_system?: boolean }) => Boolean(row.is_system),
+        onClick: (row) => onRoleDelete(row as unknown as RoleItem) },
+    ] },
+])
+
+async function fetchRolePage(params: Record<string, unknown>) {
+  const d = await fetchRoles()
+  data.value = d
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const list = d.roles || []
+  const start = (page - 1) * page_size
+  return { items: list.slice(start, start + page_size), total: list.length,
+    page, page_size }
+}
 
 const groupedPerms = computed(() => {
   const map = data.value?.perm_map || []

@@ -37,6 +37,7 @@
       :query="query"
       row-key="id"
       expandable
+      :column-settings="{ storageKey: 'cols_faults' }"
     >
       <template #expand="{ row }">
         <FaultExpandRow
@@ -124,6 +125,7 @@ import ExportDialog from '@/components/ExportDialog.vue'
 import FaultExpandRow from './FaultExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { handleExportResult } from '@/utils/export'
 import {
   fetchFaults, fetchFault, createFault, updateFault, deleteFault, convertFaultToTicket,
   fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts,
@@ -136,18 +138,6 @@ const dicts = ref<FaultDicts | null>(null)
 // V24 导出筛选
 const exportVisible = ref(false)
 
-function saveBase64(b64: string, filename: string) {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  const url = URL.createObjectURL(new Blob([bytes]))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = decodeURIComponent(filename)
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 async function onExportSubmit(payload: Record<string, unknown>) {
   try {
     const ids = payload.customer_ids as number[] | undefined
@@ -157,9 +147,8 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       date_from: payload.date_from || undefined,
       date_to: payload.date_to || undefined,
     })
-    saveBase64(res.content, res.filename)
+    handleExportResult(res, { close: () => { exportVisible.value = false } })
     ui.toast('导出成功', 'success')
-    exportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }

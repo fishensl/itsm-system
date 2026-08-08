@@ -15,40 +15,13 @@
     </div>
 
     <el-card shadow="never">
-      <el-table
-        v-loading="loading"
-        :data="data?.inspectors || []"
-        border
-        size="default"
+      <DataTable
+        ref="tableRef"
+        :columns="columns"
+        :fetch-data="fetchPage"
         row-key="id"
-      >
-        <el-table-column prop="name" label="姓名" min-width="120" />
-        <el-table-column prop="username" label="用户名" min-width="120" />
-        <el-table-column prop="phone" label="手机" min-width="130">
-          <template #default="{ row }">{{ row.phone || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="email" label="邮箱" min-width="180">
-          <template #default="{ row }">{{ row.email || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="is_active" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.is_active ? 'success' : 'info'">
-              {{ row.is_active ? '启用' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="140">
-          <template #default="{ row }">{{ row.remark || '-' }}</template>
-        </el-table-column>
-        <el-table-column v-if="user.hasPerm('inspection:edit')" label="操作" width="160" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="user.hasPerm('inspection:delete')" size="small" link type="danger"
-              @click="onDelete(row)">移除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!loading && !data?.inspectors?.length" description="暂无巡检人员" :image-size="60" />
+        :column-settings="{ storageKey: 'cols_inspectors' }"
+      />
     </el-card>
 
     <!-- 添加 / 编辑弹窗 -->
@@ -97,8 +70,9 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import {
   fetchInspectors, createInspector, updateInspector, deleteInspector,
   type InspectorListData, type InspectorItem,
@@ -108,6 +82,7 @@ import { useUiStore } from '@/stores/ui'
 
 const user = useUserStore()
 const ui = useUiStore()
+const tableRef = ref()
 const data = ref<InspectorListData | null>(null)
 const loading = ref(false)
 
@@ -118,12 +93,37 @@ const form = reactive<Record<string, unknown>>({
   id: null, user_id: undefined, user_name: '', is_active: true, remark: '',
 })
 
+// S7-1 DataTable：列配置 + 分页包装
+const columns = computed<DataColumn[]>(() => [
+  { key: 'name', label: '姓名', minWidth: 120, asTitle: true },
+  { key: 'username', label: '用户名', minWidth: 120 },
+  { key: 'phone', label: '手机', minWidth: 130, render: (r) => r.phone || '-' },
+  { key: 'email', label: '邮箱', minWidth: 180, render: (r) => r.email || '-' },
+  { key: 'is_active', label: '状态', width: 90, type: 'tag', tagMap: { true: 'success', false: 'info' },
+    render: (r) => (r.is_active ? '启用' : '停用') },
+  { key: 'remark', label: '备注', minWidth: 140, render: (r) => r.remark || '-' },
+  { key: 'actions', label: '操作', width: 160, type: 'action', fixed: 'right',
+    actions: [
+      { label: '编辑', type: 'primary', link: true, perm: 'inspection:edit',
+        onClick: (row) => openEdit(row as unknown as InspectorItem) },
+      { label: '移除', type: 'danger', link: true, perm: 'inspection:delete',
+        onClick: (row) => onDelete(row as unknown as InspectorItem) },
+    ] },
+])
+
+async function fetchPage(params: Record<string, unknown>) {
+  const d = await fetchInspectors()
+  data.value = d
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const list = d.inspectors || []
+  const start = (page - 1) * page_size
+  return { items: list.slice(start, start + page_size), total: list.length,
+    page, page_size }
+}
+
 function load() {
-  loading.value = true
-  fetchInspectors()
-    .then((d) => { data.value = d })
-    .catch(() => { /* toast */ })
-    .finally(() => { loading.value = false })
+  tableRef.value?.refresh()
 }
 
 function openCreate() {
