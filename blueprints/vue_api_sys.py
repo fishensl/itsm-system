@@ -124,7 +124,8 @@ def api_user_list():
         uids = [u.id for u in users]
         rows = db.session.execute(
             db.select(user_regions.c.user_id, user_regions.c.region_id)
-            .where(user_regions.c.user_id.in_(uids))).all()
+            .where(user_regions.c.user_id.in_(uids))
+            .order_by(user_regions.c.region_id)).all()
         for uid, rid in rows:
             region_map.setdefault(uid, []).append(rid)
         region_names = {r.id: r.name for r in Region.query.all()}
