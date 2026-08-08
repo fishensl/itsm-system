@@ -37,7 +37,7 @@ def audit_log(action, target_type='', target_id=None, detail=''):
 @login_required
 def api_audit_logs():
     """审计日志查询（admin；敏感操作均经 audit_log 写入）"""
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import AuditLog
     page = request.args.get('page', 1, type=int)
@@ -75,7 +75,7 @@ def api_audit_logs():
 @vue_api_bp.route('/api/dicts/audit', methods=['GET'])
 @login_required
 def api_audit_dicts():
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import AuditLog
     actions = [r[0] for r in db.session.query(AuditLog.action).distinct()
@@ -86,10 +86,22 @@ def api_audit_dicts():
 
 
 # ==================== 用户管理（admin） ====================
+def _set_user_roles(user, roles):
+    """设置用户多角色：校验非空、角色存在；写入 role_codes 并同步主角色 role"""
+    codes = [str(r).strip() for r in (roles or []) if str(r).strip()]
+    if not codes:
+        raise ValueError('至少选择一个角色')
+    existing = {r.code for r in Role.query.all()}
+    unknown = [c for c in codes if c not in existing]
+    if unknown:
+        raise ValueError(f'角色不存在：{", ".join(unknown)}')
+    user.set_role_codes(codes)
+
+
 @vue_api_bp.route('/api/users', methods=['GET'])
 @login_required
 def api_user_list():
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import User, Department
     page = max(request.args.get('page', 1, type=int), 1)
@@ -137,6 +149,7 @@ def api_user_list():
         'users': [{
             'id': u.id, 'username': u.username, 'realname': u.realname or '',
             'role': u.role or 'viewer', 'role_name': role_names.get(u.role, u.role or 'viewer'),
+            'roles': u.role_codes_list(),
             'department_id': u.department_id,
             'department_name': dept_map.get(u.department_id, ''),
             'is_active': bool(u.is_active), 'phone': u.phone or '', 'email': u.email or '',
@@ -158,7 +171,7 @@ def api_user_list():
 @vue_api_bp.route('/api/users', methods=['POST'])
 @login_required
 def api_user_create():
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import User
     data = request.get_json(silent=True) or {}
@@ -173,6 +186,13 @@ def api_user_create():
         realname=(data.get('realname') or '').strip(),
         role=data.get('role') or 'viewer',
         department_id=int(data['department_id']) if data.get('department_id') else None)
+    if 'roles' in data:
+        try:
+            _set_user_roles(u, data['roles'])
+        except ValueError as e:
+            return fail(str(e), 400)
+    elif not u.role_codes_list():
+        u.set_role_codes([u.role or 'viewer'])
     u.phone = (data.get('phone') or '').strip()
     u.email = (data.get('email') or '').strip()
     u.is_active = bool(data.get('is_active', True))
@@ -195,7 +215,7 @@ def api_user_create():
 @vue_api_bp.route('/api/users/<int:user_id>', methods=['PUT'])
 @login_required
 def api_user_update(user_id):
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import User
     u = User.query.get_or_404(user_id)
@@ -207,7 +227,14 @@ def api_user_update(user_id):
         return fail(f'用户名「{new_username}」已被占用', 400)
     u.username = new_username
     u.realname = (data.get('realname') or '').strip()
-    u.role = data.get('role') or u.role
+    if data.get('roles') is not None:
+        try:
+            _set_user_roles(u, data['roles'])
+        except ValueError as e:
+            return fail(str(e), 400)
+    elif data.get('role') and data.get('role') != u.role:
+        codes = [data['role']] + [c for c in u.role_codes_list() if c != data['role']]
+        u.set_role_codes(codes)
     u.department_id = int(data['department_id']) if data.get('department_id') else None
     u.is_active = bool(data.get('is_active', True))
     u.phone = (data.get('phone') or '').strip()
@@ -234,7 +261,7 @@ def api_user_update(user_id):
 @login_required
 def api_user_reset_password(user_id):
     """管理员强制重置任意账号密码（无需原密码）"""
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import User
     u = User.query.get_or_404(user_id)
@@ -251,7 +278,7 @@ def api_user_reset_password(user_id):
 @vue_api_bp.route('/api/users/<int:user_id>', methods=['DELETE'])
 @login_required
 def api_user_delete(user_id):
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import User
     u = User.query.get_or_404(user_id)
@@ -282,7 +309,7 @@ def api_department_list():
 @vue_api_bp.route('/api/departments', methods=['POST'])
 @login_required
 def api_department_create():
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import Department
     data = request.get_json(silent=True) or {}
@@ -304,7 +331,7 @@ def api_department_create():
 @vue_api_bp.route('/api/departments/<int:dept_id>', methods=['PUT'])
 @login_required
 def api_department_update(dept_id):
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import Department
     d = Department.query.get_or_404(dept_id)
@@ -326,7 +353,7 @@ def api_department_update(dept_id):
 @vue_api_bp.route('/api/departments/<int:dept_id>', methods=['DELETE'])
 @login_required
 def api_department_delete(dept_id):
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from models import Department, User
     d = Department.query.get_or_404(dept_id)
@@ -351,7 +378,7 @@ def api_ui_version_get():
 @vue_api_bp.route('/api/system/ui-version', methods=['PUT'])
 @login_required
 def api_ui_version_set():
-    if current_user.role != 'admin':
+    if not current_user.is_admin:
         return fail('需要管理员权限', 403)
     from utils.ui_version import set_ui_version
     data = request.get_json(silent=True) or {}
@@ -755,7 +782,9 @@ def api_roles_delete(rid):
     role = Role.query.get_or_404(rid)
     if role.is_system:
         return fail(f'角色 {role.name} 是系统内置角色，不可删除', 400)
-    bound = User.query.filter_by(role=role.code, is_active=True).count()
+    bound = User.query.filter(
+        (User.role == role.code) | (User.role_codes.like(f'%"{role.code}"%')),
+        User.is_active == True).count()
     if bound > 0:
         return fail(f'角色 {role.name} 还有 {bound} 个活跃用户，无法删除', 400)
     RolePermission.query.filter_by(role_id=role.id).delete()

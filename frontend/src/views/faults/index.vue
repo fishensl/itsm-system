@@ -3,11 +3,16 @@
     <div class="page-header">
       <h2 class="page-title">故障记录</h2>
       <div class="header-actions">
+        <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
         <el-button v-if="user.hasPerm('fault:add')" type="primary" :icon="Plus" @click="openCreate">
           新建故障
         </el-button>
       </div>
     </div>
+
+    <!-- V24 导出筛选 -->
+    <ExportDialog v-model="exportVisible" module="fault" title="导出故障记录"
+      @submit="onExportSubmit" />
 
     <!-- 筛选 -->
     <el-card shadow="never" class="filter-card">
@@ -113,19 +118,52 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Download } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import ExportDialog from '@/components/ExportDialog.vue'
 import FaultExpandRow from './FaultExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchFaults, fetchFault, createFault, updateFault, deleteFault,
-  fetchFaultDicts, FAULT_RESULT_TAG, type Fault, type FaultDicts,
+  fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts,
 } from '@/api/faults'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<FaultDicts | null>(null)
+
+// V24 导出筛选
+const exportVisible = ref(false)
+
+function saveBase64(b64: string, filename: string) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = decodeURIComponent(filename)
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function onExportSubmit(payload: Record<string, unknown>) {
+  try {
+    const ids = payload.customer_ids as number[] | undefined
+    const res = await exportFaults({
+      columns: payload.columns,
+      customer_id: ids?.length ? ids[0] : undefined,
+      date_from: payload.date_from || undefined,
+      date_to: payload.date_to || undefined,
+    })
+    saveBase64(res.content, res.filename)
+    ui.toast('导出成功', 'success')
+    exportVisible.value = false
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
 
 /** 客户下拉：优先按直接关联客户过滤；无直接关联时按负责区域过滤；再兜底全部 */
 const regionCustomers = computed(() => {

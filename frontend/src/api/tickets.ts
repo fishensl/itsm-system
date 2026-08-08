@@ -130,3 +130,21 @@ export function ticketExportUrl(params: Record<string, unknown>) {
 export function ticketReportsZipUrl(params: Record<string, unknown>) {
   return buildQueryUrl('/tickets/reports-zip', params)
 }
+
+/** 工单导出（V24：列选择 + 客户 + 创建时间范围） */
+export function exportTickets(params: Record<string, unknown>) {
+  return request<{ filename: string; content: string }>({
+    url: '/api/tickets/export',
+    method: 'POST',
+    data: params,
+  })
+}
+
+/** 工单处理报告包（V24：最新版本 → zip，一次性下载链接） */
+export function exportTicketBundle(params: Record<string, unknown>) {
+  return request<{ filename: string; download_url: string }>({
+    url: '/api/tickets/export-bundle',
+    method: 'POST',
+    data: params,
+  })
+}

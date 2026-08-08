@@ -5,6 +5,7 @@ export interface UserItem {
   username: string
   realname: string
   role: string
+  roles?: string[]
   role_name?: string
   department_id: number | null
   department_name: string
@@ -325,4 +326,28 @@ export function fetchUserPermissions(uid: number) {
 
 export function saveUserPermissions(uid: number, overrides: Record<string, UserPermissionOverride>) {
   return request<null>({ url: `/api/users/${uid}/permissions`, method: 'PUT', data: { overrides } })
+}
+
+// ==================== 设备密码导出审核（V24） ====================
+export interface ExportReviewItem {
+  id: number
+  reason: string
+  username: string
+  realname: string
+  created_at: string
+}
+
+export function fetchExportReviews() {
+  return request<{ items: ExportReviewItem[] }>({
+    url: '/api/v2/devices/export-password-reviews',
+    method: 'GET',
+  })
+}
+
+export function reviewExportRequest(id: number, action: 'approve' | 'reject', comment: string) {
+  return request<null>({
+    url: `/api/v2/devices/export-password-reviews/${id}`,
+    method: 'POST',
+    data: { action, comment },
+  })
 }

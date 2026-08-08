@@ -149,6 +149,9 @@
             <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="机房位置">
+          <el-input v-model="rackForm.location" placeholder="如：2F 机房 B 区" />
+        </el-form-item>
         <el-row :gutter="12">
           <el-col :xs="24" :sm="12">
             <el-form-item label="总U数" prop="total_u">
@@ -435,7 +438,8 @@ const rackFormVisible = ref(false)
 const rackSaving = ref(false)
 const rackFormRef = ref()
 const rackForm = reactive<Record<string, unknown>>({
-  id: null, name: '', customer_id: null, total_u: 42, pdu_total_w: 0, color: '#0d6efd', remark: '',
+  id: null, name: '', customer_id: null, location: '', total_u: 42, pdu_total_w: 0,
+  color: '#0d6efd', remark: '',
 })
 const rackFormRules = {
   name: [{ required: true, message: '请输入机柜名称', trigger: 'blur' }],
@@ -447,6 +451,7 @@ function openRackForm(row?: RackDetail) {
     id: row?.id ?? null,
     name: row?.name ?? '',
     customer_id: row?.customer_id ?? null,
+    location: row?.location ?? '',
     total_u: row?.total_u ?? 42,
     pdu_total_w: row?.pdu_total_w ?? 0,
     color: row?.color ?? '#0d6efd',
@@ -462,6 +467,7 @@ async function saveRack() {
     const payload = {
       name: rackForm.name as string,
       customer_id: rackForm.customer_id as number,
+      location: rackForm.location as string,
       total_u: rackForm.total_u as number,
       pdu_total_w: rackForm.pdu_total_w as number,
       color: rackForm.color as string,

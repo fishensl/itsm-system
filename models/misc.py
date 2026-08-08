@@ -149,3 +149,28 @@ class SubmissionAsset(db.Model):
     device_rel = db.relationship('Device', backref='submission_assets')
 
 
+# ============================
+# 一次性导出文件（V24 导出筛选）
+# ============================
+
+class ExportFile(db.Model):
+    """一次性导出文件（巡检/工单 bundle zip、设备密码包共用）
+
+    - token：随机 UUID，下载端点凭证，GET 后即删（downloaded_at 标记 + 文件删除）
+    - file_password_encrypted：密码包专用（Fernet 加密的 zip 密码，下载时经
+      X-Export-Password 响应头一次性下发）
+    """
+    __tablename__ = 'export_files'
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    file_path = db.Column(db.String(512), default='')      # 相对项目根路径（reports/exports/xxx.zip）
+    download_name = db.Column(db.String(256), default='')  # 下载时文件名
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    file_password_encrypted = db.Column(db.Text, default='')
+    expires_at = db.Column(db.DateTime, nullable=True)
+    downloaded_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    creator_rel = db.relationship('User', backref='export_files')
+
+

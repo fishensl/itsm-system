@@ -11,6 +11,12 @@
       </div>
     </div>
 
+    <!-- V24 导出筛选 -->
+    <ExportDialog v-model="excelExportVisible" module="inspection" title="导出巡检记录"
+      @submit="onExcelSubmit" />
+    <ExportDialog v-model="bundleExportVisible" module="inspection" mode="bundle"
+      title="导出巡检资料包" @submit="onBundleSubmit" />
+
     <!-- 筛选 -->
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
@@ -223,11 +229,12 @@ import {
   fetchInspections, fetchInspection, createInspection, updateInspection, deleteInspection,
   submitInspection, reviewInspection, analyzeInspectionAI, fetchInspectionDicts, fetchInspectionVersions,
   fetchReviewChecklist,
-  versionReportUrl, formalReportUrl, inspectionExportUrl,
-  inspectionReportsZipUrl,
+  versionReportUrl, formalReportUrl,
+  exportInspections, exportInspectionBundle,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type InspectionDicts,
   type InspectionTaskOption, type SubmissionVersion, type ReviewChecklistItem,
 } from '@/api/inspections'
+import ExportDialog from '@/components/ExportDialog.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -549,17 +556,59 @@ function onDateChange(val: [string, string] | null) {
   reload()
 }
 
-function exportParams() {
-  return {
-    customer_id: query.customer_id as number | undefined,
-    date_from: query.date_from as string | undefined,
-    date_to: query.date_to as string | undefined,
+// V24 导出筛选：列选择 + 资料包项目勾选（走新端点，SSR 导出保留兼容）
+const excelExportVisible = ref(false)
+const bundleExportVisible = ref(false)
+
+function doExport(kind: 'excel' | 'zip') {
+  if (kind === 'excel') excelExportVisible.value = true
+  else bundleExportVisible.value = true
+}
+
+async function onExcelSubmit(payload: Record<string, unknown>) {
+  try {
+    const ids = payload.customer_ids as number[] | undefined
+    const res = await exportInspections({
+      columns: payload.columns,
+      customer_id: ids?.length ? ids[0] : undefined,
+      date_from: payload.date_from || undefined,
+      date_to: payload.date_to || undefined,
+    })
+    saveBase64(res.content, res.filename)
+    ui.toast('导出成功', 'success')
+    excelExportVisible.value = false
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
   }
 }
 
-function doExport(kind: 'excel' | 'zip') {
-  const url = kind === 'excel' ? inspectionExportUrl(exportParams()) : inspectionReportsZipUrl(exportParams())
-  window.open(url, '_blank')
+async function onBundleSubmit(payload: Record<string, unknown>) {
+  try {
+    const ids = payload.customer_ids as number[] | undefined
+    const res = await exportInspectionBundle({
+      items: payload.items,
+      customer_id: ids?.length ? ids[0] : undefined,
+      date_from: payload.date_from || undefined,
+      date_to: payload.date_to || undefined,
+    })
+    window.open(res.download_url, '_blank')
+    ui.toast('资料包已生成，开始下载（一次性链接）', 'success')
+    bundleExportVisible.value = false
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+function saveBase64(b64: string, filename: string) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = decodeURIComponent(filename)
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function reload() {

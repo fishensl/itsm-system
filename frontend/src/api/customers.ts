@@ -90,10 +90,11 @@ export function fetchCustomerTree(params?: Pick<CustomerQuery, 'search' | 'level
   })
 }
 
-export function exportCustomers() {
+export function exportCustomers(params?: Record<string, unknown>) {
   return request<{ filename: string; content: string }>({
     url: '/api/v2/customers/export',
     method: 'POST',
+    data: params || {},
   })
 }
 

@@ -23,6 +23,7 @@ export interface Device {
   is_in_use: boolean
   license_expiry: string
   license_start: string
+  build_date?: string
   license_remaining_days: number | null
   remark: string
   created_at: string
@@ -50,6 +51,7 @@ export interface DeviceForm {
   is_in_use: boolean
   license_expiry: string
   license_start: string
+  build_date?: string
   remark: string
 }
 
@@ -151,12 +153,56 @@ export function fetchPasswordHistory(id: number) {
   return request<PasswordHistoryItem[]>({ url: `/api/v2/devices/${id}/password-history`, method: 'GET' })
 }
 
-export function exportDevices(params: { search?: string; customer_id?: number; with_password?: boolean }) {
+export interface DeviceExportParams {
+  preset?: string
+  columns?: string[]
+  search?: string
+  customer_id?: number
+  date_from?: string
+  date_to?: string
+}
+
+export function exportDevices(params: DeviceExportParams) {
   return request<{ filename: string; content: string }>({
     url: '/api/v2/devices/export',
     method: 'POST',
     data: params,
   })
+}
+
+/** 设备密码导出申请（勾选密码列走审核流） */
+export function requestDeviceExport(filters: Record<string, unknown>, reason: string) {
+  return request<{ id: number }>({
+    url: '/api/v2/devices/export-password-request',
+    method: 'POST',
+    data: { filters, reason },
+  })
+}
+
+export interface DeviceExportRequestItem {
+  id: number
+  reason: string
+  status: 'pending' | 'approved' | 'rejected'
+  status_label: string
+  username: string
+  realname: string
+  created_at: string
+  reviewed_at: string
+  review_comment: string
+  file_token: string
+  downloaded: boolean
+}
+
+export function fetchDeviceExportRequests(scope: 'mine' | 'all' = 'mine') {
+  return request<{ items: DeviceExportRequestItem[] }>({
+    url: '/api/v2/devices/export-password-requests',
+    method: 'GET',
+    params: { scope },
+  })
+}
+
+export function exportPasswordDownloadUrl(token: string) {
+  return `/api/v2/devices/export-password-download/${token}`
 }
 
 export function importDevices(formData: FormData) {

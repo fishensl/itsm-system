@@ -3,8 +3,12 @@
 需求：用户管理里可直接勾选工程师负责的客户（多对多），
 创建工单/巡检/故障时客户下拉优先按直接关联过滤，无关联时回退负责区域。
 
+V24 修复：原挂在 b2c3d4e5f6a8（早期分叉）造成多 head，生产 upgrade 报
+MultipleHeads；重挂到主链 head 6f5e4d3c2b1a 之后。upgrade 幂等（表已存在则跳过），
+服务器已应用该版本的场景不受影响。
+
 Revision ID: c9d0e1f2a3b4
-Revises: b2c3d4e5f6a8
+Revises: 6f5e4d3c2b1a
 Create Date: 2026-08-06 00:00:00.000000
 
 """
@@ -14,7 +18,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'c9d0e1f2a3b4'
-down_revision = 'b2c3d4e5f6a8'
+down_revision = '6f5e4d3c2b1a'
 branch_labels = None
 depends_on = None
 

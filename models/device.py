@@ -34,6 +34,7 @@ class Device(db.Model):
     rule_version = db.Column(db.String(128), default='')
     license_expiry = db.Column(db.Date, nullable=True, index=True)
     license_start = db.Column(db.Date, nullable=True)            # 授权开始日（与 license_expiry 配对显示"授权时间"）
+    build_date = db.Column(db.Date, nullable=True)               # 建设时间
     cert_expiry_date = db.Column(db.Date, nullable=True)     # 证书到期日
     is_maintenance = db.Column(db.Boolean, default=False)
     is_in_use = db.Column(db.Boolean, default=True, index=True)
@@ -116,6 +117,30 @@ class PasswordHistory(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     device_rel = db.relationship('Device', backref='password_histories')
+
+
+class DeviceExportRequest(db.Model):
+    """设备密码导出申请（V24 审核流：提交 → admin 通过/驳回 → 一次性加密包下载）
+
+    status: pending / approved / rejected
+    通过时预生成 pyzipper AES 加密 zip（file_token → ExportFile），下载后即删。
+    """
+    __tablename__ = 'device_export_requests'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    reason = db.Column(db.Text, default='')
+    filters_json = db.Column(db.Text, default='{}')      # {search, customer_id, columns, preset}
+    status = db.Column(db.String(16), default='pending', index=True)
+    reviewed_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    review_comment = db.Column(db.Text, default='')
+    file_token = db.Column(db.String(64), default='')    # 一次性下载令牌（关联 ExportFile.token）
+    file_password_encrypted = db.Column(db.Text, default='')
+    downloaded_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user_rel = db.relationship('User', foreign_keys=[user_id], backref='export_requests')
+    reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by_user_id], backref='reviewed_export_requests')
 
 
 class DeviceType(db.Model):

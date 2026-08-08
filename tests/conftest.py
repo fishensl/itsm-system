@@ -84,13 +84,25 @@ def _reseed():
 
 
 def _create_test_users():
-    """四角色测试用户：admin/op/sales/viewer，密码均为 TEST_PASSWORD"""
+    """四角色测试用户：admin/op/sales/viewer，密码均为 TEST_PASSWORD
+
+    op 用户级 grant inspection:review / ticket:review：V24 起 operator 角色不再下发审核
+    权限（审核岗位 = admin + 用户级授权），op 保留审核能力以对齐既有审核用例。
+    """
+    from models import UserPermission
     for username, role in [('admin', 'admin'), ('op', 'operator'),
                            ('sales', 'sales'), ('viewer', 'viewer')]:
         if not User.query.filter_by(username=username).first():
             db.session.add(User.create_with_password(
                 username=username, password=TEST_PASSWORD,
                 realname=username, role=role))
+    db.session.flush()
+    op = User.query.filter_by(username='op').first()
+    for perm_code in ('inspection:review', 'ticket:review'):
+        exists = UserPermission.query.filter_by(user_id=op.id, permission_code=perm_code).first()
+        if not exists:
+            db.session.add(UserPermission(user_id=op.id, permission_code=perm_code,
+                                          grant_type='grant'))
     db.session.commit()
 
 

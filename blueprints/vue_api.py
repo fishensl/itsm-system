@@ -146,6 +146,7 @@ def _user_payload(user):
         'username': user.username,
         'realname': user.realname or user.username,
         'role': user.role or 'viewer',
+        'roles': user.role_codes_list(),
         'department_id': user.department_id,
         'region_ids': [r.id for r in user.regions],
         'customer_ids': [c.id for c in user.customers],
@@ -349,13 +350,13 @@ def api_dashboard_overview():
                     '/app/sales?tab=contracts')]
 
     # ---- 快捷入口 ----
-    if role == 'admin':
+    if current_user.is_admin:
         quick_entries = [
             {'url': '/app/customers', 'title': '客户管理', 'sub': '客户信息维护', 'icon': 'bi-people'},
             {'url': '/app/devices', 'title': '设备管理', 'sub': '设备档案与密码', 'icon': 'bi-hdd-rack'},
             {'url': '/app/tickets', 'title': '工单管理', 'sub': '派单/接单/处理', 'icon': 'bi-ticket-detailed'},
             {'url': '/app/knowledge-base', 'title': '知识库', 'sub': '故障案例与手册', 'icon': 'bi-book'},
-            {'url': '/app/system/users', 'title': '用户管理', 'sub': '账号与角色', 'icon': 'bi-people-fill'},
+            {'url': '/app/system/users', 'title': '账号管理', 'sub': '账号与角色', 'icon': 'bi-people-fill'},
         ]
     elif role == 'operator':
         quick_entries = [
@@ -459,6 +460,7 @@ def _device_payload(d, customer_map=None):
         'is_in_use': bool(d.is_in_use),
         'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
         'license_start': d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
+        'build_date': d.build_date.strftime('%Y-%m-%d') if d.build_date else '',
         'license_remaining_days': (d.license_expiry - __import__('datetime').date.today()).days
         if d.license_expiry else None,
         'remark': d.remark or '',
@@ -582,17 +584,27 @@ def api_device_tree():
 @login_required
 @require_permission('device:view')
 def api_v2_device_export():
-    """设备导出（JSON：base64 返回，与 SSR 导出同源；密码列仅 device:reveal 权限）"""
+    """设备导出（JSON：base64 返回 xlsx；三类预设 + 自由列；含密码列 → 400 走申请流）"""
     import base64
     from datetime import date as _date
+    from sqlalchemy.orm import selectinload as _sil
     from utils.excel_export import export_xlsx
-    from utils.permission import has_permission
-    from models import Device as _D, Customer as _C
+    from blueprints.vue_export import (resolve_device_columns, device_export_rows,
+                                       build_rack_map, build_pwd_map,
+                                       DEVICE_EXPORT_COLUMN_MAP)
+    from models import Device as _D, Customer as _C, RackInstall as _RI
     data = request.get_json(silent=True) or {}
+    try:
+        codes = resolve_device_columns(data.get('preset'), data.get('columns'))
+    except ValueError as e:
+        return fail(str(e), 400)
+    if 'password' in codes:
+        return fail('设备密码导出需走审核流程，请点击"导出申请"提交（原因必填）', 400)
     search = (data.get('search') or '').strip()
     customer_id = data.get('customer_id')
-    with_password = bool(data.get('with_password')) and has_permission('device:reveal')
-    q = _D.query
+    q = _D.query.options(
+        _sil(_D.rack_installs).joinedload(_RI.rack_rel),
+    )
     if search:
         q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
                      _D.brand.contains(search))
@@ -600,25 +612,9 @@ def api_v2_device_export():
         q = q.filter(_D.customer_id == int(customer_id))
     devices = q.order_by(_D.id.desc()).all()
     customer_map = {c.id: c.name for c in _C.query.all()}
-    headers = ['所属客户', '设备名称', '设备类型', '品牌', '型号', '序列号', 'IP地址', '端口',
-               '登录用户名', '登录密码', '授权截止日期', '授权开始日期', '登录方式', '安装位置',
-               '系统版本', '规则库版本', '是否维修', '是否在用', '剩余天数', '备注']
-    from utils.crypto import decrypt_password
-    rows = []
-    for d in devices:
-        rows.append([
-            customer_map.get(d.customer_id, ''), d.device_name, d.device_type or '',
-            d.brand or '', d.model or '', d.serial_number or '', d.ip_address, d.port or 22,
-            d.username or '', decrypt_password(d.password_encrypted) if (d.password_encrypted and with_password) else '',
-            d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
-            d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
-            d.login_method or '', d.location or '', d.os_version or '', d.rule_version or '',
-            '是' if d.is_maintenance else '否', '是' if d.is_in_use else '否',
-            (d.license_expiry - _date.today()).days if d.license_expiry else '', d.remark or '',
-        ])
-    if with_password:
-        current_app.logger.info('密码导出审计(Vue): 用户[%s] 导出含明文密码的设备清单(%d台), IP=%s',
-                                current_user.username, len(devices), request.remote_addr)
+    headers = [DEVICE_EXPORT_COLUMN_MAP[c] for c in codes]
+    rows = device_export_rows(devices, codes, customer_map,
+                              build_rack_map(devices), build_pwd_map(devices))
     tmp_path, download_name = export_xlsx(headers, rows, f'设备导出_{_date.today().isoformat()}.xlsx',
                                           sheet_name='设备信息')
     with open(tmp_path, 'rb') as fh:
@@ -1612,6 +1608,13 @@ def api_ticket_action(ticket_id):
                               'close': '已关闭', 'assign': '有新工单派给你'}
                 notify(target.id, 'ticket', f'工单 {t.number} {status_map.get(action, action)}',
                        t.title, f'/app/tickets/{t.id}')
+        # 提交审核：通知提交人部门负责人 + 全部 admin（无部门时仅 admin）
+        if action == 'submit':
+            from utils.notifications import notify_review_submitted
+            notify_review_submitted(
+                current_user.department_id, 'ticket',
+                f'工单 {t.number} 提交审核', f'{me} 提交了工单「{t.title}」的处理结果',
+                f'/app/tickets/{t.id}', except_user_id=current_user.id)
     except Exception:
         current_app.logger.warning('工单通知发送失败 ticket_id=%s', ticket_id)
     return ok(None)
@@ -1721,28 +1724,65 @@ def _customer_payload(c, region_map=None, category_map=None):
 @login_required
 @require_permission('customer:view')
 def api_v2_customer_export():
-    """客户导出（base64，列序与导入模板一致）"""
+    """客户导出（base64；columns 可选列筛选 + 创建时间范围）"""
     import base64
     from datetime import date as _date
+    from sqlalchemy.orm import joinedload as _jl
     from utils.excel_export import export_xlsx
     from models import Customer as _C
-    headers = ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址',
-               '单位类别', '客户等级', '办公室', '有无驻场', '驻场联系人', '驻场联系方式', '驻场办公室',
-               '有无攻防演练', '巡检频率', '来源', '备注']
+    data = request.get_json(silent=True) or {}
+    date_from = (data.get('date_from') or '').strip()
+    date_to = (data.get('date_to') or '').strip()
+    q = _C.query.options(_jl(_C.category_rel), _jl(_C.region_rel)).order_by(_C.name)
+    if date_from:
+        q = q.filter(_C.created_at >= date_from)
+    if date_to:
+        q = q.filter(_C.created_at <= date_to + ' 23:59:59')
+    customers = q.all()
+    codes = [str(c) for c in (data.get('columns') or []) if str(c)] or None
+    all_cols = [
+        ('name', '客户名称'), ('contact_person', '联系人'), ('phone', '电话'),
+        ('email', '邮箱'), ('region', '所属地区'), ('city', '地市'), ('address', '地址'),
+        ('category', '单位类别'), ('level', '客户等级'), ('office', '办公室'),
+        ('has_onsite', '有无驻场'), ('onsite_contact', '驻场联系人'),
+        ('onsite_phone', '驻场联系方式'), ('onsite_office', '驻场办公室'),
+        ('has_drill', '有无攻防演练'), ('frequency', '巡检频率'), ('source', '来源'),
+        ('remark', '备注'), ('created_at', '创建时间'),
+    ]
+    col_map = dict(all_cols)
+    if codes:
+        unknown = [c for c in codes if c not in col_map]
+        if unknown:
+            return fail(f'未知导出列：{", ".join(unknown)}', 400)
+        headers = [col_map[c] for c in codes]
+    else:
+        codes = [c for c, _ in all_cols]
+        headers = [h for _, h in all_cols]
     rows = []
-    for c in _C.query.order_by(_C.name).all():
-        region_label = ''
-        if c.region_rel:
-            region_label = f'{c.region_rel.parent.name} - {c.region_rel.name}' if c.region_rel.parent else c.region_rel.name
-        rows.append([
-            c.name, c.contact_person or '', c.phone or '', c.email or '',
-            region_label, c.city or '', c.address or '',
-            (c.category_rel.name if c.category_rel else ''), c.level or '',
-            c.office or '', '是' if c.has_onsite else '否',
-            c.onsite_contact or '', c.onsite_phone or '', c.onsite_office or '',
-            '是' if c.has_drill else '否', c.inspection_frequency or '',
-            c.source or '', c.remark or '',
-        ])
+    for c in customers:
+        vals = {
+            'name': c.name,
+            'contact_person': c.contact_person or '',
+            'phone': c.phone or '',
+            'email': c.email or '',
+            'region': (f'{c.region_rel.parent.name} - {c.region_rel.name}' if c.region_rel and c.region_rel.parent
+                       else (c.region_rel.name if c.region_rel else '')),
+            'city': c.city or '',
+            'address': c.address or '',
+            'category': c.category_rel.name if c.category_rel else '',
+            'level': c.level or '',
+            'office': c.office or '',
+            'has_onsite': '是' if c.has_onsite else '否',
+            'onsite_contact': c.onsite_contact or '',
+            'onsite_phone': c.onsite_phone or '',
+            'onsite_office': c.onsite_office or '',
+            'has_drill': '是' if c.has_drill else '否',
+            'frequency': c.inspection_frequency or '',
+            'source': c.source or '',
+            'remark': c.remark or '',
+            'created_at': c.created_at.strftime('%Y-%m-%d') if c.created_at else '',
+        }
+        rows.append([vals[code] for code in codes])
     tmp_path, download_name = export_xlsx(headers, rows, f'客户导出_{_date.today().isoformat()}.xlsx',
                                           sheet_name='客户信息')
     with open(tmp_path, 'rb') as fh:
@@ -2220,6 +2260,21 @@ def api_inspection_submit(inspection_id):
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '提交审核失败', 400)
+    # 提交审核：通知提交人部门负责人 + 全部 admin
+    try:
+        from models import User as _U4
+        from utils.notifications import notify_review_submitted
+        dept_id = current_user.department_id
+        if not dept_id and i.inspector_user_id:
+            _insp = _U4.query.get(i.inspector_user_id)
+            dept_id = _insp.department_id if _insp else None
+        notify_review_submitted(
+            dept_id, 'inspection',
+            f'巡检记录 #{inspection_id} 提交审核',
+            f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
+            f'/app/inspections/{inspection_id}', except_user_id=current_user.id)
+    except Exception:
+        current_app.logger.warning('巡检提交通知发送失败 inspection_id=%s', inspection_id)
     return ok(None)
 
 
@@ -2526,7 +2581,7 @@ def api_inspection_upload_report(task_id):
             task.id, report_path, conclusion,
             current_user_id=me.id,
             current_user_name=me.realname or me.username,
-            force=(me.role == 'admin'),
+            force=me.is_admin,
             remark=remark,
             report_skip_reason=report_skip_reason,
             config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
@@ -2550,6 +2605,22 @@ def api_inspection_upload_report(task_id):
                           (asset_import_result or {}).get('created', 0)))
         except Exception:
             current_app.logger.warning('巡检资料同步审计失败 task_id=%s', task_id)
+
+    # 上传全套资料并提交审核：通知任务指派工程师所在部门负责人 + 全部 admin
+    try:
+        from models import User as _U5
+        from utils.notifications import notify_review_submitted
+        dept_id = me.department_id
+        if task.assigned_to_user_id and task.assigned_to_user_id != me.id:
+            _eng = _U5.query.get(task.assigned_to_user_id)
+            dept_id = (_eng.department_id if _eng else None) or dept_id
+        notify_review_submitted(
+            dept_id, 'inspection',
+            f'任务「{task.title}」已上传全套资料提交审核',
+            f'{me.realname or me.username} 提交了巡检资料（{inspection.customer_rel.name if inspection.customer_rel else ""}）',
+            '/app/task-schedule', except_user_id=me.id)
+    except Exception:
+        current_app.logger.warning('巡检资料提交通知发送失败 task_id=%s', task_id)
 
     return ok({'inspection_id': inspection.id, 'version_no': version.version_no,
                'task_status': task.status,
@@ -2784,4 +2855,303 @@ def api_category_delete(cid):
     db.session.delete(cat)
     db.session.commit()
     return ok(None)
+
+
+# ==================== V24 导出筛选（巡检/工单/故障 + 资料包 bundle + 一次性下载） ====================
+def _export_body():
+    return request.get_json(silent=True) or {}
+
+
+def _apply_date_range(q, column, data):
+    date_from = (data.get('date_from') or '').strip()
+    date_to = (data.get('date_to') or '').strip()
+    if date_from:
+        q = q.filter(column >= date_from)
+    if date_to:
+        q = q.filter(column <= date_to + ' 23:59:59')
+    return q
+
+
+@vue_api_bp.route('/api/inspections/export', methods=['POST'])
+@login_required
+@require_permission('inspection:view')
+def api_v2_inspection_export():
+    """巡检记录导出（base64 xlsx；columns + 客户 + 巡检日期范围）"""
+    from sqlalchemy.orm import joinedload as _jl
+    import base64
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from blueprints.vue_export import (INSPECTION_EXPORT_COLUMNS, resolve_columns,
+                                       generic_rows)
+    from models import Inspection as _I
+    data = _export_body()
+    try:
+        codes = resolve_columns(INSPECTION_EXPORT_COLUMNS, data.get('columns'))
+    except ValueError as e:
+        return fail(str(e), 400)
+    q = _I.query.options(_jl(_I.customer_rel))
+    if data.get('customer_id'):
+        q = q.filter(_I.customer_id == int(data['customer_id']))
+    q = _apply_date_range(q, _I.inspection_date, data)
+    records = q.order_by(_I.inspection_date.desc(), _I.id.desc()).all()
+    headers = [dict(INSPECTION_EXPORT_COLUMNS)[c] for c in codes]
+
+    def cell(r, code):
+        return {
+            'title': r.title or '', 'customer': r.customer_rel.name if r.customer_rel else '',
+            'inspector': r.inspector_name or r.inspector or '',
+            'inspection_date': r.inspection_date.strftime('%Y-%m-%d') if r.inspection_date else '',
+            'overall_status': r.overall_status or '',
+            'review_status': r.review_status or '',
+            'conclusion': r.conclusion or '',
+            'location': r.location or '',
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+        }.get(code, '')
+
+    rows = generic_rows(records, codes, cell)
+    tmp_path, download_name = export_xlsx(headers, rows, f'巡检导出_{_date.today().isoformat()}.xlsx',
+                                          sheet_name='巡检记录')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
+@vue_api_bp.route('/api/inspections/export-bundle', methods=['POST'])
+@login_required
+@require_permission('inspection:view')
+def api_v2_inspection_export_bundle():
+    """巡检资料包 zip：客户/巡检{id}_{标题}/项目/ 目录 + 记录明细.xlsx（仅最新版本）"""
+    from sqlalchemy.orm import joinedload as _jl
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from blueprints.vue_export import (INSPECTION_EXPORT_COLUMNS, BUNDLE_ITEM_LABELS,
+                                       build_records_bundle, save_export_file, _safe_name)
+    from models import Inspection as _I, Customer as _C
+    data = _export_body()
+    items = {str(x) for x in (data.get('items') or []) if str(x)}
+    unknown = items - set(BUNDLE_ITEM_LABELS)
+    if unknown:
+        return fail(f'未知导出项目：{", ".join(sorted(unknown))}', 400)
+    if not items:
+        return fail('请至少勾选一个导出项目', 400)
+    q = _I.query.options(_jl(_I.customer_rel))
+    if data.get('customer_id'):
+        q = q.filter(_I.customer_id == int(data['customer_id']))
+    q = _apply_date_range(q, _I.inspection_date, data)
+    records = q.order_by(_I.inspection_date.desc(), _I.id.desc()).all()
+    if not records:
+        return fail('没有符合条件的巡检记录', 400)
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    codes = [c for c, _ in INSPECTION_EXPORT_COLUMNS]
+    headers = [h for _, h in INSPECTION_EXPORT_COLUMNS]
+
+    def cell(r, code):
+        return {
+            'title': r.title or '', 'customer': customer_map.get(r.customer_id, ''),
+            'inspector': r.inspector_name or r.inspector or '',
+            'inspection_date': r.inspection_date.strftime('%Y-%m-%d') if r.inspection_date else '',
+            'overall_status': r.overall_status or '',
+            'review_status': r.review_status or '',
+            'conclusion': r.conclusion or '',
+            'location': r.location or '',
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+        }.get(code, '')
+
+    from blueprints.vue_export import generic_rows
+    rows = generic_rows(records, codes, cell)
+    excel_path, _ = export_xlsx(headers, rows, f'巡检明细_{_date.today().isoformat()}.xlsx',
+                                sheet_name='巡检记录')
+    from blueprints.vue_export import _latest_versions
+    versions = _latest_versions('inspection', [r.id for r in records])
+    files = []
+    for r in records:
+        folder = f'{_safe_name(customer_map.get(r.customer_id, "未知客户"))}/巡检{r.id}_{_safe_name(r.title or "")}'
+        v = versions.get(r.id)
+        assets = v.assets if v else []
+        for a in assets:
+            if a.asset_type not in items or not a.file_path:
+                continue
+            full = os.path.join('static', a.file_path.replace('/', os.sep))
+            fname = a.file_name or os.path.basename(a.file_path)
+            files.append((full, f'{folder}/{BUNDLE_ITEM_LABELS[a.asset_type]}/{fname}'))
+        if 'config_text' in items:
+            for a in assets:
+                if a.asset_type == 'config_text' and not a.file_path and a.content_text:
+                    import tempfile
+                    try:
+                        fd, txt_path = tempfile.mkstemp(suffix='.txt', prefix='cfgtext_')
+                        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                            f.write(a.content_text or '')
+                        fname = a.file_name or f'config_{a.id}.txt'
+                        files.append((txt_path, f'{folder}/核心设备文本配置/{fname}'))
+                    except OSError:
+                        pass
+        if 'formal_report' in items and r.report_file:
+            full = os.path.join('static', r.report_file.replace('/', os.sep))
+            fname = os.path.basename(r.report_file)
+            files.append((full, f'{folder}/正式报告/{fname}'))
+    zip_path = build_records_bundle(excel_path, files, '巡检资料包')
+    token = save_export_file(zip_path, f'巡检资料包_{_date.today().isoformat()}.zip',
+                             user_id=current_user.id)
+    return ok({'filename': f'巡检资料包_{_date.today().isoformat()}.zip',
+               'download_url': f'/api/v2/export-download/{token}'})
+
+
+@vue_api_bp.route('/api/tickets/export', methods=['POST'])
+@login_required
+@require_permission('ticket:view')
+def api_v2_ticket_export():
+    """工单导出（base64 xlsx；columns + 客户 + 创建时间范围）"""
+    from sqlalchemy.orm import joinedload as _jl
+    import base64
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from blueprints.vue_export import (TICKET_EXPORT_COLUMNS, resolve_columns, generic_rows)
+    from models import Ticket as _T
+    data = _export_body()
+    try:
+        codes = resolve_columns(TICKET_EXPORT_COLUMNS, data.get('columns'))
+    except ValueError as e:
+        return fail(str(e), 400)
+    q = _T.query.options(_jl(_T.customer_rel))
+    if data.get('customer_id'):
+        q = q.filter(_T.customer_id == int(data['customer_id']))
+    q = _apply_date_range(q, _T.created_at, data)
+    records = q.order_by(_T.id.desc()).all()
+    headers = [dict(TICKET_EXPORT_COLUMNS)[c] for c in codes]
+
+    def cell(r, code):
+        return {
+            'number': r.number or '', 'title': r.title or '', 'priority': r.priority or '',
+            'status': r.status or '', 'customer': r.customer_rel.name if r.customer_rel else '',
+            'reporter': r.reporter or '', 'assigned_to': r.assigned_to or '',
+            'created_by': r.created_by or '',
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+            'completed_at': r.completed_at.strftime('%Y-%m-%d %H:%M') if r.completed_at else '',
+        }.get(code, '')
+
+    rows = generic_rows(records, codes, cell)
+    tmp_path, download_name = export_xlsx(headers, rows, f'工单导出_{_date.today().isoformat()}.xlsx',
+                                          sheet_name='工单')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
+@vue_api_bp.route('/api/tickets/export-bundle', methods=['POST'])
+@login_required
+@require_permission('ticket:view')
+def api_v2_ticket_export_bundle():
+    """工单处理报告包 zip：客户/工单{id}_{标题}/处理报告/（最新版本）+ 记录明细.xlsx"""
+    from sqlalchemy.orm import joinedload as _jl
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from blueprints.vue_export import (TICKET_EXPORT_COLUMNS, build_records_bundle,
+                                       save_export_file, _safe_name, _latest_versions,
+                                       generic_rows)
+    from models import Ticket as _T, Customer as _C
+    data = _export_body()
+    q = _T.query.options(_jl(_T.customer_rel))
+    if data.get('customer_id'):
+        q = q.filter(_T.customer_id == int(data['customer_id']))
+    q = _apply_date_range(q, _T.created_at, data)
+    records = q.order_by(_T.id.desc()).all()
+    if not records:
+        return fail('没有符合条件的工单', 400)
+    customer_map = {c.id: c.name for c in _C.query.all()}
+    headers = [h for _, h in TICKET_EXPORT_COLUMNS]
+    codes = [c for c, _ in TICKET_EXPORT_COLUMNS]
+
+    def cell(r, code):
+        return {
+            'number': r.number or '', 'title': r.title or '', 'priority': r.priority or '',
+            'status': r.status or '', 'customer': customer_map.get(r.customer_id, ''),
+            'reporter': r.reporter or '', 'assigned_to': r.assigned_to or '',
+            'created_by': r.created_by or '',
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+            'completed_at': r.completed_at.strftime('%Y-%m-%d %H:%M') if r.completed_at else '',
+        }.get(code, '')
+
+    rows = generic_rows(records, codes, cell)
+    excel_path, _ = export_xlsx(headers, rows, f'工单明细_{_date.today().isoformat()}.xlsx',
+                                sheet_name='工单')
+    versions = _latest_versions('ticket', [r.id for r in records])
+    files = []
+    for r in records:
+        v = versions.get(r.id)
+        if not v or not v.report_file:
+            continue
+        folder = f'{_safe_name(customer_map.get(r.customer_id, "未知客户"))}/工单{r.id}_{_safe_name(r.title or "")}'
+        full = os.path.join('static', v.report_file.replace('/', os.sep))
+        fname = os.path.basename(v.report_file)
+        files.append((full, f'{folder}/处理报告/{fname}'))
+    zip_path = build_records_bundle(excel_path, files, '工单报告包')
+    token = save_export_file(zip_path, f'工单报告包_{_date.today().isoformat()}.zip',
+                             user_id=current_user.id)
+    return ok({'filename': f'工单报告包_{_date.today().isoformat()}.zip',
+               'download_url': f'/api/v2/export-download/{token}'})
+
+
+@vue_api_bp.route('/api/faults/export', methods=['POST'])
+@login_required
+@require_permission('fault:view')
+def api_v2_fault_export():
+    """故障记录导出（base64 xlsx；columns + 客户 + 故障时间范围）"""
+    from sqlalchemy.orm import joinedload as _jl
+    import base64
+    from datetime import date as _date
+    from utils.excel_export import export_xlsx
+    from blueprints.vue_export import (FAULT_EXPORT_COLUMNS, resolve_columns, generic_rows)
+    from models import Fault as _F
+    data = _export_body()
+    try:
+        codes = resolve_columns(FAULT_EXPORT_COLUMNS, data.get('columns'))
+    except ValueError as e:
+        return fail(str(e), 400)
+    q = _F.query.options(_jl(_F.customer_rel))
+    if data.get('customer_id'):
+        q = q.filter(_F.customer_id == int(data['customer_id']))
+    q = _apply_date_range(q, _F.fault_time, data)
+    records = q.order_by(_F.fault_time.desc(), _F.id.desc()).all()
+    headers = [dict(FAULT_EXPORT_COLUMNS)[c] for c in codes]
+
+    def cell(r, code):
+        return {
+            'title': r.title or '', 'customer': r.customer_rel.name if r.customer_rel else '',
+            'handler': r.handler or '',
+            'fault_time': r.fault_time.strftime('%Y-%m-%d %H:%M') if r.fault_time else '',
+            'fault_type': r.fault_type or '', 'result': r.result or '',
+            'recovery_time': r.recovery_time.strftime('%Y-%m-%d %H:%M') if r.recovery_time else '',
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+        }.get(code, '')
+
+    rows = generic_rows(records, codes, cell)
+    tmp_path, download_name = export_xlsx(headers, rows, f'故障导出_{_date.today().isoformat()}.xlsx',
+                                          sheet_name='故障记录')
+    with open(tmp_path, 'rb') as fh:
+        b64 = base64.b64encode(fh.read()).decode('ascii')
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    return ok({'filename': download_name, 'content': b64})
+
+
+@vue_api_bp.route('/api/v2/export-download/<token>', methods=['GET'])
+@login_required
+def api_v2_export_download(token):
+    """一次性文件下载（bundle zip / 设备密码包；GET 后即删；密码包经响应头下发密码）"""
+    from blueprints.vue_export import serve_export_file
+    resp = serve_export_file(token, current_user.id, current_user.is_admin)
+    if resp is None:
+        return fail('下载链接不存在、已失效或已使用', 404)
+    return resp
 

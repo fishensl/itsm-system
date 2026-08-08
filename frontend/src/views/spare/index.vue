@@ -18,10 +18,15 @@
               </el-select>
               <el-button type="primary" plain :icon="Search" @click="reload('part')">查询</el-button>
             </div>
+            <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
             <el-button v-if="user.hasPerm('spare:add')" type="primary" :icon="Plus" @click="openPartCreate">
               新增备件
             </el-button>
           </div>
+
+          <!-- V24 导出筛选 -->
+          <ExportDialog v-model="exportVisible" module="spare" title="导出备件档案"
+            @submit="onExportSubmit" />
 
           <DataTable
             ref="partTableRef"
@@ -265,7 +270,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, Download } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import PartExpandRow from './PartExpandRow.vue'
 import { useUserStore } from '@/stores/user'
@@ -275,13 +280,44 @@ import {
   fetchSpareStocks, createSpareStock, updateSpareStock, deleteSpareStock,
   fetchPurchaseOrders, createPurchaseOrder, deletePurchaseOrder,
   fetchSalesOrders, createSalesOrder, deleteSalesOrder,
-  fetchSpareDicts,
+  fetchSpareDicts, exportSpareParts,
   type SparePart, type SpareStock, type PurchaseOrderItem, type SalesOrderItem, type SpareDicts,
 } from '@/api/spare'
+import ExportDialog from '@/components/ExportDialog.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<SpareDicts | null>(null)
+
+// V24 导出筛选
+const exportVisible = ref(false)
+
+function saveBase64(b64: string, filename: string) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = decodeURIComponent(filename)
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function onExportSubmit(payload: Record<string, unknown>) {
+  try {
+    const res = await exportSpareParts({
+      columns: payload.columns,
+      date_from: payload.date_from || undefined,
+      date_to: payload.date_to || undefined,
+    })
+    saveBase64(res.content, res.filename)
+    ui.toast('导出成功', 'success')
+    exportVisible.value = false
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
 const spareParts = computed(() => dicts.value?.spare_parts || [])
 const customers = computed(() => dicts.value?.customers || [])
 const categories = computed(() => dicts.value?.categories || [])

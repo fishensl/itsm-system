@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="page-container">
     <div class="page-header">
-      <h2 class="page-title">用户与部门管理</h2>
+      <h2 class="page-title">账号与部门管理</h2>
       <div class="header-actions">
         <el-button type="primary" :icon="Plus" @click="openCreate">新增用户</el-button>
       </div>
@@ -61,7 +61,8 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="角色">
-              <el-select v-model="form.role" class="w-full">
+              <el-select v-model="form.roles" multiple collapse-tags collapse-tags-tooltip
+                class="w-full" placeholder="可多选（首个为主角色）">
                 <el-option v-for="r in roles" :key="r" :label="roleLabelMap[r] || r" :value="r" />
               </el-select>
             </el-form-item>
@@ -192,7 +193,8 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, h } from 'vue'
+import { ElTag } from 'element-plus'
 import { nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { Plus } from '@element-plus/icons-vue'
@@ -294,8 +296,14 @@ const loadUsers = async (params: Record<string, unknown>): Promise<PageResult<Re
 const userColumns = computed(() => [
   { key: 'username', label: '用户名', minWidth: 110, asTitle: true },
   { key: 'realname', label: '姓名', width: 90 },
-  { key: 'role', label: '角色', width: 110, type: 'tag',
-    tagMap: ROLE_TAG, valueMap: roleLabelMap.value },
+  { key: 'roles', label: '角色', width: 180, type: 'custom',
+    render: (row: Record<string, unknown>) => {
+      const rowRoles = row.roles as string[] | undefined
+      const codes: string[] = rowRoles?.length ? rowRoles : [(row.role as string) || 'viewer']
+      return h('div', codes.map((c) => h(ElTag, {
+        size: 'small', type: ROLE_TAG[c] || 'info', style: 'margin-right:4px',
+      }, () => roleLabelMap.value[c] || c)))
+    } },
   { key: 'department_name', label: '部门', minWidth: 100 },
   { key: 'region_names', label: '负责区域', minWidth: 130 },
   { key: 'customer_names', label: '关联客户', minWidth: 130 },
@@ -360,14 +368,15 @@ async function doResetPwd() {
 }
 
 function openCreate() {
-  form.value = { username: '', realname: '', role: 'viewer', department_id: null,
+  form.value = { username: '', realname: '', roles: ['viewer'], department_id: null,
     phone: '', email: '', password: '', is_active: true, certifications: [], region_ids: [],
     customer_ids: [] }
   formVisible.value = true
 }
 
 function openEdit(u: UserItem) {
-  form.value = { id: u.id, username: u.username, realname: u.realname, role: u.role,
+  form.value = { id: u.id, username: u.username, realname: u.realname,
+    roles: (u.roles && u.roles.length ? [...u.roles] : [u.role || 'viewer']),
     department_id: u.department_id, phone: u.phone, email: u.email,
     password: '', is_active: u.is_active, certifications: [...(u.certifications || [])],
     region_ids: [...(u.region_ids || [])], customer_ids: [...(u.customer_ids || [])] }

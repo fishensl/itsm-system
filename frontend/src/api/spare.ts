@@ -143,3 +143,11 @@ export function deleteSalesOrder(id: number) {
 export function fetchSpareDicts() {
   return request<SpareDicts>({ url: '/api/dicts/spare', method: 'GET' })
 }
+
+export function exportSpareParts(params: Record<string, unknown>) {
+  return request<{ filename: string; content: string }>({
+    url: '/api/spare-parts/export',
+    method: 'POST',
+    data: params,
+  })
+}
