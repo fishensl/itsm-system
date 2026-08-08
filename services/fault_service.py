@@ -23,6 +23,14 @@ def create_fault(data, current_user_name):
     title = (data.get('title') or '').strip()
     if not title:
         raise ServiceError('故障标题不能为空')
+    # V28: 客户合同过期门禁（故障记录同样不允许过期客户安排）
+    if data.get('customer_id'):
+        from models import Customer
+        cust = Customer.query.get(int(data['customer_id']))
+        if cust is not None:
+            from utils.customer_contract import contract_expired
+            if contract_expired(cust):
+                raise ServiceError('该客户合同已过期，请先提交合同例外申请（部门主管审核）或改用工单创建')
     f = Fault(
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,

@@ -5,8 +5,21 @@
 路由层只负责参数接收、权限检查、模板渲染。
 """
 import json
+from datetime import date, datetime
 from models import db, Customer, Region
 from .base import ServiceError, transaction
+
+
+def _parse_contract_date(raw):
+    """合同服务期日期解析：''/None → None；支持 YYYY-MM-DD；非法值抛 ServiceError"""
+    if raw in (None, ''):
+        return None
+    if isinstance(raw, date) and not isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.strptime(str(raw)[:10], '%Y-%m-%d').date()
+    except ValueError:
+        raise ServiceError(f'合同日期格式错误：{raw}（应为 YYYY-MM-DD）')
 
 
 def parse_extra_fields(customer):
@@ -160,6 +173,11 @@ def create_customer(data, device_count=0):
         source=data.get('source') or '',
         address=data.get('address') or '',
         remark=data.get('remark') or '',
+        # V28: 合同服务期 + 外网工单展示字段
+        contract_start_date=_parse_contract_date(data.get('contract_start_date')),
+        contract_end_date=_parse_contract_date(data.get('contract_end_date')),
+        office_room=data.get('office_room') or '',
+        map_location=data.get('map_location') or '',
     )
     # 推导 city
     c.city, _ = _resolve_region(c.region_id)
@@ -205,6 +223,15 @@ def update_customer(customer_id, data):
     c.city, _ = _resolve_region(c.region_id)
     c.level = _derive_level(c, c.has_onsite, c.has_drill, data.get('level'))
     c.extra_fields = data.get('extra_fields') or ''
+    # V28: 合同服务期 + 外网工单展示字段
+    if 'contract_start_date' in data:
+        c.contract_start_date = _parse_contract_date(data.get('contract_start_date'))
+    if 'contract_end_date' in data:
+        c.contract_end_date = _parse_contract_date(data.get('contract_end_date'))
+    if data.get('office_room') is not None:
+        c.office_room = data.get('office_room') or ''
+    if data.get('map_location') is not None:
+        c.map_location = data.get('map_location') or ''
     return c
 
 

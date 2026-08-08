@@ -10,12 +10,15 @@ TICKET_PENDING_ASSIGN = '待派单'
 TICKET_ASSIGNED = '已派单'
 TICKET_ACCEPTED = '已接单'
 TICKET_PROCESSING = '处理中'
+TICKET_SUSPENDED = '已挂起'
 TICKET_SUBMITTED = '待审核'
 TICKET_CHECKED = '已验收'
 TICKET_CLOSED = '已关闭'
+TICKET_CONTRACT_REVIEW = '合同审批'   # V28: 客户合同过期时的例外审批态
 TICKET_STATUSES = frozenset({
     TICKET_PENDING_ASSIGN, TICKET_ASSIGNED, TICKET_ACCEPTED,
-    TICKET_PROCESSING, TICKET_SUBMITTED, TICKET_CHECKED, TICKET_CLOSED,
+    TICKET_PROCESSING, TICKET_SUSPENDED, TICKET_SUBMITTED, TICKET_CHECKED,
+    TICKET_CLOSED, TICKET_CONTRACT_REVIEW,
 })
 
 # ==================== 巡检任务状态 ====================
@@ -24,10 +27,12 @@ TASK_RUNNING = '执行中'
 TASK_REVIEWING = '待审核'
 TASK_DONE = '已完成'
 TASK_CANCELLED = '已取消'
-TASK_STATUSES = frozenset({TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE, TASK_CANCELLED})
+TASK_CONTRACT_REVIEW = '合同审批'   # V28: 客户合同过期时的例外审批态
+TASK_STATUSES = frozenset({TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE,
+                           TASK_CANCELLED, TASK_CONTRACT_REVIEW})
 # 看板排序优先级：逾期最前 → 执行中 → 待审核 → 待执行 → 已完成 → 已取消（值越小越靠前）
 TASK_SORT_PRIORITY = {TASK_RUNNING: 1, TASK_REVIEWING: 2, TASK_PENDING: 3,
-                      TASK_DONE: 4, TASK_CANCELLED: 5}
+                      TASK_DONE: 4, TASK_CANCELLED: 5, TASK_CONTRACT_REVIEW: 6}
 # 任务状态机转换表（key=当前状态, value=允许的下一状态集合）
 TASK_TRANSITIONS = {
     TASK_PENDING: {TASK_RUNNING, TASK_CANCELLED},
@@ -35,6 +40,7 @@ TASK_TRANSITIONS = {
     TASK_REVIEWING: {TASK_RUNNING, TASK_DONE},
     TASK_DONE: set(),
     TASK_CANCELLED: set(),
+    TASK_CONTRACT_REVIEW: {TASK_PENDING, TASK_CANCELLED},  # 审核通过→待执行 / 拒绝→已取消
 }
 
 # ==================== 巡检记录审核状态 ====================
@@ -127,3 +133,17 @@ SLA_DEFAULT_HOURS = 24
 
 # ==================== 巡检审核超时提醒 ====================
 REVIEW_TIMEOUT_DAYS = 3   # 提交审核后 N 天未审核 → 提醒部门主管 + admin
+
+# ==================== 客户合同服务期（V28） ====================
+CUSTOMER_CONTRACT_ACTIVE = '服务中'
+CUSTOMER_CONTRACT_EXPIRING = '即将到期'
+CUSTOMER_CONTRACT_EXPIRED = '已过期'
+CUSTOMER_CONTRACT_NONE = '未设置合同'
+CUSTOMER_CONTRACT_STATUSES = frozenset({
+    CUSTOMER_CONTRACT_ACTIVE, CUSTOMER_CONTRACT_EXPIRING,
+    CUSTOMER_CONTRACT_EXPIRED, CUSTOMER_CONTRACT_NONE,
+})
+CUSTOMER_CONTRACT_REMIND_DAYS = 30   # 合同到期前 N 天 → 提前提醒
+
+# ==================== 工单挂起超时提醒（V28） ====================
+SUSPEND_TIMEOUT_DAYS = 2   # 工单挂起超 N 天未恢复 → 提醒工程师/主管/销售

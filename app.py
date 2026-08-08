@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """ITSM 简易运维管理系统 - 主应用"""
 
-import json
 import os
 
 from flask import (Flask, request, redirect, url_for,
@@ -177,6 +176,10 @@ def create_app(test_config=None):
     # CSRF token 同步写入非 HttpOnly cookie，供前端 JS 读取
     app.after_request(_set_csrf_cookie)
 
+    # 内外网访问隔离：外网仅放行工单/故障处置流程（未配置可信网段时零生效）
+    from utils.access_guard import register_access_guard
+    register_access_guard(app)
+
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
@@ -316,6 +319,14 @@ def init_db(app):
             seed_all(app)
         except Exception as e:
             app.logger.warning('权限 seed 失败（非致命）: %s', e)
+            db.session.rollback()
+
+        # V28: 通知规则默认种子（幂等，仅写数据不改 schema）
+        try:
+            from utils.wecom_notify import seed_default_notify_rules
+            seed_default_notify_rules()
+        except Exception as e:
+            app.logger.warning('通知规则 seed 失败（非致命）: %s', e)
             db.session.rollback()
 
         # 创建默认管理员：仅在系统中不存在任何 admin 角色用户时（首次空库引导），

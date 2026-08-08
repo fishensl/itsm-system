@@ -28,6 +28,7 @@ class Ticket(db.Model):
     title = db.Column(db.String(256), nullable=False)
     description = db.Column(db.Text, default='')
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
+    customer_name_text = db.Column(db.String(128), default='')  # 外网建单手填客户名（无客户主数据绑定）
     reporter = db.Column(db.String(64), default='')
     reporter_phone = db.Column(db.String(32), default='')
     related_inspection_id = db.Column(db.Integer, db.ForeignKey('inspections.id'), nullable=True)
@@ -66,6 +67,16 @@ class Ticket(db.Model):
     impact_scope = db.Column(db.String(128), default='')          # 影响范围
     normalized_tags = db.Column(db.String(256), default='')       # 标准化标签（逗号分隔）
 
+    # V28: 合同例外审批（客户合同过期时创建需部门主管审核）
+    contract_exception_status = db.Column(db.String(16), default='')  # ''/待审核/通过/拒绝
+    contract_exception_reason = db.Column(db.Text, default='')
+    contract_exception_by = db.Column(db.String(64), default='')
+    contract_exception_at = db.Column(db.DateTime, nullable=True)
+    # V28: 工单挂起（采购等待/不可处置等暂停处置时效）
+    suspended_at = db.Column(db.DateTime, nullable=True)
+    suspended_seconds = db.Column(db.Integer, default=0)      # 累计挂起秒数（SLA 顺延用）
+    suspend_timeout_notified_at = db.Column(db.DateTime, nullable=True)  # 挂起超时提醒去重
+
     customer_rel = db.relationship('Customer', backref='tickets')
     inspection_rel = db.relationship('Inspection', backref='tickets')
     device_rel = db.relationship('Device', backref='tickets')
@@ -83,6 +94,53 @@ class TicketLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     ticket_rel = db.relationship('Ticket', backref='logs')
+
+
+class TicketSuspend(db.Model):
+    """工单挂起段（采购等待/无法处置暂停处置时效，恢复时累计时长并顺延 SLA）"""
+    __tablename__ = 'ticket_suspends'
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('tickets.id'), nullable=False, index=True)
+    reason = db.Column(db.Text, default='')
+    started_at = db.Column(db.DateTime, nullable=True)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    operator = db.Column(db.String(64), default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    ticket_rel = db.relationship('Ticket', backref='suspends')
+
+
+class TicketProgress(db.Model):
+    """工单处置进展（工程师/主管按规范填写进展 + 现场照片）"""
+    __tablename__ = 'ticket_progresses'
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('tickets.id'), nullable=False, index=True)
+    content = db.Column(db.Text, default='')
+    photos_json = db.Column(db.Text, default='[]')   # [相对 static 路径, ...]
+    operator = db.Column(db.String(64), default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    ticket_rel = db.relationship('Ticket', backref='progresses')
+
+
+class CustomerContractReview(db.Model):
+    """客户合同例外申请（过期客户安排任务时部门主管审核）"""
+    __tablename__ = 'customer_contract_reviews'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False, index=True)
+    requester_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reason = db.Column(db.Text, default='')
+    status = db.Column(db.String(16), default='')   # ''/待审核/通过/拒绝
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    review_comment = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    customer_rel = db.relationship('Customer', backref='contract_reviews')
+    requester_rel = db.relationship('User', foreign_keys=[requester_user_id],
+                                    backref='contract_review_requests')
+    reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by],
+                                   backref='contract_review_done')
 
 
 # 保留旧 Fault 模型（兼容现有数据，逐步被 Ticket 取代）

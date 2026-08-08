@@ -167,15 +167,16 @@ class TestModuleExports:
         assert header == ['标题', '故障类型', '处理结果']
         assert rows[0] == ['导出故障', '硬件故障', '已解决']
 
-    def test_customer_export_date_filter(self, op_client, seed):
-        r = op_client.post('/api/v2/customers/export', json={
+    def test_customer_export_date_filter(self, admin_client, seed):
+        """客户导出需 customer:export（admin 拥有）"""
+        r = admin_client.post('/api/v2/customers/export', json={
             'columns': ['name', 'level'],
             'date_from': '2099-01-01'})
         _, rows = _decode_xlsx(r)
         assert rows == []
 
-    def test_customer_export_columns(self, op_client, seed):
-        r = op_client.post('/api/v2/customers/export', json={'columns': ['name', 'created_at']})
+    def test_customer_export_columns(self, admin_client, seed):
+        r = admin_client.post('/api/v2/customers/export', json={'columns': ['name', 'created_at']})
         header, rows = _decode_xlsx(r)
         assert header == ['客户名称', '创建时间']
         names = {row[0] for row in rows}

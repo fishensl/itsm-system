@@ -146,3 +146,117 @@ def notify_review_timeout():
         except Exception:
             pass
         return 0
+
+
+def notify_contract_expiring():
+    """客户合同到期提醒（调度器每日调用，V28）。
+
+    合同剩余天数 ≤ CUSTOMER_CONTRACT_REMIND_DAYS（且未过期）→ 提醒客户关联工程师
+    + 销售角色 + admin；已过期客户每日提示一次（游标 contract_expiry_notified 去重，
+    到期日变更后允许再次提醒）。站内 + 多渠道并行，返回站内通知数。
+    """
+    from datetime import date, timedelta
+    from models import db, Customer, User
+    from utils.constants import CUSTOMER_CONTRACT_REMIND_DAYS
+    from utils.customer_contract import contract_remaining_days
+
+    try:
+        today = date.today()
+        threshold = today + timedelta(days=CUSTOMER_CONTRACT_REMIND_DAYS)
+        rows = (Customer.query
+                .filter(Customer.contract_end_date.isnot(None))
+                .filter(Customer.contract_end_date <= threshold)
+                .all())
+        # 覆盖：未到期（提醒窗口内）每日提醒；已过期每日提示（游标 date 不同则重发）
+        targets = [c for c in rows
+                   if c.contract_expiry_notified != today]
+        if not targets:
+            return 0
+        sales_ids = [u.id for u in User.query.filter_by(is_active=True).all()
+                     if u.has_role('sales')]
+        admins = [u.id for u in User.query.filter_by(is_active=True).all()
+                  if u.has_role('admin')]
+        sent = 0
+        for c in targets:
+            end_str = c.contract_end_date.isoformat()
+            remaining = contract_remaining_days(c)
+            if remaining is None:
+                continue
+            if remaining < 0:
+                title = f'客户「{c.name}」合同已过期 {abs(remaining)} 天'
+                content = f'合同到期日 {end_str}，已过期，请尽快与客户确认续签。'
+            else:
+                title = f'客户「{c.name}」合同即将到期'
+                content = f'距 {end_str} 还剩 {remaining} 天，请提前与客户沟通续签。'
+            # 目标：客户关联工程师 + 销售 + admin
+            eng_ids = [u.id for u in c.engineer_users if u.is_active]
+            for uid in dict.fromkeys(eng_ids + sales_ids + admins):
+                notify(uid, 'contract', title, content, '/app/customers')
+                sent += 1
+            # 多渠道推送
+            from utils.wecom_notify import wecom_broadcast, EVENT_CONTRACT_EXPIRING
+            wecom_broadcast(EVENT_CONTRACT_EXPIRING, title, content,
+                            '/app/customers',
+                            target_user_ids=eng_ids + sales_ids + admins)
+            c.contract_expiry_notified = today
+        db.session.commit()
+        return sent
+    except Exception:
+        from flask import current_app
+        try:
+            current_app.logger.exception('客户合同到期提醒失败')
+        except Exception:
+            pass
+        return 0
+
+
+def notify_suspended_tickets():
+    """工单挂起超时提醒（调度器每日调用，V28）。
+
+    工单状态=已挂起且超过 SUSPEND_TIMEOUT_DAYS 天未恢复 → 站内+多渠道通知
+    被指派人（工程师）、部门主管、销售。suspend_timeout_notified_at 去重。
+    """
+    from datetime import datetime, timedelta
+    from models import db, Ticket, User
+    from utils.constants import TICKET_SUSPENDED, SUSPEND_TIMEOUT_DAYS
+
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=SUSPEND_TIMEOUT_DAYS)
+        rows = (Ticket.query
+                .filter(Ticket.status == TICKET_SUSPENDED,
+                        Ticket.suspended_at.isnot(None),
+                        Ticket.suspended_at < cutoff,
+                        Ticket.suspend_timeout_notified_at.is_(None))
+                .all())
+        sent = 0
+        for t in rows:
+            eng = User.query.filter(
+                (User.username == (t.assigned_to or '')) |
+                (User.realname == (t.assigned_to or ''))).first()
+            sup_ids = [u.id for u in User.query.filter_by(is_active=True).all()
+                       if u.is_supervisor]
+            sales_ids = [u.id for u in User.query.filter_by(is_active=True).all()
+                         if u.has_role('sales')]
+            title = f'工单 {t.number} 挂起已超 {SUSPEND_TIMEOUT_DAYS} 天'
+            content = f'「{t.title}」自 {t.suspended_at.strftime("%m-%d %H:%M")} 起挂起未恢复，请跟进处置进展或提交审核。'
+            link = f'/app/tickets/{t.id}'
+            ids = []
+            if eng:
+                ids.append(eng.id)
+            ids += sup_ids + sales_ids
+            for uid in dict.fromkeys(ids):
+                notify(uid, 'ticket', title, content, link)
+                sent += 1
+            from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_SUSPENDED_TIMEOUT
+            wecom_broadcast(EVENT_TICKET_SUSPENDED_TIMEOUT, title, content, link,
+                            target_user_ids=ids)
+            t.suspend_timeout_notified_at = datetime.utcnow()
+        db.session.commit()
+        return sent
+    except Exception:
+        from flask import current_app
+        try:
+            current_app.logger.exception('工单挂起超时提醒失败')
+        except Exception:
+            pass
+        return 0

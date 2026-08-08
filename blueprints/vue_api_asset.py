@@ -332,9 +332,9 @@ def api_rack_devices():
 @login_required
 @require_permission('device:view')
 def api_rack_dicts():
-    """机柜下拉字典：客户列表"""
-    from models import Customer as _C
-    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    """机柜下拉字典：客户列表（按关联过滤，防枚举客户名单）"""
+    from utils.customer_scope import customer_dropdown_options
+    customers = customer_dropdown_options(current_user)
     return ok({'customers': customers})
 
 
@@ -512,9 +512,10 @@ def api_topology_create():
 @login_required
 @require_permission('topology:view')
 def api_topology_dicts():
-    """拓扑图下拉字典：客户 / 地区（仅需 topology:view，同 SSR 列表页）"""
-    from models import Customer as _C, Region as _R
-    customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
+    """拓扑图下拉字典：客户 / 地区（客户按关联过滤，防枚举名单）"""
+    from models import Region as _R
+    from utils.customer_scope import customer_dropdown_options
+    customers = customer_dropdown_options(current_user)
     regions = [{'id': r.id, 'name': r.name} for r in _R.query.order_by(_R.name).all()]
     return ok({'customers': customers, 'regions': regions})
 

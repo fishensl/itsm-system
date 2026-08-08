@@ -9,7 +9,6 @@
 from datetime import datetime, date
 
 from models import db, Customer, SparePart, SpareStock, Inspection, Fault
-from .base import ServiceError
 
 
 def _col_map(ws):

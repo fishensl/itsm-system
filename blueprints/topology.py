@@ -11,7 +11,7 @@ from flask import (Blueprint, request, redirect, url_for,
                    flash, jsonify, current_app)
 from flask_login import login_required, current_user
 
-from models import Topology, Customer, Region, db
+from models import Topology, Region, db
 from utils.permission import require_permission, has_permission
 
 topology_bp = Blueprint('topology', __name__)
@@ -65,8 +65,8 @@ def api_editor_meta():
     """编辑器壳页数据：客户/地区下拉、clibs 图标库、导入信息、权限标志（替代 Jinja 注入）"""
     import glob
     from urllib.parse import quote
-    all_customers = [{'id': c.id, 'name': c.name} for c in
-                     Customer.query.order_by(Customer.name).all()]
+    from utils.customer_scope import customer_dropdown_options
+    all_customers = customer_dropdown_options(current_user)
     regions = [{'id': r.id, 'name': r.name} for r in
                Region.query.order_by(Region.parent_id.is_(None).desc(),
                                      Region.parent_id, Region.sort_order, Region.id).all()]

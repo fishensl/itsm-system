@@ -11,9 +11,11 @@ export const TICKET_STATUS = {
   ASSIGNED: '已派单',
   ACCEPTED: '已接单',
   PROCESSING: '处理中',
+  SUSPENDED: '已挂起',
   SUBMITTED: '待审核',
   CHECKED: '已验收',
   CLOSED: '已关闭',
+  CONTRACT_REVIEW: '合同审批',
 } as const
 
 export const TICKET_STATUS_TAG: Record<string, TagType> = {
@@ -21,9 +23,11 @@ export const TICKET_STATUS_TAG: Record<string, TagType> = {
   已派单: 'warning',
   已接单: 'warning',
   处理中: 'primary',
+  已挂起: 'warning',
   待审核: 'warning',
   已验收: 'success',
   已关闭: 'info',
+  合同审批: 'danger',
 }
 
 // ==================== 巡检任务状态 ====================
@@ -33,6 +37,7 @@ export const TASK_STATUS = {
   REVIEWING: '待审核',
   DONE: '已完成',
   CANCELLED: '已取消',
+  CONTRACT_REVIEW: '合同审批',
 } as const
 
 export const TASK_STATUS_TAG: Record<string, TagType> = {
@@ -41,6 +46,7 @@ export const TASK_STATUS_TAG: Record<string, TagType> = {
   待审核: 'warning',
   已完成: 'success',
   已取消: 'info',
+  合同审批: 'danger',
 }
 
 // ==================== 巡检记录审核状态 ====================

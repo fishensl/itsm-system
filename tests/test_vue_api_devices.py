@@ -169,8 +169,8 @@ class TestRevealPassword:
 
 
 class TestDeviceDicts:
-    def test_dicts_shape(self, op_client, seed):
-        r = op_client.get('/api/dicts/devices')
+    def test_dicts_shape(self, admin_client, seed):
+        r = admin_client.get('/api/dicts/devices')
         body = r.get_json()
         assert body['code'] == 0
         data = body['data']

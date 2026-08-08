@@ -11,6 +11,12 @@ export interface Customer {
   city: string
   address: string
   office: string
+  office_room: string
+  map_location: string
+  contract_start_date: string
+  contract_end_date: string
+  contract_status: string
+  contract_remaining_days: number | null
   source: string
   remark: string
   region_id: number | null
@@ -56,6 +62,10 @@ export interface CustomerForm {
   onsite_office: string
   has_drill: boolean
   remark: string
+  contract_start_date?: string
+  contract_end_date?: string
+  office_room?: string
+  map_location?: string
 }
 
 export const CUSTOMER_LEVEL_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
@@ -63,6 +73,14 @@ export const CUSTOMER_LEVEL_TAG: Record<string, 'primary' | 'success' | 'warning
   重点: 'warning',
   常规: 'info',
   auto: 'info',
+}
+
+/** 客户合同状态标签（服务中绿 / 即将到期黄 / 已过期红 / 未设置灰） */
+export const CONTRACT_STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
+  服务中: 'success',
+  即将到期: 'warning',
+  已过期: 'danger',
+  未设置合同: 'info',
 }
 
 /** 等级值 → 中文显示文本（auto 为「自动（智能定级）」） */

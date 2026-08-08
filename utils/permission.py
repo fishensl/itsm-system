@@ -33,6 +33,7 @@ PERMISSION_MAP = {
     # 业务管理
     'customer:view': '客户管理-查看', 'customer:add': '客户管理-新增',
     'customer:edit': '客户管理-编辑', 'customer:delete': '客户管理-删除',
+    'customer:manage': '客户管理-管理', 'customer:export': '客户管理-导出',
     'region:view': '地区管理-查看', 'region:add': '地区管理-新增',
     'region:edit': '地区管理-编辑', 'region:delete': '地区管理-删除',
     # 运维管理
@@ -75,6 +76,9 @@ PERMISSION_MAP = {
     'dashboard:reports': '数据报表-查看',
     'draft:manage': '草稿管理',
     'system:repair': '系统设置-修复设备数',
+    'system:access_control': '系统设置-访问控制',
+    'contract:review': '合同例外审核',
+    'notify:view': '通知渠道-查看', 'notify:edit': '通知渠道-管理',
 }
 
 ADMIN_PERMISSIONS = list(PERMISSION_MAP.keys())
@@ -100,6 +104,7 @@ OPERATOR_PERMISSIONS = [
 SALES_PERMISSIONS = [
     'dashboard:view',
     'customer:view', 'customer:add', 'customer:edit',
+    'customer:manage', 'customer:export',
     'region:view', 'category:view', 'department:view',
     'sales:view', 'sales:add', 'sales:edit', 'sales:delete',
     'contract_auto:manage',

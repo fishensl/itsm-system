@@ -60,6 +60,8 @@ class User(UserMixin, db.Model):
     phone = db.Column(db.String(32), default='')
     email = db.Column(db.String(128), default='')
     certifications = db.Column(db.Text, default='[]')  # JSON 数组字符串，参见 utils/cert_options.py
+    # V28：多渠道通知账号（JSON：{"wecom":"...","dingtalk":"...","feishu":"..."}）
+    notify_accounts_json = db.Column(db.Text, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     department_rel = db.relationship('Department', backref='members', foreign_keys=[department_id])
@@ -142,6 +144,17 @@ class User(UserMixin, db.Model):
         """list -> JSON 字符串 写入 certifications"""
         from utils.cert_options import cert_to_json
         self.certifications = cert_to_json(lst)
+
+    def notify_accounts(self):
+        """多渠道通知账号 JSON -> dict（{"wecom":"...","dingtalk":"..."}，防御脏数据）"""
+        val = parse_json(self.notify_accounts_json or '', default={}, field_name='notify_accounts_json')
+        if not isinstance(val, dict):
+            return {}
+        return {str(k): str(v) for k, v in val.items() if v}
+
+    def set_notify_accounts(self, accounts):
+        """dict -> JSON 字符串 写入 notify_accounts_json"""
+        self.notify_accounts_json = dumps_json({str(k): str(v) for k, v in (accounts or {}).items() if v})
 
 
 class CustomerCategory(db.Model):

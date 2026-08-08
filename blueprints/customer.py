@@ -14,7 +14,7 @@ customer_bp = Blueprint('customer', __name__)
 
 @customer_bp.route('/customers/export')
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:export')
 def customer_export():
     """导出客户列表到 Excel（列序与导入模板保持一致，便于导出后修改再导入）"""
     from utils.excel_export import export_xlsx
@@ -58,7 +58,7 @@ def customer_export():
 
 @customer_bp.route('/api/regions/children/<int:parent_id>')
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:manage')
 def api_region_children(parent_id):
     """返回指定地区的直接子地区列表（JSON），用于客户表单的市→区/县级联"""
     children = Region.query.filter_by(parent_id=parent_id)\
@@ -68,7 +68,7 @@ def api_region_children(parent_id):
 
 @customer_bp.route('/api/customers/parent-candidates')
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:manage')
 def api_parent_candidates():
     """返回指定类别下可作为「上级单位」的市级客户（JSON）。
 

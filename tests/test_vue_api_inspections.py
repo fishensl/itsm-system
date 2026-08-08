@@ -611,7 +611,7 @@ class TestInspectionSSR:
 
 
 class TestInspectionDicts:
-    def test_dicts(self, op_client, app):
+    def test_dicts(self, admin_client, app):
         with app.app_context():
             from models import Inspector
             op_uid = User.query.filter_by(username='op').first().id
@@ -624,7 +624,7 @@ class TestInspectionDicts:
             db.session.add(t)
             db.session.commit()
             tid = t.id
-        r = op_client.get('/api/dicts/inspections')
+        r = admin_client.get('/api/dicts/inspections')
         body = r.get_json()
         assert body['code'] == 0
         data = body['data']

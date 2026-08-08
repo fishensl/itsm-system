@@ -57,12 +57,52 @@
           @action="(a: string, assigneeVal?: string, approved?: boolean) => doAction(row as unknown as Ticket, a, assigneeVal, approved)"
           @audit="(approved: boolean) => openAudit(row as unknown as Ticket, approved)"
           @submit="openSubmit(row as unknown as Ticket)"
+          @suspend="openSuspend(row as unknown as Ticket)"
+          @progress="openProgress(row as unknown as Ticket)"
+          @contract-review="(approved: boolean) => doAction(row as unknown as Ticket, 'contract_review', undefined, approved)"
           @edit="openEdit(row as unknown as Ticket)"
           @archive="onArchive(row as unknown as Ticket)"
           @delete="onDelete(row as unknown as Ticket)"
         />
       </template>
     </DataTable>
+
+    <!-- 挂起工单（采购等待/无法处置暂停处置时效） -->
+    <el-dialog v-model="suspendVisible" title="挂起工单" width="480px" destroy-on-close>
+      <el-alert type="info" :closable="false" class="mb-2"
+        title="挂起期间不计处置时效（SLA 自动顺延）；恢复后需继续处置或提交审核。" />
+      <el-form label-width="80px">
+        <el-form-item label="挂起原因" required>
+          <el-input v-model="suspendReason" type="textarea" :rows="3"
+            placeholder="如：18日提交采购申请，等待备件到货（23日到货）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="suspendVisible = false">取消</el-button>
+        <el-button type="warning" :loading="suspending" @click="doSuspend">确认挂起</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 处置进展（现场拍照 + 文字说明） -->
+    <el-dialog v-model="progressVisible" title="添加处置进展" width="520px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="进展说明">
+          <el-input v-model="progressContent" type="textarea" :rows="4"
+            placeholder="按规范填写处置进展，如：9:10 远程排查确认为设备故障 → 提交采购申请挂起 → 23日备件到货上门安装" />
+        </el-form-item>
+        <el-form-item label="现场照片">
+          <el-upload ref="progressUploadRef" list-type="picture-card" :auto-upload="false" multiple
+            accept=".png,.jpg,.jpeg,.gif,.bmp,.webp"
+            :on-change="onProgressPhotosChange" :on-remove="onProgressPhotoRemove" class="photo-upload">
+            <el-icon><Plus /></el-icon>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="progressVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingProgress" @click="doProgress">保存进展</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 提交审核（处理报告 + 诊断/方案 + 提交备注） -->
     <el-dialog v-model="submitVisible" title="提交审核" width="560px" destroy-on-close>
@@ -135,6 +175,23 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
+            <el-form-item label="客户名称">
+              <el-input v-model="form.customer_name" placeholder="外网或未关联客户时手填" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24">
+            <el-form-item v-if="selectedCustomerExpired" label="合同过期" class="mb-0">
+              <el-alert type="warning" :closable="false" show-icon class="w-full"
+                :title="`该客户合同已过期（${selectedCustomerEnd}）。需填写例外原因，提交后由部门主管审核放行。`" />
+            </el-form-item>
+          </el-col>
+          <el-col v-if="selectedCustomerExpired" :xs="24">
+            <el-form-item label="例外原因" required>
+              <el-input v-model="form.contract_exception_reason" type="textarea" :rows="2"
+                placeholder="如：紧急抢修，客户承诺续签，特批安排" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
             <el-form-item label="优先级">
               <el-select v-model="form.priority" class="w-full">
                 <el-option v-for="p in dicts?.priorities || []" :key="p" :label="p" :value="p" />
@@ -193,7 +250,8 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
   fetchTickets, fetchTicket, createTicket, updateTicket, deleteTicket, ticketAction,
-  ticketActionSubmit, fetchTicketVersions, fetchTicketDicts, TICKET_STATUS_TAG, archiveTicketAsCase,
+  ticketActionSubmit, ticketAddProgress, fetchTicketVersions, fetchTicketDicts,
+  TICKET_STATUS_TAG, archiveTicketAsCase,
   exportTickets, exportTicketBundle,
   type Ticket, type TicketDicts,
 } from '@/api/tickets'
@@ -222,6 +280,16 @@ const regionCustomers = computed(() => {
   if (!rids.length) return custs
   const filtered = custs.filter((c) => c.region_id !== null && rids.includes(c.region_id))
   return filtered.length ? filtered : custs
+})
+
+/** 当前所选客户是否合同过期（选中后提示例外流程） */
+const selectedCustomerExpired = computed(() => {
+  const c = regionCustomers.value.find((x) => x.id === form.customer_id)
+  return c?.contract_status === '已过期'
+})
+const selectedCustomerEnd = computed(() => {
+  const c = regionCustomers.value.find((x) => x.id === form.customer_id)
+  return c?.contract_end_date || ''
 })
 
 const query = reactive<Record<string, unknown>>({ search: '', status: '', priority: '', customer_id: undefined, scope: 'all' })
@@ -397,19 +465,98 @@ async function onDelete(t: Ticket) {
   }
 }
 
+// ==================== 挂起（V28：采购等待/无法处置暂停处置时效） ====================
+const suspendVisible = ref(false)
+const suspending = ref(false)
+const suspendReason = ref('')
+const suspendRow = ref<Ticket | null>(null)
+
+function openSuspend(row: Ticket) {
+  suspendRow.value = row
+  suspendReason.value = ''
+  suspendVisible.value = true
+}
+
+async function doSuspend() {
+  if (!suspendReason.value.trim()) {
+    ui.toast('请填写挂起原因', 'warning')
+    return
+  }
+  suspending.value = true
+  try {
+    await ticketAction(suspendRow.value!.id, { action: 'suspend', remark: suspendReason.value.trim() })
+    ui.toast('工单已挂起（处置时效暂停）', 'success')
+    suspendVisible.value = false
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    suspending.value = false
+  }
+}
+
+// ==================== 处置进展（V28：文字 + 现场照片） ====================
+const progressVisible = ref(false)
+const savingProgress = ref(false)
+const progressRow = ref<Ticket | null>(null)
+const progressContent = ref('')
+const progressUploadRef = ref()
+const progressPhotos = ref<File[]>([])
+
+function openProgress(row: Ticket) {
+  progressRow.value = row
+  progressContent.value = ''
+  progressPhotos.value = []
+  progressUploadRef.value?.clearFiles?.()
+  progressVisible.value = true
+}
+
+function onProgressPhotosChange(f: UploadFile) {
+  if (f.raw) progressPhotos.value.push(f.raw)
+}
+
+function onProgressPhotoRemove(f: UploadFile) {
+  const idx = progressPhotos.value.indexOf(f.raw as File)
+  if (idx >= 0) progressPhotos.value.splice(idx, 1)
+}
+
+async function doProgress() {
+  if (!progressContent.value.trim() && !progressPhotos.value.length) {
+    ui.toast('请填写进展说明或上传现场照片', 'warning')
+    return
+  }
+  savingProgress.value = true
+  try {
+    const fd = new FormData()
+    fd.append('action', 'add_progress')
+    fd.append('content', progressContent.value.trim())
+    progressPhotos.value.forEach((p) => fd.append('photos', p))
+    await ticketAddProgress(progressRow.value!.id, fd)
+    ui.toast('处置进展已记录', 'success')
+    progressVisible.value = false
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    savingProgress.value = false
+  }
+}
+
 // 新建
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
-  id: null, title: '', customer_id: null, priority: '中', source_type: '手动创建',
+  id: null, title: '', customer_id: null, customer_name: '', priority: '中', source_type: '手动创建',
   fault_category_id: null, related_device_id: null, description: '', dispatch_mode: 'pending',
+  contract_exception_reason: '',
 })
 const formRules = { title: [{ required: true, message: '请输入工单标题', trigger: 'blur' }] }
 
 function openCreate() {
-  Object.assign(form, { id: null, title: '', customer_id: null, priority: '中', source_type: '手动创建',
-    fault_category_id: null, related_device_id: null, description: '', dispatch_mode: 'pending' })
+  Object.assign(form, { id: null, title: '', customer_id: null, customer_name: '', priority: '中',
+    source_type: '手动创建', fault_category_id: null, related_device_id: null, description: '',
+    dispatch_mode: 'pending', contract_exception_reason: '' })
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
   if (first && !form.customer_id) form.customer_id = first.id
@@ -418,9 +565,10 @@ function openCreate() {
 
 function openEdit(t: Ticket) {
   Object.assign(form, {
-    id: t.id, title: t.title, customer_id: t.customer_id, priority: t.priority,
-    source_type: t.source_type || '手动创建', fault_category_id: t.fault_category_id,
+    id: t.id, title: t.title, customer_id: t.customer_id, customer_name: t.customer?.name || '',
+    priority: t.priority, source_type: t.source_type || '手动创建', fault_category_id: t.fault_category_id,
     related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
+    contract_exception_reason: t.contract_exception_reason || '',
   })
   formVisible.value = true
 }

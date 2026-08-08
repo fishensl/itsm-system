@@ -105,11 +105,11 @@ SIDEBAR_GROUPS = [
         'icon': 'bi-people',
         'default_order': 40,  # 在资产管理下、知识库上
         'children': [
-            # 核心
-            {'name': '客户列表', 'url': '/customers', 'icon': 'bi-person-lines-fill', 'perm': 'customer:view'},
-            # 字典/分类放后
-            {'name': '地区管理', 'url': '/regions', 'icon': 'bi-geo-alt', 'perm': 'region:view'},
-            {'name': '单位类别', 'url': '/customer-categories', 'icon': 'bi-bookmark-star', 'perm': 'category:view'},
+            # 核心（客户主数据仅管理者可见：工程师不显示客户管理）
+            {'name': '客户列表', 'url': '/customers', 'icon': 'bi-person-lines-fill', 'perm': 'customer:manage'},
+            # 字典/分类放后（随客户主数据门控，工程师整组不可见）
+            {'name': '地区管理', 'url': '/regions', 'icon': 'bi-geo-alt', 'perm': 'customer:manage'},
+            {'name': '单位类别', 'url': '/customer-categories', 'icon': 'bi-bookmark-star', 'perm': 'customer:manage'},
         ],
     },
     {
@@ -155,6 +155,11 @@ SIDEBAR_GROUPS = [
             {'name': '导出审核', 'url': '/system/export-reviews', 'icon': 'bi-file-earmark-check', 'perm': 'user:view'},
             # 集成/配置
             {'name': 'AI 对接', 'url': '/ai-config', 'icon': 'bi-robot', 'perm': 'ai:view'},
+            # 通知渠道/规则（内网管理项，外网 403）
+            {'name': '通知渠道', 'url': '/system/notify-channels', 'icon': 'bi-bell', 'perm': 'notify:view'},
+            {'name': '通知规则', 'url': '/system/notify-rules', 'icon': 'bi-diagram-3', 'perm': 'notify:view'},
+            # 访问控制（内网/VPN 网段，内网管理项）
+            {'name': '访问控制', 'url': '/system/access-control', 'icon': 'bi-shield-lock', 'perm': 'system:access_control'},
             # 巡检审核检查项清单（管理员配置）
             {'name': '巡检审核清单', 'url': '/system/review-checklist', 'icon': 'bi-clipboard-check', 'perm': 'permission:edit'},
             # 数据备份/恢复（页面内 admin_required 限制）
@@ -180,6 +185,31 @@ def get_default_groups():
     return [_copy_group(g) for g in sorted(SIDEBAR_GROUPS, key=lambda g: g['default_order'])]
 
 
+def _apply_external_sidebar(groups):
+    """外网裁剪：仅保留工作台（入口指向工单）+ 运维管理的工单/故障两项。
+
+    客户/设备/合同/备件/销售等敏感分组外网一律移除；未配置可信网段（全内网）
+    或判定异常时不裁剪（兼容存量部署）。
+    """
+    from utils.access_control import is_internal_request
+    try:
+        if is_internal_request():
+            return groups
+    except Exception:
+        return groups
+    out = []
+    for g in groups:
+        if g['key'] == 'workbench':
+            sl = dict(g.get('single_link') or {})
+            sl['url'] = '/tickets'  # 外网工作台入口直接指向工单（处置主流程）
+            out.append({**g, 'single_link': sl})
+        elif g['key'] == 'ops':
+            children = [c for c in g.get('children', [])
+                        if c.get('url') in ('/tickets', '/faults')]
+            out.append({**g, 'children': children})
+    return out
+
+
 def get_user_sidebar_groups(user):
     """获取用户的侧栏分组（按用户偏好 + 默认）
 
@@ -196,7 +226,7 @@ def get_user_sidebar_groups(user):
 
     # 默认顺序 + 默认全启用
     if not user_layout:
-        return [
+        return _apply_external_sidebar([
             {
                 'key': g['key'],
                 'title': g['title'],
@@ -206,7 +236,7 @@ def get_user_sidebar_groups(user):
                 'children': g.get('children', []),
             }
             for g in get_default_groups()
-        ]
+        ])
 
     # 用户自定义：按 user_layout 给定的 keys 顺序遍历 + 标记 enabled
     custom = user_layout.get('groups', [])
@@ -235,7 +265,7 @@ def get_user_sidebar_groups(user):
             'single_link': dict(cfg['single_link']) if cfg.get('single_link') else None,
             'children': [dict(c) for c in cfg.get('children', [])],
         })
-    return groups_out
+    return _apply_external_sidebar(groups_out)
 
 
 def save_user_sidebar(user, groups_data):

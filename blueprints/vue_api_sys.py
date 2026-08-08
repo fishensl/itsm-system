@@ -159,6 +159,7 @@ def api_user_list():
             'region_names': [region_names.get(rid, '') for rid in region_map.get(u.id, [])],
             'customer_ids': cust_map.get(u.id, []),
             'customer_names': [cust_names.get(cid, '') for cid in cust_map.get(u.id, [])],
+            'notify_accounts': u.notify_accounts(),
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],
         'departments': [{'id': d.id, 'name': d.name}
@@ -199,6 +200,8 @@ def api_user_create():
     u.is_active = bool(data.get('is_active', True))
     if data.get('certifications') is not None:
         u.set_cert_list(list(data['certifications']))
+    if data.get('notify_accounts') is not None:
+        u.set_notify_accounts(dict(data['notify_accounts']))
     if data.get('region_ids'):
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
@@ -242,6 +245,8 @@ def api_user_update(user_id):
     u.email = (data.get('email') or '').strip()
     if data.get('certifications') is not None:
         u.set_cert_list(list(data['certifications']))
+    if data.get('notify_accounts') is not None:
+        u.set_notify_accounts(dict(data['notify_accounts']))
     if 'region_ids' in data:
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
@@ -628,7 +633,6 @@ def api_backup_export():
     下载走 /api/system/backup/export-download/<token>（一次性，24h 有效，下载后自动清理）。
     """
     from datetime import datetime
-    import os
     from utils.data_io import build_export_zip
     from blueprints.vue_export import save_export_file
     data = request.get_json(silent=True) or {}
@@ -938,5 +942,193 @@ def api_user_permissions_save(uid):
             granted_by_user_id=current_user.id, granted_at=datetime.utcnow(),
             expire_at=expire_at, remark=(item.get('remark') or '').strip(),
         ))
+    db.session.commit()
+    return ok(None)
+
+
+# ==================== 访问控制（内网/VPN 可信网段） ====================
+@vue_api_bp.route('/api/system/access-control', methods=['GET'])
+@login_required
+@require_permission('system:access_control')
+def api_access_control_get():
+    """读取可信网段配置（每行一个 CIDR；空 = 全部视为内网）"""
+    from models import SystemSetting
+    from utils.access_control import TRUSTED_NETWORKS_KEY
+    row = SystemSetting.query.get(TRUSTED_NETWORKS_KEY)
+    networks = [ln.strip() for ln in (row.value or '').splitlines() if ln.strip()] \
+        if row and row.value else []
+    return ok({'trusted_networks': networks, 'enabled': bool(networks)})
+
+
+@vue_api_bp.route('/api/system/access-control', methods=['PUT'])
+@login_required
+@require_permission('system:access_control')
+def api_access_control_save():
+    """保存可信网段（校验 CIDR 格式；保存后即时生效无需重启）"""
+    from models import SystemSetting
+    from utils.access_control import TRUSTED_NETWORKS_KEY
+    import ipaddress
+    data = request.get_json(silent=True) or {}
+    lines = [(str(x) or '').strip() for x in (data.get('trusted_networks') or [])]
+    lines = [ln for ln in lines if ln]
+    # 校验：每行必须可解析为 IP 或 CIDR
+    bad = []
+    for ln in lines:
+        try:
+            if '/' in ln:
+                ipaddress.ip_network(ln, strict=False)
+            else:
+                ipaddress.ip_address(ln)
+        except ValueError:
+            bad.append(ln)
+    if bad:
+        return fail(f'网段格式错误：{", ".join(bad)}（应为 IP 或 CIDR，如 192.168.0.0/16）', 400)
+    row = SystemSetting.query.get(TRUSTED_NETWORKS_KEY)
+    if not row:
+        row = SystemSetting(key=TRUSTED_NETWORKS_KEY)
+        db.session.add(row)
+    row.value = '\n'.join(lines)
+    db.session.commit()
+    return ok({'trusted_networks': lines, 'enabled': bool(lines)})
+
+
+# ==================== 多渠道通知（渠道配置 / 通知规则，内网管理项） ====================
+def _channel_payload(c):
+    """渠道序列化：敏感项仅输出 has_secret 标记，不回传密文"""
+    cfg = __import__('utils.json_fields', fromlist=['parse_json']).parse_json(
+        c.config_json or '', default={}, field_name='channel_config')
+    if not isinstance(cfg, dict):
+        cfg = {}
+    has_secret = bool(cfg.get('secret_encrypted') or cfg.get('app_secret_encrypted') or
+                      cfg.get('app_secret') or cfg.get('secret'))
+    public = {k: v for k, v in cfg.items()
+              if k not in ('secret_encrypted', 'app_secret_encrypted', 'secret', 'app_secret')}
+    return {
+        'id': c.id, 'channel_type': c.channel_type, 'name': c.name or c.channel_type,
+        'is_enabled': bool(c.is_enabled), 'sort_order': c.sort_order or 0,
+        'config': public, 'has_secret': bool(has_secret),
+    }
+
+
+@vue_api_bp.route('/api/notify/channels', methods=['GET'])
+@login_required
+@require_permission('notify:view')
+def api_notify_channels_list():
+    from models import NotifyChannelConfig
+    rows = NotifyChannelConfig.query.order_by(NotifyChannelConfig.sort_order,
+                                              NotifyChannelConfig.id).all()
+    return ok({'channels': [_channel_payload(c) for c in rows]})
+
+
+@vue_api_bp.route('/api/notify/channels/<channel_type>', methods=['PUT'])
+@login_required
+@require_permission('notify:edit')
+def api_notify_channel_save(channel_type):
+    """保存渠道配置（secret 留空=不修改，保持已存密文）"""
+    from models import NotifyChannelConfig
+    from utils.json_fields import parse_json, dumps_json
+    data = request.get_json(silent=True) or {}
+    row = NotifyChannelConfig.query.filter_by(channel_type=channel_type).first()
+    if not row:
+        row = NotifyChannelConfig(channel_type=channel_type)
+        db.session.add(row)
+    row.name = (data.get('name') or channel_type).strip()
+    if 'is_enabled' in data:
+        row.is_enabled = bool(data.get('is_enabled'))
+    if 'sort_order' in data:
+        row.sort_order = int(data.get('sort_order') or 0)
+    cfg = parse_json(row.config_json or '', default={}, field_name='channel_config')
+    if not isinstance(cfg, dict):
+        cfg = {}
+    incoming = data.get('config') or {}
+    # 敏感项加密存储
+    for k in ('secret', 'app_secret'):
+        if k in incoming and incoming[k]:
+            from utils.crypto import encrypt_password
+            cfg[k.replace('secret', 'secret_encrypted')] = encrypt_password(str(incoming[k]))
+    for k, v in incoming.items():
+        if k in ('secret', 'app_secret') or v is None:
+            continue
+        cfg[str(k)] = v
+    row.config_json = dumps_json(cfg)
+    db.session.commit()
+    return ok(_channel_payload(row))
+
+
+@vue_api_bp.route('/api/notify/channels/<channel_type>/test', methods=['POST'])
+@login_required
+@require_permission('notify:edit')
+def api_notify_channel_test(channel_type):
+    """渠道连通性测试：向指定账号发送测试消息（text/markdown/file）"""
+    from utils.notify_channels import channel_class
+    from models import NotifyChannelConfig
+    data = request.get_json(silent=True) or {}
+    account = (data.get('account') or '').strip()
+    mode = (data.get('mode') or 'text').strip()
+    if not account:
+        return fail('请填写接收测试消息的渠道账号（如企业微信 userid）', 400)
+    row = NotifyChannelConfig.query.filter_by(channel_type=channel_type).first()
+    if not row:
+        return fail('渠道未配置', 400)
+    cls = channel_class(channel_type)
+    if cls is None:
+        return fail(f'渠道类型 {channel_type} 未实现适配器', 400)
+    from utils.json_fields import parse_json
+    cfg = parse_json(row.config_json or '', default={}, field_name='channel_config')
+    ch = cls({'channel_type': row.channel_type}, cfg if isinstance(cfg, dict) else {})
+    ok_flag, message = ch.send_test(account, mode)
+    return ok({'ok': ok_flag, 'message': message}) if ok_flag else fail(message, 400)
+
+
+@vue_api_bp.route('/api/notify/rules', methods=['GET'])
+@login_required
+@require_permission('notify:view')
+def api_notify_rules_list():
+    from models import NotifyRule
+    from utils.json_fields import parse_json
+    from utils.wecom_notify import EVENT_LABELS
+    rows = NotifyRule.query.order_by(NotifyRule.id).all()
+    rules = []
+    for r in rows:
+        rec = parse_json(r.recipients_json or '', default={}, field_name='notify_rule')
+        rules.append({
+            'event_type': r.event_type,
+            'label': r.label or EVENT_LABELS.get(r.event_type, r.event_type),
+            'is_enabled': bool(r.is_enabled),
+            'roles': rec.get('roles') or [],
+            'users': rec.get('users') or [],
+        })
+    # 补未种子的事件类型（默认关闭），保证前端能看到全部可配项
+    existing = {r.event_type for r in rows}
+    return ok({'rules': rules,
+               'event_types': [{'key': k, 'label': v}
+                               for k, v in EVENT_LABELS.items() if k not in existing]})
+
+
+@vue_api_bp.route('/api/notify/rules', methods=['POST'])
+@login_required
+@require_permission('notify:edit')
+def api_notify_rule_save():
+    from models import NotifyRule
+    from utils.json_fields import dumps_json
+    from utils.wecom_notify import EVENT_LABELS
+    data = request.get_json(silent=True) or {}
+    event_type = (data.get('event_type') or '').strip()
+    if event_type not in EVENT_LABELS:
+        return fail(f'未知通知类型：{event_type}', 400)
+    row = NotifyRule.query.filter_by(event_type=event_type).first()
+    if not row:
+        row = NotifyRule(event_type=event_type, label=EVENT_LABELS[event_type])
+        db.session.add(row)
+    if 'is_enabled' in data:
+        row.is_enabled = bool(data.get('is_enabled'))
+    roles = [str(x) for x in (data.get('roles') or []) if x]
+    users = []
+    for x in (data.get('users') or []):
+        try:
+            users.append(int(x))
+        except (TypeError, ValueError):
+            pass
+    row.recipients_json = dumps_json({'roles': roles, 'users': users})
     db.session.commit()
     return ok(None)

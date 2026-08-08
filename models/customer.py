@@ -47,6 +47,13 @@ class Customer(db.Model):
     inspection_frequency = db.Column(db.String(16), default='')  # 巡检频率
     last_generated_date = db.Column(db.Date, nullable=True)  # V17: 客户频率自动任务最近一次生成到的期次起点
     device_count = db.Column(db.Integer, default=0)        # 关联设备数（冗余快照）
+    # V28: 合同服务期（客户表为真源；销售合同状态联动回填，手动可覆盖）
+    contract_start_date = db.Column(db.Date, nullable=True)
+    contract_end_date = db.Column(db.Date, nullable=True)
+    contract_expiry_notified = db.Column(db.Date, nullable=True)  # 到期提醒去重游标
+    # 外网工单展示字段（客户最小集）
+    office_room = db.Column(db.String(64), default='')     # 办公室门牌号
+    map_location = db.Column(db.String(256), default='')   # 地图定位（经纬度/地图链接）
     source = db.Column(db.String(64), default='')           # 转介绍/展会/线上/其他
     remark = db.Column(db.Text, default='')
     extra_fields = db.Column(db.Text, default='')           # 自定义字段值（JSON 字符串 {字段名: 值}）

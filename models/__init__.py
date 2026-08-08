@@ -14,7 +14,8 @@ from models.device import (  # noqa: F401
 from models.inspection import (  # noqa: F401
     task_device_template_link, InspectionDeviceTemplate, InspectionTaskTemplate,
     InspectionTemplate, Inspector, InspectionTask, Inspection)
-from models.ticket import FaultType, Ticket, TicketLog, Fault  # noqa: F401
+from models.ticket import (  # noqa: F401
+    FaultType, Ticket, TicketLog, Fault, TicketSuspend, TicketProgress, CustomerContractReview)
 from models.knowledge import KnowledgeBase, KnowledgeAttachment  # noqa: F401
 from models.spare import (  # noqa: F401
     SparePart, SpareStock, PurchaseOrder, SalesOrder, StockMovement, SpareBorrow)
@@ -24,3 +25,4 @@ from models.rack import Rack, RackInstall  # noqa: F401
 from models.notification import Notification  # noqa: F401
 from models.audit import AuditLog  # noqa: F401
 from models.setting import SystemSetting  # noqa: F401
+from models.notify import NotifyChannelConfig, NotifyRule  # noqa: F401

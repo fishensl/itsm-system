@@ -191,6 +191,9 @@ def api_sidebar_groups():
                     'perm': perm,
                 })
             item['children'] = children
+            # 权限裁剪后无可见子项 → 整组剔除（避免显示空分组）
+            if not children:
+                continue
         out.append(item)
     return ok(out)
 
@@ -329,6 +332,22 @@ def api_dashboard_overview():
                 'overall_status': i.overall_status,
             })
 
+    # ---- 即将到期客户（V28：30 天内合同到期/已过期；仅客户管理者可见） ----
+    expiring_customers = []
+    if has_permission('customer:manage'):
+        from utils.customer_contract import contract_remaining_days as _crd
+        deadline2 = today + timedelta(days=30)
+        for c in Customer.query.filter(
+                Customer.contract_end_date.isnot(None),
+                Customer.contract_end_date <= deadline2
+        ).order_by(Customer.contract_end_date).limit(8).all():
+            rem = _crd(c)
+            expiring_customers.append({
+                'id': c.id, 'name': c.name,
+                'contract_end_date': c.contract_end_date.isoformat() if c.contract_end_date else '',
+                'remaining_days': rem,
+            })
+
     # ---- 统计卡（按角色） ----
     def card(label, value, sub, icon, accent, url):
         return {'label': label, 'value': value, 'sub': sub, 'icon': _map_icon(icon),
@@ -395,6 +414,7 @@ def api_dashboard_overview():
         'quick_entries': quick_entries,
         'my_tasks': my_tasks,
         'expiring_devices': expiring_devices,
+        'expiring_customers': expiring_customers,
         'recent_inspections': recent_inspections,
         'device_type_stats': device_type_stats,
     })
@@ -1323,11 +1343,30 @@ def api_task_board_dicts():
 def _ticket_payload(t, customer_map=None):
     from datetime import datetime
     from services.ticket_service import ticket_completeness
-    from models import Device as _D
+    from models import Device as _D, Customer as _C
     from services.submission_version_service import report_display_name
     complete, missing = ticket_completeness(t)
     related_device = _D.query.get(t.related_device_id) if t.related_device_id else None
     customer_name = (customer_map or {}).get(t.customer_id, '')
+    # 外网脱敏：仅输出客户最小集（名称/办公室/门牌号/地图定位），隐藏客户/设备主数据
+    external = False
+    try:
+        from utils.access_control import is_internal_request
+        external = not is_internal_request()
+    except Exception:
+        external = False
+    if external and not customer_name:
+        customer_name = t.customer_name_text or ''  # 外网建单手填客户名
+    customer_min = None
+    if t.customer_id and external:
+        cust = _C.query.get(t.customer_id)
+        if cust:
+            customer_min = {
+                'name': cust.name,
+                'office': cust.office or '',
+                'office_room': getattr(cust, 'office_room', '') or '',
+                'map_location': getattr(cust, 'map_location', '') or '',
+            }
     # 处理报告名：按最新版本拼接（定稿去序号）
     report_name = ''
     if t.report_file:
@@ -1347,10 +1386,12 @@ def _ticket_payload(t, customer_map=None):
         'title': t.title,
         'status': t.status,
         'priority': t.priority,
-        'customer_id': t.customer_id,
+        'customer_id': None if external else t.customer_id,
         'customer_name': customer_name,
-        'related_device_id': t.related_device_id,
-        'related_device_name': related_device.device_name if related_device else '',
+        # 外网工单客户最小集（名称/办公室/门牌号/地图定位）；内网为 None
+        'customer': customer_min,
+        'related_device_id': None if external else t.related_device_id,
+        'related_device_name': '' if external else (related_device.device_name if related_device else ''),
         'assigned_to': t.assigned_to or '',
         'created_by': t.created_by or '',
         'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
@@ -1377,7 +1418,50 @@ def _ticket_payload(t, customer_map=None):
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
         'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
         'completed_at': t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '',
+        # V28: 挂起 / 处置进展 / 合同例外
+        'suspended': bool(t.suspended_at),
+        'suspended_at': t.suspended_at.strftime('%Y-%m-%d %H:%M') if t.suspended_at else '',
+        'suspended_seconds': t.suspended_seconds or 0,
+        'contract_exception_status': t.contract_exception_status or '',
+        'contract_exception_reason': t.contract_exception_reason or '',
+        'progresses': _ticket_progresses(t.id),
+        'suspends': _ticket_suspends(t.id),
     }
+
+
+def _ticket_progresses(ticket_id):
+    """工单处置进展（倒序：最新在前）"""
+    from models import TicketProgress
+    from utils.json_fields import parse_json
+    rows = TicketProgress.query.filter_by(ticket_id=ticket_id)\
+        .order_by(TicketProgress.id.desc()).limit(50).all()
+    return [{
+        'content': p.content or '',
+        'photos': parse_json(p.photos_json or '', default=[], field_name='progress_photos'),
+        'operator': p.operator or '',
+        'created_at': p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '',
+    } for p in rows]
+
+
+def _ticket_suspends(ticket_id):
+    """工单挂起历史（倒序）"""
+    from models import TicketSuspend
+    rows = TicketSuspend.query.filter_by(ticket_id=ticket_id)\
+        .order_by(TicketSuspend.id.desc()).limit(20).all()
+    out = []
+    for s in rows:
+        dur = ''
+        if s.started_at and s.ended_at:
+            mins = int((s.ended_at - s.started_at).total_seconds() // 60)
+            dur = f'{mins // 60}h{mins % 60}m' if mins >= 60 else f'{mins}min'
+        out.append({
+            'reason': s.reason or '',
+            'operator': s.operator or '',
+            'started_at': s.started_at.strftime('%m-%d %H:%M') if s.started_at else '',
+            'ended_at': s.ended_at.strftime('%m-%d %H:%M') if s.ended_at else '',
+            'duration': dur,
+        })
+    return out
 
 
 def _ticket_logs(ticket_id):
@@ -1461,6 +1545,16 @@ def api_ticket_create():
     from services.ticket_service import create_ticket, assign_ticket, accept_ticket
     data = request.get_json(silent=True) or {}
     me = current_user.realname or current_user.username
+    # 外网：不绑定客户主数据（下拉已被禁），仅存手填客户名；内网完整
+    external = False
+    try:
+        from utils.access_control import is_internal_request
+        external = not is_internal_request()
+    except Exception:
+        pass
+    if external:
+        data['customer_id'] = None
+        data['customer_name'] = (data.get('customer_name') or '').strip()
     try:
         t = create_ticket(data, me)
         # 自接单：录单+派单+接单一体
@@ -1471,6 +1565,15 @@ def api_ticket_create():
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '工单创建失败', 400)
+    # V28: 工单新建 → 多渠道通知（规则接收人：如销售）
+    try:
+        from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_NEW
+        wecom_broadcast(EVENT_TICKET_NEW,
+                        f'新建工单 {t.number}',
+                        f'{me} 创建了工单「{t.title}」，请关注处理进度',
+                        f'/app/tickets/{t.id}')
+    except Exception:
+        current_app.logger.warning('工单新建多渠道通知失败 id=%s', t.id)
     return ok({'id': t.id, 'number': t.number})
 
 
@@ -1561,7 +1664,9 @@ def api_ticket_action(ticket_id):
     """
     from services.ticket_service import (assign_ticket, accept_ticket, submit_ticket,
                                          audit_ticket, accept_check_ticket, close_ticket,
-                                         unassign_ticket, reopen_ticket)
+                                         unassign_ticket, reopen_ticket,
+                                         suspend_ticket, resume_ticket, add_progress,
+                                         contract_review_ticket, ticket_summary_text)
     data = request.get_json(silent=True) or {}
     if request.form:
         for k, v in request.form.items():
@@ -1570,13 +1675,18 @@ def api_ticket_action(ticket_id):
     me = current_user.realname or current_user.username
     remark = data.get('remark', '')
     report_path = ''
-    # 审核/客户验收属于审核岗动作，需 ticket:review 权限（ticket:edit 仅覆盖处理类动作，
-    # 防止工程师用编辑权限审核自己的工单）
+    # 审核/客户验收/合同例外审核属于审核岗动作，需 ticket:review 或 contract:review 权限
     if action in ('audit', 'accept_check'):
         from utils.permission import has_permission
         if not has_permission('ticket:review'):
             return jsonify({'success': False, 'error': '权限不足，需要工单审核权限',
                             'required': 'ticket:review'}), 403
+    if action == 'contract_review':
+        from utils.permission import has_permission as _hp2, is_supervisor as _sup2
+        if not _hp2('contract:review') and not getattr(current_user, 'is_admin', False) \
+                and not _sup2(current_user):
+            return jsonify({'success': False, 'error': '合同例外审核需要部门主管或合同审核权限',
+                            'required': 'contract:review'}), 403
     try:
         if action == 'submit' and request.files.get('report_file'):
             from utils.upload import validate_upload
@@ -1591,6 +1701,22 @@ def api_ticket_action(ticket_id):
             os.makedirs(os.path.join('static', 'uploads', 'ticket_reports', str(t3.id)), exist_ok=True)
             report_path = '/'.join(('uploads', 'ticket_reports', str(t3.id), safe_name))
             f.save(os.path.join('static', report_path))
+
+        # V28: 处置进展照片（多图，multipart 字段 photos）
+        progress_photos = []
+        if action == 'add_progress' and request.files.getlist('photos'):
+            from utils.upload import validate_upload
+            from models import Ticket as _T4
+            ALLOWED_IMG = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
+            t4 = _T4.query.get_or_404(ticket_id)
+            pdir = os.path.join('static', 'uploads', 'ticket_progress', str(t4.id))
+            os.makedirs(pdir, exist_ok=True)
+            for pf in request.files.getlist('photos'):
+                ok_flag, err, safe_name = validate_upload(pf, ALLOWED_IMG, max_size_mb=20)
+                if not ok_flag:
+                    return fail(err or '现场照片校验失败')
+                pf.save(os.path.join(pdir, safe_name))
+                progress_photos.append(f'uploads/ticket_progress/{t4.id}/{safe_name}')
 
         if action == 'assign':
             if not data.get('assignee'):
@@ -1627,6 +1753,16 @@ def api_ticket_action(ticket_id):
                 current_user.username, ticket_id, ticket_id, request.remote_addr)
         elif action == 'reassign':
             unassign_ticket(ticket_id, me, remark or '撤回重派')
+        elif action == 'suspend':
+            suspend_ticket(ticket_id, me, data.get('reason') or data.get('remark') or '')
+        elif action == 'resume':
+            resume_ticket(ticket_id, me, remark or '恢复处理')
+        elif action == 'add_progress':
+            add_progress(ticket_id, me, content=data.get('content') or data.get('remark') or '',
+                         photos=progress_photos)
+        elif action == 'contract_review':
+            approved = bool(data.get('approved'))
+            contract_review_ticket(ticket_id, approved, me, data.get('comment') or '')
         else:
             return fail(f'未知动作: {action}', 400)
         db.session.commit()
@@ -1659,6 +1795,30 @@ def api_ticket_action(ticket_id):
                 current_user.department_id, 'ticket',
                 f'工单 {t.number} 提交审核', f'{me} 提交了工单「{t.title}」的处理结果',
                 f'/app/tickets/{t.id}', except_user_id=current_user.id)
+            from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_REVIEW_PENDING
+            wecom_broadcast(EVENT_TICKET_REVIEW_PENDING,
+                            f'工单 {t.number} 提交审核',
+                            f'{me} 提交了工单「{t.title}」的处理结果',
+                            f'/app/tickets/{t.id}')
+        # 派发：多渠道通知被指派人
+        if action == 'assign':
+            from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_ASSIGN
+            assign_target = _U2.query.filter(
+                (_U2.username == (data.get('assignee') or '')) |
+                (_U2.realname == (data.get('assignee') or ''))).first()
+            wecom_broadcast(EVENT_TICKET_ASSIGN,
+                            f'工单 {t.number} 派发给你',
+                            f'{me} 将工单「{t.title}」派给你处理',
+                            f'/app/tickets/{t.id}',
+                            target_user_ids=[assign_target.id] if assign_target else [])
+        # 审核通过（已验收）：工单完成 → 多渠道 markdown 摘要通知（规则接收人）
+        if action == 'audit' and data.get('approved'):
+            from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_COMPLETED
+            from services.ticket_service import ticket_summary_text
+            wecom_broadcast(EVENT_TICKET_COMPLETED,
+                            f'【工单完成】{t.number}',
+                            ticket_summary_text(t),
+                            f'/app/tickets/{t.id}', mode='markdown')
     except Exception:
         current_app.logger.warning('工单通知发送失败 ticket_id=%s', ticket_id)
     return ok(None)
@@ -1692,13 +1852,13 @@ def api_ticket_report_latest(ticket_id):
 @login_required
 @require_permission('ticket:view')
 def api_ticket_dicts():
-    from models import Customer as _C, FaultType as _FT, Device as _D
-    customers = [{'id': c.id, 'name': c.name, 'region_id': c.region_id}
-                 for c in _C.query.order_by(_C.name).all()]
+    from models import FaultType as _FT, Device as _D
+    from utils.customer_scope import customer_dropdown_options
+    customers = customer_dropdown_options(current_user)
     fault_types = [{'id': f.id, 'name': f.name}
                    for f in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
     # S6: 移除「已接单」——不可达死状态（accept 直接转处理中），仅作历史数据兼容保留在状态机表
-    statuses = ['待派单', '已派单', '处理中', '待审核', '已验收', '已关闭']
+    statuses = ['待派单', '已派单', '处理中', '已挂起', '待审核', '已验收', '已关闭', '合同审批']
     priorities = ['紧急', '高', '中', '低']
     devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
                for d in _D.query.order_by(_D.device_name).all()]
@@ -1708,12 +1868,12 @@ def api_ticket_dicts():
 @login_required
 @require_permission('device:view')
 def api_device_dicts():
-    from models import Device as _Device, Customer as _C, DeviceType as _DT
+    from models import Device as _Device, DeviceType as _DT
+    from utils.customer_scope import customer_dropdown_options
     brands = [r[0] for r in db.session.query(_Device.brand).distinct()
               .filter(_Device.brand != '').order_by(_Device.brand).all()]
     types = [{'name': t.name} for t in _DT.query.order_by(_DT.sort_order, _DT.id).all()]
-    customers = [{'id': c.id, 'name': c.name}
-                 for c in _C.query.order_by(_C.name).all()]
+    customers = customer_dropdown_options(current_user)
     return ok({'brands': brands, 'device_types': types, 'customers': customers})
 
 
@@ -1735,6 +1895,7 @@ def _serialize_extra_fields(raw):
 
 def _customer_payload(c, region_map=None, category_map=None):
     from services.customer_service import parse_extra_fields
+    from utils.customer_contract import contract_status, contract_remaining_days
     return {
         'id': c.id,
         'name': c.name,
@@ -1745,6 +1906,12 @@ def _customer_payload(c, region_map=None, category_map=None):
         'city': c.city or '',
         'address': c.address or '',
         'office': c.office or '',
+        'office_room': c.office_room or '',
+        'map_location': c.map_location or '',
+        'contract_start_date': c.contract_start_date.isoformat() if c.contract_start_date else '',
+        'contract_end_date': c.contract_end_date.isoformat() if c.contract_end_date else '',
+        'contract_status': contract_status(c),
+        'contract_remaining_days': contract_remaining_days(c),
         'source': c.source or '',
         'remark': c.remark or '',
         'region_id': c.region_id,
@@ -1767,7 +1934,7 @@ def _customer_payload(c, region_map=None, category_map=None):
 
 @vue_api_bp.route('/api/v2/customers/export', methods=['POST'])
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:export')
 def api_v2_customer_export():
     """客户导出（base64；columns 可选列筛选 + 创建时间范围）"""
     import base64
@@ -1916,7 +2083,7 @@ def api_v2_customer_import():
 
 @vue_api_bp.route('/api/customers', methods=['GET'])
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:manage')
 def api_customer_list():
     """客户分页列表（DataTable 数据源）"""
     from models import Customer as _C, Region as _R, CustomerCategory as _CC
@@ -1950,7 +2117,7 @@ def api_customer_list():
 
 @vue_api_bp.route('/api/customers/tree', methods=['GET'])
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:manage')
 def api_customer_tree():
     """客户两级折叠树：市 → 客户（区县客户并入市组，行内附 district 区县名）
 
@@ -2000,7 +2167,7 @@ def api_customer_tree():
 
 @vue_api_bp.route('/api/customers/<int:customer_id>', methods=['GET'])
 @login_required
-@require_permission('customer:view')
+@require_permission('customer:manage')
 def api_customer_get(customer_id):
     from models import Customer as _C, Region as _R, CustomerCategory as _CC
     c = _C.query.get_or_404(customer_id)
@@ -2321,6 +2488,11 @@ def api_inspection_submit(inspection_id):
             f'巡检记录 #{inspection_id} 提交审核',
             f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
             f'/app/inspections/{inspection_id}', except_user_id=current_user.id)
+        from utils.wecom_notify import wecom_broadcast, EVENT_INSPECTION_REVIEW_PENDING
+        wecom_broadcast(EVENT_INSPECTION_REVIEW_PENDING,
+                        f'巡检记录 #{inspection_id} 提交审核',
+                        f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
+                        f'/app/inspections/{inspection_id}')
     except Exception:
         current_app.logger.warning('巡检提交通知发送失败 inspection_id=%s', inspection_id)
     return ok(None)
@@ -2460,7 +2632,7 @@ def api_inspection_review(inspection_id):
                 for uid in _admin_user_ids(except_user_id=current_user.id):
                     notify(uid, 'inspection',
                            f'巡检 #{inspection_id} 正式报告生成失败',
-                           f'审核已通过但 Word 报告生成失败，请在巡检记录中点击"补生成报告"修复',
+                           '审核已通过但 Word 报告生成失败，请在巡检记录中点击"补生成报告"修复',
                            f'/app/inspections/{inspection_id}')
         except Exception:
             current_app.logger.warning('巡检报告失败审计/通知异常 inspection_id=%s', inspection_id)
@@ -2809,9 +2981,9 @@ def _send_report_file(rel_path, download_name=None):
 @login_required
 @require_permission('inspection:view')
 def api_inspection_dicts():
-    from models import Customer as _C, Inspector as _I, InspectionTask as _IT
-    customers = [{'id': c.id, 'name': c.name, 'region_id': c.region_id}
-                 for c in _C.query.order_by(_C.name).all()]
+    from models import Inspector as _I, InspectionTask as _IT
+    from utils.customer_scope import customer_dropdown_options
+    customers = customer_dropdown_options(current_user)
     inspectors = [{'user_id': ins.user_id, 'name': ins.name}
                   for ins in _I.query.filter_by(is_active=True).order_by(_I.id).all()]
     tasks = []

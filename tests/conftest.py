@@ -90,7 +90,7 @@ def _test_db_uri(pg_server):
 @pytest.fixture(scope='module')
 def app(pg_server):
     """模块级应用实例（建库成本高，每模块一次）；用例间由 _fresh_db 清库隔离"""
-    tmp = tempfile.mkdtemp(prefix='itsm_test_')
+    tempfile.mkdtemp(prefix='itsm_test_')
     db_uri = _test_db_uri(pg_server)
     application = create_app({
         'TESTING': True,

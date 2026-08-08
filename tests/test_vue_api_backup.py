@@ -10,7 +10,6 @@ class TestBackupApi:
 
     def test_export_config_only(self, admin_client, app):
         """导出改服务端落盘：返回 token（一次性下载），下载端点可拿到文件"""
-        import io
         with app.app_context():
             db.session.add(Customer(name='备份测试客户'))
             db.session.commit()

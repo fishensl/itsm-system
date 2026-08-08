@@ -131,12 +131,18 @@ class TestTicketDicts:
         assert '紧急' in body['data']['priorities']
 
     def test_customers_include_region_id(self, op_client, app):
-        """客户字典携带 region_id，供驻场工程师按负责区域过滤/预选"""
+        """客户字典携带 region_id，供驻场工程师按负责区域过滤/预选
+
+        工程师仅见关联客户（customer_engineers），故创建后关联 op。
+        """
         with app.app_context():
-            from models import Region
+            from models import Region, User
             r = Region(name='字典市'); db.session.add(r); db.session.flush()
             c = Customer(name='区域客户', region_id=r.id)
-            db.session.add(c); db.session.commit()
+            db.session.add(c); db.session.flush()
+            op = User.query.filter_by(username='op').first()
+            op.customers = [c]
+            db.session.commit()
             rid = r.id
         data = op_client.get('/api/dicts/tickets').get_json()['data']
         row = next(x for x in data['customers'] if x['name'] == '区域客户')

@@ -24,6 +24,8 @@ def _daily_job():
         created_customer = 0
         notified = 0
         timeout_notified = 0
+        contract_notified = 0
+        suspend_notified = 0
         try:
             from utils.auto_task_generator import generate_contract_tasks
             created_contract = len(generate_contract_tasks())
@@ -48,9 +50,24 @@ def _daily_job():
         except Exception:
             db.session.rollback()
             log.exception('调度：审核超时提醒失败')
-        if created_contract or created_customer or notified or timeout_notified:
-            log.info('调度完成：合同任务 +%d，客户任务 +%d，逾期提醒 %d 人，审核超时提醒 %d 条',
-                     created_contract, created_customer, notified, timeout_notified)
+        try:
+            from utils.notifications import notify_contract_expiring
+            contract_notified = notify_contract_expiring()
+        except Exception:
+            db.session.rollback()
+            log.exception('调度：客户合同到期提醒失败')
+        try:
+            from utils.notifications import notify_suspended_tickets
+            suspend_notified = notify_suspended_tickets()
+        except Exception:
+            db.session.rollback()
+            log.exception('调度：工单挂起超时提醒失败')
+        if created_contract or created_customer or notified or timeout_notified \
+                or contract_notified or suspend_notified:
+            log.info('调度完成：合同任务 +%d，客户任务 +%d，逾期提醒 %d 人，审核超时提醒 %d 条，'
+                     '合同到期提醒 %d 条，挂起超时提醒 %d 条',
+                     created_contract, created_customer, notified, timeout_notified,
+                     contract_notified, suspend_notified)
     except Exception:
         log.exception('调度任务执行异常')
 
