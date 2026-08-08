@@ -566,4 +566,10 @@ onMounted(() => {
 .u-sub { margin-left: 6px; opacity: 0.85; }
 .rack-frame-hint { text-align: center; font-size: 12px; padding-top: 4px; }
 .install-table-wrap { flex: 1; min-width: 420px; overflow-x: auto; }
+
+/* S7-6 窄屏：U 位图占满宽，设备表不强制最小宽（横向滚动） */
+@media (max-width: 767px) {
+  .rack-frame { width: 100%; }
+  .install-table-wrap { min-width: 0; }
+}
 </style>

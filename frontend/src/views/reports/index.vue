@@ -41,6 +41,7 @@
       :fetch-data="fetchReportsData"
       :query="query"
       row-key="id"
+      :column-settings="{ storageKey: 'cols_reports' }"
     />
   </div>
 </template>

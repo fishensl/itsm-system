@@ -35,6 +35,7 @@
             :query="partQuery"
             row-key="id"
             expandable
+            :column-settings="{ storageKey: 'cols_spare_parts' }"
           >
             <template #expand="{ row }">
               <PartExpandRow :row="row" @edit="openPartEdit(row as unknown as SparePart)" />
@@ -138,7 +139,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="stockTableRef" :columns="stockColumns" :fetch-data="fetchSpareStocks"
+          <DataTable ref="stockTableRef" :columns="stockColumns" :fetch-data="fetchSpareStocks" :column-settings="{ storageKey: 'cols_spare_stocks' }"
             :query="stockQuery" row-key="id" />
 
           <el-dialog v-model="stockFormVisible" :title="stockForm.id ? '编辑库存' : '新增库存'" width="560px" top="5vh"
@@ -179,7 +180,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="purchaseTableRef" :columns="purchaseColumns" :fetch-data="fetchPurchaseOrders"
+          <DataTable ref="purchaseTableRef" :columns="purchaseColumns" :fetch-data="fetchPurchaseOrders" :column-settings="{ storageKey: 'cols_spare_purchases' }"
             :query="purchaseQuery" row-key="id" />
 
           <el-dialog v-model="purchaseFormVisible" title="采购入库" width="560px" top="5vh" destroy-on-close>
@@ -226,7 +227,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="salesTableRef" :columns="salesColumns" :fetch-data="fetchSalesOrders"
+          <DataTable ref="salesTableRef" :columns="salesColumns" :fetch-data="fetchSalesOrders" :column-settings="{ storageKey: 'cols_spare_sales' }"
             :query="salesQuery" row-key="id" />
 
           <el-dialog v-model="salesFormVisible" title="销售出库" width="560px" top="5vh" destroy-on-close>
@@ -280,7 +281,7 @@
             </el-button>
           </div>
 
-          <DataTable ref="borrowTableRef" :columns="borrowColumns" :fetch-data="fetchBorrows"
+          <DataTable ref="borrowTableRef" :columns="borrowColumns" :fetch-data="fetchBorrows" :column-settings="{ storageKey: 'cols_spare_borrows' }"
             :query="borrowQuery" row-key="id" />
 
           <el-dialog v-model="borrowFormVisible" title="借出备件" width="560px" top="5vh" destroy-on-close>
@@ -338,6 +339,7 @@ import {
   type SpareBorrow, type SpareDicts,
 } from '@/api/spare'
 import ExportDialog from '@/components/ExportDialog.vue'
+import { handleExportResult } from '@/utils/export'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -346,18 +348,6 @@ const dicts = ref<SpareDicts | null>(null)
 // V24 导出筛选
 const exportVisible = ref(false)
 
-function saveBase64(b64: string, filename: string) {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  const url = URL.createObjectURL(new Blob([bytes]))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = decodeURIComponent(filename)
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 async function onExportSubmit(payload: Record<string, unknown>) {
   try {
     const res = await exportSpareParts({
@@ -365,9 +355,8 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       date_from: payload.date_from || undefined,
       date_to: payload.date_to || undefined,
     })
-    saveBase64(res.content, res.filename)
+    handleExportResult(res, { close: () => { exportVisible.value = false } })
     ui.toast('导出成功', 'success')
-    exportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }

@@ -49,6 +49,7 @@
       :query="query"
       row-key="id"
       expandable
+      :column-settings="{ storageKey: 'cols_tickets' }"
     >
       <template #expand="{ row }">
         <TicketExpandRow
@@ -197,6 +198,7 @@ import {
   type Ticket, type TicketDicts,
 } from '@/api/tickets'
 import ExportDialog from '@/components/ExportDialog.vue'
+import { handleExportResult } from '@/utils/export'
 import { TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
 import type { SubmissionVersion as SV } from '@/api/inspections'
 
@@ -482,9 +484,8 @@ async function onExcelSubmit(payload: Record<string, unknown>) {
       date_from: payload.date_from || undefined,
       date_to: payload.date_to || undefined,
     })
-    saveBase64(res.content, res.filename)
+    handleExportResult(res, { close: () => { excelExportVisible.value = false } })
     ui.toast('导出成功', 'success')
-    excelExportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
@@ -499,24 +500,11 @@ async function onBundleSubmit(payload: Record<string, unknown>) {
       date_from: payload.date_from || undefined,
       date_to: payload.date_to || undefined,
     })
-    window.open(res.download_url, '_blank')
+    handleExportResult(res, { close: () => { bundleExportVisible.value = false } })
     ui.toast('报告包已生成，开始下载（一次性链接）', 'success')
-    bundleExportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
-}
-
-function saveBase64(b64: string, filename: string) {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  const url = URL.createObjectURL(new Blob([bytes]))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = decodeURIComponent(filename)
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 function reload() {

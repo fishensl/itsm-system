@@ -444,6 +444,7 @@ import {
   requestDeviceExport, fetchDeviceExportRequests, exportPasswordDownloadUrl,
 } from '@/api/devices'
 import ExportDialog from '@/components/ExportDialog.vue'
+import { handleExportResult } from '@/utils/export'
 
 const route = useRoute()
 const user = useUserStore()
@@ -567,18 +568,6 @@ function downloadTemplate() {
   window.open('/exports/download-template/device', '_blank')
 }
 
-function saveBase64(b64: string, filename: string) {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  const url = URL.createObjectURL(new Blob([bytes]))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = decodeURIComponent(filename)
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 // ---- V24 导出筛选：列选择 + 三预设 + 密码审核流 ----
 const exportVisible = ref(false)
 const requestsVisible = ref(false)
@@ -604,9 +593,8 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       customer_id: firstCustomerId(payload),
       search: query.search as string || undefined,
     })
-    saveBase64(res.content, res.filename)
+    handleExportResult(res, { close: () => { exportVisible.value = false } })
     ui.toast('导出成功', 'success')
-    exportVisible.value = false
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }

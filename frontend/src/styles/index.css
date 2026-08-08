@@ -62,4 +62,18 @@ body,
     display: block;
     height: 64px;
   }
+  /* S7-3 全局弹窗窄屏降级：固定 px 宽度弹窗（1080/900/780/720…）不再横向溢出 */
+  .el-dialog {
+    --el-dialog-width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    width: calc(100vw - 20px) !important;
+  }
+  .el-dialog__body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  /* 行内展开详情在窄屏降为单列，避免每项 <100px */
+  .el-descriptions__body .el-descriptions__table {
+    table-layout: fixed;
+  }
 }

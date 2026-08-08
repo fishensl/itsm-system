@@ -17,6 +17,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/login/index.vue'),
     meta: { public: true, title: '登录' },
   },
+  // S7-8：403 无权限页（守卫跳转目标，替代静默踢回工作台）
+  {
+    path: '/403',
+    name: 'forbidden',
+    component: () => import('@/views/errors/Forbidden.vue'),
+    meta: { title: '无权限' },
+  },
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
@@ -261,10 +268,13 @@ router.beforeEach(async (to) => {
   if (!userStore.isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  // 页面级权限校验
+  // 页面级权限校验：无权限 → 403 提示（不再静默踢回工作台）
   const perm = to.meta.perm as string | undefined
   if (perm && !userStore.hasPerm(perm)) {
-    return { path: '/' }
+    import('element-plus').then(({ ElMessage }) => {
+      ElMessage.warning('无访问权限')
+    })
+    return { path: '/403' }
   }
   return true
 })
