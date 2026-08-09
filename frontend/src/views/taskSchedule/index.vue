@@ -809,7 +809,6 @@ onMounted(reload)
 .asset-tip { font-size: 12px; color: var(--itsm-text-muted); }
 .skip-box { display: inline-flex; }
 .task-card {
-  position: relative; overflow: hidden;
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
   cursor: pointer; transition: border-color 0.15s;
 }
@@ -817,11 +816,9 @@ onMounted(reload)
 .task-card.overdue { border-color: var(--el-color-danger); }
 .task-card.selected { background: var(--el-color-primary-light-9); }
 .task-card.expanded { border-color: var(--itsm-primary); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); }
-/* 第一行：checkbox 绝对定位脱离流，避免挤位；标题起点=49px */
-.task-line { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 34px; }
-.task-check {
-  position: absolute; left: 10px; top: 10px; margin: 0; z-index: 1;
-}
+/* 第一行：checkbox 流内紧凑，左边不留空白 */
+.task-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.task-check { margin: 0; }
 .status-dot {
   width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
 }
@@ -840,10 +837,10 @@ onMounted(reload)
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }
-/* 第二/三行：左缘=标题左缘(49px) */
+/* 第二行：左缘=标题左缘(checkbox14+gap6+dot9+gap6=35px) */
 .task-line2 {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin-top: 3px; padding-left: 49px; font-size: 12px; color: var(--itsm-text-muted);
+  margin-top: 3px; padding-left: 35px; font-size: 12px; color: var(--itsm-text-muted);
 }
 .task-assignee {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
@@ -851,10 +848,10 @@ onMounted(reload)
 .task-range { white-space: nowrap; margin-left: auto; }
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
 .ie-select { width: 96px; }
-/* 第三行：操作按钮均匀分布（删除贴右缘=时间右缘），不超出边框 */
+/* 第三行：操作按钮从卡片左缘开始均匀分布（删除贴右缘=时间右缘），不超出边框 */
 .task-actions {
   display: flex; justify-content: space-between; align-items: center; gap: 6px;
-  margin-top: 8px; padding-left: 49px; border-top: 1px dashed var(--itsm-border);
+  margin-top: 8px; border-top: 1px dashed var(--itsm-border);
   padding-top: 8px; flex-wrap: nowrap;
 }
 </style>
