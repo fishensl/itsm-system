@@ -106,7 +106,7 @@
             <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
             <div v-if="expandedId === t.id" class="task-actions">
               <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-              <el-button size="small" type="warning" plain :icon="Document" @click="openUpload">
+              <el-button size="small" type="warning" plain @click="openUpload">
                 {{ record ? '重新上传' : '上传' }}
               </el-button>
               <el-button size="small" @click="cancelInline">取消</el-button>
@@ -159,7 +159,7 @@
             <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
             <div v-if="expandedId === t.id" class="task-actions">
               <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-              <el-button size="small" type="warning" plain :icon="Document" @click="openUpload">
+              <el-button size="small" type="warning" plain @click="openUpload">
                 {{ record ? '重新上传' : '上传' }}
               </el-button>
               <el-button size="small" @click="cancelInline">取消</el-button>
@@ -353,7 +353,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, Download, Upload, UploadFilled, Document, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, UploadFilled, Delete } from '@element-plus/icons-vue'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
@@ -809,6 +809,7 @@ onMounted(reload)
 .asset-tip { font-size: 12px; color: var(--itsm-text-muted); }
 .skip-box { display: inline-flex; }
 .task-card {
+  position: relative; overflow: hidden;
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
   cursor: pointer; transition: border-color 0.15s;
 }
@@ -816,9 +817,11 @@ onMounted(reload)
 .task-card.overdue { border-color: var(--el-color-danger); }
 .task-card.selected { background: var(--el-color-primary-light-9); }
 .task-card.expanded { border-color: var(--itsm-primary); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); }
-/* 第一行：状态圈 + 标题 + 角标（左对齐无缩进） */
-.task-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.task-check { margin: 0; }
+/* 第一行：checkbox 绝对定位脱离流，避免挤位；标题起点=49px */
+.task-line { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 34px; }
+.task-check {
+  position: absolute; left: 10px; top: 10px; margin: 0; z-index: 1;
+}
 .status-dot {
   width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
 }
@@ -837,10 +840,10 @@ onMounted(reload)
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }
-/* 第二行：负责人（左）+ 时间（右，右缘贴卡片右缘） */
+/* 第二/三行：左缘=标题左缘(49px) */
 .task-line2 {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin-top: 3px; padding-left: 29px; font-size: 12px; color: var(--itsm-text-muted);
+  margin-top: 3px; padding-left: 49px; font-size: 12px; color: var(--itsm-text-muted);
 }
 .task-assignee {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
@@ -848,10 +851,10 @@ onMounted(reload)
 .task-range { white-space: nowrap; margin-left: auto; }
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
 .ie-select { width: 96px; }
-/* 第三行：操作按钮均匀分布（删除贴右缘，与时间右缘对齐） */
+/* 第三行：操作按钮均匀分布（删除贴右缘=时间右缘），不超出边框 */
 .task-actions {
   display: flex; justify-content: space-between; align-items: center; gap: 6px;
-  margin-top: 8px; padding-left: 29px; border-top: 1px dashed var(--itsm-border);
+  margin-top: 8px; padding-left: 49px; border-top: 1px dashed var(--itsm-border);
   padding-top: 8px; flex-wrap: nowrap;
 }
 </style>
