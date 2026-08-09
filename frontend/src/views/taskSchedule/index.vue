@@ -75,20 +75,49 @@
             全选
           </el-checkbox>
           <div v-for="t in data.status_groups?.[st] || []" :key="t.id" class="task-card"
-            :class="{ overdue: t.overdue, selected: selectedIds.includes(t.id) }"
-            @click="openDetail(t)">
-            <el-checkbox class="task-check" :model-value="selectedIds.includes(t.id)"
-              @click.stop @change="(v: boolean | string | number | undefined) => toggleSelect(t.id, !!v)" />
-            <div class="task-title">{{ t.title }}</div>
-            <div class="task-meta">
-              <el-tag v-if="t.overdue" size="small" type="danger" effect="dark">逾期</el-tag>
-              <el-tag size="small" :type="priorityType(t.priority)" effect="dark">{{ t.priority }}</el-tag>
-              <el-tag v-if="t.task_type === '突发'" size="small" type="warning" effect="dark">突发</el-tag>
+            :class="{ overdue: t.overdue, selected: selectedIds.includes(t.id), expanded: expandedId === t.id }">
+            <div class="task-line" @click="openInline(t)">
+              <el-checkbox class="task-check" :model-value="selectedIds.includes(t.id)"
+                @click.stop @change="(v: boolean | string | number | undefined) => toggleSelect(t.id, !!v)" />
+              <span class="status-dot" :class="`dot-${t.status}`" />
+              <span class="task-title" :title="t.title">{{ t.title }}</span>
+              <span class="task-badges">
+                <span v-if="t.overdue" class="tag-badge tag-overdue">逾期</span>
+                <span v-if="t.task_type === '突发'" class="tag-badge tag-urgent">突发</span>
+                <span v-if="t.priority === '紧急'" class="tag-badge tag-urgent">紧急</span>
+              </span>
             </div>
-            <div class="task-sub">{{ t.customer_name || '-' }}</div>
-            <div class="task-sub">
-              <span>{{ t.assignee_name || '未指派' }}</span>
-              <span v-if="t.planned_end" class="float-right">{{ t.planned_end }}</span>
+            <div class="task-line2">
+              <span class="task-range">{{ rangeText(t) }}</span>
+              <span class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+            </div>
+
+            <!-- 行内展开编辑（点击卡片展开，状态/负责人快捷修改） -->
+            <div v-if="expandedId === t.id" class="inline-edit" @click.stop>
+              <el-select v-model="inlineForm.status" size="small" style="width: 110px"
+                :disabled="t.status === TASK_STATUS.REVIEWING"
+                :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中不可改' : '状态'">
+                <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+              </el-select>
+              <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
+                style="width: 130px">
+                <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
+              </el-select>
+              <el-button size="small" type="primary" @click="saveInline">保存</el-button>
+              <el-button size="small" @click="cancelInline">取消</el-button>
+              <el-button size="small" type="warning" plain :icon="Document" @click="openUpload">
+                {{ record ? '重新上传报告' : '上传报告' }}
+              </el-button>
+              <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
+            </div>
+            <!-- 关联巡检记录（行内简展） -->
+            <div v-if="expandedId === t.id && record" class="inline-record" @click.stop>
+              <span class="record-label">巡检记录：</span>
+              <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">
+                {{ record.review_status || '草稿' }}
+              </el-tag>
+              <span class="record-meta">{{ record.inspector_name || '-' }} · {{ record.inspection_date || '-' }}</span>
+              <el-button v-if="hasReport" size="small" link type="primary" @click="previewLatestReport">预览报告</el-button>
             </div>
           </div>
           <el-empty v-if="!(data.status_groups?.[st] || []).length" description="无任务" :image-size="40" />
@@ -106,13 +135,48 @@
         </div>
         <div class="col-body">
           <div v-for="t in data.engineer_groups?.[String(e.id)] || []" :key="t.id" class="task-card"
-            :class="{ overdue: t.overdue }" @click="openDetail(t)">
-            <div class="task-title">{{ t.title }}</div>
-            <div class="task-meta">
-              <el-tag v-if="t.overdue" size="small" type="danger" effect="dark">逾期</el-tag>
-              <el-tag size="small" :type="statusType(t.status)" effect="dark">{{ t.status }}</el-tag>
+            :class="{ overdue: t.overdue, selected: selectedIds.includes(t.id), expanded: expandedId === t.id }">
+            <div class="task-line" @click="openInline(t)">
+              <el-checkbox class="task-check" :model-value="selectedIds.includes(t.id)"
+                @click.stop @change="(v: boolean | string | number | undefined) => toggleSelect(t.id, !!v)" />
+              <span class="status-dot" :class="`dot-${t.status}`" />
+              <span class="task-title" :title="t.title">{{ t.title }}</span>
+              <span class="task-badges">
+                <span v-if="t.overdue" class="tag-badge tag-overdue">逾期</span>
+                <span v-if="t.task_type === '突发'" class="tag-badge tag-urgent">突发</span>
+                <span v-if="t.priority === '紧急'" class="tag-badge tag-urgent">紧急</span>
+              </span>
             </div>
-            <div class="task-sub">{{ t.customer_name || '-' }} · {{ t.planned_end || '-' }}</div>
+            <div class="task-line2">
+              <span class="task-range">{{ rangeText(t) }}</span>
+              <span class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+            </div>
+
+            <div v-if="expandedId === t.id" class="inline-edit" @click.stop>
+              <el-select v-model="inlineForm.status" size="small" style="width: 110px"
+                :disabled="t.status === TASK_STATUS.REVIEWING"
+                :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中不可改' : '状态'">
+                <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+              </el-select>
+              <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
+                style="width: 130px">
+                <el-option v-for="eng in data?.engineers || []" :key="eng.id" :label="eng.name" :value="eng.id" />
+              </el-select>
+              <el-button size="small" type="primary" @click="saveInline">保存</el-button>
+              <el-button size="small" @click="cancelInline">取消</el-button>
+              <el-button size="small" type="warning" plain :icon="Document" @click="openUpload">
+                {{ record ? '重新上传报告' : '上传报告' }}
+              </el-button>
+              <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
+            </div>
+            <div v-if="expandedId === t.id && record" class="inline-record" @click.stop>
+              <span class="record-label">巡检记录：</span>
+              <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">
+                {{ record.review_status || '草稿' }}
+              </el-tag>
+              <span class="record-meta">{{ record.inspector_name || '-' }} · {{ record.inspection_date || '-' }}</span>
+              <el-button v-if="hasReport" size="small" link type="primary" @click="previewLatestReport">预览报告</el-button>
+            </div>
           </div>
           <el-empty v-if="!(data.engineer_groups?.[String(e.id)] || []).length" description="无任务" :image-size="40" />
         </div>
@@ -173,98 +237,6 @@
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="creating" @click="doCreate">创建</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 详情（居中弹窗，网格密集布局） -->
-    <el-dialog v-model="detailVisible" :title="detail ? detail.title : ''" width="780px" top="6vh"
-      destroy-on-close>
-      <template v-if="detail">
-        <el-form label-width="72px" label-position="left">
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="状态">
-                <el-select v-if="detail.status !== '待审核'" :model-value="detail.status" size="small"
-                  style="width: 100%" @change="(v: string) => quickUpdate({ status: v })">
-                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
-                </el-select>
-                <el-tag v-else size="small" type="warning">待审核（报告审核中，不可手工改状态）</el-tag>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="负责人">
-                <el-select :model-value="detail.assignee_id" clearable filterable size="small" style="width: 100%"
-                  @change="(v: number | undefined) => quickUpdate({ assignee_id: v ?? null })">
-                  <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="来源">{{ detail.source || '-' }}</el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="客户">{{ detail.customer_name || '-' }}</el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="16">
-              <el-form-item label="计划时间">
-                <el-date-picker :model-value="detail.planned_start" type="date" value-format="YYYY-MM-DD"
-                  size="small" style="width: 45%" @change="(v: string) => quickUpdate({ planned_start: v || null })" />
-                <span class="mx-1">~</span>
-                <el-date-picker :model-value="detail.planned_end" type="date" value-format="YYYY-MM-DD"
-                  size="small" style="width: 45%" @change="(v: string) => quickUpdate({ planned_end: v || null })" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="预估人天">
-                <el-input-number :model-value="detail.estimated_effort ?? undefined" :min="0" :step="0.5" size="small"
-                  style="width: 100%" @change="(v: number | undefined) => quickUpdate({ estimated_effort: v ?? null })" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="实际人天">
-                <el-input-number :model-value="detail.actual_effort ?? undefined" :min="0" :step="0.5" size="small"
-                  style="width: 100%" @change="(v: number | undefined) => quickUpdate({ actual_effort: v ?? null })" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="16">
-              <el-form-item label="备注">
-                <el-input :model-value="detail.remark" type="textarea" :rows="2" size="small"
-                  @blur="(e: FocusEvent) => quickUpdate({ remark: (e.target as HTMLInputElement).value })" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </el-form>
-
-        <!-- 关联巡检记录（V21 闭环） -->
-        <el-divider content-position="left">巡检记录</el-divider>
-        <div v-if="record" class="record-block">
-          <el-descriptions :column="cols" size="small" border>
-            <el-descriptions-item label="审核状态">
-              <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">{{ record.review_status }}</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="巡检员">{{ record.inspector_name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="巡检日期">{{ record.inspection_date || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="现场报告">
-              <el-link v-if="record.submitted_report_name" type="primary" :underline="false"
-                @click="previewLatestReport">{{ record.submitted_report_name }}</el-link>
-              <span v-else>-</span>
-            </el-descriptions-item>
-          </el-descriptions>
-          <div class="record-conclusion" v-if="record.conclusion">结论：{{ record.conclusion }}</div>
-          <VersionTimeline v-if="versions.length" :versions="versions" entity-type="inspection" />
-          <el-button v-if="canUpload" type="primary" size="small" :icon="Document" class="mt-2" @click="openUpload">
-            {{ record ? '重新上传报告（退回后修改重传）' : '上传巡检报告并提交审核' }}
-          </el-button>
-        </div>
-        <el-empty v-else description="尚无巡检记录" :image-size="50">
-          <el-button v-if="canUpload" type="primary" size="small" :icon="Document" @click="openUpload">
-            上传巡检报告
-          </el-button>
-        </el-empty>
-
-        <div class="detail-footer">
-          <el-button type="danger" plain :loading="deleting" @click="onDelete(detail)">删除任务</el-button>
-        </div>
       </template>
     </el-dialog>
 
@@ -394,7 +366,6 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search, Download, Upload, UploadFilled, Document, Delete } from '@element-plus/icons-vue'
-import { useMobile } from '@/utils/useMobile'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
@@ -403,7 +374,6 @@ import {
 } from '@/api/taskSchedule'
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
   versionReportUrl, type Inspection, type SubmissionVersion } from '@/api/inspections'
-import VersionTimeline from '@/components/VersionTimeline.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -411,8 +381,6 @@ import { TASK_STATUS, REVIEW_STATUS, REVIEW_STATUS_TAG } from '@/utils/status'
 const REVIEW_TAG = REVIEW_STATUS_TAG
 
 const user = useUserStore()
-const { isMobile } = useMobile()
-const cols = computed(() => (isMobile.value ? 2 : 4))
 const ui = useUiStore()
 const data = ref<TaskScheduleData | null>(null)
 const loading = ref(false)
@@ -430,7 +398,9 @@ const createForm = reactive<Record<string, unknown>>({
   priority: '中', estimated_effort: null, task_type: '计划', remark: '',
 })
 
-const detailVisible = ref(false)
+// 行内展开编辑（V29：点击卡片在卡片下方展开，状态/负责人快捷修改，不再弹窗）
+const expandedId = ref<number | null>(null)
+const inlineForm = reactive<{ status: string; assignee_id: number | null }>({ status: '', assignee_id: null })
 const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
@@ -474,10 +444,6 @@ const uploadHint = computed(() => {
   if (record.value?.review_status === REVIEW_STATUS.PENDING) return '已有报告在审核中，请等待审核结果'
   return ''
 })
-const canUpload = computed(() =>
-  user.hasPerm('inspection:edit') && !!detail.value &&
-  ([TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE] as string[]).includes(detail.value.status),
-)
 
 const kpiCards = computed(() => {
   const k = data.value?.kpi
@@ -517,14 +483,18 @@ function clearFilters() {
   reload()
 }
 
-function priorityType(p: string) {
-  return { 低: 'info', 中: '', 高: 'warning', 紧急: 'danger' }[p] || 'info'
-}
-
-// 任务状态配色：待执行=橙 / 执行中=深蓝 / 待审核=青 / 已完成=绿 / 已取消=灰；红色留给「逾期」
-// 统一 effect="dark"（深底白字）：浅色模式下对比度也足够，深浅模式表现一致
-function statusType(s: string) {
-  return { 待执行: 'warning', 执行中: 'primary', 待审核: 'info', 已完成: 'success', 已取消: 'info' }[s] || 'info'
+// 任务时间范围展示：2026-08-01 ~ 2026-08-31 → 8/1~8/31；跨年显示完整日期；仅结束显示「08-31 止」
+function rangeText(t: TaskScheduleItem) {
+  const s = t.planned_start || ''
+  const e = t.planned_end || ''
+  const short = (d: string) => {
+    const [, m, day] = d.split('-')
+    return `${Number(m)}/${Number(day)}`
+  }
+  if (s && e) return `${s.slice(0, 4) !== e.slice(0, 4) ? `${s.slice(5)}~${e.slice(5)}` : `${short(s)}~${short(e)}`}`
+  if (s) return `${short(s)} 起`
+  if (e) return `${short(e)} 止`
+  return '未排期'
 }
 
 function reload() {
@@ -598,11 +568,46 @@ async function doCreate() {
   }
 }
 
-function openDetail(t: TaskScheduleItem) {
+function openInline(t: TaskScheduleItem) {
+  // 再次点击当前展开卡片 → 收起；点击其他卡片 → 切换展开
+  if (expandedId.value === t.id) {
+    cancelInline()
+    return
+  }
+  expandedId.value = t.id
   detail.value = t
-  detailVisible.value = true
+  inlineForm.status = t.status
+  inlineForm.assignee_id = t.assignee_id
   loadRecord()
 }
+
+function cancelInline() {
+  expandedId.value = null
+  detail.value = null
+  record.value = null
+  versions.value = []
+}
+
+async function saveInline() {
+  if (!detail.value) return
+  const patch: Record<string, unknown> = {}
+  if (inlineForm.status !== detail.value.status) patch.status = inlineForm.status
+  if (inlineForm.assignee_id !== detail.value.assignee_id) patch.assignee_id = inlineForm.assignee_id
+  if (!Object.keys(patch).length) {
+    ui.toast('无改动', 'info')
+    return
+  }
+  try {
+    await updateTaskSchedule(detail.value.id, patch)
+    ui.toast('已保存', 'success')
+    cancelInline()
+    reload()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+const hasReport = computed(() => versions.value.some((v) => v.report_file))
 
 async function loadRecord() {
   record.value = null
@@ -721,19 +726,6 @@ async function doUpload() {
   }
 }
 
-async function quickUpdate(patch: Record<string, unknown>) {
-  if (!detail.value) return
-  const prev = detail.value
-  detail.value = { ...prev, ...patch }
-  try {
-    await updateTaskSchedule(prev.id, patch)
-    reload()
-  } catch (e) {
-    detail.value = prev
-    ui.toast((e as Error).message, 'error')
-  }
-}
-
 async function onDelete(t: TaskScheduleItem) {
   try {
     await ElMessageBox.confirm(`确定删除任务「${t.title}」吗？`, '删除确认', { type: 'warning' })
@@ -742,7 +734,7 @@ async function onDelete(t: TaskScheduleItem) {
   try {
     await deleteTaskSchedule(t.id)
     ui.toast('已删除', 'success')
-    detailVisible.value = false
+    cancelInline()
     reload()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -823,9 +815,6 @@ onMounted(reload)
 .col-count { font-size: 12px; color: var(--itsm-text-muted); }
 .col-check { margin: 6px 12px; }
 .col-body { padding: 6px 10px 12px; min-height: 80px; }
-.record-block { margin-bottom: 10px; }
-.record-conclusion { font-size: 13px; margin: 8px 0; white-space: pre-wrap; }
-.detail-footer { display: flex; justify-content: flex-end; margin-top: 12px; }
 .upload-hint { color: var(--el-color-warning); font-size: 12px; }
 .preview-body { min-height: 420px; }
 .preview-name { float: left; font-size: 12px; color: var(--el-text-color-secondary); line-height: 32px; }
@@ -837,15 +826,48 @@ onMounted(reload)
 .task-card {
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
   cursor: pointer; transition: border-color 0.15s;
-  display: flex; flex-direction: column; gap: 4px;
 }
 .task-card:hover { border-color: var(--itsm-primary); }
 .task-card.overdue { border-color: var(--el-color-danger); }
 .task-card.selected { background: var(--el-color-primary-light-9); }
-.task-check { position: absolute; margin-top: 2px; }
-.task-title { font-size: 13px; font-weight: 600; padding-left: 24px; }
-.task-meta { display: flex; gap: 4px; flex-wrap: wrap; padding-left: 24px; }
-.task-sub { font-size: 12px; color: var(--itsm-text-muted); display: flex; justify-content: space-between; }
-.float-right { float: right; }
-.mx-1 { margin: 0 4px; }
+.task-card.expanded { border-color: var(--itsm-primary); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); }
+/* 第一行：状态圈 + 标题 + 角标（左对齐无缩进） */
+.task-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.task-check { margin: 0; }
+.status-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
+}
+.dot-待执行 { background: var(--el-color-warning); }
+.dot-执行中 { background: var(--el-color-primary); }
+.dot-待审核 { background: var(--el-color-info); }
+.dot-已完成 { background: var(--el-color-success); }
+.dot-已取消 { background: var(--itsm-text-muted); }
+.task-title {
+  font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0; flex: 1;
+}
+.task-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.tag-badge {
+  font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 3px; color: #fff;
+}
+.tag-overdue { background: var(--el-color-danger); }
+.tag-urgent { background: var(--el-color-warning); }
+/* 第二行：时间范围 + 负责人 */
+.task-line2 {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-top: 3px; padding-left: 15px; font-size: 12px; color: var(--itsm-text-muted);
+}
+.task-range { white-space: nowrap; }
+.task-assignee { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 行内展开编辑条 */
+.inline-edit {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px;
+  padding-top: 8px; border-top: 1px dashed var(--itsm-border);
+}
+.inline-record {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px;
+  font-size: 12px; color: var(--itsm-text-muted);
+}
+.record-label { color: var(--itsm-text-muted); }
+.record-meta { color: var(--itsm-text-muted); }
 </style>
