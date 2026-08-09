@@ -87,37 +87,30 @@
                 <span v-if="t.priority === '紧急'" class="tag-badge tag-urgent">紧急</span>
               </span>
             </div>
+            <!-- 第二行：常态=负责人+时间；编辑态=负责人/状态下拉+时间只读 -->
             <div class="task-line2">
-              <span class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+              <template v-if="expandedId === t.id">
+                <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
+                  class="ie-select">
+                  <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
+                </el-select>
+                <el-select v-model="inlineForm.status" size="small" class="ie-select"
+                  :disabled="t.status === TASK_STATUS.REVIEWING"
+                  :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+                </el-select>
+              </template>
+              <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
               <span class="task-range">{{ rangeText(t) }}</span>
             </div>
-
-            <!-- 行内展开编辑（点击卡片展开，状态/负责人快捷修改） -->
-            <div v-if="expandedId === t.id" class="inline-edit" @click.stop>
-              <el-select v-model="inlineForm.status" size="small" style="width: 110px"
-                :disabled="t.status === TASK_STATUS.REVIEWING"
-                :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中不可改' : '状态'">
-                <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
-              </el-select>
-              <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
-                style="width: 130px">
-                <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
-              </el-select>
+            <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
+            <div v-if="expandedId === t.id" class="task-actions">
               <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-              <el-button size="small" @click="cancelInline">取消</el-button>
               <el-button size="small" type="warning" plain :icon="Document" @click="openUpload">
-                {{ record ? '重新上传报告' : '上传报告' }}
+                {{ record ? '重新上传' : '上传' }}
               </el-button>
+              <el-button size="small" @click="cancelInline">取消</el-button>
               <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
-            </div>
-            <!-- 关联巡检记录（行内简展） -->
-            <div v-if="expandedId === t.id && record" class="inline-record" @click.stop>
-              <span class="record-label">巡检记录：</span>
-              <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">
-                {{ record.review_status || '草稿' }}
-              </el-tag>
-              <span class="record-meta">{{ record.inspector_name || '-' }} · {{ record.inspection_date || '-' }}</span>
-              <el-button v-if="hasReport" size="small" link type="primary" @click="previewLatestReport">预览报告</el-button>
             </div>
           </div>
           <el-empty v-if="!(data.status_groups?.[st] || []).length" description="无任务" :image-size="40" />
@@ -147,35 +140,30 @@
                 <span v-if="t.priority === '紧急'" class="tag-badge tag-urgent">紧急</span>
               </span>
             </div>
+            <!-- 第二行：常态=负责人+时间；编辑态=负责人/状态下拉+时间只读 -->
             <div class="task-line2">
-              <span class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+              <template v-if="expandedId === t.id">
+                <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
+                  class="ie-select">
+                  <el-option v-for="eng in data?.engineers || []" :key="eng.id" :label="eng.name" :value="eng.id" />
+                </el-select>
+                <el-select v-model="inlineForm.status" size="small" class="ie-select"
+                  :disabled="t.status === TASK_STATUS.REVIEWING"
+                  :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+                </el-select>
+              </template>
+              <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
               <span class="task-range">{{ rangeText(t) }}</span>
             </div>
-
-            <div v-if="expandedId === t.id" class="inline-edit" @click.stop>
-              <el-select v-model="inlineForm.status" size="small" style="width: 110px"
-                :disabled="t.status === TASK_STATUS.REVIEWING"
-                :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中不可改' : '状态'">
-                <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
-              </el-select>
-              <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
-                style="width: 130px">
-                <el-option v-for="eng in data?.engineers || []" :key="eng.id" :label="eng.name" :value="eng.id" />
-              </el-select>
+            <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
+            <div v-if="expandedId === t.id" class="task-actions">
               <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-              <el-button size="small" @click="cancelInline">取消</el-button>
               <el-button size="small" type="warning" plain :icon="Document" @click="openUpload">
-                {{ record ? '重新上传报告' : '上传报告' }}
+                {{ record ? '重新上传' : '上传' }}
               </el-button>
+              <el-button size="small" @click="cancelInline">取消</el-button>
               <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
-            </div>
-            <div v-if="expandedId === t.id && record" class="inline-record" @click.stop>
-              <span class="record-label">巡检记录：</span>
-              <el-tag size="small" :type="REVIEW_TAG[record.review_status] || 'info'">
-                {{ record.review_status || '草稿' }}
-              </el-tag>
-              <span class="record-meta">{{ record.inspector_name || '-' }} · {{ record.inspection_date || '-' }}</span>
-              <el-button v-if="hasReport" size="small" link type="primary" @click="previewLatestReport">预览报告</el-button>
             </div>
           </div>
           <el-empty v-if="!(data.engineer_groups?.[String(e.id)] || []).length" description="无任务" :image-size="40" />
@@ -377,8 +365,7 @@ import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskR
 import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
-import { TASK_STATUS, REVIEW_STATUS, REVIEW_STATUS_TAG } from '@/utils/status'
-const REVIEW_TAG = REVIEW_STATUS_TAG
+import { TASK_STATUS, REVIEW_STATUS } from '@/utils/status'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -607,8 +594,6 @@ async function saveInline() {
   }
 }
 
-const hasReport = computed(() => versions.value.some((v) => v.report_file))
-
 async function loadRecord() {
   record.value = null
   versions.value = []
@@ -801,7 +786,7 @@ onMounted(reload)
 }
 .board-cols { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; }
 .board-col {
-  flex: 1; min-width: 290px; border: 1px solid var(--itsm-border); border-radius: 10px;
+  flex: 1; min-width: 310px; border: 1px solid var(--itsm-border); border-radius: 10px;
   background: var(--itsm-card-bg); overflow: hidden;
 }
 .col-head {
@@ -852,24 +837,21 @@ onMounted(reload)
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }
-/* 第二行：负责人（左）+ 时间范围（右对齐） */
+/* 第二行：负责人（左）+ 时间（右，右缘贴卡片右缘） */
 .task-line2 {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin-top: 3px; padding-left: 15px; font-size: 12px; color: var(--itsm-text-muted);
+  margin-top: 3px; padding-left: 29px; font-size: 12px; color: var(--itsm-text-muted);
 }
 .task-assignee {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .task-range { white-space: nowrap; margin-left: auto; }
-/* 行内展开编辑条（单行排布） */
-.inline-edit {
-  display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; margin-top: 8px;
-  padding-top: 8px; border-top: 1px dashed var(--itsm-border); overflow-x: auto;
+/* 第二行编辑态：负责人/状态下拉 + 时间右置 */
+.ie-select { width: 96px; }
+/* 第三行：操作按钮均匀分布（删除贴右缘，与时间右缘对齐） */
+.task-actions {
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  margin-top: 8px; padding-left: 29px; border-top: 1px dashed var(--itsm-border);
+  padding-top: 8px; flex-wrap: nowrap;
 }
-.inline-record {
-  display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px;
-  font-size: 12px; color: var(--itsm-text-muted);
-}
-.record-label { color: var(--itsm-text-muted); }
-.record-meta { color: var(--itsm-text-muted); }
 </style>
