@@ -207,17 +207,16 @@
                   </div>
                 </div>
 
-                <!-- 展示态：完整明细列表（紧凑整齐） -->
+                <!-- 展示态：3 列紧凑网格 -->
                 <template v-else>
-                <el-table :data="detailRows" size="small" border class="detail-table">
-                  <el-table-column prop="label" label="字段" width="130" />
-                  <el-table-column label="值">
-                    <template #default="{ row }">
-                      <template v-if="row.key === 'level'">
-                        <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
-                          {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
-                        </el-tag>
-                      </template>
+                <div class="detail-grid">
+                  <div v-for="row in detailRows" :key="row.key" class="detail-cell">
+                    <span class="cell-label">{{ row.label }}</span>
+                    <span class="cell-value">
+                      <el-tag v-if="row.key === 'level'" size="small"
+                        :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
+                        {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
+                      </el-tag>
                       <template v-else-if="row.key === 'contract_status'">
                         <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
                           {{ detail.contract_status }}
@@ -231,9 +230,9 @@
                       <el-tag v-else-if="row.key === 'drill'" size="small"
                         :type="detail.has_drill ? 'warning' : 'info'">{{ row.value }}</el-tag>
                       <span v-else>{{ row.value }}</span>
-                    </template>
-                  </el-table-column>
-                </el-table>
+                    </span>
+                  </div>
+                </div>
 
                 <div class="drawer-actions">
                   <el-button v-if="user.hasPerm('customer:edit')" type="primary" size="small"
@@ -725,7 +724,16 @@ onMounted(() => {
 }
 .inline-edit { padding: 4px 0; }
 .inline-edit :deep(.el-form-item) { margin-bottom: 10px; }
-.detail-table :deep(.el-table__cell) { padding: 5px 8px; }
+/* 详情展示态：3 列紧凑网格 */
+.detail-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px;
+}
+.detail-cell { min-width: 0; line-height: 1.7; }
+.cell-label { color: var(--itsm-text-muted); font-size: 12px; margin-right: 6px; }
+.cell-value { font-size: 13px; word-break: break-all; }
+@media (max-width: 767px) {
+  .detail-grid { grid-template-columns: repeat(2, 1fr); }
+}
 .ml-2 { margin-left: 4px; }
 .tree-name { font-weight: 600; flex-shrink: 0; }
 .tree-district { font-size: 12px; color: var(--itsm-text-muted); font-weight: 400; }
