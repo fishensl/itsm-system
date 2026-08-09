@@ -83,9 +83,11 @@
             <!-- 行内下展开详情 -->
             <div v-if="expandedId === (node as Customer).id" v-loading="detailLoading" class="cust-detail">
               <template v-if="detail">
-                <!-- 编辑态：行内就地编辑（不弹窗） -->
+                <!-- 编辑态：行内就地编辑（不弹窗），分组归类紧凑布局 -->
                 <div v-if="editing" class="inline-edit">
-                  <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px" size="small">
+                  <el-form ref="formRef" :model="form" :rules="formRules" label-width="88px" size="small">
+                    <!-- 基本信息 -->
+                    <el-divider content-position="left">基本信息</el-divider>
                     <el-row :gutter="12">
                       <el-col :xs="24" :sm="12">
                         <el-form-item label="客户名称" prop="name">
@@ -121,17 +123,22 @@
                           </el-select>
                         </el-form-item>
                       </el-col>
-                      <el-col :xs="24">
+                      <el-col :xs="24" :sm="12">
                         <el-form-item label="所属地区">
                           <el-cascader v-model="form.regionPath" :options="regionOptions" clearable class="w-full"
                             placeholder="地市 → 区县" />
                         </el-form-item>
                       </el-col>
-                      <el-col :xs="24">
+                      <el-col :xs="24" :sm="12">
                         <el-form-item label="地址">
                           <el-input v-model="form.address" />
                         </el-form-item>
                       </el-col>
+                    </el-row>
+
+                    <!-- 合同服务期 -->
+                    <el-divider content-position="left">合同服务期</el-divider>
+                    <el-row :gutter="12">
                       <el-col :xs="24" :sm="12">
                         <el-form-item label="合同开始">
                           <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
@@ -154,8 +161,13 @@
                           <el-input v-model="form.map_location" placeholder="经纬度或地图链接（外网工单可查看）" />
                         </el-form-item>
                       </el-col>
+                    </el-row>
+
+                    <!-- 驻场信息 -->
+                    <el-divider content-position="left">驻场信息</el-divider>
+                    <el-row :gutter="12">
                       <el-col :xs="24">
-                        <el-form-item label="驻场信息">
+                        <el-form-item label="服务配置">
                           <el-checkbox v-model="form.has_onsite">有驻场</el-checkbox>
                           <el-checkbox v-model="form.has_drill">有攻防演练</el-checkbox>
                         </el-form-item>
@@ -177,6 +189,11 @@
                           </el-form-item>
                         </el-col>
                       </template>
+                    </el-row>
+
+                    <!-- 备注 -->
+                    <el-divider content-position="left">备注</el-divider>
+                    <el-row :gutter="12">
                       <el-col :xs="24">
                         <el-form-item label="备注">
                           <el-input v-model="form.remark" type="textarea" :rows="2" />
