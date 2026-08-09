@@ -151,11 +151,10 @@
         </el-descriptions-item>
         <el-descriptions-item label="建设时间">{{ detail.build_date || '-' }}</el-descriptions-item>
         <el-descriptions-item label="授权">
-          {{ detail.license_expiry || '-' }}
-          <el-tag v-if="detail.license_remaining_days != null" size="small"
-            :type="detail.license_remaining_days < 0 ? 'danger' : 'warning'" class="ml-1">
-            {{ detail.license_remaining_days < 0 ? `过期 ${-detail.license_remaining_days} 天` : `剩 ${detail.license_remaining_days} 天` }}
-          </el-tag>
+          <span v-if="detailLicense.level" :class="['license-badge', `license-${detailLicense.level}`]">
+            {{ detailLicense.text }}
+          </span>
+          <span v-else>{{ detailLicense.text }}</span>
         </el-descriptions-item>
         <el-descriptions-item label="证书到期">
           {{ detail.cert_expiry_date || '-' }}
@@ -449,7 +448,7 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, h, type VNode } from 'vue'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
@@ -516,9 +515,35 @@ function onCustomerFilterChange() {
   tableRef.value?.refresh()
 }
 
+// ==================== 授权列：区间文本 + 到期状态色框 ====================
+// 颜色取「授权截止 / 证书到期」中更早到期者：过期红、30天内橙、有效期内绿；无到期日不加色框
+function licenseLevel(expiry: string | undefined, certExpiry: string | undefined) {
+  const today = new Date().toISOString().slice(0, 10)
+  const dates = [expiry, certExpiry].filter((d): d is string => Boolean(d))
+  if (!dates.length) return null
+  const soonest = dates.reduce((a, b) => (a < b ? a : b))
+  if (soonest < today) return 'danger'
+  const days = Math.floor((new Date(soonest).getTime() - new Date(today).getTime()) / 86400000)
+  if (days <= 30) return 'warning'
+  return 'success'
+}
+
+function renderLicenseRange(r: Record<string, unknown>): string | VNode {
+  const start = r.license_start as string | undefined
+  const expiry = r.license_expiry as string | undefined
+  const cert = r.cert_expiry_date as string | undefined
+  const text = start && expiry ? `${start}至${expiry}`
+    : (start || expiry || (cert ? `证书${cert}` : ''))
+  if (!text) return '-'
+  const level = licenseLevel(expiry, cert)
+  if (!level) return text
+  return h('span', { class: ['license-badge', `license-${level}`] }, text)
+}
+
 const columns = computed<DataColumn[]>(() => {
   // 与导出（vue_export.DEVICE_EXPORT_COLUMNS）字段全集对齐：全量进「列设置」，
-  // defaultVisible:false 的列默认隐藏（机柜位置/建设时间/授权开始/网络类型/证书到期/改密记录），可按需开启。
+  // defaultVisible:false 的列默认隐藏（机柜位置/建设时间/网络类型/改密记录），可按需开启。
+  // 授权区间合并为单列（license_range），颜色按授权/证书最近到期日区分，不单独显示授权开始/截止/证书到期/剩余天数。
   // 说明：登录密码为敏感信息，明文不下发列表（查看走详情弹窗 device:reveal + 审计、导出走审核流）。
   const cols: DataColumn[] = [
     { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
@@ -545,23 +570,8 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'rule_version', label: '规则库版本', minWidth: 110 },
     { key: 'build_date', label: '建设时间', minWidth: 100, defaultVisible: false,
       cellClass: () => 'cell-muted' },
-    { key: 'license_start', label: '授权开始', minWidth: 100, defaultVisible: false,
-      cellClass: () => 'cell-muted' },
-    { key: 'license_expiry', label: '授权截止', minWidth: 100,
-      cellClass: () => 'cell-muted' },
-    { key: 'cert_expiry_date', label: '证书到期', minWidth: 100, defaultVisible: false,
-      cellClass: (r) => {
-        const s = r.cert_expiry_date as string | undefined
-        if (s && s < new Date().toISOString().slice(0, 10)) return 'cell-danger'
-        return ''
-      } },
-    { key: 'license_remaining_days', label: '授权剩余', minWidth: 100,
-      cellClass: (r) => {
-        const d = r.license_remaining_days as number | null
-        if (d != null && d < 0) return 'cell-danger'
-        if (d != null && d <= 30) return 'cell-warn'
-        return ''
-      } },
+    { key: 'license_range', label: '授权', minWidth: 190, type: 'custom',
+      render: (r) => renderLicenseRange(r) },
     { key: 'is_maintenance', label: '是否维修', width: 90, valueMap: { 'true': '是', 'false': '否' },
       cellClass: () => 'cell-muted' },
     { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
@@ -734,6 +744,14 @@ const detail = ref<Device | null>(null)
 const pwdVisible = ref(false)
 /** 今日 YYYY-MM-DD（证书到期比较） */
 const todayStr = new Date().toISOString().slice(0, 10)
+/** 详情弹窗授权行：区间文本 + 状态色框（与列表列同口径） */
+const detailLicense = computed(() => {
+  const d = detail.value
+  const start = d?.license_start, expiry = d?.license_expiry, cert = d?.cert_expiry_date
+  const text = start && expiry ? `${start}至${expiry}`
+    : (start || expiry || (cert ? `证书${cert}` : '') || '-')
+  return { text, level: licenseLevel(expiry, cert) }
+})
 const backups = ref<DeviceConfigBackup[]>([])
 const backupsLoading = ref(false)
 const relatedTickets = ref<RelatedTicket[]>([])
@@ -1068,6 +1086,31 @@ fetchDeviceDicts().then((d) => {
 }
 .cell-muted {
   color: var(--itsm-text-muted);
+}
+/* 授权列色框：有效期内绿、30天橙、过期红 */
+.license-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.license-success {
+  color: #67c23a;
+  border-color: #67c23a;
+  background: #67c23a15;
+}
+.license-warning {
+  color: #e6a23c;
+  border-color: #e6a23c;
+  background: #e6a23c15;
+}
+.license-danger {
+  color: #f56c6c;
+  border-color: #f56c6c;
+  background: #f56c6c15;
 }
 .cust-leaf {
   display: flex; align-items: center; gap: 8px; padding: 9px 12px;

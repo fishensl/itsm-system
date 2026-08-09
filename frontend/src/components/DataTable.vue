@@ -296,8 +296,9 @@ const renderCols = computed<DataColumn[]>(() => {
     const hit = body.find((c) => c.key === key)
     if (hit && !ordered.includes(hit)) ordered.push(hit)
   }
+  // 未显式勾选的默认隐藏列（defaultVisible:false）不追加回表格
   for (const c of body) {
-    if (!ordered.includes(c)) ordered.push(c)
+    if (!ordered.includes(c) && c.defaultVisible !== false) ordered.push(c)
   }
   return [...ordered, ...actions]
 })
