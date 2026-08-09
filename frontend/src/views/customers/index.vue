@@ -83,131 +83,74 @@
             <!-- 行内下展开详情 -->
             <div v-if="expandedId === (node as Customer).id" v-loading="detailLoading" class="cust-detail">
               <template v-if="detail">
-                <!-- 编辑态：行内就地编辑（不弹窗），分组归类紧凑布局 -->
-                <div v-if="editing" class="inline-edit">
-                  <el-form ref="formRef" :model="form" :rules="formRules" label-width="88px" size="small">
-                    <!-- 基本信息 -->
-                    <el-divider content-position="left">基本信息</el-divider>
-                    <el-row :gutter="12">
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="客户名称" prop="name">
-                          <el-input v-model="form.name" placeholder="必填" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="等级">
-                          <el-select v-model="form.level" class="w-full">
-                            <el-option v-for="lv in levelOptions" :key="lv.value" :label="lv.label" :value="lv.value" />
-                          </el-select>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="联系人">
-                          <el-input v-model="form.contact_person" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="电话">
-                          <el-input v-model="form.phone" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="邮箱">
-                          <el-input v-model="form.email" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="单位类别">
-                          <el-select v-model="form.category_id" clearable class="w-full" placeholder="选择单位类别">
-                            <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
-                          </el-select>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="所属地区">
-                          <el-cascader v-model="form.regionPath" :options="regionOptions" clearable class="w-full"
-                            placeholder="地市 → 区县" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="地址">
-                          <el-input v-model="form.address" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
+                <!-- 编辑态：同一布局（概要条+三栏明细）下值变控件，不换布局不弹窗 -->
+                <div v-if="editing">
+                  <div class="detail-hero">
+                    <div class="hero-row1">
+                      <el-input v-model="form.name" size="small" class="hero-name-input" placeholder="客户名称" />
+                      <el-select v-model="form.level" size="small" style="width: 90px">
+                        <el-option v-for="lv in levelOptions" :key="lv.value" :label="lv.label" :value="lv.value" />
+                      </el-select>
+                      <span class="hero-sep">│</span>
+                      <el-cascader v-model="form.regionPath" :options="regionOptions" clearable size="small"
+                        style="width: 200px" placeholder="地市 → 区县" />
+                      <span class="hero-sep">│</span>
+                      <span class="hero-stats">
+                        <span class="stat">设备 <b>{{ detail.device_count ?? 0 }}</b></span>
+                        <span class="stat">巡检 <b>{{ detail.inspection_count ?? 0 }}</b></span>
+                        <span class="stat">工单 <b>{{ detail.ticket_count ?? 0 }}</b></span>
+                      </span>
+                    </div>
+                    <div class="hero-row2">
+                      <span class="hero-tag">合同
+                        <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
+                          {{ detail.contract_status === '未设置合同' ? '未设置' : detail.contract_status }}
+                        </el-tag>
+                      </span>
+                      <span class="hero-tag">起止：
+                        <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
+                          size="small" style="width: 118px" placeholder="开始" />
+                        ~
+                        <el-date-picker v-model="form.contract_end_date" type="date" value-format="YYYY-MM-DD"
+                          size="small" style="width: 118px" placeholder="结束" />
+                      </span>
+                      <span class="hero-tag">驻场：<el-checkbox v-model="form.has_onsite" size="small" /></span>
+                      <span class="hero-tag">演练：<el-checkbox v-model="form.has_drill" size="small" /></span>
+                    </div>
+                  </div>
 
-                    <!-- 合同服务期 -->
-                    <el-divider content-position="left">合同服务期</el-divider>
-                    <el-row :gutter="12">
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="合同开始">
-                          <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
-                            class="w-full" placeholder="如 2026-01-01" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="合同结束">
-                          <el-date-picker v-model="form.contract_end_date" type="date" value-format="YYYY-MM-DD"
-                            class="w-full" placeholder="如 2026-12-31" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="办公室门牌">
-                          <el-input v-model="form.office_room" placeholder="如 A栋 3F-301" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="地图定位">
-                          <el-input v-model="form.map_location" placeholder="经纬度或地图链接（外网工单可查看）" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
+                  <div class="detail-grid3">
+                    <div class="grid-col">
+                      <div class="detail-cell"><span class="cell-label">联系人</span><el-input v-model="form.contact_person" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">电话</span><el-input v-model="form.phone" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">邮箱</span><el-input v-model="form.email" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">单位类别</span>
+                        <el-select v-model="form.category_id" size="small" clearable class="cell-input" placeholder="选择单位类别">
+                          <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
+                        </el-select>
+                      </div>
+                    </div>
+                    <div class="grid-col">
+                      <div class="detail-cell"><span class="cell-label">地址</span><el-input v-model="form.address" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">办公室门牌号</span><el-input v-model="form.office_room" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">地图定位</span><el-input v-model="form.map_location" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">来源</span><el-input v-model="form.source" size="small" class="cell-input" /></div>
+                    </div>
+                    <div class="grid-col">
+                      <div class="detail-cell"><span class="cell-label">驻场联系人</span><el-input v-model="form.onsite_contact" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">驻场电话</span><el-input v-model="form.onsite_phone" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">驻场办公室</span><el-input v-model="form.onsite_office" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">备注</span><el-input v-model="form.remark" type="textarea" :rows="1" size="small" class="cell-input" /></div>
+                    </div>
+                  </div>
 
-                    <!-- 驻场信息 -->
-                    <el-divider content-position="left">驻场信息</el-divider>
-                    <el-row :gutter="12">
-                      <el-col :xs="24">
-                        <el-form-item label="服务配置">
-                          <el-checkbox v-model="form.has_onsite">有驻场</el-checkbox>
-                          <el-checkbox v-model="form.has_drill">有攻防演练</el-checkbox>
-                        </el-form-item>
-                      </el-col>
-                      <template v-if="form.has_onsite">
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="驻场联系人">
-                            <el-input v-model="form.onsite_contact" />
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="驻场电话">
-                            <el-input v-model="form.onsite_phone" />
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="驻场办公室">
-                            <el-input v-model="form.onsite_office" />
-                          </el-form-item>
-                        </el-col>
-                      </template>
-                    </el-row>
-
-                    <!-- 备注 -->
-                    <el-divider content-position="left">备注</el-divider>
-                    <el-row :gutter="12">
-                      <el-col :xs="24">
-                        <el-form-item label="备注">
-                          <el-input v-model="form.remark" type="textarea" :rows="2" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                  </el-form>
-                  <div class="drawer-actions">
+                  <div class="drawer-actions left">
                     <el-button type="primary" size="small" :loading="saving" @click="save">保存</el-button>
                     <el-button size="small" @click="cancelEdit">取消</el-button>
                   </div>
                 </div>
 
-                <!-- 展示态：顶栏概要 + 三栏明细 -->
+                <!-- 展示态：顶栏概要 + 三栏明细（纯只读，无按钮；编辑走树节点行按钮） -->
                 <template v-else>
                 <div class="detail-hero">
                   <div class="hero-row1">
@@ -215,14 +158,14 @@
                     <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
                       {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
                     </el-tag>
+                    <span class="hero-sep">│</span>
                     <span class="hero-region">{{ [detail.city, detail.region_name].filter(Boolean).join(' ') || '-' }}</span>
+                    <span class="hero-sep">│</span>
                     <span class="hero-stats">
                       <span class="stat">设备 <b>{{ detail.device_count ?? 0 }}</b></span>
                       <span class="stat">巡检 <b>{{ detail.inspection_count ?? 0 }}</b></span>
                       <span class="stat">工单 <b>{{ detail.ticket_count ?? 0 }}</b></span>
                     </span>
-                    <el-button v-if="user.hasPerm('customer:edit')" size="small" type="primary"
-                      @click="startEdit" class="hero-edit">编辑</el-button>
                   </div>
                   <div class="hero-row2">
                     <span class="hero-tag">合同
@@ -255,10 +198,6 @@
                     <div class="detail-cell"><span class="cell-label">驻场办公室</span><span class="cell-value">{{ detail.onsite_office || '-' }}</span></div>
                     <div class="detail-cell"><span class="cell-label">备注</span><span class="cell-value">{{ detail.remark || '-' }}</span></div>
                   </div>
-                </div>
-
-                <div class="drawer-actions">
-                  <el-button size="small" @click="collapseDetail">收起</el-button>
                 </div>
                 </template>
               </template>
@@ -549,6 +488,7 @@ interface CustomerFormModel {
   category_id: number | null
   level: string
   address: string
+  source: string
   contract_start_date: string
   contract_end_date: string
   office_room: string
@@ -570,7 +510,7 @@ const form = reactive<CustomerFormModel>(blankForm())
 function blankForm(): CustomerFormModel {
   return {
     id: undefined, name: '', contact_person: '', phone: '', email: '',
-    category_id: null, level: 'auto', address: '', contract_start_date: '',
+    category_id: null, level: 'auto', address: '', source: '', contract_start_date: '',
     contract_end_date: '', office_room: '', map_location: '', regionPath: [],
     has_onsite: false, onsite_contact: '', onsite_phone: '', onsite_office: '',
     has_drill: false, remark: '',
@@ -592,13 +532,13 @@ function openCreate() {
   formVisible.value = true
 }
 
-/** 行内就地编辑：用已展开的详情填充表单，切换到编辑态（不再弹窗） */
+/** 行内就地编辑：用已展开的详情填充表单，切换到编辑态（不弹窗、不换布局，值原位变控件） */
 function startEdit() {
   const c = detail.value
   if (!c) return
   Object.assign(form, blankForm(), {
     id: c.id, name: c.name, contact_person: c.contact_person, phone: c.phone, email: c.email,
-    category_id: c.category_id, level: c.level || '常规', address: c.address,
+    category_id: c.category_id, level: c.level || '常规', address: c.address, source: c.source || '',
     contract_start_date: c.contract_start_date || '', contract_end_date: c.contract_end_date || '',
     office_room: c.office_room || '', map_location: c.map_location || '',
     regionPath: regionPathOf(c.region_id),
@@ -622,7 +562,13 @@ function cancelEdit() {
 }
 
 async function save() {
-  try { await formRef.value?.validate() } catch { return }
+  // 编辑态已无 el-form（值变控件直接 div）：name 必填手动校验；新建弹窗仍有 el-form
+  if (formRef.value) {
+    try { await formRef.value.validate() } catch { return }
+  } else if (!(form.name || '').trim()) {
+    ui.toast('客户名称不能为空', 'warning')
+    return
+  }
   saving.value = true
   try {
     const path = form.regionPath
@@ -636,6 +582,7 @@ async function save() {
       contract_start_date: form.contract_start_date || undefined,
       contract_end_date: form.contract_end_date || undefined,
       office_room: form.office_room, map_location: form.map_location,
+      source: form.source || undefined,
     }
     if (form.id) {
       await updateCustomer(form.id, payload)
@@ -713,12 +660,13 @@ onMounted(() => {
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
   background: var(--el-color-primary-light-9);
 }
-.hero-row1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hero-name { font-size: 16px; font-weight: 700; }
+.hero-name-input { width: 220px; }
+.hero-sep { color: var(--itsm-border); font-weight: 600; }
 .hero-region { color: var(--itsm-text-muted); font-size: 13px; }
-.hero-stats { margin-left: auto; display: flex; gap: 12px; font-size: 13px; color: var(--itsm-text-muted); }
+.hero-stats { display: flex; gap: 12px; font-size: 13px; color: var(--itsm-text-muted); }
 .hero-stats .stat b { font-size: 15px; color: var(--itsm-text); }
-.hero-edit { margin-left: 8px; }
 .hero-row2 { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--itsm-text-muted); }
 .hero-tag { display: inline-flex; align-items: center; gap: 4px; }
 .detail-grid3 {
@@ -727,9 +675,13 @@ onMounted(() => {
 }
 .grid-col { min-width: 0; }
 .grid-col + .grid-col { border-left: 1px dashed var(--itsm-border); padding-left: 20px; }
-.detail-cell { line-height: 1.7; }
-.cell-label { color: var(--itsm-text-muted); font-size: 12px; margin-right: 6px; }
+.detail-cell { line-height: 1.7; display: flex; align-items: center; gap: 6px; }
+.cell-label { color: var(--itsm-text-muted); font-size: 12px; margin-right: 0; flex-shrink: 0; }
 .cell-value { font-size: 13px; word-break: break-all; }
+/* 编辑态：值变控件，小号紧凑与展示对齐 */
+.cell-input { flex: 1; min-width: 0; }
+/* 操作按钮左对齐（不右下角） */
+.drawer-actions.left { justify-content: flex-start; }
 @media (max-width: 767px) {
   .detail-grid3 { grid-template-columns: 1fr; }
   .grid-col + .grid-col { border-left: none; padding-left: 0; border-top: 1px dashed var(--itsm-border); padding-top: 6px; }

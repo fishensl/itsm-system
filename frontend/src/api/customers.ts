@@ -56,6 +56,7 @@ export interface CustomerForm {
   category_id: number | null
   level: string
   address: string
+  source?: string
   has_onsite: boolean
   onsite_contact: string
   onsite_phone: string
