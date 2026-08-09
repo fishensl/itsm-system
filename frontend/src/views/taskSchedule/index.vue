@@ -88,8 +88,8 @@
               </span>
             </div>
             <div class="task-line2">
-              <span class="task-range">{{ rangeText(t) }}</span>
               <span class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+              <span class="task-range">{{ rangeText(t) }}</span>
             </div>
 
             <!-- 行内展开编辑（点击卡片展开，状态/负责人快捷修改） -->
@@ -148,8 +148,8 @@
               </span>
             </div>
             <div class="task-line2">
-              <span class="task-range">{{ rangeText(t) }}</span>
               <span class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+              <span class="task-range">{{ rangeText(t) }}</span>
             </div>
 
             <div v-if="expandedId === t.id" class="inline-edit" @click.stop>
@@ -801,7 +801,7 @@ onMounted(reload)
 }
 .board-cols { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; }
 .board-col {
-  flex: 1; min-width: 260px; border: 1px solid var(--itsm-border); border-radius: 10px;
+  flex: 1; min-width: 290px; border: 1px solid var(--itsm-border); border-radius: 10px;
   background: var(--itsm-card-bg); overflow: hidden;
 }
 .col-head {
@@ -852,17 +852,19 @@ onMounted(reload)
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }
-/* 第二行：时间范围 + 负责人 */
+/* 第二行：负责人（左）+ 时间范围（右对齐） */
 .task-line2 {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   margin-top: 3px; padding-left: 15px; font-size: 12px; color: var(--itsm-text-muted);
 }
-.task-range { white-space: nowrap; }
-.task-assignee { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 行内展开编辑条 */
+.task-assignee {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.task-range { white-space: nowrap; margin-left: auto; }
+/* 行内展开编辑条（单行排布） */
 .inline-edit {
-  display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px;
-  padding-top: 8px; border-top: 1px dashed var(--itsm-border);
+  display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; margin-top: 8px;
+  padding-top: 8px; border-top: 1px dashed var(--itsm-border); overflow-x: auto;
 }
 .inline-record {
   display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px;

@@ -74,7 +74,7 @@
               </el-tag>
               <span class="row-actions" @click.stop>
                 <el-button v-if="user.hasPerm('customer:edit')" size="small" link type="primary"
-                  @click="openEdit(node as Customer)">编辑</el-button>
+                  @click="editFromRow(node as Customer)">编辑</el-button>
                 <el-button v-if="user.hasPerm('customer:delete')" size="small" link type="danger"
                   @click="onDelete(node as Customer)">删除</el-button>
               </span>
@@ -83,6 +83,115 @@
             <!-- 行内下展开详情 -->
             <div v-if="expandedId === (node as Customer).id" v-loading="detailLoading" class="cust-detail">
               <template v-if="detail">
+                <!-- 编辑态：行内就地编辑（不弹窗） -->
+                <div v-if="editing" class="inline-edit">
+                  <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px" size="small">
+                    <el-row :gutter="12">
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="客户名称" prop="name">
+                          <el-input v-model="form.name" placeholder="必填" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="等级">
+                          <el-select v-model="form.level" class="w-full">
+                            <el-option v-for="lv in levelOptions" :key="lv.value" :label="lv.label" :value="lv.value" />
+                          </el-select>
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="联系人">
+                          <el-input v-model="form.contact_person" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="电话">
+                          <el-input v-model="form.phone" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="邮箱">
+                          <el-input v-model="form.email" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="单位类别">
+                          <el-select v-model="form.category_id" clearable class="w-full" placeholder="选择单位类别">
+                            <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
+                          </el-select>
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24">
+                        <el-form-item label="所属地区">
+                          <el-cascader v-model="form.regionPath" :options="regionOptions" clearable class="w-full"
+                            placeholder="地市 → 区县" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24">
+                        <el-form-item label="地址">
+                          <el-input v-model="form.address" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="合同开始">
+                          <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
+                            class="w-full" placeholder="如 2026-01-01" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="合同结束">
+                          <el-date-picker v-model="form.contract_end_date" type="date" value-format="YYYY-MM-DD"
+                            class="w-full" placeholder="如 2026-12-31" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="办公室门牌">
+                          <el-input v-model="form.office_room" placeholder="如 A栋 3F-301" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="地图定位">
+                          <el-input v-model="form.map_location" placeholder="经纬度或地图链接（外网工单可查看）" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24">
+                        <el-form-item label="驻场信息">
+                          <el-checkbox v-model="form.has_onsite">有驻场</el-checkbox>
+                          <el-checkbox v-model="form.has_drill">有攻防演练</el-checkbox>
+                        </el-form-item>
+                      </el-col>
+                      <template v-if="form.has_onsite">
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="驻场联系人">
+                            <el-input v-model="form.onsite_contact" />
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="驻场电话">
+                            <el-input v-model="form.onsite_phone" />
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="驻场办公室">
+                            <el-input v-model="form.onsite_office" />
+                          </el-form-item>
+                        </el-col>
+                      </template>
+                      <el-col :xs="24">
+                        <el-form-item label="备注">
+                          <el-input v-model="form.remark" type="textarea" :rows="2" />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+                  </el-form>
+                  <div class="drawer-actions">
+                    <el-button type="primary" size="small" :loading="saving" @click="save">保存</el-button>
+                    <el-button size="small" @click="cancelEdit">取消</el-button>
+                  </div>
+                </div>
+
+                <!-- 展示态：只读详情 -->
+                <template v-else>
                 <el-divider content-position="left">基本信息</el-divider>
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="等级">
@@ -153,9 +262,10 @@
 
                 <div class="drawer-actions">
                   <el-button v-if="user.hasPerm('customer:edit')" type="primary" size="small"
-                    @click="openEdit(detail)">编辑</el-button>
+                    @click="startEdit">编辑</el-button>
                   <el-button size="small" @click="collapseDetail">收起</el-button>
                 </div>
+                </template>
               </template>
             </div>
           </div>
@@ -404,6 +514,8 @@ async function loadTree() {
 const expandedId = ref<number | null>(null)
 const detailLoading = ref(false)
 const detail = ref<Customer | null>(null)
+// 行内就地编辑：详情展开后点「编辑」直接切换为行内表单（不弹窗）
+const editing = ref(false)
 
 async function toggleDetail(row: { id: number }) {
   if (expandedId.value === row.id) {
@@ -411,6 +523,7 @@ async function toggleDetail(row: { id: number }) {
     return
   }
   expandedId.value = row.id
+  editing.value = false   // 展开其他客户 → 默认展示态
   detailLoading.value = true
   try {
     detail.value = await fetchCustomer(row.id)
@@ -422,6 +535,7 @@ async function toggleDetail(row: { id: number }) {
 function collapseDetail() {
   expandedId.value = null
   detail.value = null
+  editing.value = false
 }
 
 // 支持 /app/customers/:id 直达（全局搜索跳转）
@@ -479,10 +593,14 @@ function regionPathOf(regionId: number | null | undefined): number[] {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  editing.value = false
   formVisible.value = true
 }
 
-function openEdit(c: Customer) {
+/** 行内就地编辑：用已展开的详情填充表单，切换到编辑态（不再弹窗） */
+function startEdit() {
+  const c = detail.value
+  if (!c) return
   Object.assign(form, blankForm(), {
     id: c.id, name: c.name, contact_person: c.contact_person, phone: c.phone, email: c.email,
     category_id: c.category_id, level: c.level || '常规', address: c.address,
@@ -492,7 +610,20 @@ function openEdit(c: Customer) {
     has_onsite: c.has_onsite, onsite_contact: c.onsite_contact, onsite_phone: c.onsite_phone,
     onsite_office: c.onsite_office, has_drill: c.has_drill, remark: c.remark,
   })
-  formVisible.value = true
+  editing.value = true
+}
+
+/** 树节点行直接点「编辑」：先展开详情再进入行内编辑态 */
+async function editFromRow(c: Customer) {
+  if (expandedId.value !== c.id) {
+    await toggleDetail({ id: c.id })
+  }
+  if (detail.value) startEdit()
+}
+
+/** 取消行内编辑：切回展示态，不保存 */
+function cancelEdit() {
+  editing.value = false
 }
 
 async function save() {
@@ -519,6 +650,13 @@ async function save() {
       ui.toast('客户已创建', 'success')
     }
     formVisible.value = false
+    // 行内编辑保存：切回展示态并刷新详情（保持展开，数值最新）
+    if (form.id && editing.value) {
+      editing.value = false
+      try {
+        detail.value = await fetchCustomer(form.id)
+      } catch { /* toast */ }
+    }
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -573,6 +711,8 @@ onMounted(() => {
   background: var(--itsm-card-bg);
   min-height: 60px;
 }
+.inline-edit { padding: 4px 0; }
+.inline-edit :deep(.el-form-item) { margin-bottom: 10px; }
 .ml-2 { margin-left: 4px; }
 .tree-name { font-weight: 600; flex-shrink: 0; }
 .tree-district { font-size: 12px; color: var(--itsm-text-muted); font-weight: 400; }
