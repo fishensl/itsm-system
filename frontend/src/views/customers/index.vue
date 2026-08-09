@@ -207,75 +207,33 @@
                   </div>
                 </div>
 
-                <!-- 展示态：只读详情 -->
+                <!-- 展示态：完整明细列表（紧凑整齐） -->
                 <template v-else>
-                <el-divider content-position="left">基本信息</el-divider>
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="等级">
-                    <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
-                      {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
-                    </el-tag>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="单位类别">{{ detail.category_name || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="所属地区">{{ detail.region_name || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="城市">{{ detail.city || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="联系人">{{ detail.contact_person || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="电话">{{ detail.phone || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="邮箱">{{ detail.email || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="来源">{{ detail.source || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="地址" :span="2">{{ detail.address || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
-                </el-descriptions>
-
-                <el-divider content-position="left">合同服务期</el-divider>
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="合同起止">
-                    {{ detail.contract_start_date || '-' }} ~ {{ detail.contract_end_date || '-' }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="合同状态">
-                    <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
-                      {{ detail.contract_status }}
-                    </el-tag>
-                    <span v-if="detail.contract_remaining_days != null" class="ml-2 text-muted">
-                      {{ detail.contract_remaining_days < 0 ? `已过期 ${-detail.contract_remaining_days} 天` : `剩 ${detail.contract_remaining_days} 天` }}
-                    </span>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="办公室门牌号">{{ detail.office_room || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="地图定位">{{ detail.map_location || '-' }}</el-descriptions-item>
-                </el-descriptions>
-
-                <el-divider content-position="left">驻场信息</el-divider>
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="是否驻场">
-                    <el-tag size="small" :type="detail.has_onsite ? 'success' : 'info'">
-                      {{ detail.has_onsite ? '有' : '无' }}
-                    </el-tag>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="攻防演练">
-                    <el-tag size="small" :type="detail.has_drill ? 'warning' : 'info'">
-                      {{ detail.has_drill ? '有' : '无' }}
-                    </el-tag>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="驻场联系人">{{ detail.onsite_contact || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="驻场电话">{{ detail.onsite_phone || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="驻场办公室" :span="2">{{ detail.onsite_office || '-' }}</el-descriptions-item>
-                </el-descriptions>
-
-                <el-divider content-position="left">关联统计</el-divider>
-                <el-descriptions :column="3" border size="small">
-                  <el-descriptions-item label="设备数">{{ detail.device_count ?? 0 }}</el-descriptions-item>
-                  <el-descriptions-item label="巡检数">{{ detail.inspection_count ?? 0 }}</el-descriptions-item>
-                  <el-descriptions-item label="工单数">{{ detail.ticket_count ?? 0 }}</el-descriptions-item>
-                </el-descriptions>
-
-                <template v-if="detail.extra_fields?.length">
-                  <el-divider content-position="left">自定义字段</el-divider>
-                  <el-descriptions :column="1" border size="small">
-                    <el-descriptions-item v-for="f in detail.extra_fields" :key="f.name" :label="f.name">
-                      {{ f.value || '-' }}
-                    </el-descriptions-item>
-                  </el-descriptions>
-                </template>
+                <el-table :data="detailRows" size="small" border class="detail-table">
+                  <el-table-column prop="label" label="字段" width="130" />
+                  <el-table-column label="值">
+                    <template #default="{ row }">
+                      <template v-if="row.key === 'level'">
+                        <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
+                          {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
+                        </el-tag>
+                      </template>
+                      <template v-else-if="row.key === 'contract_status'">
+                        <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
+                          {{ detail.contract_status }}
+                        </el-tag>
+                        <span v-if="detail.contract_remaining_days != null" class="ml-2 text-muted">
+                          {{ detail.contract_remaining_days < 0 ? `已过期 ${-detail.contract_remaining_days} 天` : `剩 ${detail.contract_remaining_days} 天` }}
+                        </span>
+                      </template>
+                      <el-tag v-else-if="row.key === 'onsite'" size="small"
+                        :type="detail.has_onsite ? 'success' : 'info'">{{ row.value }}</el-tag>
+                      <el-tag v-else-if="row.key === 'drill'" size="small"
+                        :type="detail.has_drill ? 'warning' : 'info'">{{ row.value }}</el-tag>
+                      <span v-else>{{ row.value }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
 
                 <div class="drawer-actions">
                   <el-button v-if="user.hasPerm('customer:edit')" type="primary" size="small"
@@ -555,6 +513,43 @@ function collapseDetail() {
   editing.value = false
 }
 
+/** 展示态明细行（字段名|值 单列表格，紧凑整齐） */
+const detailRows = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  const val = (v: unknown) => (v === null || v === undefined || v === '' ? '-' : String(v))
+  const rows: Array<{ key: string; label: string; value: string }> = [
+    { key: 'name', label: '客户名称', value: val(d.name) },
+    { key: 'level', label: '等级', value: val(d.level) },
+    { key: 'category', label: '单位类别', value: val(d.category_name) },
+    { key: 'region', label: '所属地区', value: val(d.region_name) },
+    { key: 'city', label: '城市', value: val(d.city) },
+    { key: 'contact', label: '联系人', value: val(d.contact_person) },
+    { key: 'phone', label: '电话', value: val(d.phone) },
+    { key: 'email', label: '邮箱', value: val(d.email) },
+    { key: 'source', label: '来源', value: val(d.source) },
+    { key: 'address', label: '地址', value: val(d.address) },
+    { key: 'remark', label: '备注', value: val(d.remark) },
+    { key: 'contract_period', label: '合同起止',
+      value: `${val(d.contract_start_date)} ~ ${val(d.contract_end_date)}` },
+    { key: 'contract_status', label: '合同状态', value: val(d.contract_status) },
+    { key: 'office_room', label: '办公室门牌号', value: val(d.office_room) },
+    { key: 'map_location', label: '地图定位', value: val(d.map_location) },
+    { key: 'onsite', label: '是否驻场', value: d.has_onsite ? '有' : '无' },
+    { key: 'drill', label: '攻防演练', value: d.has_drill ? '有' : '无' },
+    { key: 'onsite_contact', label: '驻场联系人', value: val(d.onsite_contact) },
+    { key: 'onsite_phone', label: '驻场电话', value: val(d.onsite_phone) },
+    { key: 'onsite_office', label: '驻场办公室', value: val(d.onsite_office) },
+    { key: 'device_count', label: '设备数', value: String(d.device_count ?? 0) },
+    { key: 'inspection_count', label: '巡检数', value: String(d.inspection_count ?? 0) },
+    { key: 'ticket_count', label: '工单数', value: String(d.ticket_count ?? 0) },
+  ]
+  for (const f of d.extra_fields || []) {
+    if (f?.name) rows.push({ key: `extra_${f.name}`, label: f.name, value: val(f.value) })
+  }
+  return rows
+})
+
 // 支持 /app/customers/:id 直达（全局搜索跳转）
 onMounted(() => {
   const id = Number(route.params.id)
@@ -730,6 +725,7 @@ onMounted(() => {
 }
 .inline-edit { padding: 4px 0; }
 .inline-edit :deep(.el-form-item) { margin-bottom: 10px; }
+.detail-table :deep(.el-table__cell) { padding: 5px 8px; }
 .ml-2 { margin-left: 4px; }
 .tree-name { font-weight: 600; flex-shrink: 0; }
 .tree-district { font-size: 12px; color: var(--itsm-text-muted); font-weight: 400; }
