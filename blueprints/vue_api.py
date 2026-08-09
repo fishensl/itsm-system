@@ -450,7 +450,7 @@ class _FormAdapter:
         return self._d
 
 
-def _device_payload(d, customer_map=None):
+def _device_payload(d, customer_map=None, rack_map=None, pwd_map=None):
     import json as _json
     iface = []
     if d.interface:
@@ -458,6 +458,8 @@ def _device_payload(d, customer_map=None):
             iface = _json.loads(d.interface) if isinstance(d.interface, str) else d.interface
         except Exception:
             iface = [d.interface]
+    rack = (rack_map or {}).get(d.id)
+    pwd = (pwd_map or {}).get(d.id)
     return {
         'id': d.id,
         'customer_id': d.customer_id,
@@ -467,6 +469,7 @@ def _device_payload(d, customer_map=None):
         'brand': d.brand or '',
         'model': d.model or '',
         'serial_number': d.serial_number or '',
+        'network_type': d.network_type or '',
         'ip_address': d.ip_address or '',
         'port': d.port,
         'username': d.username or '',
@@ -481,8 +484,15 @@ def _device_payload(d, customer_map=None):
         'license_expiry': d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else '',
         'license_start': d.license_start.strftime('%Y-%m-%d') if d.license_start else '',
         'build_date': d.build_date.strftime('%Y-%m-%d') if d.build_date else '',
+        'cert_expiry_date': d.cert_expiry_date.strftime('%Y-%m-%d') if d.cert_expiry_date else '',
         'license_remaining_days': (d.license_expiry - __import__('datetime').date.today()).days
         if d.license_expiry else None,
+        # 机柜位置（最近一次上架记录）与上次改密信息，与导出口径一致（vue_export.build_rack_map/build_pwd_map）
+        'rack_location': rack[0] if rack else '',
+        'rack_name': rack[1] if rack else '',
+        'rack_slot': rack[2] if rack else '',
+        'pwd_changed_by': pwd[0] if pwd else '',
+        'pwd_changed_at': pwd[1] if pwd else '',
         'remark': d.remark or '',
         'created_at': d.created_at.strftime('%Y-%m-%d %H:%M') if d.created_at else '',
     }
@@ -493,8 +503,8 @@ def _device_payload(d, customer_map=None):
 @require_permission('device:view')
 def api_device_list():
     """设备分页列表（DataTable 数据源）"""
-    from models import Device as _Device, Customer as _Customer
-    from sqlalchemy.orm import joinedload as _jl
+    from models import Device as _Device, Customer as _Customer, RackInstall as _RI
+    from sqlalchemy.orm import joinedload as _jl, selectinload as _sil
 
     page = request.args.get('page', 1, type=int)
     page_size = min(request.args.get('page_size', 20, type=int), 100)
@@ -506,7 +516,8 @@ def api_device_list():
     is_in_use = request.args.get('is_in_use', type=int)
 
     q = _Device.query.options(
-        _jl(_Device.customer).joinedload(_Customer.region_rel)
+        _jl(_Device.customer).joinedload(_Customer.region_rel),
+        _sil(_Device.rack_installs).joinedload(_RI.rack_rel),
     )
     if search:
         q = q.filter(_Device.device_name.contains(search) |
@@ -526,8 +537,11 @@ def api_device_list():
     total = q.count()
     rows = q.order_by(_Device.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     customer_map = {c.id: c.name for c in _Customer.query.all()}
+    from blueprints.vue_export import build_rack_map, build_pwd_map
+    rack_map = build_rack_map(rows)
+    pwd_map = build_pwd_map(rows)
     return ok({
-        'items': [_device_payload(d, customer_map) for d in rows],
+        'items': [_device_payload(d, customer_map, rack_map, pwd_map) for d in rows],
         'total': total, 'page': page, 'page_size': page_size,
     })
 
@@ -541,12 +555,13 @@ def api_device_tree():
     未关联客户的设备归「未关联客户」组（最后）；关联客户但无地区归「未分配地区」。
     与列表接口共用筛选参数（search/brand/device_type/is_in_use）。
     """
-    from models import Device as _D, Customer as _C, Region as _R
+    from models import Device as _D, Customer as _C, Region as _R, RackInstall as _RI
+    from sqlalchemy.orm import selectinload as _sil
     search = (request.args.get('search') or '').strip()
     brand = (request.args.get('brand') or '').strip()
     device_type = (request.args.get('device_type') or '').strip()
     is_in_use = request.args.get('is_in_use', type=int)
-    q = _D.query
+    q = _D.query.options(_sil(_D.rack_installs).joinedload(_RI.rack_rel))
     if search:
         q = q.filter(_D.device_name.contains(search) |
                      _D.ip_address.contains(search) |
@@ -561,6 +576,9 @@ def api_device_tree():
     customers = {c.id: c for c in _C.query.all()}
     regions = {r.id: r for r in _R.query.all()}
     customer_map = {c.id: c.name for c in customers.values()}
+    from blueprints.vue_export import build_rack_map, build_pwd_map
+    rack_map = build_rack_map(devices)
+    pwd_map = build_pwd_map(devices)
 
     def city_of(c):
         r = regions.get(c.region_id)
@@ -574,7 +592,7 @@ def api_device_tree():
     cities = {}   # city -> {customer_id: {name, devices}}
     unassigned = []  # 未关联客户设备
     for d in devices:
-        payload = _device_payload(d, customer_map)
+        payload = _device_payload(d, customer_map, rack_map, pwd_map)
         c = customers.get(d.customer_id)
         if not c:
             unassigned.append(payload)
@@ -776,7 +794,9 @@ def api_device_related(device_id):
 def api_device_get(device_id):
     from models import Device as _Device
     d = _Device.query.get_or_404(device_id)
-    return ok(_device_payload(d, {d.customer_id: d.customer.name if d.customer else ''}))
+    from blueprints.vue_export import build_rack_map, build_pwd_map
+    return ok(_device_payload(d, {d.customer_id: d.customer.name if d.customer else ''},
+                              build_rack_map([d]), build_pwd_map([d])))
 
 
 @vue_api_bp.route('/api/devices', methods=['POST'])

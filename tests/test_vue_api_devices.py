@@ -16,6 +16,7 @@ def seed(app):
         db.session.flush()
         d1 = Device(customer_id=c1.id, device_name='SW-A', device_type='交换机',
                     brand='华为', ip_address='10.0.0.1', is_in_use=True,
+                    network_type='内网', cert_expiry_date='2026-12-31',
                     password_encrypted=encrypt_password('Sec#1'))
         d2 = Device(customer_id=c2.id, device_name='FW-B', device_type='防火墙',
                     brand='深信服', ip_address='10.0.0.2', is_in_use=False)
@@ -40,6 +41,12 @@ class TestDeviceList:
         # 列表不含明文密码
         assert all('password' not in d for d in data['items'])
         assert any(d['has_password'] for d in data['items'])
+        # 全量字段（与导出 vue_export.DEVICE_EXPORT_COLUMNS 对齐）下发：网络类型/证书到期/机柜/改密记录
+        first = data['items'][0]
+        assert 'network_type' in first and 'cert_expiry_date' in first
+        assert {'rack_location', 'rack_name', 'rack_slot'} <= first.keys()
+        assert {'pwd_changed_by', 'pwd_changed_at'} <= first.keys()
+        assert first['rack_location'] == ''  # 未上架设备机柜列为空
 
     def test_search(self, op_client, seed):
         r = op_client.get('/api/devices', query_string={'search': 'FW-B'})
@@ -72,6 +79,7 @@ class TestDeviceCrud:
             'device_name': 'SW-C', 'customer_id': seed['c1'], 'device_type': '交换机',
             'brand': 'H3C', 'ip_address': '10.0.0.3', 'is_in_use': True,
             'interface': ['G0/0/1', 'G0/0/2'], 'password': 'Pwd#123',
+            'network_type': 'DMZ', 'cert_expiry_date': '2027-06-30',
         })
         assert r.status_code == 200
         with app.app_context():
@@ -80,6 +88,8 @@ class TestDeviceCrud:
             assert d.customer_id == seed['c1']
             assert 'G0/0/1' in d.interface
             assert d.password_encrypted
+            assert d.network_type == 'DMZ'
+            assert d.cert_expiry_date and d.cert_expiry_date.isoformat() == '2027-06-30'
 
     def test_create_duplicate_name(self, op_client, seed):
         r = op_client.post('/api/devices', json={'device_name': 'SW-A'})
@@ -90,12 +100,15 @@ class TestDeviceCrud:
         r = op_client.put(f"/api/devices/{seed['d1']}", json={
             'device_name': 'SW-A-EDITED', 'customer_id': seed['c2'],
             'device_type': '交换机', 'brand': '华为', 'is_in_use': True,
+            'network_type': '外网', 'cert_expiry_date': '2028-01-01',
         })
         assert r.status_code == 200
         with app.app_context():
             d = Device.query.get(seed['d1'])
             assert d.device_name == 'SW-A-EDITED'
             assert d.customer_id == seed['c2']
+            assert d.network_type == '外网'
+            assert d.cert_expiry_date and d.cert_expiry_date.isoformat() == '2028-01-01'
             # 客户 device_count 同步
             c = Customer.query.get(seed['c2'])
             assert c.device_count == 2  # FW-B + SW-A-EDITED

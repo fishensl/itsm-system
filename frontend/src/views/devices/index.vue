@@ -132,6 +132,7 @@
       <el-descriptions v-if="detail" :column="2" border size="small">
         <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="类型">{{ detail.device_type || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="网络类型">{{ detail.network_type || '-' }}</el-descriptions-item>
         <el-descriptions-item label="品牌">{{ detail.brand || '-' }}</el-descriptions-item>
         <el-descriptions-item label="型号">{{ detail.model || '-' }}</el-descriptions-item>
         <el-descriptions-item label="序列号">{{ detail.serial_number || '-' }}</el-descriptions-item>
@@ -144,12 +145,21 @@
         <el-descriptions-item label="系统版本">{{ detail.os_version || '-' }}</el-descriptions-item>
         <el-descriptions-item label="规则库版本">{{ detail.rule_version || '-' }}</el-descriptions-item>
         <el-descriptions-item label="安装位置">{{ detail.location || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="机柜">
+          <template v-if="detail.rack_name">{{ detail.rack_location || '-' }} / {{ detail.rack_name }}<span v-if="detail.rack_slot"> / {{ detail.rack_slot }}</span></template>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="建设时间">{{ detail.build_date || '-' }}</el-descriptions-item>
         <el-descriptions-item label="授权">
           {{ detail.license_expiry || '-' }}
           <el-tag v-if="detail.license_remaining_days != null" size="small"
             :type="detail.license_remaining_days < 0 ? 'danger' : 'warning'" class="ml-1">
             {{ detail.license_remaining_days < 0 ? `过期 ${-detail.license_remaining_days} 天` : `剩 ${detail.license_remaining_days} 天` }}
           </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="证书到期">
+          {{ detail.cert_expiry_date || '-' }}
+          <el-tag v-if="detail.cert_expiry_date && detail.cert_expiry_date < todayStr" size="small" type="danger" class="ml-1">已过期</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="在用">
           <el-tag size="small" :type="detail.is_in_use ? 'success' : 'info'">
@@ -318,6 +328,15 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
+            <el-form-item label="网络类型">
+              <el-select v-model="form.network_type" filterable allow-create clearable class="w-full">
+                <el-option label="内网" value="内网" />
+                <el-option label="外网" value="外网" />
+                <el-option label="DMZ" value="DMZ" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
             <el-form-item label="品牌/型号">
               <div class="flex-gap">
                 <el-input v-model="form.brand" placeholder="品牌" />
@@ -398,6 +417,12 @@
             <el-form-item label="授权截止">
               <el-date-picker v-model="form.license_expiry" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="截止日期" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="证书到期">
+              <el-date-picker v-model="form.cert_expiry_date" type="date" value-format="YYYY-MM-DD"
+                class="w-full" placeholder="证书到期日" />
             </el-form-item>
           </el-col>
           <el-col :xs="24">
@@ -492,31 +517,60 @@ function onCustomerFilterChange() {
 }
 
 const columns = computed<DataColumn[]>(() => {
+  // 与导出（vue_export.DEVICE_EXPORT_COLUMNS）字段全集对齐：全量进「列设置」，
+  // defaultVisible:false 的列默认隐藏（机柜位置/建设时间/授权开始/网络类型/证书到期/改密记录），可按需开启。
+  // 说明：登录密码为敏感信息，明文不下发列表（查看走详情弹窗 device:reveal + 审计、导出走审核流）。
   const cols: DataColumn[] = [
     { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
       link: (r) => `/app/devices/${r.id}` },
     { key: 'device_type', label: '类型', width: 90 },
     { key: 'customer_name', label: '客户', minWidth: 100 },
+    { key: 'rack_location', label: '机房位置', minWidth: 100, cellClass: () => 'cell-muted' },
+    { key: 'rack_name', label: '机柜号', minWidth: 90, cellClass: () => 'cell-muted' },
+    { key: 'rack_slot', label: '机柜位置', width: 80, defaultVisible: false, cellClass: () => 'cell-muted' },
     { key: 'brand', label: '品牌', minWidth: 100,
       cellClass: () => 'cell-muted' },
     { key: 'model', label: '型号', minWidth: 120,
       cellClass: () => 'cell-muted' },
     { key: 'serial_number', label: '序列号', minWidth: 130,
       cellClass: () => 'cell-muted' },
-    { key: 'ip_address', label: 'IP:端口', minWidth: 130 },
-    { key: 'os_version', label: '系统版本', minWidth: 110 },
-    { key: 'rule_version', label: '规则库版本', minWidth: 110 },
+    { key: 'network_type', label: '网络类型', width: 90, defaultVisible: false },
+    { key: 'ip_address', label: 'IP地址', minWidth: 130 },
+    { key: 'port', label: '端口', width: 70, cellClass: () => 'cell-muted' },
+    { key: 'login_method', label: '登录方式', width: 90 },
+    { key: 'username', label: '登录用户名', minWidth: 100, cellClass: () => 'cell-muted' },
     { key: 'location', label: '安装位置', minWidth: 120,
       cellClass: () => 'cell-muted' },
-    { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
-      tagMap: { 'true': 'success', 'false': 'info' }, valueMap: IN_USE_LABELS },
-    { key: 'license_remaining_days', label: '授权', minWidth: 110,
+    { key: 'os_version', label: '系统版本', minWidth: 110 },
+    { key: 'rule_version', label: '规则库版本', minWidth: 110 },
+    { key: 'build_date', label: '建设时间', minWidth: 100, defaultVisible: false,
+      cellClass: () => 'cell-muted' },
+    { key: 'license_start', label: '授权开始', minWidth: 100, defaultVisible: false,
+      cellClass: () => 'cell-muted' },
+    { key: 'license_expiry', label: '授权截止', minWidth: 100,
+      cellClass: () => 'cell-muted' },
+    { key: 'cert_expiry_date', label: '证书到期', minWidth: 100, defaultVisible: false,
+      cellClass: (r) => {
+        const s = r.cert_expiry_date as string | undefined
+        if (s && s < new Date().toISOString().slice(0, 10)) return 'cell-danger'
+        return ''
+      } },
+    { key: 'license_remaining_days', label: '授权剩余', minWidth: 100,
       cellClass: (r) => {
         const d = r.license_remaining_days as number | null
         if (d != null && d < 0) return 'cell-danger'
         if (d != null && d <= 30) return 'cell-warn'
         return ''
       } },
+    { key: 'is_maintenance', label: '是否维修', width: 90, valueMap: { 'true': '是', 'false': '否' },
+      cellClass: () => 'cell-muted' },
+    { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
+      tagMap: { 'true': 'success', 'false': 'info' }, valueMap: IN_USE_LABELS },
+    { key: 'pwd_changed_by', label: '上次改密账号', minWidth: 110, defaultVisible: false,
+      cellClass: () => 'cell-muted' },
+    { key: 'pwd_changed_at', label: '上次改密时间', minWidth: 100, defaultVisible: false,
+      cellClass: () => 'cell-muted' },
+    { key: 'remark', label: '备注', minWidth: 140, cellClass: () => 'cell-muted' },
     { key: 'actions', label: '操作', width: 120, type: 'action', fixed: 'right',
       actions: [
         { label: '编辑', type: 'primary', link: true, perm: 'device:edit', icon: 'Edit',
@@ -678,6 +732,8 @@ async function doImport() {
 const detailVisible = ref(false)
 const detail = ref<Device | null>(null)
 const pwdVisible = ref(false)
+/** 今日 YYYY-MM-DD（证书到期比较） */
+const todayStr = new Date().toISOString().slice(0, 10)
 const backups = ref<DeviceConfigBackup[]>([])
 const backupsLoading = ref(false)
 const relatedTickets = ref<RelatedTicket[]>([])
@@ -871,9 +927,10 @@ const form = reactive<DeviceForm & { id?: number }>(blankForm())
 function blankForm(): DeviceForm & { id?: number } {
   return {
     id: undefined, device_name: '', customer_id: null, device_type: '', brand: '', model: '',
-    serial_number: '', ip_address: '', port: 22, username: '', password: '', login_method: 'SSH',
-    location: '', interface: [], os_version: '', rule_version: '', is_maintenance: false,
-    is_in_use: true, license_expiry: '', license_start: '', build_date: '', remark: '',
+    serial_number: '', network_type: '', ip_address: '', port: 22, username: '', password: '',
+    login_method: 'SSH', location: '', interface: [], os_version: '', rule_version: '',
+    is_maintenance: false, is_in_use: true, license_expiry: '', license_start: '',
+    build_date: '', cert_expiry_date: '', remark: '',
   }
 }
 
@@ -889,11 +946,12 @@ function openCreate() {
 async function openEdit(d: Device) {
   Object.assign(form, blankForm(), {
     id: d.id, device_name: d.device_name, customer_id: d.customer_id, device_type: d.device_type,
-    brand: d.brand, model: d.model, serial_number: d.serial_number, ip_address: d.ip_address,
-    port: d.port, username: d.username, login_method: d.login_method, location: d.location,
-    interface: [...d.interface], os_version: d.os_version, rule_version: d.rule_version,
-    is_maintenance: d.is_maintenance, is_in_use: d.is_in_use, license_expiry: d.license_expiry,
-    license_start: d.license_start, build_date: d.build_date, remark: d.remark,
+    brand: d.brand, model: d.model, serial_number: d.serial_number, network_type: d.network_type,
+    ip_address: d.ip_address, port: d.port, username: d.username, login_method: d.login_method,
+    location: d.location, interface: [...d.interface], os_version: d.os_version,
+    rule_version: d.rule_version, is_maintenance: d.is_maintenance, is_in_use: d.is_in_use,
+    license_expiry: d.license_expiry, license_start: d.license_start, build_date: d.build_date,
+    cert_expiry_date: d.cert_expiry_date, remark: d.remark,
   })
   detailVisible.value = false
   formVisible.value = true

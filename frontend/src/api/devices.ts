@@ -10,6 +10,7 @@ export interface Device {
   brand: string
   model: string
   serial_number: string
+  network_type: string
   ip_address: string
   port: number
   username: string
@@ -24,7 +25,15 @@ export interface Device {
   license_expiry: string
   license_start: string
   build_date?: string
+  cert_expiry_date?: string
   license_remaining_days: number | null
+  /** 机柜位置（最近一次上架记录，与导出口径一致） */
+  rack_location: string
+  rack_name: string
+  rack_slot: string
+  /** 上次修改密码信息（来自 PasswordHistory） */
+  pwd_changed_by: string
+  pwd_changed_at: string
   remark: string
   created_at: string
   /** 仅 reveal 后临时填充（明文密码不下发列表） */
@@ -38,6 +47,7 @@ export interface DeviceForm {
   brand: string
   model: string
   serial_number: string
+  network_type?: string
   ip_address: string
   port: number
   username: string
@@ -52,6 +62,7 @@ export interface DeviceForm {
   license_expiry: string
   license_start: string
   build_date?: string
+  cert_expiry_date?: string
   remark: string
 }
 

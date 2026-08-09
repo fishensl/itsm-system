@@ -60,11 +60,13 @@ def create_device_from_form(form):
         interface=json.dumps(interfaces, ensure_ascii=False) if interfaces else None,
         os_version=form.get('os_version', ''),
         rule_version=form.get('rule_version', ''),
+        network_type=form.get('network_type', ''),
         is_maintenance=form.get('is_maintenance') == 'on',
         is_in_use=form.get('is_in_use') == 'on',
         license_expiry=_parse_date(form.get('license_expiry')),
         license_start=_parse_date(form.get('license_start')),
         build_date=_parse_date(form.get('build_date')),
+        cert_expiry_date=_parse_date(form.get('cert_expiry_date')),
         remark=form.get('remark', ''),
     )
     db.session.add(d)
@@ -120,11 +122,13 @@ def update_device_from_form(device_id, form):
     d.interface = json.dumps(interfaces, ensure_ascii=False) if interfaces else None
     d.os_version = form.get('os_version', '')
     d.rule_version = form.get('rule_version', '')
+    d.network_type = form.get('network_type', '')
     d.is_maintenance = form.get('is_maintenance') == 'on'
     d.is_in_use = form.get('is_in_use') == 'on'
     d.license_expiry = _parse_date(form.get('license_expiry'))
     d.license_start = _parse_date(form.get('license_start'))
     d.build_date = _parse_date(form.get('build_date'))
+    d.cert_expiry_date = _parse_date(form.get('cert_expiry_date'))
     d.remark = form.get('remark', '')
     return d
 

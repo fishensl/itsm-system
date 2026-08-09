@@ -216,6 +216,8 @@ export interface DataColumn<T = Record<string, any>> {
   /** 移动端卡片：作为标题列 / 徽章列 */
   asTitle?: boolean
   asTag?: boolean
+  /** 默认是否显示（默认 true）：仅未保存过列设置时生效；设为 false 的列默认隐藏，仍可去列设置开启 */
+  defaultVisible?: boolean
 }
 
 const props = withDefaults(
@@ -280,12 +282,15 @@ function saveColSettings() {
   } catch { /* localStorage 不可用时静默 */ }
 }
 
-/** 实际渲染列：用户顺序 + 可见性；新增列自动追加；操作列固定末尾且不可隐藏 */
+/** 实际渲染列：用户顺序 + 可见性；未保存设置时按 defaultVisible 过滤；操作列固定末尾且不可隐藏 */
 const renderCols = computed<DataColumn[]>(() => {
   const all = props.columns
-  if (!props.columnSettings || !colOrder.value) return all
+  if (!props.columnSettings) return all
   const body = all.filter((c) => !isActionCol(c))
   const actions = all.filter((c) => isActionCol(c))
+  if (!colOrder.value) {
+    return [...body.filter((c) => c.defaultVisible !== false), ...actions]
+  }
   const ordered: DataColumn[] = []
   for (const key of colOrder.value) {
     const hit = body.find((c) => c.key === key)
@@ -300,17 +305,22 @@ const renderCols = computed<DataColumn[]>(() => {
 const settingCols = computed(() => {
   const body = props.columns.filter((c) => !isActionCol(c))
   const order = colOrder.value || body.map((c) => c.key)
+  const visible = (col: DataColumn) =>
+    colOrder.value ? colOrder.value.includes(col.key) : col.defaultVisible !== false
   return order
     .map((key) => {
       const col = body.find((c) => c.key === key)
-      return col ? { ...col, visible: !colOrder.value || colOrder.value.includes(col.key) } : null
+      return col ? { ...col, visible: visible(col) } : null
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .concat(body.filter((c) => !order.includes(c.key)).map((c) => ({ ...c, visible: false })))
 })
 
 function toggleCol(key: string, visible: boolean) {
-  if (!colOrder.value) colOrder.value = props.columns.filter((c) => !isActionCol(c)).map((c) => c.key)
+  if (!colOrder.value) {
+    colOrder.value = props.columns
+      .filter((c) => !isActionCol(c) && c.defaultVisible !== false).map((c) => c.key)
+  }
   const set = new Set(colOrder.value)
   if (visible) set.add(key)
   else set.delete(key)
