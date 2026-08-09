@@ -670,13 +670,13 @@ onMounted(() => {
 .hero-row2 { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--itsm-text-muted); }
 .hero-tag { display: inline-flex; align-items: center; gap: 4px; }
 .detail-grid3 {
-  display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 0 20px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 20px;
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px 12px;
 }
 .grid-col { min-width: 0; }
 .grid-col + .grid-col { border-left: 1px dashed var(--itsm-border); padding-left: 20px; }
 .detail-cell { line-height: 1.7; display: flex; align-items: center; gap: 6px; }
-.cell-label { color: var(--itsm-text-muted); font-size: 12px; margin-right: 0; flex-shrink: 0; }
+.cell-label { color: var(--itsm-text-muted); font-size: 12px; flex-shrink: 0; width: 92px; }
 .cell-value { font-size: 13px; word-break: break-all; }
 /* 编辑态：值变控件，小号紧凑与展示对齐 */
 .cell-input { flex: 1; min-width: 0; }
