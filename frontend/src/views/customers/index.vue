@@ -207,36 +207,57 @@
                   </div>
                 </div>
 
-                <!-- 展示态：3 列紧凑网格 -->
+                <!-- 展示态：顶栏概要 + 三栏明细 -->
                 <template v-else>
-                <div class="detail-grid">
-                  <div v-for="row in detailRows" :key="row.key" class="detail-cell">
-                    <span class="cell-label">{{ row.label }}</span>
-                    <span class="cell-value">
-                      <el-tag v-if="row.key === 'level'" size="small"
-                        :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
-                        {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
-                      </el-tag>
-                      <template v-else-if="row.key === 'contract_status'">
-                        <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
-                          {{ detail.contract_status }}
-                        </el-tag>
-                        <span v-if="detail.contract_remaining_days != null" class="ml-2 text-muted">
-                          {{ detail.contract_remaining_days < 0 ? `已过期 ${-detail.contract_remaining_days} 天` : `剩 ${detail.contract_remaining_days} 天` }}
-                        </span>
-                      </template>
-                      <el-tag v-else-if="row.key === 'onsite'" size="small"
-                        :type="detail.has_onsite ? 'success' : 'info'">{{ row.value }}</el-tag>
-                      <el-tag v-else-if="row.key === 'drill'" size="small"
-                        :type="detail.has_drill ? 'warning' : 'info'">{{ row.value }}</el-tag>
-                      <span v-else>{{ row.value }}</span>
+                <div class="detail-hero">
+                  <div class="hero-row1">
+                    <span class="hero-name">{{ detail.name }}</span>
+                    <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[detail.level] || 'info'">
+                      {{ CUSTOMER_LEVEL_LABELS[detail.level] || detail.level }}
+                    </el-tag>
+                    <span class="hero-region">{{ [detail.city, detail.region_name].filter(Boolean).join(' ') || '-' }}</span>
+                    <span class="hero-stats">
+                      <span class="stat">设备 <b>{{ detail.device_count ?? 0 }}</b></span>
+                      <span class="stat">巡检 <b>{{ detail.inspection_count ?? 0 }}</b></span>
+                      <span class="stat">工单 <b>{{ detail.ticket_count ?? 0 }}</b></span>
                     </span>
+                    <el-button v-if="user.hasPerm('customer:edit')" size="small" type="primary"
+                      @click="startEdit" class="hero-edit">编辑</el-button>
+                  </div>
+                  <div class="hero-row2">
+                    <span class="hero-tag">合同
+                      <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
+                        {{ detail.contract_status === '未设置合同' ? '未设置' : detail.contract_status }}
+                      </el-tag>
+                    </span>
+                    <span class="hero-tag">起止：{{ detail.contract_start_date || '-' }} ~ {{ detail.contract_end_date || '-' }}</span>
+                    <span class="hero-tag">驻场：<el-tag size="small" :type="detail.has_onsite ? 'success' : 'info'">{{ detail.has_onsite ? '有' : '无' }}</el-tag></span>
+                    <span class="hero-tag">演练：<el-tag size="small" :type="detail.has_drill ? 'warning' : 'info'">{{ detail.has_drill ? '有' : '无' }}</el-tag></span>
+                  </div>
+                </div>
+
+                <div class="detail-grid3">
+                  <div class="grid-col">
+                    <div class="detail-cell"><span class="cell-label">联系人</span><span class="cell-value">{{ detail.contact_person || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">电话</span><span class="cell-value">{{ detail.phone || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">邮箱</span><span class="cell-value">{{ detail.email || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">单位类别</span><span class="cell-value">{{ detail.category_name || '-' }}</span></div>
+                  </div>
+                  <div class="grid-col">
+                    <div class="detail-cell"><span class="cell-label">地址</span><span class="cell-value">{{ detail.address || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">办公室门牌号</span><span class="cell-value">{{ detail.office_room || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">地图定位</span><span class="cell-value">{{ detail.map_location || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">来源</span><span class="cell-value">{{ detail.source || '-' }}</span></div>
+                  </div>
+                  <div class="grid-col">
+                    <div class="detail-cell"><span class="cell-label">驻场联系人</span><span class="cell-value">{{ detail.onsite_contact || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">驻场电话</span><span class="cell-value">{{ detail.onsite_phone || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">驻场办公室</span><span class="cell-value">{{ detail.onsite_office || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">备注</span><span class="cell-value">{{ detail.remark || '-' }}</span></div>
                   </div>
                 </div>
 
                 <div class="drawer-actions">
-                  <el-button v-if="user.hasPerm('customer:edit')" type="primary" size="small"
-                    @click="startEdit">编辑</el-button>
                   <el-button size="small" @click="collapseDetail">收起</el-button>
                 </div>
                 </template>
@@ -512,43 +533,6 @@ function collapseDetail() {
   editing.value = false
 }
 
-/** 展示态明细行（字段名|值 单列表格，紧凑整齐） */
-const detailRows = computed(() => {
-  const d = detail.value
-  if (!d) return []
-  const val = (v: unknown) => (v === null || v === undefined || v === '' ? '-' : String(v))
-  const rows: Array<{ key: string; label: string; value: string }> = [
-    { key: 'name', label: '客户名称', value: val(d.name) },
-    { key: 'level', label: '等级', value: val(d.level) },
-    { key: 'category', label: '单位类别', value: val(d.category_name) },
-    { key: 'region', label: '所属地区', value: val(d.region_name) },
-    { key: 'city', label: '城市', value: val(d.city) },
-    { key: 'contact', label: '联系人', value: val(d.contact_person) },
-    { key: 'phone', label: '电话', value: val(d.phone) },
-    { key: 'email', label: '邮箱', value: val(d.email) },
-    { key: 'source', label: '来源', value: val(d.source) },
-    { key: 'address', label: '地址', value: val(d.address) },
-    { key: 'remark', label: '备注', value: val(d.remark) },
-    { key: 'contract_period', label: '合同起止',
-      value: `${val(d.contract_start_date)} ~ ${val(d.contract_end_date)}` },
-    { key: 'contract_status', label: '合同状态', value: val(d.contract_status) },
-    { key: 'office_room', label: '办公室门牌号', value: val(d.office_room) },
-    { key: 'map_location', label: '地图定位', value: val(d.map_location) },
-    { key: 'onsite', label: '是否驻场', value: d.has_onsite ? '有' : '无' },
-    { key: 'drill', label: '攻防演练', value: d.has_drill ? '有' : '无' },
-    { key: 'onsite_contact', label: '驻场联系人', value: val(d.onsite_contact) },
-    { key: 'onsite_phone', label: '驻场电话', value: val(d.onsite_phone) },
-    { key: 'onsite_office', label: '驻场办公室', value: val(d.onsite_office) },
-    { key: 'device_count', label: '设备数', value: String(d.device_count ?? 0) },
-    { key: 'inspection_count', label: '巡检数', value: String(d.inspection_count ?? 0) },
-    { key: 'ticket_count', label: '工单数', value: String(d.ticket_count ?? 0) },
-  ]
-  for (const f of d.extra_fields || []) {
-    if (f?.name) rows.push({ key: `extra_${f.name}`, label: f.name, value: val(f.value) })
-  }
-  return rows
-})
-
 // 支持 /app/customers/:id 直达（全局搜索跳转）
 onMounted(() => {
   const id = Number(route.params.id)
@@ -724,15 +708,32 @@ onMounted(() => {
 }
 .inline-edit { padding: 4px 0; }
 .inline-edit :deep(.el-form-item) { margin-bottom: 10px; }
-/* 详情展示态：3 列紧凑网格 */
-.detail-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px;
+/* 详情展示态：顶栏概要 + 三栏明细 */
+.detail-hero {
+  border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+  background: var(--el-color-primary-light-9);
 }
-.detail-cell { min-width: 0; line-height: 1.7; }
+.hero-row1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-name { font-size: 16px; font-weight: 700; }
+.hero-region { color: var(--itsm-text-muted); font-size: 13px; }
+.hero-stats { margin-left: auto; display: flex; gap: 12px; font-size: 13px; color: var(--itsm-text-muted); }
+.hero-stats .stat b { font-size: 15px; color: var(--itsm-text); }
+.hero-edit { margin-left: 8px; }
+.hero-row2 { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--itsm-text-muted); }
+.hero-tag { display: inline-flex; align-items: center; gap: 4px; }
+.detail-grid3 {
+  display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 0 20px;
+  border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px 12px;
+}
+.grid-col { min-width: 0; }
+.grid-col + .grid-col { border-left: 1px dashed var(--itsm-border); padding-left: 20px; }
+.detail-cell { line-height: 1.7; }
 .cell-label { color: var(--itsm-text-muted); font-size: 12px; margin-right: 6px; }
 .cell-value { font-size: 13px; word-break: break-all; }
 @media (max-width: 767px) {
-  .detail-grid { grid-template-columns: repeat(2, 1fr); }
+  .detail-grid3 { grid-template-columns: 1fr; }
+  .grid-col + .grid-col { border-left: none; padding-left: 0; border-top: 1px dashed var(--itsm-border); padding-top: 6px; }
+  .hero-stats { margin-left: 0; }
 }
 .ml-2 { margin-left: 4px; }
 .tree-name { font-weight: 600; flex-shrink: 0; }
