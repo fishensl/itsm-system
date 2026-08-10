@@ -43,6 +43,10 @@ def create_fault(data, current_user_name):
         impact_range=data.get('impact_range', ''),
         solution=data.get('solution', ''),
         handler=data.get('handler', '') or current_user_name,
+        # 三级分级分类（前端三级联动提交；fault_type 自由文本兼容历史数据）
+        fault_category_level1=data.get('category_l1', ''),
+        fault_category_level2=data.get('category_l2', ''),
+        fault_category_level3=data.get('category_l3', ''),
     )
     db.session.add(f)
     return f
@@ -64,6 +68,12 @@ def update_fault(fault_id, data):
     f.impact_range = data.get('impact_range', f.impact_range)
     f.solution = data.get('solution', f.solution)
     f.handler = data.get('handler', f.handler)
+    if 'category_l1' in data:
+        f.fault_category_level1 = data.get('category_l1', '')
+    if 'category_l2' in data:
+        f.fault_category_level2 = data.get('category_l2', '')
+    if 'category_l3' in data:
+        f.fault_category_level3 = data.get('category_l3', '')
     return f
 
 

@@ -9,6 +9,10 @@ export interface Fault {
   handler: string
   fault_time: string
   fault_type: string
+  fault_category_level1?: string
+  fault_category_level2?: string
+  fault_category_level3?: string
+  fault_category?: string
   result: string
   impact_range: string
   fault_description?: string
@@ -25,6 +29,7 @@ export interface FaultQuery {
   page_size?: number
   search?: string
   fault_type?: string
+  category_l1?: string
   result?: string
 }
 
@@ -32,6 +37,15 @@ export const FAULT_RESULT_TAG: Record<string, 'primary' | 'success' | 'warning' 
   已解决: 'success',
   待观察: 'warning',
   未解决: 'danger',
+}
+
+/** 故障分类树节点（三级） */
+export interface FaultCategoryNode {
+  id: number
+  name: string
+  level: number
+  parent_id: number | null
+  children: FaultCategoryNode[]
 }
 
 export function fetchFaults(params: FaultQuery) {
@@ -62,13 +76,30 @@ export function convertFaultToTicket(id: number) {
 }
 
 export interface FaultDicts {
-  fault_types: { id: number; name: string }[]
+  fault_types: FaultCategoryNode[]
   customers: { id: number; name: string; region_id: number | null }[]
   results: string[]
 }
 
 export function fetchFaultDicts() {
   return request<FaultDicts>({ url: '/api/dicts/faults', method: 'GET' })
+}
+
+// ==================== 故障分类字典 CRUD（三级） ====================
+export function fetchFaultCategories() {
+  return request<FaultCategoryNode[]>({ url: '/api/fault-categories', method: 'GET' })
+}
+
+export function createFaultCategory(data: { name: string; parent_id?: number | null; sort_order?: number }) {
+  return request<{ id: number }>({ url: '/api/fault-categories', method: 'POST', data })
+}
+
+export function updateFaultCategory(id: number, data: { name?: string; parent_id?: number | null; sort_order?: number }) {
+  return request<null>({ url: `/api/fault-categories/${id}`, method: 'PUT', data })
+}
+
+export function deleteFaultCategory(id: number) {
+  return request<null>({ url: `/api/fault-categories/${id}`, method: 'DELETE' })
 }
 
 export function exportFaults(params: Record<string, unknown>) {

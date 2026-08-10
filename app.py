@@ -12,7 +12,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from models import db, User, DeviceType, FaultType
+from models import db, User, DeviceType
 from utils.permission import register_template_functions
 from config import Config, setup_logging, setup_security_headers
 
@@ -345,13 +345,11 @@ def init_db(app):
             db.session.commit()
             app.logger.info('默认设备类型已创建')
 
-        # 创建默认故障类型
-        if FaultType.query.count() == 0:
-            defaults = ['网络中断', '设备故障', '安全事件', '链路故障', '电源故障', '配置错误', '性能问题', '其他']
-            for i, name in enumerate(defaults):
-                db.session.add(FaultType(name=name, sort_order=i))
-            db.session.commit()
-            app.logger.info('默认故障类型已创建')
+        # 默认故障分类（九大体系）——幂等播种：已有旧扁平类型也能补齐三级树
+        from scripts.seed_fault_categories import seed_fault_categories
+        seed_fault_categories(app)
+        db.session.commit()
+        app.logger.info('故障分类（九大体系）已同步')
 
 
 if __name__ == '__main__':

@@ -337,6 +337,8 @@ def api_kb_dicts():
 # ==================== 故障记录 ====================
 def _fault_payload(f, customer_map=None, ticket_map=None):
     """ticket_map: {ticket_id: number}（列表端点批量构建，避免逐行查工单号）"""
+    l1, l2, l3 = f.fault_category_level1 or '', f.fault_category_level2 or '', f.fault_category_level3 or ''
+    category = '/'.join(x for x in (l1, l2, l3) if x) or ''
     return {
         'id': f.id,
         'title': f.title,
@@ -345,6 +347,10 @@ def _fault_payload(f, customer_map=None, ticket_map=None):
         'handler': f.handler or '',
         'fault_time': f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '',
         'fault_type': f.fault_type or '',
+        'fault_category_level1': l1,
+        'fault_category_level2': l2,
+        'fault_category_level3': l3,
+        'fault_category': category,
         'result': f.result or '',
         'impact_range': f.impact_range or '',
         'ticket_id': f.ticket_id,          # S6: 已转工单桥接（前端显示/防重复转单）
@@ -362,6 +368,7 @@ def api_fault_list():
     page_size = min(request.args.get('page_size', 20, type=int), 100)
     search = (request.args.get('search') or '').strip()
     fault_type = (request.args.get('fault_type') or '').strip()
+    category_l1 = (request.args.get('category_l1') or '').strip()
     result = (request.args.get('result') or '').strip()
 
     q = _F.query
@@ -372,6 +379,8 @@ def api_fault_list():
         q = q.filter(_F.title.contains(search))
     if fault_type:
         q = q.filter(_F.fault_type == fault_type)
+    if category_l1:
+        q = q.filter(_F.fault_category_level1 == category_l1)
     if result:
         q = q.filter(_F.result == result)
     total = q.count()
@@ -482,17 +491,122 @@ def api_fault_convert(fault_id):
     return ok({'ticket_id': t.id, 'ticket_number': t.number})
 
 
+def _fault_category_tree():
+    """故障分类三级树（一次查全表，内存按 parent_id 组装）"""
+    from models import FaultType as _FT
+    rows = _FT.query.order_by(_FT.sort_order, _FT.id).all()
+    by_id = {t.id: {'id': t.id, 'name': t.name, 'level': t.level,
+                    'parent_id': t.parent_id, 'children': []} for t in rows}
+    tree = []
+    for t in rows:
+        node = by_id[t.id]
+        if t.parent_id and t.parent_id in by_id:
+            by_id[t.parent_id]['children'].append(node)
+        else:
+            tree.append(node)
+    return tree
+
+
 @vue_api_bp.route('/api/dicts/faults', methods=['GET'])
 @login_required
 @require_permission('fault:view')
 def api_fault_dicts():
-    from models import FaultType as _FT
     from utils.customer_scope import customer_dropdown_options
-    fault_types = [{'id': t.id, 'name': t.name}
-                   for t in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
+    fault_types = _fault_category_tree()
     customers = customer_dropdown_options(current_user)
     results = ['已解决', '待观察', '未解决']
     return ok({'fault_types': fault_types, 'customers': customers, 'results': results})
+
+
+# ==================== 故障分类字典 CRUD（三级分级） ====================
+def _fault_cat_payload(t):
+    return {'id': t.id, 'name': t.name, 'parent_id': t.parent_id,
+            'level': t.level, 'sort_order': t.sort_order}
+
+
+@vue_api_bp.route('/api/fault-categories', methods=['GET'])
+@login_required
+@require_permission('fault:view')
+def api_fault_category_list():
+    return ok(_fault_category_tree())
+
+
+@vue_api_bp.route('/api/fault-categories', methods=['POST'])
+@login_required
+@require_permission('fault:edit')
+def api_fault_category_create():
+    from models import FaultType as _FT
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return fail('分类名称不能为空', 400)
+    parent_id = int(data['parent_id']) if data.get('parent_id') else None
+    level = int(data.get('level') or 1)
+    if parent_id:
+        parent = _FT.query.get(parent_id)
+        if not parent:
+            return fail('上级分类不存在', 404)
+        level = (parent.level or 1) + 1
+        if level > 3:
+            return fail('最多支持三级分类', 400)
+    if _FT.query.filter_by(name=name, parent_id=parent_id).first():
+        return fail('同级下已存在同名分类', 400)
+    t = _FT(name=name, parent_id=parent_id, level=level,
+            sort_order=int(data.get('sort_order') or 0))
+    db.session.add(t)
+    db.session.commit()
+    return ok({'id': t.id})
+
+
+@vue_api_bp.route('/api/fault-categories/<int:cat_id>', methods=['PUT'])
+@login_required
+@require_permission('fault:edit')
+def api_fault_category_update(cat_id):
+    from models import FaultType as _FT
+    t = _FT.query.get_or_404(cat_id)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if name:
+        dup = _FT.query.filter_by(name=name, parent_id=t.parent_id).first()
+        if dup and dup.id != t.id:
+            return fail('同级下已存在同名分类', 400)
+        t.name = name
+    if 'parent_id' in data:
+        parent_id = int(data['parent_id']) if data.get('parent_id') else None
+        if parent_id == t.id:
+            return fail('上级分类不能是自身', 400)
+        if parent_id:
+            parent = _FT.query.get(parent_id)
+            if not parent:
+                return fail('上级分类不存在', 404)
+            t.level = (parent.level or 1) + 1
+            if t.level > 3:
+                return fail('最多支持三级分类', 400)
+        else:
+            t.parent_id = None
+            t.level = 1
+        t.parent_id = parent_id
+    if data.get('sort_order') is not None:
+        t.sort_order = int(data['sort_order'])
+    db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/fault-categories/<int:cat_id>', methods=['DELETE'])
+@login_required
+@require_permission('fault:edit')
+def api_fault_category_delete(cat_id):
+    from models import FaultType as _FT, Fault as _F
+    t = _FT.query.get_or_404(cat_id)
+    if _FT.query.filter_by(parent_id=cat_id).first():
+        return fail('该分类下存在子分类，请先删除子分类', 400)
+    if _F.query.filter((_F.fault_category_level1 == t.name)
+                       | (_F.fault_category_level2 == t.name)
+                       | (_F.fault_category_level3 == t.name)).first():
+        return fail('该分类已被故障记录引用，无法删除', 400)
+    db.session.delete(t)
+    db.session.commit()
+    return ok(None)
 
 
 # ==================== 报告中心 ====================

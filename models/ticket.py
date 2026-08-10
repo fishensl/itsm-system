@@ -9,10 +9,12 @@ from models.base import db
 # ============================
 
 class FaultType(db.Model):
-    """故障类型"""
+    """故障类型（三级分级分类：一级 parent_id 为空，二级/三级通过 parent_id 挂载）"""
     __tablename__ = 'fault_types'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), unique=True, nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('fault_types.id'), nullable=True, index=True)
+    level = db.Column(db.Integer, default=1)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -165,6 +167,7 @@ class Fault(db.Model):
     # v3 新增：结构化故障字段（与 Ticket 一致，为向量化准备）
     fault_category_level1 = db.Column(db.String(64), default='')
     fault_category_level2 = db.Column(db.String(64), default='')
+    fault_category_level3 = db.Column(db.String(64), default='')
     symptoms_json = db.Column(db.Text, default='[]')
     affected_components_json = db.Column(db.Text, default='[]')
     resolution_steps_json = db.Column(db.Text, default='[]')

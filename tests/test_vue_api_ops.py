@@ -345,6 +345,34 @@ class TestFaultCreateUpdate:
         r = op_client.post('/api/faults', json={'title': ''})
         assert r.status_code == 400
 
+    def test_create_with_category_levels(self, op_client, fault_seed, app):
+        """三级分类写入 fault_category_level1/2/3（新数据只写三级列）"""
+        r = op_client.post('/api/faults', json={
+            'title': '摄像头故障', 'customer_id': fault_seed['c'],
+            'category_l1': '九、监控系统故障', 'category_l2': '摄像头故障',
+            'category_l3': '单个摄像头无画面（黑屏）', 'result': '已解决'})
+        assert r.status_code == 200
+        with app.app_context():
+            f = Fault.query.filter_by(title='摄像头故障').first()
+            assert f.fault_category_level1 == '九、监控系统故障'
+            assert f.fault_category_level2 == '摄像头故障'
+            assert f.fault_category_level3 == '单个摄像头无画面（黑屏）'
+        r = op_client.get('/api/faults')
+        item = r.get_json()['data']['items'][0]
+        assert item['fault_category'] == '九、监控系统故障/摄像头故障/单个摄像头无画面（黑屏）'
+
+    def test_filter_by_category_l1(self, op_client, fault_seed, app):
+        with app.app_context():
+            f = Fault.query.get(fault_seed['f'])
+            f.fault_category_level1 = '一、网络与通信故障'
+            f.fault_category_level2 = '内网故障'
+            f.fault_category_level3 = '单个电脑无法访问内网'
+            db.session.commit()
+        r = op_client.get('/api/faults', query_string={'category_l1': '一、网络与通信故障'})
+        assert r.get_json()['data']['total'] == 1
+        r = op_client.get('/api/faults', query_string={'category_l1': '九、监控系统故障'})
+        assert r.get_json()['data']['total'] == 0
+
     def test_update(self, op_client, fault_seed, app):
         r = op_client.put(f"/api/faults/{fault_seed['f']}", json={
             'title': '改故障', 'result': '未解决', 'solution': '返厂维修'})
@@ -376,16 +404,67 @@ class TestFaultDelete:
 
 
 class TestFaultDicts:
-    def test_dicts(self, op_client, app):
+    def test_dicts_tree(self, op_client, app):
+        """/api/dicts/faults 返回三级分类树"""
         with app.app_context():
-            db.session.add(FaultType(name='网络故障', sort_order=1))
+            l1 = FaultType(name='网络故障', level=1)
+            db.session.add(l1)
+            db.session.flush()
+            db.session.add(FaultType(name='内网故障', parent_id=l1.id, level=2))
             db.session.commit()
         r = op_client.get('/api/dicts/faults')
         body = r.get_json()
         assert body['code'] == 0
         data = body['data']
-        assert '网络故障' in [t['name'] for t in data['fault_types']]
+        roots = data['fault_types']
+        assert '网络故障' in [t['name'] for t in roots]
+        net = next(t for t in roots if t['name'] == '网络故障')
+        assert '内网故障' in [c['name'] for c in net['children']]
         assert '已解决' in data['results']
+
+
+class TestFaultCategories:
+    def test_crud_level_autocompute(self, admin_client, app):
+        """分类 CRUD + 层级自动推导 + 有子级不可删 + 被故障引用不可删"""
+        r = admin_client.post('/api/fault-categories', json={'name': '一、网络与通信故障'})
+        assert r.status_code == 200
+        l1_id = r.get_json()['data']['id']
+        r = admin_client.post('/api/fault-categories', json={'name': '内网故障', 'parent_id': l1_id})
+        assert r.status_code == 200
+        l2_id = r.get_json()['data']['id']
+        r = admin_client.post('/api/fault-categories', json={'name': '单个电脑无法访问内网', 'parent_id': l2_id})
+        assert r.status_code == 200
+        l3_id = r.get_json()['data']['id']
+        with app.app_context():
+            l2 = FaultType.query.get(l2_id)
+            assert l2.level == 2
+            l3 = FaultType.query.get(l3_id)
+            assert l3.level == 3
+        # 树接口含三级嵌套
+        r = admin_client.get('/api/fault-categories')
+        tree = r.get_json()['data']
+        net = next(t for t in tree if t['name'] == '一、网络与通信故障')
+        inner = next(c for c in net['children'] if c['name'] == '内网故障')
+        assert '单个电脑无法访问内网' in [c['name'] for c in inner['children']]
+        # 重名同级 400
+        r = admin_client.post('/api/fault-categories', json={'name': '内网故障', 'parent_id': l1_id})
+        assert r.status_code == 400
+        # 有子级不可删
+        r = admin_client.delete(f'/api/fault-categories/{l1_id}')
+        assert r.status_code == 400
+        # 更新名称
+        r = admin_client.put(f'/api/fault-categories/{l3_id}', json={'name': '单电脑无法访问内网'})
+        assert r.status_code == 200
+        # 被故障引用不可删
+        with app.app_context():
+            c = Customer(name='分类客户')
+            db.session.add(c)
+            db.session.flush()
+            db.session.add(Fault(title='引用故障', customer_id=c.id,
+                                 fault_category_level3='单电脑无法访问内网'))
+            db.session.commit()
+        r = admin_client.delete(f'/api/fault-categories/{l3_id}')
+        assert r.status_code == 400
 
 
 # ==================== 报告中心 ====================

@@ -5,7 +5,7 @@
         <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="故障时间">{{ detail.fault_time || '-' }}</el-descriptions-item>
         <el-descriptions-item label="处理人">{{ detail.handler || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="故障类型">{{ detail.fault_type || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="故障分类">{{ detail.fault_category || detail.fault_type || '-' }}</el-descriptions-item>
         <el-descriptions-item label="处理结果">
           <el-tag size="small" :type="FAULT_RESULT_TAG[detail.result] || 'danger'">
             {{ detail.result || '-' }}

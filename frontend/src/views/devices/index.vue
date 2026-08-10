@@ -64,7 +64,7 @@
       <el-form label-width="90px">
         <el-form-item label="修改项">
           <el-select v-model="batchForm.type" class="w-full">
-            <el-option label="安装位置" value="location" />
+            <el-option label="机房位置" value="rack" />
             <el-option label="网络类型" value="network_type" />
             <el-option label="品牌" value="brand" />
             <el-option label="型号" value="model" />
@@ -75,15 +75,18 @@
             <el-option label="授权截止" value="license_expiry" />
             <el-option label="证书到期" value="cert_expiry_date" />
             <el-option label="备注" value="remark" />
-            <el-option label="机柜位置" value="rack" />
           </el-select>
         </el-form-item>
         <template v-if="batchForm.type === 'rack'">
-          <el-form-item label="机柜">
-            <el-select v-model="batchForm.rack_id" filterable placeholder="选择机柜（机柜号 / 机房位置）"
-              class="w-full">
-              <el-option v-for="r in racks" :key="r.id" :value="r.id"
-                :label="`${r.name}${r.location ? `（${r.location}）` : ''}`" />
+          <el-form-item label="机房位置">
+            <el-select v-model="batchForm.location" filterable allow-create default-first-option
+              placeholder="选择机房位置（内网/外网机房等）" class="w-full" @change="onBatchLocationChange">
+              <el-option v-for="loc in rackLocations" :key="loc" :label="loc || '（未填写机房）'" :value="loc" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="机柜号">
+            <el-select v-model="batchForm.rack_id" filterable placeholder="选择该机房的机柜" class="w-full">
+              <el-option v-for="r in filteredRacks" :key="r.id" :value="r.id" :label="r.name" />
             </el-select>
           </el-form-item>
           <el-form-item label="起始U位">
@@ -598,12 +601,26 @@ const batchForm = reactive<{
   type: string
   value: unknown
   rack_id: number | undefined
+  location: string
   start_u: number
   occupy_u: number
-}>({ type: 'location', value: '', rack_id: undefined, start_u: 1, occupy_u: 1 })
+}>({ type: 'rack', value: '', rack_id: undefined, location: '', start_u: 1, occupy_u: 1 })
 
 const isDateBatchField = computed(() =>
   ['license_start', 'license_expiry', 'cert_expiry_date'].includes(batchForm.type))
+
+/** 机房位置列表（机柜 location 去重） */
+const rackLocations = computed<string[]>(() =>
+  [...new Set(racks.value.map((r) => r.location || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh')))
+
+/** 按所选机房位置过滤的机柜（机柜号） */
+const filteredRacks = computed(() =>
+  batchForm.location ? racks.value.filter((r) => (r.location || '') === batchForm.location)
+    : racks.value)
+
+function onBatchLocationChange() {
+  batchForm.rack_id = undefined
+}
 
 function onSelectionChange(rows: Record<string, unknown>[]) {
   selectedRows.value = rows
@@ -615,9 +632,10 @@ function clearSelection() {
 }
 
 async function openBatchEdit() {
-  batchForm.type = 'location'
+  batchForm.type = 'rack'
   batchForm.value = ''
   batchForm.rack_id = undefined
+  batchForm.location = ''
   batchForm.start_u = 1
   batchForm.occupy_u = 1
   if (!racks.value.length) {

@@ -4,6 +4,7 @@
       <h2 class="page-title">故障记录</h2>
       <div class="header-actions">
         <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
+        <el-button v-if="user.hasPerm('fault:edit')" plain @click="catVisible = true">分类管理</el-button>
         <el-button v-if="user.hasPerm('fault:add')" type="primary" :icon="Plus" @click="openCreate">
           新建故障
         </el-button>
@@ -14,13 +15,18 @@
     <ExportDialog v-model="exportVisible" module="fault" title="导出故障记录"
       @submit="onExportSubmit" />
 
+    <!-- 故障分类管理（三级） -->
+    <el-dialog v-model="catVisible" title="故障分类管理" width="720px" top="5vh" destroy-on-close>
+      <FaultCategories @changed="loadDicts" />
+    </el-dialog>
+
     <!-- 筛选 -->
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <el-input v-model="query.search" placeholder="搜索标题" clearable class="filter-search"
           @keyup.enter="reload" @clear="reload" />
-        <el-select v-model="query.fault_type" placeholder="故障类型" clearable class="filter-item" @change="reload">
-          <el-option v-for="t in dicts?.fault_types || []" :key="t.id" :label="t.name" :value="t.name" />
+        <el-select v-model="query.category_l1" placeholder="一级分类" clearable class="filter-item" @change="reload">
+          <el-option v-for="t in l1Categories" :key="t.id" :label="t.name" :value="t.name" />
         </el-select>
         <el-select v-model="query.result" placeholder="处理结果" clearable class="filter-item" @change="reload">
           <el-option v-for="r in dicts?.results || []" :key="r" :label="r" :value="r" />
@@ -75,9 +81,26 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="故障类型">
-              <el-select v-model="form.fault_type" filterable allow-create clearable class="w-full">
-                <el-option v-for="t in dicts?.fault_types || []" :key="t.id" :label="t.name" :value="t.name" />
+            <el-form-item label="故障分类">
+              <el-select v-model="form.category_l1" filterable clearable placeholder="一级分类" class="w-full"
+                @change="onL1Change">
+                <el-option v-for="t in l1Categories" :key="t.id" :label="t.name" :value="t.name" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="子分类">
+              <el-select v-model="form.category_l2" filterable clearable placeholder="二级分类" class="w-full"
+                @change="onL2Change">
+                <el-option v-for="t in l2Categories" :key="t.id" :label="t.name" :value="t.name" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="三级分类">
+              <el-select v-model="form.category_l3" filterable allow-create clearable placeholder="三级分类（可自定义）"
+                class="w-full">
+                <el-option v-for="t in l3Categories" :key="t.id" :label="t.name" :value="t.name" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -130,6 +153,7 @@ import {
   fetchFaults, fetchFault, createFault, updateFault, deleteFault, convertFaultToTicket,
   fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts,
 } from '@/api/faults'
+import FaultCategories from './FaultCategories.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -165,8 +189,30 @@ const regionCustomers = computed(() => {
   return filtered.length ? filtered : custs
 })
 
-const query = reactive<Record<string, unknown>>({ search: '', fault_type: '', result: '' })
+const query = reactive<Record<string, unknown>>({ search: '', category_l1: '', result: '' })
 const tableRef = ref()
+const catVisible = ref(false)
+
+/** 一级分类树（九大类） */
+const l1Categories = computed(() => dicts.value?.fault_types || [])
+/** 二级分类（按所选一级过滤） */
+const l2Categories = computed(() => {
+  const l1 = l1Categories.value.find((t) => t.name === form.category_l1)
+  return l1?.children || []
+})
+/** 三级分类（按所选二级过滤） */
+const l3Categories = computed(() => {
+  const l2 = l2Categories.value.find((t) => t.name === form.category_l2)
+  return l2?.children || []
+})
+
+function onL1Change() {
+  form.category_l2 = ''
+  form.category_l3 = ''
+}
+function onL2Change() {
+  form.category_l3 = ''
+}
 
 const columns = computed<DataColumn[]>(() => [
   { key: 'title', label: '标题', type: 'link', minWidth: 200, asTitle: true,
@@ -174,7 +220,8 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'handler', label: '处理人', width: 90 },
   { key: 'fault_time', label: '故障时间', width: 130 },
-  { key: 'fault_type', label: '故障类型', width: 100 },
+  { key: 'fault_category', label: '故障分类', minWidth: 160,
+    render: (r) => r.fault_category || r.fault_type || '-' },
   { key: 'result', label: '处理结果', width: 90, type: 'tag', asTag: true, tagMap: FAULT_RESULT_TAG },
   { key: 'impact_range', label: '影响范围', minWidth: 120 },
   { key: 'actions', label: '操作', width: 140, type: 'action', fixed: 'right',
@@ -233,14 +280,16 @@ const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', customer_id: null, handler: '', fault_time: '',
-  fault_type: '', result: '已解决', recovery_time: '',
+  fault_type: '', category_l1: '', category_l2: '', category_l3: '',
+  result: '已解决', recovery_time: '',
   fault_description: '', fault_cause: '', solution: '', impact_range: '',
 })
 const formRules = { title: [{ required: true, message: '请输入故障标题', trigger: 'blur' }] }
 
 function blankForm() {
   return { id: null, title: '', customer_id: null, handler: '', fault_time: '',
-    fault_type: '', result: '已解决', recovery_time: '',
+    fault_type: '', category_l1: '', category_l2: '', category_l3: '',
+    result: '已解决', recovery_time: '',
     fault_description: '', fault_cause: '', solution: '', impact_range: '' }
 }
 
@@ -264,6 +313,9 @@ async function openEdit(f: Fault) {
       fault_cause: detailData.fault_cause || '',
       solution: detailData.solution || '',
       impact_range: detailData.impact_range || '',
+      category_l1: detailData.fault_category_level1 || '',
+      category_l2: detailData.fault_category_level2 || '',
+      category_l3: detailData.fault_category_level3 || '',
     })
     formVisible.value = true
   } catch { /* toast */ }
@@ -291,9 +343,15 @@ async function save() {
 
 function reload() { tableRef.value?.refresh() }
 
-onMounted(() => {
-  fetchFaultDicts().then((d) => (dicts.value = d))
-})
+async function loadDicts() {
+  try {
+    const d = await fetchFaultDicts()
+    dicts.value = d
+  } catch { /* toast */ }
+}
+
+onMounted(loadDicts)
+
 </script>
 
 <style scoped>
