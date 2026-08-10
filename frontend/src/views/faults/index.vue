@@ -82,26 +82,15 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="故障分类">
-              <el-select v-model="form.category_l1" filterable clearable placeholder="一级分类" class="w-full"
-                @change="onL1Change">
-                <el-option v-for="t in l1Categories" :key="t.id" :label="t.name" :value="t.name" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item label="子分类">
-              <el-select v-model="form.category_l2" filterable clearable placeholder="二级分类" class="w-full"
-                @change="onL2Change">
-                <el-option v-for="t in l2Categories" :key="t.id" :label="t.name" :value="t.name" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item label="三级分类">
-              <el-select v-model="form.category_l3" filterable allow-create clearable placeholder="三级分类（可自定义）"
-                class="w-full">
-                <el-option v-for="t in l3Categories" :key="t.id" :label="t.name" :value="t.name" />
-              </el-select>
+              <el-cascader
+                v-model="form.category_path"
+                :options="cascadeOptions"
+                :props="{ emitPath: true, checkStrictly: false }"
+                filterable
+                clearable
+                placeholder="一级 → 二级 → 三级"
+                class="w-full"
+              />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -151,7 +140,7 @@ import { useUiStore } from '@/stores/ui'
 import { handleExportResult } from '@/utils/export'
 import {
   fetchFaults, fetchFault, createFault, updateFault, deleteFault, convertFaultToTicket,
-  fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts,
+  fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts, type FaultCategoryNode,
 } from '@/api/faults'
 import FaultCategories from './FaultCategories.vue'
 
@@ -193,26 +182,15 @@ const query = reactive<Record<string, unknown>>({ search: '', category_l1: '', r
 const tableRef = ref()
 const catVisible = ref(false)
 
-/** 一级分类树（九大类） */
+/** 一级分类（筛选用） */
 const l1Categories = computed(() => dicts.value?.fault_types || [])
-/** 二级分类（按所选一级过滤） */
-const l2Categories = computed(() => {
-  const l1 = l1Categories.value.find((t) => t.name === form.category_l1)
-  return l1?.children || []
-})
-/** 三级分类（按所选二级过滤） */
-const l3Categories = computed(() => {
-  const l2 = l2Categories.value.find((t) => t.name === form.category_l2)
-  return l2?.children || []
-})
 
-function onL1Change() {
-  form.category_l2 = ''
-  form.category_l3 = ''
-}
-function onL2Change() {
-  form.category_l3 = ''
-}
+/** el-cascader 选项：三级树转 {value,name,children}（选一级→二级→三级逐级展开） */
+const cascadeOptions = computed(() => {
+  const convert = (nodes: { id: number; name: string; children: FaultCategoryNode[] }[]): unknown[] =>
+    nodes.map((n) => ({ value: n.name, label: n.name, children: n.children?.length ? convert(n.children) : undefined }))
+  return convert(l1Categories.value)
+})
 
 const columns = computed<DataColumn[]>(() => [
   { key: 'title', label: '标题', type: 'link', minWidth: 200, asTitle: true,
@@ -280,16 +258,14 @@ const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', customer_id: null, handler: '', fault_time: '',
-  fault_type: '', category_l1: '', category_l2: '', category_l3: '',
-  result: '已解决', recovery_time: '',
+  fault_type: '', category_path: [], result: '已解决', recovery_time: '',
   fault_description: '', fault_cause: '', solution: '', impact_range: '',
 })
 const formRules = { title: [{ required: true, message: '请输入故障标题', trigger: 'blur' }] }
 
 function blankForm() {
   return { id: null, title: '', customer_id: null, handler: '', fault_time: '',
-    fault_type: '', category_l1: '', category_l2: '', category_l3: '',
-    result: '已解决', recovery_time: '',
+    fault_type: '', category_path: [], result: '已解决', recovery_time: '',
     fault_description: '', fault_cause: '', solution: '', impact_range: '' }
 }
 
@@ -304,6 +280,8 @@ function openCreate() {
 async function openEdit(f: Fault) {
   try {
     const detailData = await fetchFault(f.id)
+    const path = [detailData.fault_category_level1, detailData.fault_category_level2,
+      detailData.fault_category_level3].filter(Boolean)
     Object.assign(form, {
       id: detailData.id, title: detailData.title, customer_id: detailData.customer_id,
       handler: detailData.handler, fault_time: detailData.fault_time,
@@ -313,9 +291,7 @@ async function openEdit(f: Fault) {
       fault_cause: detailData.fault_cause || '',
       solution: detailData.solution || '',
       impact_range: detailData.impact_range || '',
-      category_l1: detailData.fault_category_level1 || '',
-      category_l2: detailData.fault_category_level2 || '',
-      category_l3: detailData.fault_category_level3 || '',
+      category_path: path,
     })
     formVisible.value = true
   } catch { /* toast */ }
@@ -325,11 +301,17 @@ async function save() {
   try { await formRef.value?.validate() } catch { return }
   saving.value = true
   try {
+    const path = (form.category_path as string[]) || []
+    const payload = { ...form } as Record<string, unknown>
+    payload.category_l1 = path[0] || ''
+    payload.category_l2 = path[1] || ''
+    payload.category_l3 = path[2] || ''
+    delete payload.category_path
     if (form.id) {
-      await updateFault(form.id as number, { ...form })
+      await updateFault(form.id as number, payload)
       ui.toast('已保存', 'success')
     } else {
-      await createFault({ ...form })
+      await createFault(payload)
       ui.toast('故障记录已创建', 'success')
     }
     formVisible.value = false

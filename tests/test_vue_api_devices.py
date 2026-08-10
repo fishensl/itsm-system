@@ -162,6 +162,26 @@ class TestDeviceBatchUpdate:
             'device_ids': [seed['d1']], 'field': 'password', 'value': 'x'})
         assert r.status_code == 400
 
+    def test_batch_update_rack_location(self, admin_client, seed, app):
+        """批量改机房位置：更新最近上架记录所在机柜的 Rack.location；未上架设备跳过"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='A-01', location='机房A', total_u=42)
+            db.session.add(rack)
+            db.session.flush()
+            db.session.add(RackInstall(rack_id=rack.id, device_id=seed['d1'], start_u=1, occupy_u=1))
+            db.session.commit()
+            rack_id = rack.id
+        r = admin_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1'], seed['d2']], 'field': 'rack_location', 'value': '机房B'})
+        assert r.status_code == 200
+        data = r.get_json()['data']
+        assert data['count'] == 1  # d1 已上架
+        assert data['skipped'] == 1  # d2 未上架跳过
+        with app.app_context():
+            rack = Rack.query.get(rack_id)
+            assert rack.location == '机房B'
+
     def test_batch_update_rack(self, admin_client, seed, app):
         """批量迁移机柜：自动连续排布 U 位、机房位置/机柜号随机柜、迁移走旧记录"""
         from models import Rack, RackInstall
