@@ -67,6 +67,22 @@
       </template>
     </DataTable>
 
+    <!-- 派单弹窗（选择处理人） -->
+    <el-dialog v-model="assignVisible" :title="assignTarget ? `派单：${assignTarget.number}` : '派单'"
+      width="440px" destroy-on-close>
+      <el-form label-width="80px">
+        <el-form-item label="处理人">
+          <el-select v-model="assignUserId" filterable placeholder="选择处理人" class="w-full">
+            <el-option v-for="u in assignUsers" :key="u.id" :label="u.name" :value="u.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assigning" @click="doAssign">确认派单</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 挂起工单（采购等待/无法处置暂停处置时效） -->
     <el-dialog v-model="suspendVisible" title="挂起工单" width="480px" destroy-on-close>
       <el-alert type="info" :closable="false" class="mb-2"
@@ -243,7 +259,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, Download, FolderOpened, UploadFilled } from '@element-plus/icons-vue'
+import { Plus, Search, Download, FolderOpened, UploadFilled, UserFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import TicketExpandRow from './TicketExpandRow.vue'
 import { useUserStore } from '@/stores/user'
@@ -259,6 +275,7 @@ import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
 import { TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
 import type { SubmissionVersion as SV } from '@/api/inspections'
+import { fetchDepartments } from '@/api/system'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -308,8 +325,11 @@ const columns = computed<DataColumn[]>(() => [
     tagMap: { true: 'success', false: 'warning' } as Record<string, 'success' | 'warning'>,
     valueMap: { true: '完整', false: '不完整' } },
   { key: 'created_at', label: '创建时间', width: 130 },
-  { key: 'actions', label: '操作', width: 90, type: 'action', fixed: 'right',
+  { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right',
     actions: [
+      { label: '派单', type: 'primary', link: true, icon: 'UserFilled',
+        disabled: (row) => !canAssign.value || row.status !== '待派单',
+        onClick: (row) => openAssignDialog(row as unknown as Ticket) },
       { label: '处理', type: 'primary', link: true, perm: 'ticket:view', icon: 'View',
         onClick: (row) => tableRef.value?.toggleExpand(row) },
       { label: '删除', type: 'danger', link: true, perm: 'ticket:delete', icon: 'Delete',
@@ -335,7 +355,7 @@ async function doAction(row: Ticket, action: string, assigneeVal?: string, appro
   actionRow.value = row
   const payload: { action: string; assignee?: string; approved?: boolean } = { action }
   if (action === 'assign') {
-    if (!assigneeVal?.trim()) { ui.toast('请填写处理人', 'warning'); return }
+    if (!assigneeVal?.trim()) { ui.toast('请选择处理人', 'warning'); return }
     payload.assignee = assigneeVal.trim()
   }
   if (typeof approved === 'boolean') payload.approved = approved
@@ -346,6 +366,39 @@ async function doAction(row: Ticket, action: string, assigneeVal?: string, appro
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
+}
+
+// ---- 派单（ticket:assign 或部门主管，admin 短路） ----
+const canAssign = computed(() =>
+  user.hasPerm('ticket:assign') || user.isSupervisor)
+
+const assignVisible = ref(false)
+const assigning = ref(false)
+const assignTarget = ref<Ticket | null>(null)
+const assignUserId = ref<number | null>(null)
+const assignUsers = ref<{ id: number; name: string }[]>([])
+
+async function openAssignDialog(row: Ticket) {
+  assignTarget.value = row
+  assignUserId.value = null
+  if (!assignUsers.value.length) {
+    try {
+      const d = await fetchDepartments()
+      assignUsers.value = d.users
+    } catch { /* toast */ }
+  }
+  assignVisible.value = true
+}
+
+async function doAssign() {
+  if (!assignTarget.value || !assignUserId.value) {
+    ui.toast('请选择处理人', 'warning')
+    return
+  }
+  const name = assignUsers.value.find((u) => u.id === assignUserId.value)?.name || ''
+  if (!name) return
+  assignVisible.value = false
+  await doAction(assignTarget.value, 'assign', name)
 }
 
 async function openAudit(row: Ticket, approved: boolean) {

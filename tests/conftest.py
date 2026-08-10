@@ -156,6 +156,7 @@ def _create_test_users():
 
     op 用户级 grant inspection:review / ticket:review：V24 起 operator 角色不再下发审核
     权限（审核岗位 = admin + 用户级授权），op 保留审核能力以对齐既有审核用例。
+    另 grant ticket:assign（独立派单权限），保持工单状态机用例可派单。
     """
     from models import UserPermission
     for username, role in [('admin', 'admin'), ('op', 'operator'),
@@ -166,7 +167,7 @@ def _create_test_users():
                 realname=username, role=role))
     db.session.flush()
     op = User.query.filter_by(username='op').first()
-    for perm_code in ('inspection:review', 'ticket:review'):
+    for perm_code in ('inspection:review', 'ticket:review', 'ticket:assign'):
         exists = UserPermission.query.filter_by(user_id=op.id, permission_code=perm_code).first()
         if not exists:
             db.session.add(UserPermission(user_id=op.id, permission_code=perm_code,

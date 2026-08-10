@@ -11,7 +11,9 @@
         size="small"
         :max-height="maxHeight"
         @row-click="onRowClick"
+        @selection-change="onSelectionChange"
       >
+        <el-table-column v-if="selectable" type="selection" width="36" />
         <el-table-column v-if="expandable" type="expand" width="36">
           <template #default="scope">
             <slot name="expand" :row="scope.row" />
@@ -239,16 +241,22 @@ const props = withDefaults(
     expandable?: boolean
     /** 列设置（可选启用）：storageKey 为 localStorage 键；不传则无列设置功能 */
     columnSettings?: { storageKey: string; title?: string }
+    /** 行多选（可选启用，默认关）：桌面表格显示 selection 列，选中变化 emit selection-change */
+    selectable?: boolean
   }>(),
   {
     rowKey: 'id',
     emptyText: '暂无数据',
     immediate: true,
     expandable: false,
+    selectable: false,
   },
 )
 
-const emit = defineEmits<{ (e: 'row-click', row: Record<string, any>): void }>()
+const emit = defineEmits<{
+  (e: 'row-click', row: Record<string, any>): void
+  (e: 'selection-change', rows: Record<string, any>[]): void
+}>()
 
 const items = ref<Record<string, any>[]>([])
 const total = ref(0)
@@ -460,6 +468,15 @@ function onRowClick(row: Record<string, unknown>) {
     tableEl.value?.toggleRowExpansion(row)
   }
   emit('row-click', row)
+}
+
+function onSelectionChange(rows: Record<string, any>[]) {
+  emit('selection-change', rows)
+}
+
+/** 清空多选（供批量操作完成后调用） */
+function clearSelection() {
+  tableEl.value?.clearSelection()
 }
 
 /** 切换指定行展开（供操作列"查看"按钮等调用） */

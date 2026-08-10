@@ -3,7 +3,7 @@
     <div class="page-header">
       <h2 class="page-title">设备管理</h2>
       <div class="header-actions">
-        <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
+        <el-button :icon="Download" plain @click="openExport">导出</el-button>
         <el-button :icon="Document" plain @click="loadMyRequests">我的导出申请</el-button>
         <el-button v-if="user.hasPerm('device:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('device:add')" type="primary" :icon="Plus" @click="openCreate">
@@ -12,9 +12,9 @@
       </div>
     </div>
 
-    <!-- 导出对话框（三类预设 + 列选择 + 密码审核流） -->
+    <!-- 导出对话框（三类预设 + 列选择 + 密码审核流；默认选中当前查看客户） -->
     <ExportDialog v-model="exportVisible" module="device" title="导出设备"
-      @submit="onExportSubmit" />
+      :default-customer-ids="exportDefaultCustomers" @submit="onExportSubmit" />
 
     <!-- 我的导出申请 -->
     <el-dialog v-model="requestsVisible" title="我的导出申请" width="760px" top="6vh" destroy-on-close>
@@ -54,6 +54,69 @@
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
         <el-button type="primary" :loading="importing" @click="doImport">开始导入</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量修改弹窗（字段 + 机柜位置） -->
+    <el-dialog v-model="batchVisible" title="批量修改设备" width="520px" destroy-on-close>
+      <el-alert type="info" :closable="false" show-icon class="mb-2"
+        :title="`将对选中的 ${selectedRows.length} 台设备生效`" />
+      <el-form label-width="90px">
+        <el-form-item label="修改项">
+          <el-select v-model="batchForm.type" class="w-full">
+            <el-option label="安装位置" value="location" />
+            <el-option label="网络类型" value="network_type" />
+            <el-option label="品牌" value="brand" />
+            <el-option label="型号" value="model" />
+            <el-option label="设备类型" value="device_type" />
+            <el-option label="是否在用" value="is_in_use" />
+            <el-option label="是否维修" value="is_maintenance" />
+            <el-option label="授权开始" value="license_start" />
+            <el-option label="授权截止" value="license_expiry" />
+            <el-option label="证书到期" value="cert_expiry_date" />
+            <el-option label="备注" value="remark" />
+            <el-option label="机柜位置" value="rack" />
+          </el-select>
+        </el-form-item>
+        <template v-if="batchForm.type === 'rack'">
+          <el-form-item label="机柜">
+            <el-select v-model="batchForm.rack_id" filterable placeholder="选择机柜（机柜号 / 机房位置）"
+              class="w-full">
+              <el-option v-for="r in racks" :key="r.id" :value="r.id"
+                :label="`${r.name}${r.location ? `（${r.location}）` : ''}`" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="起始U位">
+            <el-input-number v-model="batchForm.start_u" :min="1" :max="42" />
+          </el-form-item>
+          <el-form-item label="占用U数">
+            <el-input-number v-model="batchForm.occupy_u" :min="1" :max="42" />
+          </el-form-item>
+        </template>
+        <el-form-item v-else-if="batchForm.type === 'is_in_use' || batchForm.type === 'is_maintenance'" label="值">
+          <el-radio-group v-model="batchForm.value">
+            <el-radio :value="true">是</el-radio>
+            <el-radio :value="false">否</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-else-if="batchForm.type === 'network_type'" label="值">
+          <el-select v-model="batchForm.value" allow-create filterable clearable class="w-full">
+            <el-option label="内网" value="内网" />
+            <el-option label="外网" value="外网" />
+            <el-option label="DMZ" value="DMZ" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else-if="isDateBatchField" label="值">
+          <el-date-picker v-model="batchForm.value" type="date" value-format="YYYY-MM-DD" class="w-full" />
+        </el-form-item>
+        <el-form-item v-else-if="batchForm.type" label="值">
+          <el-input v-model="batchForm.value" :type="batchForm.type === 'remark' ? 'textarea' : 'text'"
+            :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSaving" @click="doBatchSave">保存</el-button>
       </template>
     </el-dialog>
 
@@ -116,14 +179,23 @@
 
     <!-- 表格模式：当前客户完整设备表格 -->
     <template v-else>
+      <!-- 批量修改操作条（勾选设备后显示） -->
+      <div v-if="selectedRows.length" class="batch-bar">
+        <span class="batch-count">已选 {{ selectedRows.length }} 台设备</span>
+        <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary"
+          @click="openBatchEdit">批量修改</el-button>
+        <el-button size="small" @click="clearSelection">取消选择</el-button>
+      </div>
       <DataTable
         ref="tableRef"
         :columns="columns"
         :fetch-data="fetchDevices"
         :query="query"
         row-key="id"
+        selectable
         :column-settings="{ storageKey: 'device-table-columns' }"
         @row-click="openDetail"
+        @selection-change="onSelectionChange"
       />
     </template>
 
@@ -466,7 +538,9 @@ import {
   type DeviceTreeGroup, type RelatedTicket, type RelatedInspection,
   type PasswordHistoryItem, type DeviceExportRequestItem,
   requestDeviceExport, fetchDeviceExportRequests, exportPasswordDownloadUrl,
+  batchUpdateDevices,
 } from '@/api/devices'
+import { fetchRacks } from '@/api/rack'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
 
@@ -513,6 +587,79 @@ function onCustomerFilterChange() {
     ? { id: cid, name: customers.value.find((c) => c.id === cid)?.name || `客户 #${cid}` }
     : { id: null, name: '全部客户' }
   tableRef.value?.refresh()
+}
+
+// ==================== 批量修改（勾选设备 → 字段/机柜位置） ====================
+const selectedRows = ref<Record<string, unknown>[]>([])
+const batchVisible = ref(false)
+const batchSaving = ref(false)
+const racks = ref<{ id: number; name: string; location?: string }[]>([])
+const batchForm = reactive<{
+  type: string
+  value: unknown
+  rack_id: number | undefined
+  start_u: number
+  occupy_u: number
+}>({ type: 'location', value: '', rack_id: undefined, start_u: 1, occupy_u: 1 })
+
+const isDateBatchField = computed(() =>
+  ['license_start', 'license_expiry', 'cert_expiry_date'].includes(batchForm.type))
+
+function onSelectionChange(rows: Record<string, unknown>[]) {
+  selectedRows.value = rows
+}
+
+function clearSelection() {
+  selectedRows.value = []
+  tableRef.value?.clearSelection?.()
+}
+
+async function openBatchEdit() {
+  batchForm.type = 'location'
+  batchForm.value = ''
+  batchForm.rack_id = undefined
+  batchForm.start_u = 1
+  batchForm.occupy_u = 1
+  if (!racks.value.length) {
+    try {
+      const d = await fetchRacks({ page: 1, page_size: 1000 })
+      racks.value = d.items
+    } catch { /* toast */ }
+  }
+  batchVisible.value = true
+}
+
+async function doBatchSave() {
+  if (!selectedRows.value.length) return
+  const ids = selectedRows.value.map((r) => Number(r.id))
+  batchSaving.value = true
+  try {
+    if (batchForm.type === 'rack') {
+      if (!batchForm.rack_id) {
+        ui.toast('请选择机柜', 'warning')
+        return
+      }
+      await batchUpdateDevices({
+        device_ids: ids, rack_id: batchForm.rack_id,
+        start_u: batchForm.start_u, occupy_u: batchForm.occupy_u,
+      })
+    } else {
+      if ((typeof batchForm.value === 'string' && !batchForm.value.trim())
+        || batchForm.value === null || batchForm.value === undefined) {
+        ui.toast('请填写修改值', 'warning')
+        return
+      }
+      await batchUpdateDevices({ device_ids: ids, field: batchForm.type, value: batchForm.value })
+    }
+    ui.toast(`已批量修改 ${ids.length} 台设备`, 'success')
+    batchVisible.value = false
+    clearSelection()
+    reload()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    batchSaving.value = false
+  }
 }
 
 // ==================== 授权列：区间文本 + 到期状态色框 ====================
@@ -636,6 +783,13 @@ function downloadTemplate() {
 const exportVisible = ref(false)
 const requestsVisible = ref(false)
 const exportRequests = ref<DeviceExportRequestItem[]>([])
+/** 打开导出弹窗时默认选中的客户（当前查看的客户） */
+const exportDefaultCustomers = ref<number[]>([])
+
+function openExport() {
+  exportDefaultCustomers.value = query.customer_id != null ? [Number(query.customer_id)] : []
+  exportVisible.value = true
+}
 
 async function onExportSubmit(payload: Record<string, unknown>) {
   try {
@@ -1048,6 +1202,25 @@ fetchDeviceDicts().then((d) => {
 <style scoped>
 .filter-card {
   margin-bottom: 12px;
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 6px 12px;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
+}
+.batch-count {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-color-primary);
+}
+.mb-2 {
+  margin-bottom: 8px;
 }
 .filter-row {
   display: flex;

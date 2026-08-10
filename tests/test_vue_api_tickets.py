@@ -257,6 +257,31 @@ class TestTicketVersionedSubmit:
         r = viewer_client.post(f"/api/tickets/{seed['t']}/action", json={'action': 'audit', 'approved': True})
         assert r.status_code == 403
 
+    def test_assign_requires_assign_permission(self, app, admin_client, op_client, seed):
+        """ticket:assign 独立派单权限：有 ticket:edit 但无 assign → 403；op（grant 过）→ 200"""
+        # 新建纯 operator（角色模板含 ticket:edit，无 ticket:assign）
+        with app.app_context():
+            from models import User
+            u = User.create_with_password(username='op2', password='pass123',
+                                          realname='op2', role='operator')
+            db.session.add(u)
+            db.session.commit()
+        op2_client = app.test_client()
+        r = op2_client.post('/login', data={'username': 'op2', 'password': 'pass123'},
+                            follow_redirects=False)
+        assert r.status_code == 302
+        r = op2_client.post(f"/api/tickets/{seed['t']}/action",
+                            json={'action': 'assign', 'assignee': 'op'})
+        assert r.status_code == 403
+        assert r.get_json()['required'] == 'ticket:assign'
+        r = op_client.post(f"/api/tickets/{seed['t']}/action",
+                           json={'action': 'assign', 'assignee': 'op'})
+        assert r.status_code == 200
+        with app.app_context():
+            t = Ticket.query.get(seed['t'])
+            assert t.status == '已派单'
+            assert t.assigned_to == 'op'
+
     def test_report_download(self, op_client, seed, app):
         self._to_processing(op_client, seed['t'])
         r = op_client.post(f"/api/tickets/{seed['t']}/action", data={

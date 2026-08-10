@@ -133,6 +133,99 @@ class TestDeviceCrud:
             assert c2.device_count == 0
 
 
+class TestDeviceBatchUpdate:
+    def test_batch_update_field(self, op_client, seed, app):
+        """批量修改普通字段（安装位置）"""
+        r = op_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1'], seed['d2']], 'field': 'location', 'value': '机房A-1号柜'})
+        assert r.status_code == 200
+        assert r.get_json()['data']['count'] == 2
+        with app.app_context():
+            for did in (seed['d1'], seed['d2']):
+                assert Device.query.get(did).location == '机房A-1号柜'
+
+    def test_batch_update_bool_and_date(self, op_client, seed, app):
+        """批量修改布尔与日期字段"""
+        r = op_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1']], 'field': 'is_in_use', 'value': False})
+        assert r.status_code == 200
+        r = op_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1']], 'field': 'license_expiry', 'value': '2027-12-31'})
+        assert r.status_code == 200
+        with app.app_context():
+            d = Device.query.get(seed['d1'])
+            assert d.is_in_use is False
+            assert d.license_expiry and d.license_expiry.isoformat() == '2027-12-31'
+
+    def test_batch_update_unknown_field_400(self, op_client, seed):
+        r = op_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1']], 'field': 'password', 'value': 'x'})
+        assert r.status_code == 400
+
+    def test_batch_update_rack(self, admin_client, seed, app):
+        """批量迁移机柜：自动连续排布 U 位、机房位置/机柜号随机柜、迁移走旧记录"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='B-02', location='机房B', total_u=42)
+            db.session.add(rack)
+            db.session.flush()
+            # 预置 d1 的旧上架记录
+            old_rack = Rack(customer_id=seed['c1'], name='A-01', location='机房A', total_u=42)
+            db.session.add(old_rack)
+            db.session.flush()
+            db.session.add(RackInstall(rack_id=old_rack.id, device_id=seed['d1'], start_u=1, occupy_u=1))
+            db.session.commit()
+            rack_id, old_rack_id = rack.id, old_rack.id
+        r = admin_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1'], seed['d2']], 'rack_id': rack_id, 'start_u': 3, 'occupy_u': 1})
+        assert r.status_code == 200
+        assert r.get_json()['data']['count'] == 2
+        with app.app_context():
+            # 两台设备自动连续排布：d1@U3、d2@U4；旧 A-01 记录已迁移删除（无幽灵占位）
+            inst1 = RackInstall.query.filter_by(device_id=seed['d1']).first()
+            inst2 = RackInstall.query.filter_by(device_id=seed['d2']).first()
+            assert inst1 is not None and inst1.rack_id == rack_id and inst1.start_u == 3
+            assert inst2 is not None and inst2.rack_id == rack_id and inst2.start_u == 4
+            assert RackInstall.query.filter_by(rack_id=old_rack_id).count() == 0
+
+    def test_batch_update_rack_range_conflict_400(self, admin_client, seed, app):
+        """批量迁移机柜：U 位超出机柜容量（连续排布超限）→ 400 且整体回滚"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='B-03', location='机房B', total_u=4)
+            db.session.add(rack)
+            db.session.commit()
+            rack_id = rack.id
+        # 起始 U4 + 2 台占用 U1 → 第二台 U5 超出 total_u=4
+        r = admin_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1'], seed['d2']], 'rack_id': rack_id, 'start_u': 4, 'occupy_u': 1})
+        assert r.status_code == 400
+        assert 'U 位超出范围' in r.get_json()['message']
+        with app.app_context():
+            assert RackInstall.query.filter_by(rack_id=rack_id).count() == 0
+
+    def test_batch_update_rack_existing_occupation_conflict_400(self, admin_client, seed, app):
+        """批量迁移机柜：与机柜既有占用冲突 → 400（基线校验仍生效）"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='B-04', location='机房B', total_u=42)
+            db.session.add(rack)
+            db.session.flush()
+            # 其他设备已占 U5（非本次迁移设备）
+            other = Device(customer_id=seed['c1'], device_name='Other-D', is_in_use=True)
+            db.session.add(other)
+            db.session.flush()
+            db.session.add(RackInstall(rack_id=rack.id, device_id=other.id, start_u=5, occupy_u=1))
+            db.session.commit()
+            rack_id = rack.id
+        r = admin_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1']], 'rack_id': rack_id, 'start_u': 5, 'occupy_u': 1})
+        assert r.status_code == 400
+        assert '冲突' in r.get_json()['message']
+        with app.app_context():
+            assert RackInstall.query.filter_by(rack_id=rack_id).count() == 1  # 仅原占用，未新增
+
+
 class TestDeviceImportSync:
     def _make_xlsx(self, rows):
         import io

@@ -108,9 +108,12 @@
       <el-divider content-position="left">操作</el-divider>
       <div class="action-bar">
         <template v-if="detail.status === TICKET_STATUS.PENDING_ASSIGN">
-          <el-input v-model="assignee" placeholder="处理人姓名" class="assign-input" size="small" />
-          <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="primary"
-            @click="emit('action', 'assign', assignee)">派单</el-button>
+          <el-select v-model="assignUserId" filterable placeholder="选择处理人" size="small"
+            class="assign-select">
+            <el-option v-for="u in assignUsers" :key="u.id" :label="u.name" :value="u.id" />
+          </el-select>
+          <el-button v-if="canAssign" size="small" type="primary"
+            @click="emit('action', 'assign', assignUserName)">派单</el-button>
           <el-button v-if="user.hasPerm('ticket:edit')" size="small" type="warning"
             @click="emit('action', 'close')">关闭</el-button>
         </template>
@@ -180,6 +183,7 @@ import { useMobile } from '@/utils/useMobile'
 import VersionTimeline from '@/components/VersionTimeline.vue'
 import { useUserStore } from '@/stores/user'
 import { fetchTicket, fetchTicketVersions, versionReportUrl, TICKET_STATUS_TAG, type Ticket } from '@/api/tickets'
+import { fetchDepartments } from '@/api/system'
 import { TICKET_STATUS } from '@/utils/status'
 
 const { isMobile } = useMobile()
@@ -204,7 +208,14 @@ const user = useUserStore()
 const loading = ref(false)
 const detail = ref<Ticket | null>(null)
 const versions = ref<SV[]>([])
-const assignee = ref('')
+const assignUserId = ref<number | null>(null)
+const assignUsers = ref<{ id: number; name: string }[]>([])
+const assignUserName = computed(() =>
+  assignUsers.value.find((u) => u.id === assignUserId.value)?.name || '')
+
+/** 派单权限：ticket:assign 或部门主管（admin 短路） */
+const canAssign = computed(() =>
+  user.hasPerm('ticket:assign') || user.isSupervisor)
 
 /** 合同例外审核权限：contract:review 或 admin 或部门主管 */
 const canContractReview = computed(() => {
@@ -232,7 +243,11 @@ async function load() {
     ])
     detail.value = full
     versions.value = vers
-    assignee.value = full.assigned_to || ''
+    assignUserId.value = null
+    if (!assignUsers.value.length) {
+      const d = await fetchDepartments()
+      assignUsers.value = d.users
+    }
   } catch { /* toast */ } finally {
     loading.value = false
   }
@@ -257,7 +272,7 @@ load()
 .review-meta { font-size: 12px; color: var(--itsm-text-muted); display: flex; align-items: center; gap: 6px; }
 .audit-tag { margin-left: 4px; }
 .action-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.assign-input { width: 160px; }
+.assign-select { width: 160px; }
 .log-item { font-size: 13px; }
 .log-op { color: var(--itsm-text-muted); margin-left: 8px; font-size: 12px; }
 .log-comment { color: var(--itsm-text-muted); font-size: 12px; margin-top: 2px; }

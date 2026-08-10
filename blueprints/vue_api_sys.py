@@ -347,8 +347,8 @@ def api_department_update(dept_id):
         d.name = name
     if data.get('parent_id'):
         d.parent_id = int(data['parent_id'])
-    if data.get('head_id'):
-        d.head_id = int(data['head_id'])
+    if 'head_id' in data:
+        d.head_id = int(data['head_id']) if data.get('head_id') else None
     if data.get('sort_order') is not None:
         d.sort_order = int(data['sort_order'])
     db.session.commit()

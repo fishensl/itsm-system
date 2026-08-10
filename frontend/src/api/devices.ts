@@ -224,6 +224,18 @@ export function importDevices(formData: FormData) {
   })
 }
 
+/** 设备批量修改：普通字段 {device_ids, field, value} 或机柜迁移 {device_ids, rack_id, start_u, occupy_u} */
+export function batchUpdateDevices(data: {
+  device_ids: number[]
+  field?: string
+  value?: unknown
+  rack_id?: number
+  start_u?: number
+  occupy_u?: number
+}) {
+  return request<{ count: number }>({ url: '/api/v2/devices/batch-update', method: 'POST', data })
+}
+
 export function createConfigBackup(deviceId: number, formData: FormData) {
   return request<{ id: number }>({ url: `/api/devices/${deviceId}/config-backup`, method: 'POST', data: formData })
 }

@@ -20,6 +20,9 @@ export const useUserStore = defineStore('user', () => {
     return permissions.value.includes(code)
   }
 
+  /** 是否为部门负责人（后端 departments.head_id 推断） */
+  const isSupervisor = computed(() => Boolean(user.value?.is_supervisor))
+
   async function init() {
     if (loaded.value) return
     try {
@@ -49,5 +52,5 @@ export const useUserStore = defineStore('user', () => {
     loaded.value = false
   }
 
-  return { user, sidebarGroups, loaded, isAuthenticated, permissions, hasPerm, init, login, logout }
+  return { user, sidebarGroups, loaded, isAuthenticated, permissions, hasPerm, isSupervisor, init, login, logout }
 })

@@ -159,6 +159,29 @@ class TestDepartmentApi:
         r = admin_client.delete(f'/api/departments/{did}')
         assert r.status_code == 400
 
+    def test_head_id_set_and_clear(self, admin_client, app):
+        """部门负责人保存与清空（head_id 曾因真值判断无法清空、且前端数据源缺字段）"""
+        with app.app_context():
+            d = Department(name='负责人部门')
+            db.session.add(d)
+            db.session.commit()
+            did = d.id
+            op = User.query.filter_by(username='op').first()
+        # 设置负责人
+        r = admin_client.put(f'/api/departments/{did}', json={'head_id': op.id})
+        assert r.status_code == 200
+        # 列表接口返回 head_id（前端以此回显负责人）
+        r = admin_client.get('/api/departments')
+        dept = next(d for d in r.get_json()['data']['departments'] if d['id'] == did)
+        assert dept['head_id'] == op.id
+        with app.app_context():
+            assert Department.query.get(did).head_id == op.id
+        # 清空负责人
+        r = admin_client.put(f'/api/departments/{did}', json={'head_id': None})
+        assert r.status_code == 200
+        with app.app_context():
+            assert Department.query.get(did).head_id is None
+
 
 class TestAuditApi:
     def test_requires_admin(self, op_client):

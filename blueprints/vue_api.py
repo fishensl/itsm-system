@@ -151,6 +151,7 @@ def _user_payload(user):
         'region_ids': [r.id for r in user.regions],
         'customer_ids': [c.id for c in user.customers],
         'permissions': get_user_permissions(user),
+        'is_supervisor': user.is_supervisor,
     }
 
 
@@ -757,6 +758,105 @@ def api_v2_device_import():
     finally:
         cleanup_temp_file(tmp)
     return ok({'created': created, 'errors': errors[:20], 'total_errors': len(errors)})
+
+
+@vue_api_bp.route('/api/v2/devices/batch-update', methods=['POST'])
+@login_required
+@require_permission('device:edit')
+def api_v2_device_batch_update():
+    """设备批量修改。
+
+    普通字段：{device_ids, field, value}，field 限白名单（自有字段，日期/布尔自动转换）。
+    机柜位置：{device_ids, rack_id, start_u, occupy_u} —— 迁移走旧上架记录后新建，
+    机房位置/机柜号取目标机柜的 location/name；U 位范围与占用冲突校验（含批内互占），冲突整体回滚。
+    """
+    from services.device_service import _parse_date
+    from blueprints.vue_api_asset import _check_u_range, _check_u_conflict
+    from models import Device as _D, Rack as _R, RackInstall as _RI
+    data = request.get_json(silent=True) or {}
+    ids = [int(x) for x in (data.get('device_ids') or []) if x]
+    if not ids:
+        return fail('请选择要批量修改的设备', 400)
+    devices = _D.query.filter(_D.id.in_(ids)).all()
+    if len(devices) != len(ids):
+        return fail('部分设备不存在或已删除', 400)
+
+    # ---------- 机柜位置批量迁移 ----------
+    if 'rack_id' in data:
+        rack = _R.query.get(int(data['rack_id']))
+        if not rack:
+            return fail('机柜不存在', 404)
+        start_u = int(data.get('start_u') or 1)
+        occupy_u = int(data.get('occupy_u') or 1)
+        rated_w = int(data.get('rated_w') or 0)
+        try:
+            _check_u_range(rack, start_u, occupy_u)
+        except ValueError as e:
+            return fail(str(e), 400)
+        # 基线 = 该机柜现有占用（排除本次迁移设备的旧记录，旧记录将删除）
+        moving_ids = set(ids)
+        by_id = {d.id: d for d in devices}
+        baseline = [i for i in rack.installs if i.device_id not in moving_ids]
+        # 批内自动连续排布：第 i 台起始 U = start_u + i*occupy_u，逐台范围/冲突校验（含批内互占）
+        assignments = []  # (device, start_u)
+        for i, did in enumerate(ids):
+            cur_start = start_u + i * occupy_u
+            try:
+                _check_u_range(rack, cur_start, occupy_u)
+                _check_u_conflict(baseline, cur_start, occupy_u)
+            except ValueError as e:
+                return fail(str(e), 400)
+            baseline.append(_RI(rack_id=rack.id, device_id=did, start_u=cur_start,
+                                occupy_u=occupy_u))
+            assignments.append((by_id[did], cur_start))
+        try:
+            for d, cur_start in assignments:
+                # 迁移走旧上架记录（防旧机柜幽灵占位），新建当前机柜记录
+                for inst in d.rack_installs or []:
+                    db.session.delete(inst)
+                db.session.add(_RI(rack_id=rack.id, device_id=d.id, start_u=cur_start,
+                                   occupy_u=occupy_u, rated_w=rated_w))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.exception('设备批量迁移机柜失败: %s', e)
+            return fail(f'批量迁移机柜失败：{e}', 400)
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device:batch_update', 'device', None,
+                  f'批量迁移 {len(devices)} 台设备至机柜「{rack.name}」U{start_u}+')
+        return ok({'count': len(devices)})
+
+    # ---------- 普通字段批量修改 ----------
+    field = (data.get('field') or '').strip()
+    value = data.get('value')
+    TEXT_FIELDS = {'location', 'network_type', 'brand', 'model', 'device_type', 'remark'}
+    BOOL_FIELDS = {'is_in_use', 'is_maintenance'}
+    DATE_FIELDS = {'license_start', 'license_expiry', 'cert_expiry_date'}
+    if field not in TEXT_FIELDS | BOOL_FIELDS | DATE_FIELDS:
+        return fail('不支持的批量修改字段', 400)
+    try:
+        if field in BOOL_FIELDS:
+            parsed = bool(value) if isinstance(value, bool) else str(value).strip().lower() in ('1', 'true', 'on', '是')
+        elif field in DATE_FIELDS:
+            parsed = _parse_date(value) if value else None
+        else:
+            parsed = str(value or '').strip()
+        for d in devices:
+            setattr(d, field, parsed)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('设备批量修改失败: %s', e)
+        return fail(f'批量修改失败：{e}', 400)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:batch_update', 'device', None,
+              f'批量修改 {len(devices)} 台设备字段 {field}')
+    for cid in {d.customer_id for d in devices if d.customer_id}:
+        try:
+            _sync_device_count(cid)
+        except Exception:
+            current_app.logger.exception('批量修改后刷新客户 %s 设备数失败', cid)
+    return ok({'count': len(devices)})
 
 
 @vue_api_bp.route('/api/devices/<int:device_id>/related', methods=['GET'])
@@ -1701,6 +1801,13 @@ def api_ticket_action(ticket_id):
         if not has_permission('ticket:review'):
             return jsonify({'success': False, 'error': '权限不足，需要工单审核权限',
                             'required': 'ticket:review'}), 403
+    # 派单：需独立派单权限 ticket:assign（admin 短路自动拥有），部门主管亦可派单
+    if action in ('assign', 'reassign'):
+        from utils.permission import has_permission as _hp_assign, is_supervisor as _sup_assign
+        if not _hp_assign('ticket:assign') and not getattr(current_user, 'is_admin', False) \
+                and not _sup_assign(current_user):
+            return jsonify({'success': False, 'error': '权限不足，需要工单派单权限',
+                            'required': 'ticket:assign'}), 403
     if action == 'contract_review':
         from utils.permission import has_permission as _hp2, is_supervisor as _sup2
         if not _hp2('contract:review') and not getattr(current_user, 'is_admin', False) \

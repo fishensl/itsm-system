@@ -86,6 +86,8 @@ const props = defineProps<{
   module: 'device' | 'inspection' | 'ticket' | 'fault' | 'customer' | 'spare'
   mode?: 'excel' | 'bundle'
   title?: string
+  /** 打开时预选的客户（如设备页当前查看的客户）；不传则默认不选=全部 */
+  defaultCustomerIds?: number[]
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
@@ -189,7 +191,7 @@ watch(
     if (!v) return
     loadSaved()
     items.value = bundleItems.value.map((i) => i.key)
-    customerIds.value = []
+    customerIds.value = props.defaultCustomerIds?.length ? [...props.defaultCustomerIds] : []
     dateRange.value = null
     reason.value = ''
     if (hasCustomerFilter.value && !customerOptions.value.length) loadCustomers()

@@ -47,7 +47,7 @@ PERMISSION_MAP = {
     'inspection:review': '巡检审核-审核',
     'ticket:view': '工单管理-查看', 'ticket:add': '工单管理-新增',
     'ticket:edit': '工单管理-编辑', 'ticket:delete': '工单管理-删除',
-    'ticket:review': '工单审核-审核',
+    'ticket:review': '工单审核-审核', 'ticket:assign': '工单管理-派单',
     'fault:view': '故障管理-查看', 'fault:add': '故障管理-新增',
     'fault:edit': '故障管理-编辑', 'fault:delete': '故障管理-删除',
     'kb:view': '知识库-查看', 'kb:add': '知识库-新增',

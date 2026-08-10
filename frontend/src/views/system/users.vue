@@ -282,10 +282,12 @@ function userName(id: number | null) {
 async function load() {
   const data = await fetchUsers()
   users.value = data.users
-  depts.value = (data.departments as unknown as DeptRow[])
   roles.value = data.roles
   roleNames.value = data.role_names || {}
+  // 部门列表须用 /api/departments 的 departments（含 head_id/parent_id/sort_order），
+  // /api/users 返回的 departments 只有 id/name（负责人列/回填曾因此失效）
   const deptData = await fetchDepartments()
+  depts.value = (deptData.departments as unknown as DeptRow[])
   allUsers.value = deptData.users
 }
 
