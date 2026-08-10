@@ -78,6 +78,8 @@ fi
 # 保留最近 KEEP_COUNT 份（按时间倒序）
 OLD_COUNT=$(ls -1 "${BACKUP_DIR}"/itsm_full_*.tar.gz "${BACKUP_DIR}"/itsm_pg_*.dump 2>/dev/null | wc -l)
 if [ "${OLD_COUNT}" -gt "${KEEP_COUNT}" ]; then
-    ls -1t "${BACKUP_DIR}"/itsm_full_*.tar.gz "${BACKUP_DIR}"/itsm_pg_*.dump 2>/dev/null | tail -n +$((KEEP_COUNT + 1)) | xargs rm -f
+    # glob 无匹配时 ls 报错（pipefail 会传播非零），|| true 保证清理失败不中断脚本
+    ls -1t "${BACKUP_DIR}"/itsm_full_*.tar.gz "${BACKUP_DIR}"/itsm_pg_*.dump 2>/dev/null \
+        | tail -n +$((KEEP_COUNT + 1)) | xargs -r rm -f || true
     echo "已清理旧备份"
 fi
