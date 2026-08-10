@@ -542,7 +542,8 @@ function renderLicenseRange(r: Record<string, unknown>): string | VNode {
 
 const columns = computed<DataColumn[]>(() => {
   // 与导出（vue_export.DEVICE_EXPORT_COLUMNS）字段全集对齐：全量进「列设置」，
-  // defaultVisible:false 的列默认隐藏（机柜位置/建设时间/网络类型/改密记录），可按需开启。
+  // defaultVisible:false 的列默认隐藏（网络类型/建设时间/改密记录），可按需开启。
+  // 位置列统一为「机房位置/机柜号/安装位置」三列（与导出一致）。
   // 授权区间合并为单列（license_range），颜色按授权/证书最近到期日区分，不单独显示授权开始/截止/证书到期/剩余天数。
   // 说明：登录密码为敏感信息，明文不下发列表（查看走详情弹窗 device:reveal + 审计、导出走审核流）。
   const cols: DataColumn[] = [
@@ -552,7 +553,8 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'customer_name', label: '客户', minWidth: 100 },
     { key: 'rack_location', label: '机房位置', minWidth: 100, cellClass: () => 'cell-muted' },
     { key: 'rack_name', label: '机柜号', minWidth: 90, cellClass: () => 'cell-muted' },
-    { key: 'rack_slot', label: '机柜位置', width: 80, defaultVisible: false, cellClass: () => 'cell-muted' },
+    { key: 'location', label: '安装位置', minWidth: 120,
+      cellClass: () => 'cell-muted' },
     { key: 'brand', label: '品牌', minWidth: 100,
       cellClass: () => 'cell-muted' },
     { key: 'model', label: '型号', minWidth: 120,
@@ -564,8 +566,6 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'port', label: '端口', width: 70, cellClass: () => 'cell-muted' },
     { key: 'login_method', label: '登录方式', width: 90 },
     { key: 'username', label: '登录用户名', minWidth: 100, cellClass: () => 'cell-muted' },
-    { key: 'location', label: '安装位置', minWidth: 120,
-      cellClass: () => 'cell-muted' },
     { key: 'os_version', label: '系统版本', minWidth: 110 },
     { key: 'rule_version', label: '规则库版本', minWidth: 110 },
     { key: 'build_date', label: '建设时间', minWidth: 100, defaultVisible: false,
