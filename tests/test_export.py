@@ -61,7 +61,7 @@ class TestDevicePresets:
     def test_preset_asset_columns(self, op_client, seed):
         r = op_client.post('/api/v2/devices/export', json={'preset': 'asset'})
         header, rows = _decode_xlsx(r)
-        assert header == ['客户', '机房位置', '机柜号', '机柜位置', '名称', '类型', '品牌', '型号',
+        assert header == ['客户', '安装位置', '机柜号', '机柜位置', '名称', '类型', '品牌', '型号',
                           '序列号', 'IP', '建设时间', '是否维修', '是否在用', '备注']
         assert '登录密码' not in header
         assert len(rows) == 2
@@ -69,7 +69,7 @@ class TestDevicePresets:
         row1 = by_name['核心交换机']
         assert row1['客户'] == '导出客户A'
         assert row1['机柜号'] == 'A-01'
-        assert row1['机房位置'] == '2F 机房 B 区'
+        assert row1['安装位置'] == '机房A'  # 取设备「安装位置」字段，而非机柜 Rack.location
         assert row1['机柜位置'] == 'U3'
         assert row1['是否维修'] == '是'
 
@@ -81,14 +81,14 @@ class TestDevicePresets:
         assert '审核流程' in r.get_json()['message']
         # 预设定义本身含密码列且顺序正确
         cols = DEVICE_PRESETS['password']
-        assert cols == ['customer', 'rack_location', 'rack_name', 'rack_slot', 'name', 'type',
+        assert cols == ['customer', 'location', 'rack_name', 'rack_slot', 'name', 'type',
                         'brand', 'model', 'sn', 'ip', 'port', 'login_method', 'username',
                         'password', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark']
 
     def test_preset_version_columns(self, op_client, seed):
         from blueprints.vue_export import DEVICE_PRESETS
         assert DEVICE_PRESETS['version'] == [
-            'customer', 'rack_location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
+            'customer', 'location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
             'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
             'license_expiry', 'is_in_use', 'remark']
 

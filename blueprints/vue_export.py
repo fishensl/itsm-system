@@ -20,7 +20,7 @@ EXPORT_DIR = os.path.join('reports', 'exports')
 # (code, 中文列名)；用户可自由增删/调序，列码是前后端唯一契约
 DEVICE_EXPORT_COLUMNS = [
     ('customer', '客户'),
-    ('rack_location', '机房位置'),
+    ('location', '安装位置'),
     ('rack_name', '机柜号'),
     ('rack_slot', '机柜位置'),
     ('name', '名称'),
@@ -48,12 +48,12 @@ DEVICE_EXPORT_COLUMN_MAP = dict(DEVICE_EXPORT_COLUMNS)
 
 # 三类预设默认列集合（字段顺序按业务给定；用户可在此基础上增删）
 DEVICE_PRESETS = {
-    'asset': ['customer', 'rack_location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
+    'asset': ['customer', 'location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
               'model', 'sn', 'ip', 'build_date', 'is_maintenance', 'is_in_use', 'remark'],
-    'password': ['customer', 'rack_location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
+    'password': ['customer', 'location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
                  'model', 'sn', 'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
                  'pwd_changed_by', 'pwd_changed_at', 'remark'],
-    'version': ['customer', 'rack_location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
+    'version': ['customer', 'location', 'rack_name', 'rack_slot', 'name', 'type', 'brand',
                 'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
                 'license_expiry', 'is_in_use', 'remark'],
 }
@@ -91,8 +91,8 @@ def device_export_rows(devices, codes, customer_map=None, rack_map=None, pwd_map
 def _device_cell(d, code, customer_map, rack_map, pwd_map):
     if code == 'customer':
         return customer_map.get(d.customer_id, '')
-    if code == 'rack_location':
-        return rack_map.get(d.id, ('', '', ''))[0]
+    if code == 'location':
+        return d.location or ''
     if code == 'rack_name':
         return rack_map.get(d.id, ('', '', ''))[1]
     if code == 'rack_slot':
