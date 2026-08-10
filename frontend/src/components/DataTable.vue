@@ -269,9 +269,15 @@ const tableEl = ref()
 const expandedKeys = ref<Set<string>>(new Set())
 
 // ==================== 列设置（显示/隐藏 + 顺序，localStorage 持久化） ====================
+// 存储格式 v2：{v:2, visible:[可见列key], all:[保存时全量列key]}
+// - visible 严格决定显示列：用户显式取消勾选的列不在其中，不再被追加回表格
+// - all 用于识别「代码新增的列」：不在 all 中的新列按 defaultVisible 自动追加显示
+// - 兼容旧格式（纯可见列数组）：all 视为保存时的全量列 → 隐藏列不追加、新列需手动勾选
 const settingsVisible = ref(false)
 /** 用户配置的可见列顺序（不含操作列，操作列强制显示在末尾） */
 const colOrder = ref<string[] | null>(null)
+/** 保存列设置时的全量列 key（识别代码新增列用） */
+const colAll = ref<string[] | null>(null)
 
 function isActionCol(c: DataColumn) {
   return c.type === 'action'
@@ -281,20 +287,44 @@ function loadColSettings() {
   if (!props.columnSettings) return
   try {
     const raw = localStorage.getItem(props.columnSettings.storageKey)
-    colOrder.value = raw ? JSON.parse(raw) : null
+    if (!raw) {
+      colOrder.value = null
+      colAll.value = null
+      return
+    }
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      // 旧格式：纯可见列数组 → 全量列视为「已知」（用户隐藏的列不再追加）
+      colOrder.value = parsed
+      colAll.value = props.columns.filter((c) => !isActionCol(c)).map((c) => c.key)
+    } else if (parsed && Array.isArray(parsed.visible)) {
+      colOrder.value = parsed.visible
+      colAll.value = Array.isArray(parsed.all) ? parsed.all : [...parsed.visible]
+    } else {
+      colOrder.value = null
+      colAll.value = null
+    }
   } catch {
     colOrder.value = null
+    colAll.value = null
   }
 }
 
 function saveColSettings() {
   if (!props.columnSettings) return
   try {
-    localStorage.setItem(props.columnSettings.storageKey, JSON.stringify(colOrder.value || []))
+    if (!colOrder.value) {
+      localStorage.removeItem(props.columnSettings.storageKey)
+      return
+    }
+    const all = colAll.value
+      || props.columns.filter((c) => !isActionCol(c)).map((c) => c.key)
+    localStorage.setItem(props.columnSettings.storageKey,
+      JSON.stringify({ v: 2, visible: colOrder.value, all }))
   } catch { /* localStorage 不可用时静默 */ }
 }
 
-/** 实际渲染列：用户顺序 + 可见性；未保存设置时按 defaultVisible 过滤；操作列固定末尾且不可隐藏 */
+/** 实际渲染列：用户可见清单 + 代码新增列（不在 all 中）按 defaultVisible 追加；操作列固定末尾且不可隐藏 */
 const renderCols = computed<DataColumn[]>(() => {
   const all = props.columns
   if (!props.columnSettings) return all
@@ -303,14 +333,17 @@ const renderCols = computed<DataColumn[]>(() => {
   if (!colOrder.value) {
     return [...body.filter((c) => c.defaultVisible !== false), ...actions]
   }
+  const known = colAll.value || []
   const ordered: DataColumn[] = []
   for (const key of colOrder.value) {
     const hit = body.find((c) => c.key === key)
     if (hit && !ordered.includes(hit)) ordered.push(hit)
   }
-  // 未显式勾选的默认隐藏列（defaultVisible:false）不追加回表格
+  // 仅追加「保存后代码新增」的列；用户显式取消勾选的列（在 known 中但不在 visible）不追加
   for (const c of body) {
-    if (!ordered.includes(c) && c.defaultVisible !== false) ordered.push(c)
+    if (!ordered.includes(c) && !known.includes(c.key) && c.defaultVisible !== false) {
+      ordered.push(c)
+    }
   }
   return [...ordered, ...actions]
 })
@@ -331,8 +364,10 @@ const settingCols = computed<SettingCol[]>(() => {
 
 function toggleCol(key: string, visible: boolean) {
   if (!colOrder.value) {
+    // 首次启用列设置：快照当前全量列（all），代码新增列据此识别自动追加
     colOrder.value = props.columns
       .filter((c) => !isActionCol(c) && c.defaultVisible !== false).map((c) => c.key)
+    colAll.value = props.columns.filter((c) => !isActionCol(c)).map((c) => c.key)
   }
   const set = new Set(colOrder.value)
   if (visible) set.add(key)
@@ -390,6 +425,7 @@ function moveCol(idx: number, dir: -1 | 1) {
 
 function resetColSettings() {
   colOrder.value = null
+  colAll.value = null
   saveColSettings()
 }
 

@@ -216,7 +216,7 @@ async function loadAll() {
     const names = [...map.keys()].sort(
       (a, b) => (a === '未关联客户' ? 1 : b === '未关联客户' ? -1 : a.localeCompare(b, 'zh')))
     groups.value = names.map((n) => ({ customer: n, rows: map.get(n)! }))
-    if (names.length && !activeNames.value.length) activeNames.value = [names[0]]
+    // 默认全折叠：不自动展开任何客户组（用户手动点击展开；「收起全部」按钮亦可用）
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
