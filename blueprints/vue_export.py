@@ -235,6 +235,17 @@ def _safe_name(name):
     return re.sub(r'[\\/:*?"<>|\r\n\t]', '_', str(name or '')).strip() or '_'
 
 
+def device_export_filename(customer_name='', preset=''):
+    """设备导出文件名：{客户}_{表格类型}_{日期}.xlsx；未选客户则 {表格类型}_{日期}.xlsx。
+
+    表格类型取所选预设（设备资产表/设备密码表/网络安全版本控制表），未选预设兜底「设备导出」。
+    """
+    from datetime import date
+    type_label = DEVICE_PRESET_LABELS.get(preset) or '设备导出'
+    base = f'{_safe_name(customer_name)}_{type_label}' if customer_name else type_label
+    return f'{base}_{date.today().isoformat()}.xlsx'
+
+
 # ============================ 巡检 / 工单 资料包（bundle） ============================
 def _latest_versions(entity_type, entity_ids):
     """批量取每实体最新提交版本（一次查询，joinedload assets，内存去重）"""

@@ -1093,7 +1093,7 @@ def api_device_export_password_review(req_id):
     import secrets
     from datetime import datetime
     from blueprints.vue_export import (save_export_file, DEVICE_EXPORT_COLUMNS, device_export_rows,
-                                       build_rack_map, build_pwd_map)
+                                       build_rack_map, build_pwd_map, device_export_filename)
     from utils.excel_export import export_xlsx
     from models import DeviceExportRequest, Device as _D, Customer as _C, RackInstall as _RI
     from utils.json_fields import parse_json
@@ -1140,9 +1140,12 @@ def api_device_export_password_review(req_id):
     headers = [dict(DEVICE_EXPORT_COLUMNS)[c] for c in codes]
     rows = device_export_rows(devices, codes, customer_map,
                               build_rack_map(devices), build_pwd_map(devices))
-    tmp_path, _ = export_xlsx(headers, rows, '设备密码表.xlsx', sheet_name='设备密码表')
+    download_name = device_export_filename(
+        customer_map.get(int(filters['customer_id'])) if filters.get('customer_id') else '',
+        filters.get('preset') or '')
+    tmp_path, _ = export_xlsx(headers, rows, download_name, sheet_name='设备密码表')
     password = secrets.token_urlsafe(8)
-    token = save_export_file(tmp_path, '设备密码表.xlsx', password=password,
+    token = save_export_file(tmp_path, download_name, password=password,
                              user_id=req.user_id)
     req.status = 'approved'
     req.reviewed_by_user_id = current_user.id
@@ -1177,6 +1180,10 @@ def api_device_export_password_download(token):
     resp = serve_export_file(token, current_user.id, current_user.is_admin)
     if resp is None:
         return fail('导出文件不存在或已失效', 404)
+    from models import ExportFile as _EF
+    ef = _EF.query.filter_by(token=token).first()
+    if ef and ef.download_name:
+        resp.headers['X-Export-Filename'] = ef.download_name
     req.downloaded_at = datetime.utcnow()
     db.session.commit()
     audit_log('device:export_download', 'device', req.id, '下载设备密码导出包')

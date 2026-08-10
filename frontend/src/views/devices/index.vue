@@ -551,9 +551,9 @@ const columns = computed<DataColumn[]>(() => {
       link: (r) => `/app/devices/${r.id}` },
     { key: 'device_type', label: '类型', width: 90 },
     { key: 'customer_name', label: '客户', minWidth: 100 },
-    { key: 'rack_location', label: '机房位置', minWidth: 100, cellClass: () => 'cell-muted' },
-    { key: 'rack_name', label: '机柜号', minWidth: 90, cellClass: () => 'cell-muted' },
-    { key: 'location', label: '安装位置', minWidth: 120,
+    { key: 'rack_location', label: '机房位置', minWidth: 100, group: 'location', cellClass: () => 'cell-muted' },
+    { key: 'rack_name', label: '机柜号', minWidth: 90, group: 'location', cellClass: () => 'cell-muted' },
+    { key: 'location', label: '安装位置', minWidth: 120, group: 'location',
       cellClass: () => 'cell-muted' },
     { key: 'brand', label: '品牌', minWidth: 100,
       cellClass: () => 'cell-muted' },
@@ -695,11 +695,12 @@ async function downloadPasswordExport(token: string) {
       return
     }
     const pwd = resp.headers.get('X-Export-Password') || ''
+    const fname = resp.headers.get('X-Export-Filename') || '设备密码表.xlsx'
     const blob = await resp.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = '设备密码表.xlsx'
+    a.download = fname
     a.click()
     URL.revokeObjectURL(url)
     if (pwd) {

@@ -153,6 +153,7 @@ class TestV2ExportPasswordColumn:
     def test_v2_plaintext_only_via_approval_flow(self, app, op_client, admin_client,
                                                  device, monkeypatch, tmp_path):
         """明文密码仅经审核流加密包下发（解密后可见明文）"""
+        from datetime import date
         from blueprints import vue_export
         monkeypatch.setattr(vue_export, 'EXPORT_DIR', str(tmp_path))
         device_id, _ = device
@@ -170,10 +171,12 @@ class TestV2ExportPasswordColumn:
         assert r.status_code == 200
         pwd = r.headers.get('X-Export-Password')
         assert pwd
+        fname = f'设备密码表_{date.today().isoformat()}.xlsx'  # 未选客户 → 仅表格类型+日期
+        assert r.headers.get('X-Export-Filename') == fname
         import pyzipper
         zf = pyzipper.AESZipFile(io.BytesIO(r.data))
         zf.setpassword(pwd.encode())
-        wb = openpyxl.load_workbook(io.BytesIO(zf.read('设备密码表.xlsx')), read_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(zf.read(fname)), read_only=True)
         header = [c.value for c in wb.active[1]]
         rows = [[c.value for c in row] for row in wb.active.iter_rows(min_row=2)]
         row = dict(zip(header, rows[0]))

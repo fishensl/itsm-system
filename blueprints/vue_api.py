@@ -624,12 +624,11 @@ def api_device_tree():
 def api_v2_device_export():
     """设备导出（JSON：base64 返回 xlsx；三类预设 + 自由列；含密码列 → 400 走申请流）"""
     import base64
-    from datetime import date as _date
     from sqlalchemy.orm import selectinload as _sil
     from utils.excel_export import export_xlsx
     from blueprints.vue_export import (resolve_device_columns, device_export_rows,
                                        build_rack_map, build_pwd_map,
-                                       DEVICE_EXPORT_COLUMN_MAP)
+                                       DEVICE_EXPORT_COLUMN_MAP, device_export_filename)
     from models import Device as _D, Customer as _C, RackInstall as _RI
     data = request.get_json(silent=True) or {}
     try:
@@ -653,8 +652,9 @@ def api_v2_device_export():
     headers = [DEVICE_EXPORT_COLUMN_MAP[c] for c in codes]
     rows = device_export_rows(devices, codes, customer_map,
                               build_rack_map(devices), build_pwd_map(devices))
-    tmp_path, download_name = export_xlsx(headers, rows, f'设备导出_{_date.today().isoformat()}.xlsx',
-                                          sheet_name='设备信息')
+    download_name = device_export_filename(
+        customer_map.get(int(customer_id)) if customer_id else '', data.get('preset') or '')
+    tmp_path, download_name = export_xlsx(headers, rows, download_name, sheet_name='设备信息')
     with open(tmp_path, 'rb') as fh:
         b64 = base64.b64encode(fh.read()).decode('ascii')
     try:

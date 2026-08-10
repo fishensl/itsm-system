@@ -147,13 +147,15 @@
     <el-dialog v-model="settingsVisible" :title="columnSettings?.title || '列设置'" width="420px" top="10vh"
       destroy-on-close>
       <div class="col-setting-list">
-        <div v-for="(c, idx) in settingCols" :key="c.key" class="col-setting-row">
+        <div v-for="(c, idx) in settingCols" :key="c.key"
+          :class="['col-setting-row', { 'col-setting-group': c.group }]">
           <el-checkbox :model-value="c.visible" :disabled="isActionCol(c)"
             @change="(v: string | number | boolean) => toggleCol(c.key, Boolean(v))" />
           <span class="col-setting-name" :class="{ 'text-muted': !c.visible }">{{ c.label }}</span>
           <span class="col-setting-actions">
-            <el-button size="small" text :icon="ArrowUp" :disabled="idx === 0" @click="moveCol(idx, -1)" />
-            <el-button size="small" text :icon="ArrowDown" :disabled="idx === settingCols.length - 1"
+            <el-button size="small" text :icon="ArrowUp" :disabled="!canMoveCol(idx, -1)"
+              @click="moveCol(idx, -1)" />
+            <el-button size="small" text :icon="ArrowDown" :disabled="!canMoveCol(idx, 1)"
               @click="moveCol(idx, 1)" />
           </span>
         </div>
@@ -218,6 +220,8 @@ export interface DataColumn<T = Record<string, any>> {
   asTag?: boolean
   /** 默认是否显示（默认 true）：仅未保存过列设置时生效；设为 false 的列默认隐藏，仍可去列设置开启 */
   defaultVisible?: boolean
+  /** 列分组（仅顺序联动）：列设置中拖动组内任一个，整组作为块一起移动，保持组内相邻；显隐仍各自独立 */
+  group?: string
 }
 
 const props = withDefaults(
@@ -303,7 +307,7 @@ const renderCols = computed<DataColumn[]>(() => {
   return [...ordered, ...actions]
 })
 
-const settingCols = computed(() => {
+const settingCols = computed<SettingCol[]>(() => {
   const body = props.columns.filter((c) => !isActionCol(c))
   const order = colOrder.value || body.map((c) => c.key)
   const visible = (col: DataColumn) =>
@@ -311,9 +315,9 @@ const settingCols = computed(() => {
   return order
     .map((key) => {
       const col = body.find((c) => c.key === key)
-      return col ? { ...col, visible: visible(col) } : null
+      return col ? { ...col, visible: visible(col) } as SettingCol : null
     })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .filter((x): x is SettingCol => x !== null)
     .concat(body.filter((c) => !order.includes(c.key)).map((c) => ({ ...c, visible: false })))
 })
 
@@ -330,12 +334,49 @@ function toggleCol(key: string, visible: boolean) {
   saveColSettings()
 }
 
+type SettingCol = DataColumn & { visible: boolean }
+
+/** 组内列集合（按组内原始顺序）；无 group 的列返回自身 */
+function groupBlock(arr: SettingCol[], col: SettingCol): SettingCol[] {
+  if (!col.group) return [col]
+  return arr.filter((c) => c.group === col.group)
+}
+
+/** 所在整块（单列或同组列块）能否向 dir 方向移动 */
+function canMoveCol(idx: number, dir: -1 | 1): boolean {
+  const cols = settingCols.value
+  const col = cols[idx]
+  const block = groupBlock(cols, col)
+  const first = cols.indexOf(block[0])
+  const last = first + block.length - 1
+  if (dir === -1) return first > 0
+  return last < cols.length - 1
+}
+
 function moveCol(idx: number, dir: -1 | 1) {
   const arr = settingCols.value.map((c) => c.key)
-  const j = idx + dir
-  if (j < 0 || j >= arr.length) return
-  ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
-  colOrder.value = arr
+  const col = settingCols.value[idx]
+  const block = groupBlock(settingCols.value, col)
+  if (dir === -1) {
+    const before = arr[idx - 1]
+    if (before === undefined) return
+    // 上移：整块替换到目标列位置（保持块内顺序与相邻）
+    const targetIdx = arr.indexOf(before)
+    const blockKeys = block.map((c) => c.key)
+    const next = arr.filter((k) => !blockKeys.includes(k))
+    next.splice(targetIdx, 0, ...blockKeys)
+    colOrder.value = next
+  } else {
+    const blockLastIdx = idx + block.length - 1
+    const after = arr[blockLastIdx + 1]
+    if (after === undefined) return
+    // 下移：整块替换到目标列位置
+    const targetIdx = arr.indexOf(after)
+    const blockKeys = block.map((c) => c.key)
+    const next = arr.filter((k) => !blockKeys.includes(k))
+    next.splice(targetIdx + 1, 0, ...blockKeys)
+    colOrder.value = next
+  }
   saveColSettings()
 }
 
@@ -487,6 +528,10 @@ const hasPerm = (code?: string) => useUserStore().hasPerm(code)
   padding: 5px 8px;
   border: 1px solid var(--itsm-border);
   border-radius: 6px;
+}
+/* 分组列（如机房位置/机柜号/安装位置）：浅底色标识联动块 */
+.col-setting-group {
+  background: var(--el-fill-color-lighter);
 }
 .col-setting-name {
   flex: 1;

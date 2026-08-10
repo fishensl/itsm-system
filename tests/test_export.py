@@ -59,6 +59,7 @@ def _decode_xlsx(resp):
 
 class TestDevicePresets:
     def test_preset_asset_columns(self, op_client, seed):
+        from datetime import date
         r = op_client.post('/api/v2/devices/export', json={'preset': 'asset'})
         header, rows = _decode_xlsx(r)
         assert header == ['客户', '机房位置', '机柜号', '安装位置', '名称', '类型', '品牌', '型号',
@@ -72,6 +73,8 @@ class TestDevicePresets:
         assert row1['机柜号'] == 'A-01'
         assert row1['安装位置'] == '机房A'  # 设备「安装位置」字段 Device.location
         assert row1['是否维修'] == '是'
+        # 未选客户 → 文件名 = {表格类型}_{日期}.xlsx
+        assert r.get_json()['data']['filename'] == f'设备资产表_{date.today().isoformat()}.xlsx'
 
     def test_preset_password_columns(self, op_client, seed):
         """密码表预设列顺序 + 密码列被 400 拒绝（走申请流）"""
@@ -113,10 +116,13 @@ class TestDevicePresets:
         assert r.status_code == 400
 
     def test_customer_filter(self, op_client, seed):
+        from datetime import date
         r = op_client.post('/api/v2/devices/export', json={
             'columns': ['name'], 'customer_id': seed['c2']})
         _, rows = _decode_xlsx(r)
         assert [row[0] for row in rows] == ['防火墙']
+        # 选了客户 → 文件名 = {客户}_{表格类型}_{日期}.xlsx（未选预设兜底「设备导出」）
+        assert r.get_json()['data']['filename'] == f'导出客户B_设备导出_{date.today().isoformat()}.xlsx'
 
     def test_password_column_needs_login_flow_not_reveal_perm(self, op_client, seed):
         """device:reveal 权限也不允许 v2 直出密码（统一走申请流）"""

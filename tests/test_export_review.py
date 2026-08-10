@@ -120,6 +120,7 @@ class TestReviewFlow:
 
     def test_approve_then_download_one_time_with_password(self, app, admin_client, op_client,
                                                           seed, monkeypatch, tmp_path):
+        from datetime import date
         from blueprints import vue_export
         monkeypatch.setattr(vue_export, 'EXPORT_DIR', str(tmp_path))
         req_id = self._submit(op_client, seed)
@@ -127,18 +128,20 @@ class TestReviewFlow:
                           json={'action': 'approve', 'comment': '同意'})
         with app.app_context():
             token = db.session.get(DeviceExportRequest, req_id).file_token
-        # 申请人下载：X-Export-Password 头 + pyzipper 解密验证内容
+        # 申请人下载：X-Export-Password 头 + X-Export-Filename 头 + pyzipper 解密验证内容
         r = op_client.get(f'/api/v2/devices/export-password-download/{token}')
         assert r.status_code == 200
         pwd = r.headers.get('X-Export-Password')
         assert pwd
+        fname = f'密码客户_设备密码表_{date.today().isoformat()}.xlsx'
+        assert r.headers.get('X-Export-Filename') == fname
         import pyzipper
         zf = pyzipper.AESZipFile(io.BytesIO(r.data))
         zf.setpassword(pwd.encode())
         names = zf.namelist()
-        assert names == ['设备密码表.xlsx']
+        assert names == [fname]
         import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(zf.read('设备密码表.xlsx')), read_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(zf.read(fname)), read_only=True)
         ws = wb.active
         header = [c.value for c in ws[1]]
         assert '登录密码' in header
