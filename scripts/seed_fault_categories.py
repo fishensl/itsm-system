@@ -80,7 +80,9 @@ FAULT_CATEGORY_TREE = {
 def seed_fault_categories(app=None, force_update=False):
     """幂等播种 fault_types 三级树（按 name+parent 查重，已存在则跳过/更新 level）。
 
-    :param app: Flask app（提供 app_context）；None 时用脚本自身 init。
+    注意：函数不自行创建 app context——由调用方在 app_context 内调用
+    （自建 context 会因 Flask-SQLAlchemy 的 session 绑定 context 栈导致
+    种子写在独立 session 上、随 context pop 丢失）。
     :param force_update: 已存在分类的 level/parent_id 不一致时强制修正。
     :return: 新增数量（不提交——由调用方决定 commit/rollback）
     """
@@ -109,23 +111,13 @@ def seed_fault_categories(app=None, force_update=False):
         created += 1
         return ft
 
-    if app is not None:
-        ctx = app.app_context()
-    else:
-        ctx = None
-    try:
-        if ctx:
-            ctx.push()
-        # 一级（保留原 8 个扁平默认类型下的"其他"语义：旧 8 个一级不作为子级）
-        for i, (l1, l2_map) in enumerate(FAULT_CATEGORY_TREE.items()):
-            n1 = _get_or_create(l1, None, 1, i)
-            for j, (l2, l3_list) in enumerate(l2_map.items()):
-                n2 = _get_or_create(l2, n1.id, 2, j)
-                for k, l3 in enumerate(l3_list):
-                    _get_or_create(l3, n2.id, 3, k)
-    finally:
-        if ctx:
-            ctx.pop()
+    # 一级（保留原 8 个扁平默认类型下的"其他"语义：旧 8 个一级不作为子级）
+    for i, (l1, l2_map) in enumerate(FAULT_CATEGORY_TREE.items()):
+        n1 = _get_or_create(l1, None, 1, i)
+        for j, (l2, l3_list) in enumerate(l2_map.items()):
+            n2 = _get_or_create(l2, n1.id, 2, j)
+            for k, l3 in enumerate(l3_list):
+                _get_or_create(l3, n2.id, 3, k)
     return created
 
 
