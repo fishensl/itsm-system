@@ -11,8 +11,12 @@ from models.base import db
 class FaultType(db.Model):
     """故障类型（三级分级分类：一级 parent_id 为空，二级/三级通过 parent_id 挂载）"""
     __tablename__ = 'fault_types'
+    # 组合唯一：同级下分类名唯一（三级树中不同父级可重名，如多个二级下均有「DNS/DHCP服务」）
+    __table_args__ = (
+        db.UniqueConstraint('name', 'parent_id', name='uq_fault_types_name_parent'),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(64), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('fault_types.id'), nullable=True, index=True)
     level = db.Column(db.Integer, default=1)
     sort_order = db.Column(db.Integer, default=0)
