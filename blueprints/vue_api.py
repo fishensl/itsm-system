@@ -923,25 +923,21 @@ def api_v2_device_batch_update():
     BOOL_FIELDS = {'is_in_use', 'is_maintenance'}
     DATE_FIELDS = {'license_start', 'license_expiry', 'cert_expiry_date'}
     if field == 'rack_location':
-        # 机房位置：改最近上架记录所在机柜的 Rack.location（未上架设备跳过）
+        # 机房位置：已上架设备更新所在机柜 Rack.location；未上架设备写入自身 rack_location。全部生效
         text = str(value or '').strip()
-        updated, skipped = 0, 0
         for d in devices:
             installs = d.rack_installs or []
-            if not installs:
-                skipped += 1
-                continue
-            inst = max(installs, key=lambda x: x.id or 0)
-            if inst.rack_rel:
-                inst.rack_rel.location = text
-                updated += 1
-            else:
-                skipped += 1
+            if installs:
+                inst = max(installs, key=lambda x: x.id or 0)
+                if inst.rack_rel:
+                    inst.rack_rel.location = text
+                    continue
+            d.rack_location = text
         db.session.commit()
         from blueprints.vue_api_sys import audit_log
         audit_log('device:batch_update', 'device', None,
-                  f'批量修改 {updated} 台设备机房位置为「{text}」')
-        return ok({'count': updated, 'skipped': skipped})
+                  f'批量修改 {len(devices)} 台设备机房位置为「{text}」')
+        return ok({'count': len(devices)})
     if field not in TEXT_FIELDS | BOOL_FIELDS | DATE_FIELDS:
         return fail('不支持的批量修改字段', 400)
     try:

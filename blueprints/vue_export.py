@@ -119,11 +119,15 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
 
 
 def build_rack_map(devices):
-    """每设备最近一次上架记录 → (Rack.location, Rack.name, 'U{start_u}')（防 N+1）"""
+    """每设备最近一次上架记录 → (Rack.location, Rack.name, 'U{start_u}')（防 N+1）。
+
+    未上架设备返回设备自身 rack_location（批量修改可写入），机柜/机柜号为空。
+    """
     rack_map = {}
     for d in devices:
         installs = d.rack_installs or []
         if not installs:
+            rack_map[d.id] = ((d.rack_location or ''), '', '')
             continue
         inst = max(installs, key=lambda x: x.id or 0)
         r = inst.rack_rel

@@ -163,7 +163,7 @@ class TestDeviceBatchUpdate:
         assert r.status_code == 400
 
     def test_batch_update_rack_location(self, admin_client, seed, app):
-        """批量改机房位置：更新最近上架记录所在机柜的 Rack.location；未上架设备跳过"""
+        """批量改机房位置：已上架设备更新所在机柜 Rack.location；未上架设备写入自身 rack_location"""
         from models import Rack, RackInstall
         with app.app_context():
             rack = Rack(customer_id=seed['c1'], name='A-01', location='机房A', total_u=42)
@@ -176,11 +176,29 @@ class TestDeviceBatchUpdate:
             'device_ids': [seed['d1'], seed['d2']], 'field': 'rack_location', 'value': '机房B'})
         assert r.status_code == 200
         data = r.get_json()['data']
-        assert data['count'] == 1  # d1 已上架
-        assert data['skipped'] == 1  # d2 未上架跳过
+        assert data['count'] == 2  # 全部生效，无跳过
+        assert 'skipped' not in data
         with app.app_context():
             rack = Rack.query.get(rack_id)
-            assert rack.location == '机房B'
+            assert rack.location == '机房B'  # d1 已上架：改机柜位置
+            d2 = Device.query.get(seed['d2'])
+            assert d2.rack_location == '机房B'  # d2 未上架：写入设备自身
+
+    def test_batch_update_rack_location_unracked_shows_in_list(self, admin_client, seed, app):
+        """未上架设备批量写入机房位置后，列表口径显示设备自身值"""
+        r = admin_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d2']], 'field': 'rack_location', 'value': '机房C'})
+        assert r.status_code == 200
+        assert r.get_json()['data']['count'] == 1
+        # 列表口径
+        r = admin_client.get('/api/devices', query_string={'search': 'FW-B'})
+        assert r.status_code == 200
+        items = r.get_json()['data']['items']
+        assert len(items) == 1
+        assert items[0]['rack_location'] == '机房C'
+        # DB 层：未上架设备自身字段已写入
+        with app.app_context():
+            assert Device.query.get(seed['d2']).rack_location == '机房C'
 
     def test_batch_update_rack(self, admin_client, seed, app):
         """批量迁移机柜：自动连续排布 U 位、机房位置/机柜号随机柜、迁移走旧记录"""

@@ -29,6 +29,7 @@ class Device(db.Model):
     username = db.Column(db.String(128), default='')
     password_encrypted = db.Column(db.Text, default='')
     location = db.Column(db.String(128), default='')
+    rack_location = db.Column(db.String(128), default='')   # 设备自身机房位置（未上架设备可写入；已上架读机柜）
     interface = db.Column(db.Text, default='')  # JSON 数组字符串；曾 String(128) 在 SQLite 宽松、PG 严格校验长度会截断/报错，故改 Text
     os_version = db.Column(db.String(128), default='')
     rule_version = db.Column(db.String(128), default='')
