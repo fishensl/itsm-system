@@ -346,9 +346,11 @@ def init_db(app):
             app.logger.info('默认设备类型已创建')
 
         # 默认故障分类（九大体系）——幂等清理历史数据（去前缀/删旧扁平/VPN迁移）后播种三级树
-        from scripts.seed_fault_categories import clean_fault_categories, seed_fault_categories
+        from scripts.seed_fault_categories import (clean_fault_categories, seed_fault_categories,
+                                                   migrate_severity_levels)
         clean_fault_categories()
         seed_fault_categories(app)
+        migrate_severity_levels()  # 严重级别旧值（P1-紧急 等）迁移为新四级
         db.session.commit()
         app.logger.info('故障分类（九大体系）已清理并同步')
 

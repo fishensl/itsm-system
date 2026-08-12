@@ -30,7 +30,7 @@ FAULT_CATEGORY_TREE = {
                      'DNS/DHCP服务', '政务网设备故障', '政务网专线'],
         # VPN 与内网/互联网/政务网平级（独立二级）
         'VPN接入故障': ['SSL VPN客户端连接报错', '登录后无法访问内网资源', '虚拟IP冲突',
-                      '隧道建立后无流量', '政务网VPN隧道断开', '加密证书过期', '政务移动端VPN接入失败'],
+                      '隧道建立后无流量', '加密证书过期'],
     },
     '服务器故障': {
         '物理服务器硬件': ['开机与电源', '面板告警', '部件故障'],
@@ -104,6 +104,9 @@ OLD_FLAT_L1 = ['网络中断', '设备故障', '安全事件', '链路故障', '
 # 旧 VPN 三级（挂在 内网故障/政务网故障 二级下），VPN 升级为独立二级后删除
 OLD_VPN_L3 = ['VPN接入（内网）', 'VPN接入（政务网）']
 
+# VPN 独立二级下不应保留政务端三级（VPN 面向内网/外网接入），删除已播种的政务项
+VPN_GOV_L3 = ['政务网VPN隧道断开', '政务移动端VPN接入失败']
+
 
 def clean_fault_categories():
     """幂等清理历史分类数据（在调用方 app_context 内执行）。
@@ -141,15 +144,9 @@ def clean_fault_categories():
             .update({'fault_category_id': None}, synchronize_session=False)
 
     # ③ 旧 VPN 三级：level3 字符串置空 + 删除记录
-    if OLD_VPN_L3:
-        Fault.query.filter(Fault.fault_category_level3.in_(OLD_VPN_L3)) \
-            .update({'fault_category_level3': ''}, synchronize_session=False)
-        Ticket.query.filter(Ticket.fault_category_level3.in_(OLD_VPN_L3)) \
-            .update({'fault_category_level3': ''}, synchronize_session=False)
-    for name in OLD_VPN_L3:
-        for node in FaultType.query.filter_by(name=name, level=3).all():
-            db.session.delete(node)
-            deleted_vpn += 1
+    deleted_vpn += _remove_l3(OLD_VPN_L3)
+    # ③b VPN 独立二级下不应保留政务端三级（VPN 面向内网/外网接入）
+    deleted_vpn += _remove_l3(VPN_GOV_L3)
 
     # ④ 旧扁平一级：level1 字符串置空 + 删除（有子级跳过）
     Fault.query.filter(Fault.fault_category_level1.in_(OLD_FLAT_L1)) \
@@ -166,6 +163,47 @@ def clean_fault_categories():
         deleted_flat += 1
 
     return renamed, deleted_flat, deleted_vpn
+
+
+def _remove_l3(names):
+    """删除指定的三级 FaultType（先置空 Fault/Ticket 的 level3 字符串引用）返回删除数"""
+    from models import db, FaultType, Fault, Ticket
+    if not names:
+        return 0
+    Fault.query.filter(Fault.fault_category_level3.in_(names)) \
+        .update({'fault_category_level3': ''}, synchronize_session=False)
+    Ticket.query.filter(Ticket.fault_category_level3.in_(names)) \
+        .update({'fault_category_level3': ''}, synchronize_session=False)
+    deleted = 0
+    for name in names:
+        for node in FaultType.query.filter_by(name=name, level=3).all():
+            db.session.delete(node)
+            deleted += 1
+    return deleted
+
+
+# 严重级别旧值 → 新值（业务影响四级）映射
+SEVERITY_RENAME_MAP = {
+    'P1-紧急': '紧急故障',
+    'P2-高': '严重故障',
+    'P3-中': '一般故障',
+    'P4-低': '轻微故障',
+}
+
+
+def migrate_severity_levels():
+    """幂等迁移工单严重级别历史值（P1-紧急 等旧值 → 紧急故障 等新值）。返回迁移条数。"""
+    from models import db, Ticket
+    count = 0
+    for old, new in SEVERITY_RENAME_MAP.items():
+        rows = Ticket.query.filter(Ticket.severity_level == old).all()
+        if rows:
+            for t in rows:
+                t.severity_level = new
+            count += len(rows)
+    if count:
+        db.session.flush()
+    return count
 
 
 def seed_fault_categories(app=None, force_update=False):

@@ -271,7 +271,7 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { Plus, Search, Download, FolderOpened, UploadFilled, UserFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import TicketExpandRow from './TicketExpandRow.vue'
@@ -631,6 +631,19 @@ const cascadeOptions = computed(() => {
   return convert(dicts.value?.fault_types || [])
 })
 
+/** 默认级联路径：默认选中第一个一级分类（避免空显示「一级 → 二级 → 三级」） */
+function defaultCategoryPath(): string[] {
+  const l1 = dicts.value?.fault_types?.[0]
+  return l1 ? [l1.name] : []
+}
+
+// 字典异步加载完成且弹窗开着但未选分类时，补默认第一个一级
+watch(() => dicts.value?.fault_types, (l1s) => {
+  if (formVisible.value && l1s?.length && !(form.category_path as string[])?.length) {
+    form.category_path = [l1s[0].name]
+  }
+})
+
 function openCreate() {
   Object.assign(form, { id: null, title: '', customer_id: null, customer_name: '', priority: '中',
     source_type: '手动创建', category_path: [], severity_level: '', related_device_id: null, description: '',
@@ -638,6 +651,8 @@ function openCreate() {
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
   if (first && !form.customer_id) form.customer_id = first.id
+  // 默认选中第一个一级分类
+  form.category_path = defaultCategoryPath()
   formVisible.value = true
 }
 
@@ -646,7 +661,8 @@ function openEdit(t: Ticket) {
     t.fault_category_level3].filter(Boolean) as string[]
   Object.assign(form, {
     id: t.id, title: t.title, customer_id: t.customer_id, customer_name: t.customer?.name || '',
-    priority: t.priority, source_type: t.source_type || '手动创建', category_path: path,
+    priority: t.priority, source_type: t.source_type || '手动创建',
+    category_path: path.length ? path : defaultCategoryPath(),
     severity_level: t.severity_level || '',
     related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
     contract_exception_reason: t.contract_exception_reason || '',

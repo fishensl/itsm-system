@@ -130,7 +130,7 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { Plus, Search, Download } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
@@ -184,6 +184,19 @@ const catVisible = ref(false)
 
 /** 一级分类（筛选用） */
 const l1Categories = computed(() => dicts.value?.fault_types || [])
+
+/** 默认级联路径：默认选中第一个一级分类（避免空显示「一级 → 二级 → 三级」） */
+function defaultCategoryPath(): string[] {
+  const l1 = l1Categories.value[0]
+  return l1 ? [l1.name] : []
+}
+
+// 字典异步加载完成且弹窗开着但未选分类时，补默认第一个一级
+watch(l1Categories, (l1s) => {
+  if (formVisible.value && l1s.length && !(form.category_path as string[])?.length) {
+    form.category_path = [l1s[0].name]
+  }
+})
 
 /** el-cascader 选项：三级树转 {value,name,children}（选一级→二级→三级逐级展开） */
 const cascadeOptions = computed(() => {
@@ -274,6 +287,8 @@ function openCreate() {
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
   if (first && !form.customer_id) form.customer_id = first.id
+  // 默认选中第一个一级分类
+  form.category_path = defaultCategoryPath()
   formVisible.value = true
 }
 
@@ -291,7 +306,7 @@ async function openEdit(f: Fault) {
       fault_cause: detailData.fault_cause || '',
       solution: detailData.solution || '',
       impact_range: detailData.impact_range || '',
-      category_path: path,
+      category_path: path.length ? path : defaultCategoryPath(),
     })
     formVisible.value = true
   } catch { /* toast */ }

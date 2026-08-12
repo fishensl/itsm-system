@@ -142,16 +142,30 @@ class TestTicketCreate:
     def test_create_with_severity_level(self, op_client, seed, app):
         """创建工单写严重级别 + dicts 返回 severity_levels"""
         r = op_client.post('/api/tickets', json={
-            'title': '严重工单', 'customer_id': seed['c'], 'severity_level': 'P1-紧急'})
+            'title': '严重工单', 'customer_id': seed['c'], 'severity_level': '紧急故障'})
         assert r.status_code == 200
         with app.app_context():
             t = Ticket.query.filter_by(title='严重工单').first()
-            assert t.severity_level == 'P1-紧急'
+            assert t.severity_level == '紧急故障'
         r = op_client.get('/api/tickets', query_string={'search': '严重工单'})
-        assert r.get_json()['data']['items'][0]['severity_level'] == 'P1-紧急'
-        # dicts 含严重级别选项
+        assert r.get_json()['data']['items'][0]['severity_level'] == '紧急故障'
+        # dicts 含严重级别选项（业务影响四级）
         data = op_client.get('/api/dicts/tickets').get_json()['data']
-        assert 'P1-紧急' in data['severity_levels']
+        assert '紧急故障' in data['severity_levels']
+        assert 'P1-紧急' not in data['severity_levels']
+
+    def test_severity_legacy_migration(self, app, op_client, seed):
+        """历史严重级别旧值（P1-紧急 等）迁移为新四级"""
+        from scripts.seed_fault_categories import migrate_severity_levels
+        with app.app_context():
+            t = Ticket.query.get(seed['t'])
+            t.severity_level = 'P2-高'
+            db.session.commit()
+        with app.app_context():
+            n = migrate_severity_levels()
+            db.session.commit()
+            assert n == 1
+            assert Ticket.query.get(seed['t']).severity_level == '严重故障'
 
 
 class TestTicketDelete:
