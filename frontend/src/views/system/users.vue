@@ -9,7 +9,27 @@
 
     <!-- 用户列表 -->
     <el-card id="section-users" shadow="never" class="section-card">
-      <template #header><span class="card-title">用户</span></template>
+      <template #header>
+        <div class="user-card-header">
+          <div>
+            <span class="card-title">用户</span>
+            <span v-if="currentAccount" class="current-security-status">
+              当前账号登录 MFA：
+              <el-tag size="small" :type="currentAccount.mfa_enabled ? 'success' : 'warning'">
+                {{ currentAccount.mfa_enabled ? '已绑定' : '未绑定' }}
+              </el-tag>
+            </span>
+          </div>
+          <el-button
+            v-if="currentAccount"
+            type="primary"
+            size="small"
+            @click="openMyMfa"
+          >
+            {{ currentAccount.mfa_enabled ? '管理 / 更换 MFA' : '绑定我的登录 MFA' }}
+          </el-button>
+        </div>
+      </template>
       <DataTable
         ref="tableRef"
         :columns="userColumns"
@@ -207,12 +227,13 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, computed, onMounted, watch, h } from 'vue'
 import { ElTag } from 'element-plus'
 import { nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import type { PageResult } from '@/types'
 import { useUiStore } from '@/stores/ui'
+import { useUserStore } from '@/stores/user'
 import { ROLE_LABELS, ROLE_TAG, ACTIVE_LABELS } from '@/utils/labels'
 import {
   fetchUsers, createUser, updateUser, deleteUser, resetUserPassword, resetUserMfa, offboardUser,
@@ -223,6 +244,8 @@ import { fetchRegions, type RegionItem } from '@/api/regions'
 import { fetchCustomers } from '@/api/customers'
 
 const ui = useUiStore()
+const userStore = useUserStore()
+const router = useRouter()
 interface DeptRow {
   id: number
   name: string
@@ -232,6 +255,11 @@ interface DeptRow {
 }
 
 const users = ref<UserItem[]>([])
+const currentAccount = computed(() => users.value.find((item) => item.id === userStore.user?.id))
+
+function openMyMfa() {
+  router.push('/mfa')
+}
 const depts = ref<DeptRow[]>([])
 const allUsers = ref<{ id: number; name: string }[]>([])
 const roles = ref<string[]>([])
@@ -333,6 +361,12 @@ const userColumns = computed(() => mergeFieldMeta([
   { key: 'created_at', label: '创建时间', width: 100 },
   { key: 'actions', label: '操作', width: 280, type: 'action', fixed: 'right',
     actions: [
+      { label: '绑定MFA', type: 'success', link: true,
+        visible: (row) => row.id === userStore.user?.id && !row.mfa_enabled,
+        onClick: () => openMyMfa() },
+      { label: '更换MFA', type: 'warning', link: true,
+        visible: (row) => row.id === userStore.user?.id && Boolean(row.mfa_enabled),
+        onClick: () => openMyMfa() },
       { label: '编辑', type: 'primary', link: true, icon: 'Edit', perm: 'user:edit',
         onClick: (row) => openEdit(row as unknown as UserItem) },
       { label: '重置密码', type: 'warning', link: true, perm: 'user:edit',
@@ -528,6 +562,12 @@ onMounted(() => {
 <style scoped>
 .section-card { margin-bottom: 12px; }
 .card-title { font-weight: 600; font-size: 14px; }
+.user-card-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.current-security-status { margin-left: 18px; color: var(--itsm-text-muted); font-size: 12px; }
 .dept-header { display: flex; justify-content: space-between; align-items: center; }
 .w-full { width: 100%; }
+@media (max-width: 640px) {
+  .user-card-header { align-items: flex-start; flex-direction: column; }
+  .current-security-status { display: block; margin: 6px 0 0; }
+}
 </style>

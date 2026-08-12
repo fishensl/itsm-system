@@ -195,6 +195,7 @@ export interface DataAction<T = Record<string, any>> {
   plain?: boolean
   link?: boolean
   perm?: string
+  visible?: (row: T) => boolean
   disabled?: (row: T) => boolean
   onClick: (row: T) => void
 }
@@ -466,6 +467,7 @@ function displayValue(row: Record<string, any>, col: DataColumn) {
 function visibleActions(row: Record<string, any>, col: DataColumn) {
   return (col.actions || []).filter((a) => {
     if (a.perm && !hasPerm(a.perm)) return false
+    if (a.visible && !a.visible(row)) return false
     return !a.disabled?.(row)
   })
 }

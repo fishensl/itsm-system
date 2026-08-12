@@ -1,4 +1,6 @@
 """Default-off MFA and operation verification flows."""
+from urllib.parse import parse_qs, unquote, urlparse
+
 import pyotp
 
 
@@ -8,6 +10,9 @@ def test_mfa_setup_confirm_and_status(op_client, app):
     data = setup.get_json()['data']
     assert data['qr_data_uri'].startswith('data:image/png;base64,')
     assert len(data['backup_codes']) == 8
+    parsed_uri = urlparse(data['provisioning_uri'])
+    assert unquote(parsed_uri.path.lstrip('/')) == 'ITSM · 登录（op）'
+    assert 'issuer' not in parse_qs(parsed_uri.query)
     assert data['manual_secret'] not in str(op_client.get('/api/auth/mfa/status').get_json())
 
     code = pyotp.TOTP(data['manual_secret']).now()

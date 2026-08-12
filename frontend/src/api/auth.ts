@@ -78,6 +78,12 @@ export function confirmMfa(purpose: MfaPurpose, code: string) {
   })
 }
 
+export function rebindMfa(purpose: MfaPurpose, currentCode: string) {
+  return request<MfaSetupResult>({
+    url: '/api/auth/mfa/rebind', method: 'POST', data: { purpose, current_code: currentCode },
+  })
+}
+
 export function verifyOperationCode(code: string) {
   return request<{ token: string; expires_in: number }>({
     url: '/api/auth/op-verify', method: 'POST', data: { code },
