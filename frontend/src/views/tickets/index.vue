@@ -229,14 +229,15 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="故障分类">
+            <el-form-item label="故障分类" prop="category_path">
               <el-cascader
                 v-model="form.category_path"
                 :options="cascadeOptions"
-                :props="{ emitPath: true, checkStrictly: false }"
+                :props="{ emitPath: true, checkStrictly: false, value: 'value', label: 'label', children: 'children' }"
+                :show-all-levels="true"
                 filterable
                 clearable
-                placeholder="一级 → 二级 → 三级"
+                placeholder="请选择完整的一级 → 二级 → 三级"
                 class="w-full"
               />
             </el-form-item>
@@ -271,8 +272,8 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { Plus, Search, Download, FolderOpened, UploadFilled, UserFilled } from '@element-plus/icons-vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { Plus, Search, Download, FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import TicketExpandRow from './TicketExpandRow.vue'
 import { useUserStore } from '@/stores/user'
@@ -624,7 +625,29 @@ const form = reactive<Record<string, unknown>>({
   category_path: [], severity_level: '', related_device_id: null, description: '', dispatch_mode: 'pending',
   contract_exception_reason: '',
 })
-const formRules = { title: [{ required: true, message: '请输入工单标题', trigger: 'blur' }] }
+function isCompleteCategoryPath(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length !== 3 || value.some((item) => !String(item || '').trim())) {
+    return false
+  }
+  let nodes = dicts.value?.fault_types || []
+  for (const name of value) {
+    const node = nodes.find((item) => item.name === name)
+    if (!node) return false
+    nodes = node.children || []
+  }
+  return nodes.length === 0
+}
+
+const formRules = {
+  title: [{ required: true, message: '请输入工单标题', trigger: 'blur' }],
+  category_path: [{
+    validator: (_rule: unknown, value: unknown, callback: (error?: Error) => void) => {
+      if (isCompleteCategoryPath(value)) callback()
+      else callback(new Error('请选择完整的一级、二级、三级故障分类'))
+    },
+    trigger: 'change',
+  }],
+}
 
 /** el-cascader 选项：三级树转 {value,name,children}（选一级→二级→三级逐级展开） */
 const cascadeOptions = computed(() => {
@@ -634,19 +657,6 @@ const cascadeOptions = computed(() => {
   return convert(dicts.value?.fault_types || [])
 })
 
-/** 默认级联路径：默认选中第一个一级分类（避免空显示「一级 → 二级 → 三级」） */
-function defaultCategoryPath(): string[] {
-  const l1 = dicts.value?.fault_types?.[0]
-  return l1 ? [l1.name] : []
-}
-
-// 字典异步加载完成且弹窗开着但未选分类时，补默认第一个一级
-watch(() => dicts.value?.fault_types, (l1s) => {
-  if (formVisible.value && l1s?.length && !(form.category_path as string[])?.length) {
-    form.category_path = [l1s[0].name]
-  }
-})
-
 function openCreate() {
   Object.assign(form, { id: null, title: '', customer_id: null, customer_name: '', priority: '中',
     source_type: '手动创建', category_path: [], severity_level: '', related_device_id: null, description: '',
@@ -654,8 +664,6 @@ function openCreate() {
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
   if (first && !form.customer_id) form.customer_id = first.id
-  // 默认选中第一个一级分类
-  form.category_path = defaultCategoryPath()
   formVisible.value = true
 }
 
@@ -665,7 +673,8 @@ function openEdit(t: Ticket) {
   Object.assign(form, {
     id: t.id, title: t.title, customer_id: t.customer_id, customer_name: t.customer?.name || '',
     priority: t.priority, source_type: t.source_type || '手动创建',
-    category_path: path.length ? path : defaultCategoryPath(),
+    // 历史工单可能只有部分分类；不伪造默认一级，保存前要求重新选完整三级路径。
+    category_path: isCompleteCategoryPath(path) ? path : [],
     severity_level: t.severity_level || '',
     related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
     contract_exception_reason: t.contract_exception_reason || '',
@@ -678,6 +687,11 @@ async function save() {
   saving.value = true
   try {
     const path = (form.category_path as string[]) || []
+    if (!isCompleteCategoryPath(path)) {
+      ui.toast('请选择完整的一级、二级、三级故障分类', 'warning')
+      saving.value = false
+      return
+    }
     const payload = { ...form } as Record<string, unknown>
     payload.category_l1 = path[0] || ''
     payload.category_l2 = path[1] || ''

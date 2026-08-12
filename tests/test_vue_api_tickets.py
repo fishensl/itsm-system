@@ -139,6 +139,14 @@ class TestTicketCreate:
         item = r.get_json()['data']['items'][0]
         assert item['fault_category'] == '网络与通信故障/内网故障/单个电脑无法访问内网'
 
+    def test_rejects_incomplete_fault_category(self, op_client, seed):
+        """接口不能绕过前端写入只有一级或二级的残缺分类。"""
+        r = op_client.post('/api/tickets', json={
+            'title': '残缺分类工单', 'customer_id': seed['c'],
+            'category_l1': '网络与通信故障', 'category_l2': '内网故障'})
+        assert r.status_code == 400
+        assert '完整' in r.get_json()['message']
+
     def test_create_with_severity_level(self, op_client, seed, app):
         """创建工单写严重级别 + dicts 返回 severity_levels"""
         r = op_client.post('/api/tickets', json={

@@ -361,6 +361,13 @@ class TestFaultCreateUpdate:
         item = r.get_json()['data']['items'][0]
         assert item['fault_category'] == '监控系统故障/摄像头故障/单个摄像头无画面（黑屏）'
 
+    def test_rejects_incomplete_fault_category(self, op_client, fault_seed):
+        r = op_client.post('/api/faults', json={
+            'title': '残缺分类故障', 'customer_id': fault_seed['c'],
+            'category_l1': '监控系统故障', 'category_l2': '摄像头故障'})
+        assert r.status_code == 400
+        assert '完整' in r.get_json()['message']
+
     def test_filter_by_category_l1(self, op_client, fault_seed, app):
         with app.app_context():
             f = Fault.query.get(fault_seed['f'])

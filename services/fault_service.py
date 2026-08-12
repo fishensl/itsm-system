@@ -3,6 +3,7 @@
 from datetime import datetime
 from models import db, Fault
 from .base import ServiceError, transaction
+from .fault_category_service import resolve_fault_category_path
 
 
 def _parse_dt(value):
@@ -23,6 +24,8 @@ def create_fault(data, current_user_name):
     title = (data.get('title') or '').strip()
     if not title:
         raise ServiceError('故障标题不能为空')
+    category_path, _ = resolve_fault_category_path(
+        data.get('category_l1'), data.get('category_l2'), data.get('category_l3'))
     # V28: 客户合同过期门禁（故障记录同样不允许过期客户安排）
     if data.get('customer_id'):
         from models import Customer
@@ -44,9 +47,9 @@ def create_fault(data, current_user_name):
         solution=data.get('solution', ''),
         handler=data.get('handler', '') or current_user_name,
         # 三级分级分类（前端三级联动提交；fault_type 自由文本兼容历史数据）
-        fault_category_level1=data.get('category_l1', ''),
-        fault_category_level2=data.get('category_l2', ''),
-        fault_category_level3=data.get('category_l3', ''),
+        fault_category_level1=category_path[0],
+        fault_category_level2=category_path[1],
+        fault_category_level3=category_path[2],
     )
     db.session.add(f)
     return f
@@ -68,12 +71,12 @@ def update_fault(fault_id, data):
     f.impact_range = data.get('impact_range', f.impact_range)
     f.solution = data.get('solution', f.solution)
     f.handler = data.get('handler', f.handler)
-    if 'category_l1' in data:
-        f.fault_category_level1 = data.get('category_l1', '')
-    if 'category_l2' in data:
-        f.fault_category_level2 = data.get('category_l2', '')
-    if 'category_l3' in data:
-        f.fault_category_level3 = data.get('category_l3', '')
+    if any(k in data for k in ('category_l1', 'category_l2', 'category_l3')):
+        category_path, _ = resolve_fault_category_path(
+            data.get('category_l1', f.fault_category_level1),
+            data.get('category_l2', f.fault_category_level2),
+            data.get('category_l3', f.fault_category_level3))
+        f.fault_category_level1, f.fault_category_level2, f.fault_category_level3 = category_path
     return f
 
 
