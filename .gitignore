@@ -58,5 +58,6 @@ Thumbs.db
 frontend/node_modules/
 frontend/dist/
 static/app/
+static/app.backup-*/
 
 # opencode skills：全局 ~/.config/opencode/skills/ 存放，含生产敏感信息，禁止入库.opencode/skills/
