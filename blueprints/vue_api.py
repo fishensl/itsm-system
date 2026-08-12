@@ -111,7 +111,9 @@ def api_login():
         user.login_locked_until = None
         db.session.commit()
         enforce_mfa = bool(current_app.config.get('MFA_ENFORCE')) or setting_bool('mfa_enforce', False)
-        if enforce_mfa:
+        # 用户主动绑定登录 MFA 后立即生效；全局开关只负责强制未绑定用户先完成绑定。
+        # 否则界面显示“已绑定”，实际登录却只校验密码，容易造成错误安全预期。
+        if user.mfa_enabled or enforce_mfa:
             session.clear()
             session['pending_mfa_user_id'] = user.id
             session['pending_mfa_at'] = int(now.timestamp())

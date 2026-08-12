@@ -17,7 +17,7 @@ def test_mfa_enforcement_is_off_by_default(client):
     assert response.get_json()['data']['user']['username'] == 'op'
 
 
-def test_mfa_two_step_login(client, app):
+def test_bound_mfa_always_requires_two_step_login(client, app):
     from models import User, db
     from utils.crypto import encrypt_password
     secret = pyotp.random_base32()
@@ -26,8 +26,6 @@ def test_mfa_two_step_login(client, app):
         user.mfa_secret_encrypted = encrypt_password(secret)
         user.mfa_enabled = True
         db.session.commit()
-    _set_setting(app, 'mfa_enforce', '1')
-
     first = client.post('/api/auth/login', json={'username': 'op', 'password': 'test123456'})
     assert first.get_json()['data'] == {'mfa_required': True, 'bind_required': False}
     assert client.get('/api/auth/me').status_code == 401
