@@ -112,6 +112,7 @@ def convert_fault_to_ticket(fault_id, current_user_name):
     t.source_type = '故障转单'
     t.fault_category_level1 = f.fault_category_level1 or ''
     t.fault_category_level2 = f.fault_category_level2 or ''
+    t.fault_category_level3 = f.fault_category_level3 or ''
     t.root_cause_category = f.root_cause_category or ''
     t.solution = f.solution or ''
     f.ticket_id = t.id

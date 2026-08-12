@@ -1536,6 +1536,13 @@ def _ticket_payload(t, customer_map=None):
         'created_by': t.created_by or '',
         'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
         'fault_category_id': t.fault_category_id,
+        # 三级分级分类（与 Fault 一致；历史工单为空）
+        'fault_category_level1': t.fault_category_level1 or '',
+        'fault_category_level2': t.fault_category_level2 or '',
+        'fault_category_level3': t.fault_category_level3 or '',
+        'fault_category': '/'.join(x for x in (
+            t.fault_category_level1 or '', t.fault_category_level2 or '',
+            t.fault_category_level3 or '') if x),
         'severity_level': t.severity_level or '',
         'source_type': t.source_type or '',
         'diagnosis': t.diagnosis or '',
@@ -1999,11 +2006,12 @@ def api_ticket_report_latest(ticket_id):
 @login_required
 @require_permission('ticket:view')
 def api_ticket_dicts():
-    from models import FaultType as _FT, Device as _D
+    from models import Device as _D
     from utils.customer_scope import customer_dropdown_options
+    from blueprints.vue_api_ops import _fault_category_tree
     customers = customer_dropdown_options(current_user)
-    fault_types = [{'id': f.id, 'name': f.name}
-                   for f in _FT.query.order_by(_FT.sort_order, _FT.id).all()]
+    # 三级分类树（与故障管理页一致：选一级→二级→三级级联）
+    fault_types = _fault_category_tree()
     # S6: 移除「已接单」——不可达死状态（accept 直接转处理中），仅作历史数据兼容保留在状态机表
     statuses = ['待派单', '已派单', '处理中', '已挂起', '待审核', '已验收', '已关闭', '合同审批']
     priorities = ['紧急', '高', '中', '低']

@@ -65,6 +65,7 @@ class Ticket(db.Model):
     # v3 新增：结构化故障字段（为向量化准备）
     fault_category_level1 = db.Column(db.String(64), default='')  # 硬件故障/软件故障/网络故障/安全事件/配置变更/环境问题
     fault_category_level2 = db.Column(db.String(64), default='')  # 子分类
+    fault_category_level3 = db.Column(db.String(64), default='')  # 三级分类（对齐 Fault）
     symptoms_json = db.Column(db.Text, default='[]')               # [{"symptom":"...","detail":"...","duration":"..."}]
     affected_components_json = db.Column(db.Text, default='[]')    # [{"component":"...","role":"...","impact":"..."}]
     resolution_steps_json = db.Column(db.Text, default='[]')       # [{"step":1,"action":"...","result":"..."}]

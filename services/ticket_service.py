@@ -8,6 +8,24 @@ from .base import ServiceError, transaction
 from .submission_version_service import add_version, review_version, latest_pending_version
 
 
+def _leaf_fault_type_id(l1, l2, l3):
+    """三级分类 → 叶子 FaultType.id（fault_category_id 兼容字段）
+
+    按 一级→二级→三级 逐级查找，任一缺失即返回 None（不强制）。
+    """
+    if not (l1 and l2 and l3):
+        return None
+    from models import FaultType
+    n1 = FaultType.query.filter_by(name=str(l1).strip(), parent_id=None, level=1).first()
+    if not n1:
+        return None
+    n2 = FaultType.query.filter_by(name=str(l2).strip(), parent_id=n1.id, level=2).first()
+    if not n2:
+        return None
+    n3 = FaultType.query.filter_by(name=str(l3).strip(), parent_id=n2.id, level=3).first()
+    return n3.id if n3 else None
+
+
 # 状态集合单一真源在 utils/constants.py（此处保留别名兼容旧引用）
 TICKET_STATES = TICKET_STATUSES
 
@@ -112,6 +130,12 @@ def create_ticket(data, current_user_name):
         contract_exception_reason=contract_reason,
         contract_exception_by=current_user_name,
         contract_exception_at=datetime.utcnow() if initial_status == TICKET_CONTRACT_REVIEW else None,
+        # 三级分级分类（前端级联选择提交，与 Fault 一致；fault_category_id 写叶子分类）
+        fault_category_level1=(data.get('category_l1') or '').strip(),
+        fault_category_level2=(data.get('category_l2') or '').strip(),
+        fault_category_level3=(data.get('category_l3') or '').strip(),
+        fault_category_id=_leaf_fault_type_id(data.get('category_l1'), data.get('category_l2'),
+                                              data.get('category_l3')),
     )
     db.session.add(t)
     try:
@@ -147,6 +171,16 @@ def update_ticket(ticket_id, data, current_user_name):
     t.assigned_to = data.get('assigned_to', t.assigned_to)
     if 'related_device_id' in data:
         t.related_device_id = int(data['related_device_id']) if data.get('related_device_id') else None
+    # 三级分级分类（'category_l1' in data 才更新，支持清空）
+    if 'category_l1' in data:
+        t.fault_category_level1 = (data.get('category_l1') or '').strip()
+    if 'category_l2' in data:
+        t.fault_category_level2 = (data.get('category_l2') or '').strip()
+    if 'category_l3' in data:
+        t.fault_category_level3 = (data.get('category_l3') or '').strip()
+    if any(k in data for k in ('category_l1', 'category_l2', 'category_l3')):
+        t.fault_category_id = _leaf_fault_type_id(
+            data.get('category_l1'), data.get('category_l2'), data.get('category_l3'))
     _record_log(t, '编辑工单', current_user_name, '')
     return t
 

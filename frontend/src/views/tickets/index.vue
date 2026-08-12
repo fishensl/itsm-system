@@ -222,10 +222,16 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="故障类型">
-              <el-select v-model="form.fault_category_id" filterable allow-create clearable class="w-full">
-                <el-option v-for="f in dicts?.fault_types || []" :key="f.id" :label="f.name" :value="f.id" />
-              </el-select>
+            <el-form-item label="故障分类">
+              <el-cascader
+                v-model="form.category_path"
+                :options="cascadeOptions"
+                :props="{ emitPath: true, checkStrictly: false }"
+                filterable
+                clearable
+                placeholder="一级 → 二级 → 三级"
+                class="w-full"
+              />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -276,6 +282,7 @@ import { handleExportResult } from '@/utils/export'
 import { TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
 import type { SubmissionVersion as SV } from '@/api/inspections'
 import { fetchDepartments } from '@/api/system'
+import type { FaultCategoryNode } from '@/api/faults'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -320,6 +327,8 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'status', label: '状态', width: 90, type: 'tag', asTag: true, tagMap: TICKET_STATUS_TAG },
   { key: 'priority', label: '优先级', width: 80, type: 'tag', tagMap: TICKET_PRIORITY_TAG },
   { key: 'customer_name', label: '客户', minWidth: 100 },
+  { key: 'fault_category', label: '故障分类', minWidth: 150, defaultVisible: false,
+    render: (r) => r.fault_category || '-' },
   { key: 'assigned_to', label: '处理人', width: 90 },
   { key: 'complete', label: '资料完整', width: 100, type: 'tag',
     tagMap: { true: 'success', false: 'warning' } as Record<string, 'success' | 'warning'>,
@@ -601,14 +610,22 @@ const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', customer_id: null, customer_name: '', priority: '中', source_type: '手动创建',
-  fault_category_id: null, related_device_id: null, description: '', dispatch_mode: 'pending',
+  category_path: [], related_device_id: null, description: '', dispatch_mode: 'pending',
   contract_exception_reason: '',
 })
 const formRules = { title: [{ required: true, message: '请输入工单标题', trigger: 'blur' }] }
 
+/** el-cascader 选项：三级树转 {value,name,children}（选一级→二级→三级逐级展开） */
+const cascadeOptions = computed(() => {
+  const convert = (nodes: FaultCategoryNode[]): unknown[] =>
+    nodes.map((n) => ({ value: n.name, label: n.name,
+      children: n.children?.length ? convert(n.children) : undefined }))
+  return convert(dicts.value?.fault_types || [])
+})
+
 function openCreate() {
   Object.assign(form, { id: null, title: '', customer_id: null, customer_name: '', priority: '中',
-    source_type: '手动创建', fault_category_id: null, related_device_id: null, description: '',
+    source_type: '手动创建', category_path: [], related_device_id: null, description: '',
     dispatch_mode: 'pending', contract_exception_reason: '' })
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
@@ -617,9 +634,11 @@ function openCreate() {
 }
 
 function openEdit(t: Ticket) {
+  const path = [t.fault_category_level1, t.fault_category_level2,
+    t.fault_category_level3].filter(Boolean) as string[]
   Object.assign(form, {
     id: t.id, title: t.title, customer_id: t.customer_id, customer_name: t.customer?.name || '',
-    priority: t.priority, source_type: t.source_type || '手动创建', fault_category_id: t.fault_category_id,
+    priority: t.priority, source_type: t.source_type || '手动创建', category_path: path,
     related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
     contract_exception_reason: t.contract_exception_reason || '',
   })
@@ -630,12 +649,18 @@ async function save() {
   try { await formRef.value?.validate() } catch { return }
   saving.value = true
   try {
+    const path = (form.category_path as string[]) || []
+    const payload = { ...form } as Record<string, unknown>
+    payload.category_l1 = path[0] || ''
+    payload.category_l2 = path[1] || ''
+    payload.category_l3 = path[2] || ''
+    delete payload.category_path
     if (form.id) {
-      await updateTicket(form.id as number, { ...form })
+      await updateTicket(form.id as number, payload)
       ui.toast('工单已更新', 'success')
       formVisible.value = false
     } else {
-      const res = await createTicket({ ...form })
+      const res = await createTicket(payload)
       ui.toast(`工单 ${res.number} 已创建${form.dispatch_mode === 'self_accept' ? '，已由你接单' : ''}`, 'success')
       formVisible.value = false
     }

@@ -21,6 +21,11 @@ export interface Ticket {
   created_by: string
   created_at: string
   fault_category_id: number | null
+  /** 三级分级分类（与故障管理页一致） */
+  fault_category_level1?: string
+  fault_category_level2?: string
+  fault_category_level3?: string
+  fault_category?: string
   severity_level: string
   source_type: string
   diagnosis: string
@@ -143,7 +148,8 @@ export function fetchTicketVersions(id: number) {
 export interface TicketDicts {
   customers: { id: number; name: string; region_id: number | null;
     contract_status?: string; contract_end_date?: string }[]
-  fault_types: { id: number; name: string }[]
+  /** 三级分类树（与故障管理页一致） */
+  fault_types: import('./faults').FaultCategoryNode[]
   statuses: string[]
   priorities: string[]
   devices: { id: number; device_name: string; customer_id: number | null }[]
