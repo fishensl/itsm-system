@@ -152,6 +152,8 @@ export interface TicketDicts {
   fault_types: import('./faults').FaultCategoryNode[]
   statuses: string[]
   priorities: string[]
+  /** 严重级别：P1-紧急/P2-高/P3-中/P4-低 */
+  severity_levels?: string[]
   devices: { id: number; device_name: string; customer_id: number | null }[]
 }
 

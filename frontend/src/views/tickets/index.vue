@@ -215,6 +215,13 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
+            <el-form-item label="严重级别">
+              <el-select v-model="form.severity_level" clearable class="w-full" placeholder="P1-紧急/P2-高/P3-中/P4-低">
+                <el-option v-for="s in dicts?.severity_levels || []" :key="s" :label="s" :value="s" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
             <el-form-item label="来源">
               <el-select v-model="form.source_type" class="w-full">
                 <el-option v-for="s in TICKET_SOURCE_TYPES" :key="s" :label="s" :value="s" />
@@ -326,6 +333,7 @@ const columns = computed<DataColumn[]>(() => [
   { key: 'number', label: '单号', width: 130 },
   { key: 'status', label: '状态', width: 90, type: 'tag', asTag: true, tagMap: TICKET_STATUS_TAG },
   { key: 'priority', label: '优先级', width: 80, type: 'tag', tagMap: TICKET_PRIORITY_TAG },
+  { key: 'severity_level', label: '严重级别', width: 100, defaultVisible: false },
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'fault_category', label: '故障分类', minWidth: 150, defaultVisible: false,
     render: (r) => r.fault_category || '-' },
@@ -610,7 +618,7 @@ const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', customer_id: null, customer_name: '', priority: '中', source_type: '手动创建',
-  category_path: [], related_device_id: null, description: '', dispatch_mode: 'pending',
+  category_path: [], severity_level: '', related_device_id: null, description: '', dispatch_mode: 'pending',
   contract_exception_reason: '',
 })
 const formRules = { title: [{ required: true, message: '请输入工单标题', trigger: 'blur' }] }
@@ -625,7 +633,7 @@ const cascadeOptions = computed(() => {
 
 function openCreate() {
   Object.assign(form, { id: null, title: '', customer_id: null, customer_name: '', priority: '中',
-    source_type: '手动创建', category_path: [], related_device_id: null, description: '',
+    source_type: '手动创建', category_path: [], severity_level: '', related_device_id: null, description: '',
     dispatch_mode: 'pending', contract_exception_reason: '' })
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
@@ -639,6 +647,7 @@ function openEdit(t: Ticket) {
   Object.assign(form, {
     id: t.id, title: t.title, customer_id: t.customer_id, customer_name: t.customer?.name || '',
     priority: t.priority, source_type: t.source_type || '手动创建', category_path: path,
+    severity_level: t.severity_level || '',
     related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
     contract_exception_reason: t.contract_exception_reason || '',
   })

@@ -136,6 +136,7 @@ def create_ticket(data, current_user_name):
         fault_category_level3=(data.get('category_l3') or '').strip(),
         fault_category_id=_leaf_fault_type_id(data.get('category_l1'), data.get('category_l2'),
                                               data.get('category_l3')),
+        severity_level=(data.get('severity_level') or '').strip(),  # P1-紧急/P2-高/P3-中/P4-低
     )
     db.session.add(t)
     try:
@@ -181,6 +182,8 @@ def update_ticket(ticket_id, data, current_user_name):
     if any(k in data for k in ('category_l1', 'category_l2', 'category_l3')):
         t.fault_category_id = _leaf_fault_type_id(
             data.get('category_l1'), data.get('category_l2'), data.get('category_l3'))
+    if 'severity_level' in data:
+        t.severity_level = (data.get('severity_level') or '').strip()
     _record_log(t, '编辑工单', current_user_name, '')
     return t
 

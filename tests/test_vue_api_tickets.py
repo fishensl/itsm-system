@@ -113,7 +113,7 @@ class TestTicketCreate:
         """创建工单写三级故障分类（category_l1/2/3）"""
         with app.app_context():
             from models import FaultType
-            l1 = FaultType(name='一、网络与通信故障', level=1)
+            l1 = FaultType(name='网络与通信故障', level=1)
             db.session.add(l1)
             db.session.flush()
             l2 = FaultType(name='内网故障', parent_id=l1.id, level=2)
@@ -125,19 +125,33 @@ class TestTicketCreate:
             leaf_id = l3.id
         r = op_client.post('/api/tickets', json={
             'title': '分级工单', 'customer_id': seed['c'],
-            'category_l1': '一、网络与通信故障', 'category_l2': '内网故障',
+            'category_l1': '网络与通信故障', 'category_l2': '内网故障',
             'category_l3': '单个电脑无法访问内网'})
         assert r.status_code == 200
         with app.app_context():
             t = Ticket.query.filter_by(title='分级工单').first()
-            assert t.fault_category_level1 == '一、网络与通信故障'
+            assert t.fault_category_level1 == '网络与通信故障'
             assert t.fault_category_level2 == '内网故障'
             assert t.fault_category_level3 == '单个电脑无法访问内网'
             assert t.fault_category_id == leaf_id  # 叶子分类 id（兼容字段）
         # payload 输出分级拼接
         r = op_client.get('/api/tickets', query_string={'search': '分级工单'})
         item = r.get_json()['data']['items'][0]
-        assert item['fault_category'] == '一、网络与通信故障/内网故障/单个电脑无法访问内网'
+        assert item['fault_category'] == '网络与通信故障/内网故障/单个电脑无法访问内网'
+
+    def test_create_with_severity_level(self, op_client, seed, app):
+        """创建工单写严重级别 + dicts 返回 severity_levels"""
+        r = op_client.post('/api/tickets', json={
+            'title': '严重工单', 'customer_id': seed['c'], 'severity_level': 'P1-紧急'})
+        assert r.status_code == 200
+        with app.app_context():
+            t = Ticket.query.filter_by(title='严重工单').first()
+            assert t.severity_level == 'P1-紧急'
+        r = op_client.get('/api/tickets', query_string={'search': '严重工单'})
+        assert r.get_json()['data']['items'][0]['severity_level'] == 'P1-紧急'
+        # dicts 含严重级别选项
+        data = op_client.get('/api/dicts/tickets').get_json()['data']
+        assert 'P1-紧急' in data['severity_levels']
 
 
 class TestTicketDelete:
@@ -165,7 +179,7 @@ class TestTicketDicts:
         with app.app_context():
             from models import FaultType
             if FaultType.query.count() == 0:
-                l1 = FaultType(name='一、网络与通信故障', level=1)
+                l1 = FaultType(name='网络与通信故障', level=1)
                 db.session.add(l1)
                 db.session.flush()
                 db.session.add(FaultType(name='内网故障', parent_id=l1.id, level=2))
@@ -173,7 +187,7 @@ class TestTicketDicts:
         data = op_client.get('/api/dicts/tickets').get_json()['data']
         roots = data['fault_types']
         assert isinstance(roots, list) and roots
-        net = next(t for t in roots if t['name'] == '一、网络与通信故障')
+        net = next(t for t in roots if t['name'] == '网络与通信故障')
         assert 'children' in net and net['children']
 
     def test_customers_include_region_id(self, op_client, app):

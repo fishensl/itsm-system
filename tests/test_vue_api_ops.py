@@ -349,28 +349,28 @@ class TestFaultCreateUpdate:
         """三级分类写入 fault_category_level1/2/3（新数据只写三级列）"""
         r = op_client.post('/api/faults', json={
             'title': '摄像头故障', 'customer_id': fault_seed['c'],
-            'category_l1': '九、监控系统故障', 'category_l2': '摄像头故障',
+            'category_l1': '监控系统故障', 'category_l2': '摄像头故障',
             'category_l3': '单个摄像头无画面（黑屏）', 'result': '已解决'})
         assert r.status_code == 200
         with app.app_context():
             f = Fault.query.filter_by(title='摄像头故障').first()
-            assert f.fault_category_level1 == '九、监控系统故障'
+            assert f.fault_category_level1 == '监控系统故障'
             assert f.fault_category_level2 == '摄像头故障'
             assert f.fault_category_level3 == '单个摄像头无画面（黑屏）'
         r = op_client.get('/api/faults')
         item = r.get_json()['data']['items'][0]
-        assert item['fault_category'] == '九、监控系统故障/摄像头故障/单个摄像头无画面（黑屏）'
+        assert item['fault_category'] == '监控系统故障/摄像头故障/单个摄像头无画面（黑屏）'
 
     def test_filter_by_category_l1(self, op_client, fault_seed, app):
         with app.app_context():
             f = Fault.query.get(fault_seed['f'])
-            f.fault_category_level1 = '一、网络与通信故障'
+            f.fault_category_level1 = '网络与通信故障'
             f.fault_category_level2 = '内网故障'
             f.fault_category_level3 = '单个电脑无法访问内网'
             db.session.commit()
-        r = op_client.get('/api/faults', query_string={'category_l1': '一、网络与通信故障'})
+        r = op_client.get('/api/faults', query_string={'category_l1': '网络与通信故障'})
         assert r.get_json()['data']['total'] == 1
-        r = op_client.get('/api/faults', query_string={'category_l1': '九、监控系统故障'})
+        r = op_client.get('/api/faults', query_string={'category_l1': '监控系统故障'})
         assert r.get_json()['data']['total'] == 0
 
     def test_update(self, op_client, fault_seed, app):
@@ -426,7 +426,7 @@ class TestFaultDicts:
 class TestFaultCategories:
     def test_crud_level_autocompute(self, admin_client, app):
         """分类 CRUD + 层级自动推导 + 有子级不可删 + 被故障引用不可删"""
-        r = admin_client.post('/api/fault-categories', json={'name': '一、网络与通信故障'})
+        r = admin_client.post('/api/fault-categories', json={'name': '网络与通信故障'})
         assert r.status_code == 200
         l1_id = r.get_json()['data']['id']
         r = admin_client.post('/api/fault-categories', json={'name': '内网故障', 'parent_id': l1_id})
@@ -443,7 +443,7 @@ class TestFaultCategories:
         # 树接口含三级嵌套
         r = admin_client.get('/api/fault-categories')
         tree = r.get_json()['data']
-        net = next(t for t in tree if t['name'] == '一、网络与通信故障')
+        net = next(t for t in tree if t['name'] == '网络与通信故障')
         inner = next(c for c in net['children'] if c['name'] == '内网故障')
         assert '单个电脑无法访问内网' in [c['name'] for c in inner['children']]
         # 重名同级 400
@@ -465,6 +465,46 @@ class TestFaultCategories:
             db.session.commit()
         r = admin_client.delete(f'/api/fault-categories/{l3_id}')
         assert r.status_code == 400
+
+
+class TestFaultCategoryClean:
+    def test_clean_renames_prefix_and_deletes_flat(self, app):
+        """clean_fault_categories：一级去序号前缀、删旧扁平类型、同步 level1 字符串"""
+        from scripts.seed_fault_categories import clean_fault_categories, seed_fault_categories
+        with app.app_context():
+            # 造旧数据：带前缀一级 + 旧扁平 + 引用
+            l1 = FaultType(name='一、网络与通信故障', level=1)
+            db.session.add(l1)
+            db.session.flush()
+            old_flat = FaultType(name='网络中断', level=1)
+            db.session.add(old_flat)
+            db.session.flush()
+            c = Customer(name='清理客户')
+            db.session.add(c)
+            db.session.flush()
+            db.session.add(Fault(title='旧前缀故障', customer_id=c.id,
+                                 fault_category_level1='一、网络与通信故障'))
+            db.session.add(Ticket(number='WO-CLEAN-001', title='旧前缀工单', customer_id=c.id,
+                                  fault_category_level1='网络中断', fault_category_id=old_flat.id,
+                                  status='待派单', created_by='admin'))
+            db.session.commit()
+        with app.app_context():
+            renamed, deleted_flat, _vpn = clean_fault_categories()
+            seed_fault_categories(app=None)
+            db.session.commit()
+            assert renamed == 1
+            assert deleted_flat == 1
+            # 一级已改名、旧扁平已删
+            assert FaultType.query.filter_by(name='一、网络与通信故障').first() is None
+            assert FaultType.query.filter_by(name='网络与通信故障', parent_id=None).first() is not None
+            assert FaultType.query.filter_by(name='网络中断').first() is None
+            # level1 字符串同步 + fault_category_id 外键置空
+            from models import Fault as _F, Ticket as _T
+            f = _F.query.filter_by(title='旧前缀故障').first()
+            assert f.fault_category_level1 == '网络与通信故障'
+            t = _T.query.filter_by(number='WO-CLEAN-001').first()
+            assert t.fault_category_level1 == ''
+            assert t.fault_category_id is None
 
 
 # ==================== 报告中心 ====================

@@ -2015,10 +2015,12 @@ def api_ticket_dicts():
     # S6: 移除「已接单」——不可达死状态（accept 直接转处理中），仅作历史数据兼容保留在状态机表
     statuses = ['待派单', '已派单', '处理中', '已挂起', '待审核', '已验收', '已关闭', '合同审批']
     priorities = ['紧急', '高', '中', '低']
+    from utils.permission import SEVERITY_LEVELS
     devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
                for d in _D.query.order_by(_D.device_name).all()]
     return ok({'customers': customers, 'fault_types': fault_types,
-               'statuses': statuses, 'priorities': priorities, 'devices': devices})
+               'statuses': statuses, 'priorities': priorities, 'severity_levels': list(SEVERITY_LEVELS),
+               'devices': devices})
 @vue_api_bp.route('/api/dicts/devices', methods=['GET'])
 @login_required
 @require_permission('device:view')

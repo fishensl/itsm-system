@@ -345,11 +345,12 @@ def init_db(app):
             db.session.commit()
             app.logger.info('默认设备类型已创建')
 
-        # 默认故障分类（九大体系）——幂等播种：已有旧扁平类型也能补齐三级树
-        from scripts.seed_fault_categories import seed_fault_categories
+        # 默认故障分类（九大体系）——幂等清理历史数据（去前缀/删旧扁平/VPN迁移）后播种三级树
+        from scripts.seed_fault_categories import clean_fault_categories, seed_fault_categories
+        clean_fault_categories()
         seed_fault_categories(app)
         db.session.commit()
-        app.logger.info('故障分类（九大体系）已同步')
+        app.logger.info('故障分类（九大体系）已清理并同步')
 
 
 if __name__ == '__main__':
