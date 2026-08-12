@@ -104,6 +104,8 @@ export function uploadTopology(formData: FormData) {
 
 export interface TopologyTemplate {
   name: string
+  description: string
+  category: 'logical' | 'physical' | 'other'
   file: string
   url: string
 }

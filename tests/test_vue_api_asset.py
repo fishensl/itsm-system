@@ -413,6 +413,38 @@ class TestTopologyDicts:
         assert sales_client.get('/api/topologies/dicts').status_code == 403
 
 
+class TestTopologyTemplates:
+    def test_chinese_logical_and_physical_templates(self, admin_client, app):
+        response = admin_client.get('/api/topologies/templates')
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body['ok'] is True
+        assert body['code'] == 0
+        assert body['data']['items'] == body['items']
+        assert [item['name'] for item in body['items'][:2]] == [
+            '网络逻辑拓扑图', '网络物理连接拓扑图']
+        by_name = {item['name']: item for item in body['data']['items']}
+        assert {'网络逻辑拓扑图', '网络物理连接拓扑图'} <= set(by_name)
+        assert by_name['网络逻辑拓扑图']['category'] == 'logical'
+        assert by_name['网络物理连接拓扑图']['category'] == 'physical'
+
+        template_dir = os.path.join(app.root_path, 'static', 'templates')
+        with open(os.path.join(template_dir, by_name['网络逻辑拓扑图']['file']),
+                  encoding='utf-8') as source:
+            logical_xml = source.read()
+        assert all(label in logical_xml for label in ('外网边界', '上联边界', '接入层', '下联边界'))
+        assert 'id="access-a"' in logical_xml and 'parent="zone-access"' in logical_xml
+        assert 'id="branch"' in logical_xml and 'parent="zone-downlink"' in logical_xml
+
+        with open(os.path.join(template_dir, by_name['网络物理连接拓扑图']['file']),
+                  encoding='utf-8') as source:
+            physical_xml = source.read()
+        assert all(label in physical_xml for label in ('网络物理连接拓扑图', '机柜', '端口'))
+
+    def test_template_list_requires_login(self, client):
+        assert client.get('/api/topologies/templates').status_code == 401
+
+
 class TestTopologyUpload:
     def _remove_uploaded(self, app, tid):
         with app.app_context():

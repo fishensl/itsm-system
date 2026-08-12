@@ -252,7 +252,12 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
                     var hit = data.items.filter(function(t) {
                         return t.name === TEMPLATE_PARAM || t.file === TEMPLATE_PARAM;
                     })[0];
-                    if (hit) { loadTemplateXml(hit.url, hit.name); sel.value = hit.url; }
+                    if (hit) {
+                        if (!document.getElementById('topoName').value) {
+                            document.getElementById('topoName').value = hit.name;
+                        }
+                        loadTemplateXml(hit.url, hit.name); sel.value = hit.url;
+                    }
                     else showToast('模板不存在: ' + TEMPLATE_PARAM, 'danger');
                 }
             }).catch(function(e) { console.warn('[tpl] 模板列表加载失败', e); });

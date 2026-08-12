@@ -17,6 +17,20 @@ from utils.permission import require_permission, has_permission
 topology_bp = Blueprint('topology', __name__)
 
 
+TOPOLOGY_TEMPLATE_CATALOG = {
+    'template-network-topology.drawio': {
+        'name': '网络逻辑拓扑图',
+        'description': '按外网边界、上联边界、核心层、接入层和下联分支边界组织，展示路由与业务关系。',
+        'category': 'logical',
+    },
+    'template-network-physical-topology.drawio': {
+        'name': '网络物理连接拓扑图',
+        'description': '按机房、机柜、设备端口和链路介质组织，展示真实物理连接关系。',
+        'category': 'physical',
+    },
+}
+
+
 # ============================ 列表（SSR 已剥离：302 到 SPA） ============================
 @topology_bp.route('/topologies', methods=['GET', 'POST'])
 @login_required
@@ -38,9 +52,24 @@ def api_template_list():
     if os.path.isdir(tpl_dir):
         for f in sorted(glob.glob(os.path.join(tpl_dir, '*.drawio'))):
             fname = os.path.basename(f)
-            items.append({'name': fname[:-len('.drawio')], 'file': fname,
-                          'url': url_for('static', filename='templates/' + fname)})
-    return jsonify({'ok': True, 'items': items})
+            metadata = TOPOLOGY_TEMPLATE_CATALOG.get(fname, {})
+            items.append({
+                'name': metadata.get('name', fname[:-len('.drawio')]),
+                'description': metadata.get('description', ''),
+                'category': metadata.get('category', 'other'),
+                'file': fname,
+                'url': url_for('static', filename='templates/' + fname),
+            })
+    category_order = {'logical': 0, 'physical': 1, 'other': 2}
+    items.sort(key=lambda item: (category_order.get(item['category'], 2), item['name']))
+    # 双契约兼容：Vue request() 解包 code/data；editor-shell 历史直连仍读取 ok/items。
+    return jsonify({
+        'code': 0,
+        'data': {'items': items},
+        'message': '',
+        'ok': True,
+        'items': items,
+    })
 
 
 @topology_bp.route('/topologies/editor/<int:id>')

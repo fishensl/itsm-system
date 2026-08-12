@@ -147,12 +147,22 @@
     </el-dialog>
 
     <!-- 从模板新建弹窗 -->
-    <el-dialog v-model="tplDialogVisible" title="从模板新建拓扑图" width="480px" top="10vh" destroy-on-close>
+    <el-dialog v-model="tplDialogVisible" title="从模板新建拓扑图" width="620px" top="10vh" destroy-on-close>
       <div v-loading="tplLoading" class="tpl-list">
         <div v-for="t in templates" :key="t.file" class="tpl-item" @click="openFromTemplate(t)">
-          <el-icon color="#2563eb"><Files /></el-icon>
-          <span class="tpl-name">{{ t.name }}</span>
-          <el-tag size="small" type="info">.drawio</el-tag>
+          <div :class="['tpl-icon', `tpl-icon-${t.category}`]">
+            <el-icon><Files /></el-icon>
+          </div>
+          <div class="tpl-content">
+            <div class="tpl-title-row">
+              <span class="tpl-name">{{ t.name }}</span>
+              <el-tag size="small" :type="t.category === 'logical' ? 'primary' : 'success'">
+                {{ t.category === 'logical' ? '逻辑关系' : t.category === 'physical' ? '物理连接' : '通用' }}
+              </el-tag>
+            </div>
+            <span class="tpl-description">{{ t.description || '在线拓扑图模板' }}</span>
+          </div>
+          <span class="tpl-use">使用模板</span>
         </div>
         <el-empty v-if="!tplLoading && !templates.length" description="暂无模板" :image-size="50" />
       </div>
@@ -476,9 +486,17 @@ onMounted(() => {
 .fi-import { color: var(--el-color-info); }
 .tpl-list { display: flex; flex-direction: column; gap: 8px; min-height: 80px; }
 .tpl-item {
-  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  display: flex; align-items: center; gap: 12px; padding: 13px 14px;
   border: 1px solid var(--itsm-border); border-radius: 8px; cursor: pointer;
 }
 .tpl-item:hover { background: var(--el-fill-color-light); border-color: var(--el-color-primary); }
 .tpl-name { font-size: 13px; font-weight: 600; }
+.tpl-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 38px; width: 38px; height: 38px; font-size: 18px; border-radius: 8px; }
+.tpl-icon-logical { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.tpl-icon-physical { color: var(--el-color-success); background: var(--el-color-success-light-9); }
+.tpl-icon-other { color: var(--el-color-info); background: var(--el-fill-color-light); }
+.tpl-content { display: flex; flex: 1; flex-direction: column; gap: 5px; min-width: 0; }
+.tpl-title-row { display: flex; align-items: center; gap: 8px; }
+.tpl-description { color: var(--itsm-text-muted); font-size: 12px; line-height: 1.4; }
+.tpl-use { color: var(--el-color-primary); font-size: 12px; white-space: nowrap; }
 </style>
