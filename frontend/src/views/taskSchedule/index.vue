@@ -6,6 +6,9 @@
         <el-button plain :icon="Download" @click="downloadTemplate">导入模板</el-button>
         <input ref="importInput" type="file" accept=".xlsx,.xls" style="display: none" @change="onImportFile" />
         <el-button plain :icon="Upload" @click="importInput?.click()">批量导入</el-button>
+        <el-button plain :type="bulkMode ? 'primary' : undefined" @click="toggleBulkMode">
+          {{ bulkMode ? '退出批量' : '批量操作' }}
+        </el-button>
         <el-button v-if="user.hasPerm('task:schedule')" type="primary" :icon="Plus" @click="openCreate">
           快速新建
         </el-button>
@@ -47,7 +50,7 @@
     </el-card>
 
     <!-- 批量操作条 -->
-    <div v-if="selectedIds.length" class="batch-bar">
+    <div v-if="bulkMode && selectedIds.length" class="batch-bar">
       <span>已选 {{ selectedIds.length }} 项</span>
       <el-select v-model="batchStatus" placeholder="批量改状态" size="small" style="width: 140px"
         @change="runBatch('status', batchStatus)">
@@ -69,7 +72,7 @@
           <span class="col-count">{{ data.status_groups?.[st]?.length || 0 }}</span>
         </div>
         <div class="col-body">
-          <el-checkbox v-if="(data.status_groups?.[st] || []).length" class="col-check"
+          <el-checkbox v-if="bulkMode && (data.status_groups?.[st] || []).length" class="col-check"
             :model-value="selectedIds.length > 0 && (data.status_groups?.[st] || []).every((t) => selectedIds.includes(t.id))"
             @change="(v: boolean | string | number | undefined) => toggleCol(st, !!v)">
             全选
@@ -77,7 +80,7 @@
           <div v-for="t in data.status_groups?.[st] || []" :key="t.id" class="task-card"
             :class="{ overdue: t.overdue, selected: selectedIds.includes(t.id), expanded: expandedId === t.id }">
             <div class="task-line" @click="openInline(t)">
-              <el-checkbox class="task-check" :model-value="selectedIds.includes(t.id)"
+              <el-checkbox v-if="bulkMode" class="task-check" :model-value="selectedIds.includes(t.id)"
                 @click.stop @change="(v: boolean | string | number | undefined) => toggleSelect(t.id, !!v)" />
               <span class="status-dot" :class="`dot-${t.status}`" />
               <span class="task-title" :title="t.title">{{ t.title }}</span>
@@ -130,7 +133,7 @@
           <div v-for="t in data.engineer_groups?.[String(e.id)] || []" :key="t.id" class="task-card"
             :class="{ overdue: t.overdue, selected: selectedIds.includes(t.id), expanded: expandedId === t.id }">
             <div class="task-line" @click="openInline(t)">
-              <el-checkbox class="task-check" :model-value="selectedIds.includes(t.id)"
+              <el-checkbox v-if="bulkMode" class="task-check" :model-value="selectedIds.includes(t.id)"
                 @click.stop @change="(v: boolean | string | number | undefined) => toggleSelect(t.id, !!v)" />
               <span class="status-dot" :class="`dot-${t.status}`" />
               <span class="task-title" :title="t.title">{{ t.title }}</span>
@@ -376,6 +379,7 @@ const onlyOverdue = ref(false)
 const selectedIds = ref<number[]>([])
 const batchStatus = ref('')
 const batchAssignee = ref<number | null>(null)
+const bulkMode = ref(false)
 
 const createVisible = ref(false)
 const creating = ref(false)
@@ -504,6 +508,15 @@ function toggleSelect(id: number, on: boolean) {
   if (on) s.add(id)
   else s.delete(id)
   selectedIds.value = [...s]
+}
+
+function toggleBulkMode() {
+  bulkMode.value = !bulkMode.value
+  if (!bulkMode.value) {
+    selectedIds.value = []
+    batchStatus.value = ''
+    batchAssignee.value = null
+  }
 }
 
 function toggleCol(status: string, on: boolean) {
