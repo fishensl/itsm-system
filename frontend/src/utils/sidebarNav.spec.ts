@@ -46,12 +46,18 @@ describe('sidebarTarget', () => {
     expect(sidebarTarget('/')).toEqual({ mode: 'spa', path: '/', query: '' })
   })
 
-  it('未迁移路径 → SSR 整页加载', () => {
-    expect(sidebarTarget('/users')).toEqual({ mode: 'ssr', url: '/users' })
+  it('未映射路径 → Vue 兜底路由，不回退整页加载', () => {
+    expect(sidebarTarget('/users')).toEqual({
+      mode: 'spa', path: '/__missing_sidebar_route__', query: '',
+    })
     expect(sidebarTarget('/task-schedule/')).toEqual({ mode: 'spa', path: '/task-schedule', query: '' })
-    expect(sidebarTarget('/tools/network')).toEqual({ mode: 'ssr', url: '/tools/network' })
-    // 后端映射后（/knowledge-base/add → /app/knowledge-base）走 SPA
-    expect(sidebarTarget('/knowledge-base/add')).toEqual({ mode: 'ssr', url: '/knowledge-base/add' })
+    expect(sidebarTarget('/tools/network')).toEqual({
+      mode: 'spa', path: '/__missing_sidebar_route__', query: '',
+    })
+    // 后端映射后（/knowledge-base/add → /app/knowledge-base）会命中正常 SPA 路由
+    expect(sidebarTarget('/knowledge-base/add')).toEqual({
+      mode: 'spa', path: '/__missing_sidebar_route__', query: '',
+    })
     expect(sidebarTarget('/app/knowledge-base')).toEqual({ mode: 'spa', path: '/knowledge-base', query: '' })
   })
 })

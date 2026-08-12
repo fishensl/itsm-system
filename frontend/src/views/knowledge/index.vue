@@ -144,6 +144,7 @@ import { Plus, Search, Upload, Document, Delete } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import type { UploadRawFile } from 'element-plus/es/components/upload'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -160,11 +161,12 @@ const user = useUserStore()
 const ui = useUiStore()
 const route = useRoute()
 const dicts = ref<KnowledgeDicts | null>(null)
+const fieldMeta = ref<EntityFieldMeta[]>([])
 
 const query = reactive<Record<string, unknown>>({ search: '', category: '', is_published: undefined })
 const tableRef = ref()
 
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'title', label: '标题', minWidth: 220, asTitle: true },
   { key: 'category', label: '分类', width: 100, type: 'tag', asTag: true, tagMap: CATEGORY_TAG },
   { key: 'attachments', label: '附件', minWidth: 200, type: 'custom',
@@ -187,7 +189,7 @@ const columns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'kb:delete', icon: 'Delete',
         onClick: (row) => onDelete(row as unknown as KnowledgeItem) },
     ] },
-])
+], fieldMeta.value))
 
 // 查看正文（顺带浏览量 +1）
 const contentVisible = ref(false)
@@ -386,6 +388,9 @@ watch(
 
 onMounted(() => {
   fetchKnowledgeDicts().then((d) => (dicts.value = d))
+  fetchEntityMeta('knowledge').then((meta) => {
+    fieldMeta.value = meta?.profiles.list || []
+  })
 })
 </script>
 

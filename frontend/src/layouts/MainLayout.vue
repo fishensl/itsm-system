@@ -76,7 +76,6 @@
                     :key="c.url"
                   >
                     <router-link
-                      v-if="c.target.mode === 'spa'"
                       :to="c.target.path + c.target.query"
                       class="sidebar-link"
                       :class="{ active: isActive(c.url) }"
@@ -84,14 +83,6 @@
                       <el-icon><component :is="c.icon" /></el-icon>
                       <span v-show="!ui.sidebarCollapsed">{{ c.name }}</span>
                     </router-link>
-                    <a
-                      v-else
-                      :href="c.url"
-                      class="sidebar-link"
-                    >
-                      <el-icon><component :is="c.icon" /></el-icon>
-                      <span v-show="!ui.sidebarCollapsed">{{ c.name }}</span>
-                    </a>
                   </template>
                 </div>
               </div>
@@ -213,17 +204,17 @@
       <el-form ref="pwdFormRef" :model="pwdForm" label-width="90px">
         <el-form-item label="原密码" prop="old_password"
           :rules="[{ required: true, message: '请输入原密码', trigger: 'blur' }]">
-          <el-input v-model="pwdForm.old_password" type="password" show-password />
+          <el-input v-model="pwdForm.old_password" type="password" show-password autocomplete="current-password" />
         </el-form-item>
         <el-form-item label="新密码" prop="new_password"
           :rules="[{ required: true, message: '请输入新密码', trigger: 'blur' },
                    { min: 6, message: '至少 6 位', trigger: 'blur' }]">
-          <el-input v-model="pwdForm.new_password" type="password" show-password />
+          <el-input v-model="pwdForm.new_password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirm"
           :rules="[{ required: true, message: '请再次输入新密码', trigger: 'blur' },
                    { validator: confirmValidator, trigger: 'blur' }]">
-          <el-input v-model="pwdForm.confirm" type="password" show-password />
+          <el-input v-model="pwdForm.confirm" type="password" show-password autocomplete="new-password" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -243,6 +234,7 @@
         class="toast-item"
       />
     </div>
+    <OpVerifyDialog />
   </div>
 </template>
 
@@ -256,6 +248,7 @@ import {
 } from '@element-plus/icons-vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
+import OpVerifyDialog from '@/components/OpVerifyDialog.vue'
 import { sidebarTarget, isRouteActive } from '@/utils/sidebarNav'
 import { loadOpenGroups, saveOpenGroups, clearOpenGroups } from '@/utils/sidebarState'
 import { changePassword } from '@/api/auth'
@@ -274,7 +267,7 @@ const mobileSearch = ref(false)
 watch(() => route.fullPath, () => {
   mobileSearch.value = false
 })
-// 展开分组：从 sessionStorage 恢复（SSR 侧栏共用键），SSR 子菜单整页跳转后不折叠
+// 展开分组：从 sessionStorage 恢复，刷新后保持用户操作状态
 const openGroups = ref<Set<string>>(new Set(loadOpenGroups()))
 const theme = ref<'light' | 'dark'>(localStorage.getItem('appTheme') === 'dark' ? 'dark' : 'light')
 
@@ -285,7 +278,7 @@ const avatarText = computed(() => {
 
 const isActive = (url: string) => isRouteActive(route.path, route.query, url)
 
-/** 侧栏链接目标：已迁移 → SPA 跳转；未迁移 → SSR 整页加载 */
+/** 侧栏链接目标：统一规范为 SPA 内部路由 */
 const childrenFor = (grp: SidebarGroup) =>
   grp.children
     .filter((x) => user.hasPerm(x.perm))

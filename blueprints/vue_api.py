@@ -7,12 +7,13 @@
 - 复用 services/ 业务层与 utils/permission 权限体系
 - 图标：后端 sidebar 用 bi-*（Bootstrap Icons），此处映射为 Element Plus 图标名
 """
-from flask import Blueprint, jsonify, request, current_app, send_from_directory
+from flask import Blueprint, jsonify, request, current_app, send_from_directory, session
 from flask_login import login_user, logout_user, login_required, current_user
 import os
 
 from models import db, User
 from utils.permission import get_user_permissions, has_permission, require_permission
+from utils.operation_token import require_op_token
 from utils.sidebar_config import get_user_sidebar_groups
 from app import csrf, limiter
 
@@ -85,6 +86,10 @@ def _map_icon(bi):
 @csrf.exempt  # 必须最外层：Flask-Limiter 包装会吞豁免标记
 @limiter.limit('5 per minute;30 per hour', methods=['POST'])
 def api_login():
+    from datetime import datetime, timedelta
+    from utils.access_control import client_ip
+    from utils.settings import setting_bool
+    from utils.session_security import establish_session
     data = request.get_json(silent=True) or request.form
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
@@ -92,6 +97,9 @@ def api_login():
     if user and not user.is_active:
         current_app.logger.warning(f'停用账号 [{username}] 尝试登录(Vue)')
         return fail('该账号已停用，请联系管理员', 403)
+    now = datetime.utcnow()
+    if user and user.login_locked_until and user.login_locked_until > now:
+        return fail('登录失败次数过多，账号已临时锁定', 423)
     if user and user.check_password(password):
         # 明文/pbkdf2 升级逻辑与 SSR 登录一致（显式提交）
         if getattr(user, '_plaintext_upgraded', False):
@@ -99,11 +107,66 @@ def api_login():
         elif user.needs_rehash():
             user.set_password(password)
             db.session.commit()
+        user.login_fail_count = 0
+        user.login_locked_until = None
+        db.session.commit()
+        enforce_mfa = bool(current_app.config.get('MFA_ENFORCE')) or setting_bool('mfa_enforce', False)
+        if enforce_mfa:
+            session.clear()
+            session['pending_mfa_user_id'] = user.id
+            session['pending_mfa_at'] = int(now.timestamp())
+            session['pending_mfa_ip'] = client_ip()
+            return ok({'mfa_required': bool(user.mfa_enabled),
+                       'bind_required': not bool(user.mfa_enabled)})
         login_user(user)
+        establish_session(user)
         current_app.logger.info(f'用户 [{username}] 登录成功(Vue)')
         return ok({'user': _user_payload(user)})
+    if user:
+        user.login_fail_count = int(user.login_fail_count or 0) + 1
+        locked = user.login_fail_count >= 5
+        if locked:
+            user.login_locked_until = now + timedelta(minutes=15)
+            user.login_fail_count = 0
+        db.session.commit()
+        if locked:
+            from utils.security_events import emit_security_event
+            emit_security_event('登录连续失败',
+                                f'用户={username}，IP={client_ip()}，已锁定15分钟')
     current_app.logger.warning(f'用户 [{username}] 登录失败(Vue)')
     return fail('用户名或密码错误', 401)
+
+
+@vue_api_bp.route('/api/auth/mfa/verify', methods=['POST'])
+@csrf.exempt
+@limiter.limit('5 per minute;20 per hour', methods=['POST'])
+def api_login_mfa_verify():
+    from datetime import datetime
+    from services.auth_service import verify_user_mfa
+    from utils.access_control import client_ip
+    from utils.session_security import establish_session
+    user_id = session.get('pending_mfa_user_id')
+    pending_at = session.get('pending_mfa_at')
+    if not user_id or not pending_at or int(datetime.utcnow().timestamp()) - int(pending_at) > 300:
+        session.clear()
+        return fail('登录验证已过期，请重新输入密码', 401)
+    if session.get('pending_mfa_ip') != client_ip():
+        session.clear()
+        return fail('登录验证来源发生变化，请重新登录', 401)
+    user = User.query.filter_by(id=int(user_id), is_active=True).first()
+    if not user:
+        session.clear()
+        return fail('账号不可用', 401)
+    data = request.get_json(silent=True) or {}
+    if not verify_user_mfa(user, 'login', data.get('code', ''),
+                           allow_recovery=bool(data.get('recovery'))):
+        db.session.commit()
+        return fail('动态码或恢复码不正确', 401)
+    db.session.commit()
+    session.clear()
+    login_user(user)
+    establish_session(user)
+    return ok({'user': _user_payload(user)})
 
 
 @vue_api_bp.route('/api/auth/logout', methods=['POST'])
@@ -120,6 +183,30 @@ def api_me():
     return ok(_user_payload(current_user))
 
 
+@vue_api_bp.route('/api/meta/entities', methods=['GET'])
+@login_required
+def api_entity_metadata():
+    """返回当前用户可见实体的统一字段档案（不包含任何业务值）。
+
+    无参数调用保留最初发布的核心实体集合；扩展模块必须显式传 entities，
+    防止注册表扩容悄然改变旧客户端的响应体。
+    """
+    from domain_metadata import ENTITY_SCHEMAS
+
+    requested = [name.strip() for name in (request.args.get('entities') or '').split(',')
+                 if name.strip()]
+    names = requested or ['device', 'ticket', 'fault', 'inspection', 'spare', 'customer']
+    unknown = [name for name in names if name not in ENTITY_SCHEMAS]
+    if unknown:
+        return fail(f'未知实体：{", ".join(unknown)}', 400)
+    visible = {
+        name: ENTITY_SCHEMAS[name].as_dict()
+        for name in names
+        if has_permission(ENTITY_SCHEMAS[name].view_permission, current_user)
+    }
+    return ok({'entities': visible})
+
+
 @vue_api_bp.route('/api/auth/change-password', methods=['POST'])
 @login_required
 def api_change_password():
@@ -132,6 +219,7 @@ def api_change_password():
     if len(new_pwd) < 6:
         return fail('新密码长度至少 6 位', 400)
     current_user.set_password(new_pwd)
+    current_user.auth_version = int(current_user.auth_version or 0) + 1
     db.session.commit()
     from blueprints.vue_api_sys import audit_log
     audit_log('user:change_password', 'user', current_user.id, f'用户 {current_user.username} 自助修改密码')
@@ -942,6 +1030,8 @@ def api_device_create():
 @vue_api_bp.route('/api/devices/<int:device_id>', methods=['PUT'])
 @login_required
 @require_permission('device:edit')
+@require_op_token(when=lambda: 'password' in (request.get_json(silent=True) or {}) and
+                  bool((request.get_json(silent=True) or {}).get('password')))
 def api_device_update(device_id):
     from services.device_service import update_device_from_form
     from flask_login import current_user as _cu
@@ -957,6 +1047,9 @@ def api_device_update(device_id):
         db.session.rollback()
         return fail(str(e) or '设备更新失败', 400)
     _sync_device_count(d.customer_id)
+    if data.get('password'):
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device:password_change', 'device', d.id, f'修改设备「{d.device_name}」登录密码')
     return ok({'id': d.id})
 
 
@@ -984,8 +1077,10 @@ def api_device_delete(device_id):
 
 
 @vue_api_bp.route('/api/v2/devices/<int:device_id>/reveal-password', methods=['POST'])
+@limiter.limit('5 per minute;30 per hour')
 @login_required
 @require_permission('device:reveal')
+@require_op_token()
 def api_device_reveal_password(device_id):
     """查看设备明文密码（审计）。
 
@@ -1012,7 +1107,23 @@ def api_device_reveal_password(device_id):
     # 审计写表（供 admin 审计查询页）
     from blueprints.vue_api_sys import audit_log
     audit_log('device:reveal', 'device', d.id, f'查看设备「{d.device_name}」{kind}')
+    from utils.access_control import client_ip
+    from utils.security_events import note_password_reveal
+    note_password_reveal(current_user.id, current_user.username, d.id, client_ip())
     return ok({'password': pwd})
+
+
+@vue_api_bp.route('/api/v2/devices/<int:device_id>/password-copy-audit', methods=['POST'])
+@limiter.limit('10 per minute;60 per hour')
+@login_required
+@require_permission('device:reveal')
+def api_device_password_copy_audit(device_id):
+    from models import Device as _Device
+    from blueprints.vue_api_sys import audit_log
+    device = _Device.query.get_or_404(device_id)
+    audit_log('device:password_copy', 'device', device.id,
+              f'复制设备「{device.device_name}」密码到剪贴板')
+    return ok(None)
 
 
 @vue_api_bp.route('/api/v2/devices/<int:device_id>/password-history', methods=['GET'])
@@ -1454,8 +1565,12 @@ def api_task_board_dicts():
     if _hp('task:dispatch'):
         customers = [{'id': c.id, 'name': c.name} for c in _C.query.order_by(_C.name).all()]
     else:
-        cust_ids = [c.id for c in me.customers]
-        region_ids = [r.id for r in me.regions]
+        # 直接查关联表，避免同一会话内管理员刚调整用户范围后 relationship identity map 仍旧。
+        from models import customer_engineers as _ce, user_regions as _ur
+        cust_ids = list(db.session.scalars(
+            db.select(_ce.c.customer_id).where(_ce.c.engineer_id == me.id)))
+        region_ids = list(db.session.scalars(
+            db.select(_ur.c.region_id).where(_ur.c.user_id == me.id)))
         qc = _C.query.order_by(_C.name)
         if cust_ids or region_ids:
             conds = []
@@ -1530,6 +1645,8 @@ def _ticket_payload(t, customer_map=None):
         'customer_name': customer_name,
         # 外网工单客户最小集（名称/办公室/门牌号/地图定位）；内网为 None
         'customer': customer_min,
+        'reporter': t.reporter or '',
+        'reporter_phone': t.reporter_phone or '',
         'related_device_id': None if external else t.related_device_id,
         'related_device_name': '' if external else (related_device.device_name if related_device else ''),
         'assigned_to': t.assigned_to or '',
@@ -2098,6 +2215,11 @@ def api_v2_customer_export():
     from datetime import date as _date
     from sqlalchemy.orm import joinedload as _jl
     from utils.excel_export import export_xlsx
+    from blueprints.vue_export import CUSTOMER_EXPORT_COLUMNS, resolve_columns
+    from domain_metadata import get_entity_schema
+    from models import Device as _D, Inspection as _I, Ticket as _T
+    from sqlalchemy import func
+    from utils.customer_contract import contract_status
     from models import Customer as _C
     data = request.get_json(silent=True) or {}
     date_from = (data.get('date_from') or '').strip()
@@ -2108,25 +2230,25 @@ def api_v2_customer_export():
     if date_to:
         q = q.filter(_C.created_at <= date_to + ' 23:59:59')
     customers = q.all()
-    codes = [str(c) for c in (data.get('columns') or []) if str(c)] or None
-    all_cols = [
-        ('name', '客户名称'), ('contact_person', '联系人'), ('phone', '电话'),
-        ('email', '邮箱'), ('region', '所属地区'), ('city', '地市'), ('address', '地址'),
-        ('category', '单位类别'), ('level', '客户等级'), ('office', '办公室'),
-        ('has_onsite', '有无驻场'), ('onsite_contact', '驻场联系人'),
-        ('onsite_phone', '驻场联系方式'), ('onsite_office', '驻场办公室'),
-        ('has_drill', '有无攻防演练'), ('frequency', '巡检频率'), ('source', '来源'),
-        ('remark', '备注'), ('created_at', '创建时间'),
-    ]
-    col_map = dict(all_cols)
-    if codes:
-        unknown = [c for c in codes if c not in col_map]
-        if unknown:
-            return fail(f'未知导出列：{", ".join(unknown)}', 400)
-        headers = [col_map[c] for c in codes]
-    else:
-        codes = [c for c, _ in all_cols]
-        headers = [h for _, h in all_cols]
+    customer_ids = [item.id for item in customers]
+    device_counts = dict(db.session.query(_D.customer_id, func.count(_D.id))
+                         .filter(_D.customer_id.in_(customer_ids))
+                         .group_by(_D.customer_id).all()) if customer_ids else {}
+    inspection_counts = dict(db.session.query(_I.customer_id, func.count(_I.id))
+                             .filter(_I.customer_id.in_(customer_ids))
+                             .group_by(_I.customer_id).all()) if customer_ids else {}
+    ticket_counts = dict(db.session.query(_T.customer_id, func.count(_T.id))
+                         .filter(_T.customer_id.in_(customer_ids))
+                         .group_by(_T.customer_id).all()) if customer_ids else {}
+    # Explicit selections may include opt-in detail fields; an empty selection retains
+    # the historical default column set.
+    try:
+        codes = (resolve_columns(CUSTOMER_EXPORT_COLUMNS, data.get('columns'))
+                 if data.get('columns') else
+                 resolve_columns(get_entity_schema('customer').export_columns(), None))
+    except ValueError as e:
+        return fail(str(e), 400)
+    headers = [dict(CUSTOMER_EXPORT_COLUMNS)[code] for code in codes]
     rows = []
     for c in customers:
         vals = {
@@ -2141,12 +2263,20 @@ def api_v2_customer_export():
             'category': c.category_rel.name if c.category_rel else '',
             'level': c.level or '',
             'office': c.office or '',
+            'office_room': c.office_room or '',
+            'map_location': c.map_location or '',
             'has_onsite': '是' if c.has_onsite else '否',
             'onsite_contact': c.onsite_contact or '',
             'onsite_phone': c.onsite_phone or '',
             'onsite_office': c.onsite_office or '',
             'has_drill': '是' if c.has_drill else '否',
             'frequency': c.inspection_frequency or '',
+            'contract_start_date': c.contract_start_date.strftime('%Y-%m-%d') if c.contract_start_date else '',
+            'contract_end_date': c.contract_end_date.strftime('%Y-%m-%d') if c.contract_end_date else '',
+            'contract_status': contract_status(c),
+            'device_count': device_counts.get(c.id, 0),
+            'inspection_count': inspection_counts.get(c.id, 0),
+            'ticket_count': ticket_counts.get(c.id, 0),
             'source': c.source or '',
             'remark': c.remark or '',
             'created_at': c.created_at.strftime('%Y-%m-%d') if c.created_at else '',
@@ -3439,11 +3569,13 @@ def api_v2_ticket_export():
     import base64
     from datetime import date as _date
     from utils.excel_export import export_xlsx
-    from blueprints.vue_export import (TICKET_EXPORT_COLUMNS, resolve_columns, generic_rows)
-    from models import Ticket as _T
+    from blueprints.vue_export import (TICKET_EXPORT_COLUMNS, TICKET_EXPORT_AVAILABLE_COLUMNS,
+                                       resolve_columns, generic_rows)
+    from models import Ticket as _T, Device as _D
     data = _export_body()
     try:
-        codes = resolve_columns(TICKET_EXPORT_COLUMNS, data.get('columns'))
+        codes = resolve_columns(TICKET_EXPORT_AVAILABLE_COLUMNS, data.get('columns')) \
+            if data.get('columns') else resolve_columns(TICKET_EXPORT_COLUMNS, None)
     except ValueError as e:
         return fail(str(e), 400)
     q = _T.query.options(_jl(_T.customer_rel))
@@ -3451,15 +3583,32 @@ def api_v2_ticket_export():
         q = q.filter(_T.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _T.created_at, data)
     records = q.order_by(_T.id.desc()).all()
-    headers = [dict(TICKET_EXPORT_COLUMNS)[c] for c in codes]
+    headers = [dict(TICKET_EXPORT_AVAILABLE_COLUMNS)[c] for c in codes]
+    device_ids = {r.related_device_id for r in records if r.related_device_id}
+    device_map = dict(db.session.query(_D.id, _D.device_name)
+                      .filter(_D.id.in_(device_ids)).all()) if device_ids else {}
+    from services.ticket_service import ticket_completeness
 
     def cell(r, code):
+        complete, _ = ticket_completeness(r)
         return {
             'number': r.number or '', 'title': r.title or '', 'priority': r.priority or '',
             'status': r.status or '', 'customer': r.customer_rel.name if r.customer_rel else '',
-            'reporter': r.reporter or '', 'assigned_to': r.assigned_to or '',
+            'severity_level': r.severity_level or '',
+            'reporter': r.reporter or '', 'reporter_phone': r.reporter_phone or '',
+            'related_device_name': device_map.get(r.related_device_id, ''),
+            'fault_category': '/'.join(x for x in (r.fault_category_level1 or '',
+                                                   r.fault_category_level2 or '',
+                                                   r.fault_category_level3 or '') if x),
+            'assigned_to': r.assigned_to or '',
             'created_by': r.created_by or '',
+            'description': r.description or '', 'diagnosis': r.diagnosis or '',
+            'solution': r.solution or '', 'complete': '是' if complete else '否',
+            'audit_status': r.audit_status or '', 'accept_status': r.accept_status or '',
+            'sla_deadline': r.sla_deadline.strftime('%Y-%m-%d %H:%M') if r.sla_deadline else '',
             'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+            'assigned_at': r.assigned_at.strftime('%Y-%m-%d %H:%M') if r.assigned_at else '',
+            'accepted_at': r.accepted_at.strftime('%Y-%m-%d %H:%M') if r.accepted_at else '',
             'completed_at': r.completed_at.strftime('%Y-%m-%d %H:%M') if r.completed_at else '',
         }.get(code, '')
 
@@ -3538,11 +3687,13 @@ def api_v2_fault_export():
     import base64
     from datetime import date as _date
     from utils.excel_export import export_xlsx
-    from blueprints.vue_export import (FAULT_EXPORT_COLUMNS, resolve_columns, generic_rows)
-    from models import Fault as _F
+    from blueprints.vue_export import (FAULT_EXPORT_COLUMNS, FAULT_EXPORT_AVAILABLE_COLUMNS,
+                                       resolve_columns, generic_rows)
+    from models import Fault as _F, Ticket as _T
     data = _export_body()
     try:
-        codes = resolve_columns(FAULT_EXPORT_COLUMNS, data.get('columns'))
+        codes = resolve_columns(FAULT_EXPORT_AVAILABLE_COLUMNS, data.get('columns')) \
+            if data.get('columns') else resolve_columns(FAULT_EXPORT_COLUMNS, None)
     except ValueError as e:
         return fail(str(e), 400)
     q = _F.query.options(_jl(_F.customer_rel))
@@ -3550,15 +3701,23 @@ def api_v2_fault_export():
         q = q.filter(_F.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _F.fault_time, data)
     records = q.order_by(_F.fault_time.desc(), _F.id.desc()).all()
-    headers = [dict(FAULT_EXPORT_COLUMNS)[c] for c in codes]
+    headers = [dict(FAULT_EXPORT_AVAILABLE_COLUMNS)[c] for c in codes]
+    ticket_ids = {r.ticket_id for r in records if r.ticket_id}
+    ticket_map = dict(db.session.query(_T.id, _T.number)
+                      .filter(_T.id.in_(ticket_ids)).all()) if ticket_ids else {}
 
     def cell(r, code):
         return {
             'title': r.title or '', 'customer': r.customer_rel.name if r.customer_rel else '',
             'handler': r.handler or '',
             'fault_time': r.fault_time.strftime('%Y-%m-%d %H:%M') if r.fault_time else '',
-            'fault_type': r.fault_type or '', 'result': r.result or '',
+            'fault_type': r.fault_type or '',
+            'fault_category': '/'.join(x for x in (r.fault_category_level1 or '',
+                                                   r.fault_category_level2 or '',
+                                                   r.fault_category_level3 or '') if x),
+            'result': r.result or '', 'impact_range': r.impact_range or '',
             'recovery_time': r.recovery_time.strftime('%Y-%m-%d %H:%M') if r.recovery_time else '',
+            'ticket_number': ticket_map.get(r.ticket_id, ''),
             'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
         }.get(code, '')
 

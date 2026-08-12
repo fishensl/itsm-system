@@ -9,6 +9,7 @@
 - send_test: 后台「发送测试」入口，返回 (ok, message)
 """
 import logging
+from utils.redaction import redact_mapping, redact_text
 
 log = logging.getLogger('itsm.notify')
 
@@ -57,7 +58,7 @@ class NotifyChannel:
                 self.send_text(account, '渠道测试', 'ITSM 通知渠道测试消息')
             return True, '发送成功'
         except Exception as e:
-            return False, str(e) or '发送失败'
+            return False, redact_text(e) or '发送失败'
 
     def supports(self, cap):
         return cap in self.capabilities
@@ -74,5 +75,5 @@ class NotifyChannel:
         except ValueError:
             data = {}
         if resp.status_code >= 400 or data.get('errcode') or data.get('code'):
-            raise ChannelError(f'接口返回 {resp.status_code}: {data}')
+            raise ChannelError(f'接口返回 {resp.status_code}: {redact_mapping(data)}')
         return data

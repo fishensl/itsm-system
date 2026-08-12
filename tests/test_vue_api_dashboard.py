@@ -15,7 +15,7 @@ def _mk_engineer(app, username='eng'):
         db.session.commit()
         uid = u.id
     c = app.test_client()
-    c.post('/login', data={'username': username, 'password': 'test123456'})
+    c.post('/api/auth/login', json={'username': username, 'password': 'test123456'})
     return c, uid
 
 
@@ -89,7 +89,7 @@ class TestDashboardTaskScope:
         _mk_task(app, '未指派', cid, status='待执行')
         _mk_task(app, '外部门任务', cid, status='待执行', assigned_to_user_id=op_id)
         c = app.test_client()
-        c.post('/login', data={'username': 'sup', 'password': 'test123456'})
+        c.post('/api/auth/login', json={'username': 'sup', 'password': 'test123456'})
         titles = [t['title'] for t in
                   c.get('/api/dashboard/overview').get_json()['data']['my_tasks']]
         assert '部门任务' in titles

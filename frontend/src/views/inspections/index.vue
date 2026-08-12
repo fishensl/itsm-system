@@ -237,6 +237,7 @@ import {
 } from '@/api/inspections'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -260,7 +261,8 @@ const dateRange = ref<[string, string] | null>(null)
 const incompleteOnly = ref(false)
 const tableRef = ref()
 
-const columns = computed<DataColumn[]>(() => [
+const listFieldMeta = ref<EntityFieldMeta[]>([])
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'title', label: '标题', minWidth: 180, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'inspection_date', label: '巡检日期', width: 100 },
@@ -281,7 +283,7 @@ const columns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'inspection:delete', icon: 'Delete',
         onClick: (row) => onDelete(row as unknown as Inspection) },
     ] },
-])
+], listFieldMeta.value))
 
 // 当前操作目标行（提交审核/审核弹窗等共用）
 const actionRow = ref<Inspection | null>(null)
@@ -558,7 +560,7 @@ function onDateChange(val: [string, string] | null) {
   reload()
 }
 
-// V24 导出筛选：列选择 + 资料包项目勾选（走新端点，SSR 导出保留兼容）
+// 导出筛选：列选择 + 资料包项目勾选（兼容下载端点继续保留）
 const excelExportVisible = ref(false)
 const bundleExportVisible = ref(false)
 
@@ -606,6 +608,9 @@ function reload() {
 
 onMounted(() => {
   fetchInspectionDicts().then((d) => (dicts.value = d))
+  fetchEntityMeta('inspection').then((meta) => {
+    listFieldMeta.value = meta?.profiles.list || []
+  })
 })
 </script>
 

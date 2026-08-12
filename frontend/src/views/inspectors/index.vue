@@ -73,6 +73,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import {
   fetchInspectors, createInspector, updateInspector, deleteInspector,
   type InspectorListData, type InspectorItem,
@@ -85,6 +86,7 @@ const ui = useUiStore()
 const tableRef = ref()
 const data = ref<InspectorListData | null>(null)
 const loading = ref(false)
+const fieldMeta = ref<EntityFieldMeta[]>([])
 
 const formVisible = ref(false)
 const saving = ref(false)
@@ -94,7 +96,7 @@ const form = reactive<Record<string, unknown>>({
 })
 
 // S7-1 DataTable：列配置 + 分页包装
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'name', label: '姓名', minWidth: 120, asTitle: true },
   { key: 'username', label: '用户名', minWidth: 120 },
   { key: 'phone', label: '手机', minWidth: 130, render: (r) => r.phone || '-' },
@@ -109,7 +111,7 @@ const columns = computed<DataColumn[]>(() => [
       { label: '移除', type: 'danger', link: true, perm: 'inspection:delete',
         onClick: (row) => onDelete(row as unknown as InspectorItem) },
     ] },
-])
+], fieldMeta.value))
 
 async function fetchPage(params: Record<string, unknown>) {
   const d = await fetchInspectors()
@@ -171,7 +173,12 @@ async function onDelete(row: InspectorItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  fetchEntityMeta('inspector').then((meta) => {
+    fieldMeta.value = meta?.profiles.list || []
+  })
+})
 </script>
 
 <style scoped>

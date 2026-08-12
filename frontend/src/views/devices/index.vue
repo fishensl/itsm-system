@@ -19,14 +19,14 @@
     <!-- 我的导出申请 -->
     <el-dialog v-model="requestsVisible" title="我的导出申请" width="760px" top="6vh" destroy-on-close>
       <el-table v-if="exportRequests.length" :data="exportRequests" size="small" border>
-        <el-table-column prop="created_at" label="申请时间" width="140" />
-        <el-table-column prop="reason" label="申请原因" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="status_label" label="状态" width="90">
+        <el-table-column prop="created_at" :label="fieldLabel('device_export_request', 'created_at', '申请时间')" width="140" />
+        <el-table-column prop="reason" :label="fieldLabel('device_export_request', 'reason', '申请原因')" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="status_label" :label="fieldLabel('device_export_request', 'status_label', '状态')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="requestStatusTag(row.status)">{{ row.status_label }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="review_comment" label="审核意见" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="review_comment" :label="fieldLabel('device_export_request', 'review_comment', '审核意见')" min-width="150" show-overflow-tooltip />
         <el-table-column label="操作" width="110">
           <template #default="{ row }">
             <el-button v-if="row.status === 'approved' && !row.downloaded" size="small" link
@@ -64,17 +64,17 @@
       <el-form label-width="90px">
         <el-form-item label="修改项">
           <el-select v-model="batchForm.type" class="w-full">
-            <el-option label="机房位置" value="rack_location" />
-            <el-option label="网络类型" value="network_type" />
-            <el-option label="品牌" value="brand" />
-            <el-option label="型号" value="model" />
-            <el-option label="设备类型" value="device_type" />
-            <el-option label="是否在用" value="is_in_use" />
-            <el-option label="是否维修" value="is_maintenance" />
-            <el-option label="授权开始" value="license_start" />
-            <el-option label="授权截止" value="license_expiry" />
-            <el-option label="证书到期" value="cert_expiry_date" />
-            <el-option label="备注" value="remark" />
+            <el-option :label="fieldLabel('device', 'rack_location', '机房位置', 'form')" value="rack_location" />
+            <el-option :label="fieldLabel('device', 'network_type', '网络类型', 'form')" value="network_type" />
+            <el-option :label="fieldLabel('device', 'brand', '品牌', 'form')" value="brand" />
+            <el-option :label="fieldLabel('device', 'model', '型号', 'form')" value="model" />
+            <el-option :label="fieldLabel('device', 'device_type', '设备类型', 'form')" value="device_type" />
+            <el-option :label="fieldLabel('device', 'is_in_use', '是否在用', 'form')" value="is_in_use" />
+            <el-option :label="fieldLabel('device', 'is_maintenance', '是否维修', 'form')" value="is_maintenance" />
+            <el-option :label="fieldLabel('device', 'license_start', '授权开始', 'form')" value="license_start" />
+            <el-option :label="fieldLabel('device', 'license_expiry', '授权截止', 'form')" value="license_expiry" />
+            <el-option :label="fieldLabel('device', 'cert_expiry_date', '证书到期日期', 'form')" value="cert_expiry_date" />
+            <el-option :label="fieldLabel('device', 'remark', '备注', 'form')" value="remark" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="batchForm.type === 'is_in_use' || batchForm.type === 'is_maintenance'" label="值">
@@ -179,42 +179,42 @@
     <!-- 详情弹窗 -->
     <el-dialog v-model="detailVisible" :title="detail?.device_name || '设备详情'" width="680px">
       <el-descriptions v-if="detail" :column="2" border size="small">
-        <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="类型">{{ detail.device_type || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="网络类型">{{ detail.network_type || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="品牌">{{ detail.brand || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="型号">{{ detail.model || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="序列号">{{ detail.serial_number || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="IP:端口">
+        <el-descriptions-item :label="fieldLabel('device', 'customer_name', '客户')">{{ detail.customer_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'device_type', '类型')">{{ detail.device_type || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'network_type', '网络类型')">{{ detail.network_type || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'brand', '品牌')">{{ detail.brand || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'model', '型号')">{{ detail.model || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'serial_number', '序列号')">{{ detail.serial_number || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="`${fieldLabel('device', 'ip_address', 'IP')}:${fieldLabel('device', 'port', '端口')}`">
           <code>{{ detail.ip_address }}:{{ detail.port }}</code>
         </el-descriptions-item>
-        <el-descriptions-item label="登录">
+        <el-descriptions-item :label="`${fieldLabel('device', 'username', '登录用户名')} / ${fieldLabel('device', 'login_method', '登录方式')}`">
           {{ detail.username || '-' }} / {{ detail.login_method || '-' }}
         </el-descriptions-item>
-        <el-descriptions-item label="系统版本">{{ detail.os_version || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="规则库版本">{{ detail.rule_version || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="安装位置">{{ detail.location || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="机柜">
+        <el-descriptions-item :label="fieldLabel('device', 'os_version', '系统版本')">{{ detail.os_version || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'rule_version', '规则库版本')">{{ detail.rule_version || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'location', '安装位置')">{{ detail.location || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="`${fieldLabel('device', 'rack_location', '机房位置')} / ${fieldLabel('device', 'rack_name', '机柜号')}`">
           <template v-if="detail.rack_name">{{ detail.rack_location || '-' }} / {{ detail.rack_name }}<span v-if="detail.rack_slot"> / {{ detail.rack_slot }}</span></template>
           <span v-else>-</span>
         </el-descriptions-item>
-        <el-descriptions-item label="建设时间">{{ detail.build_date || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="授权">
+        <el-descriptions-item :label="fieldLabel('device', 'build_date', '建设时间')">{{ detail.build_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="`${fieldLabel('device', 'license_start', '授权开始')} / ${fieldLabel('device', 'license_expiry', '授权截止')}`">
           <span v-if="detailLicense.level" :class="['license-badge', `license-${detailLicense.level}`]">
             {{ detailLicense.text }}
           </span>
           <span v-else>{{ detailLicense.text }}</span>
         </el-descriptions-item>
-        <el-descriptions-item label="证书到期">
+        <el-descriptions-item :label="fieldLabel('device', 'cert_expiry_date', '证书到期日期')">
           {{ detail.cert_expiry_date || '-' }}
           <el-tag v-if="detail.cert_expiry_date && detail.cert_expiry_date < todayStr" size="small" type="danger" class="ml-1">已过期</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="在用">
+        <el-descriptions-item :label="fieldLabel('device', 'is_in_use', '是否在用')">
           <el-tag size="small" :type="detail.is_in_use ? 'success' : 'info'">
             {{ detail.is_in_use ? '在用' : '停用' }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'remark', '备注')" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
       </el-descriptions>
 
       <!-- 配置备份（含巡检上传同步记录） -->
@@ -232,10 +232,10 @@
       </div>
       <div v-loading="backupsLoading" class="backup-list">
         <el-table v-if="backups.length" :data="backups" size="small" border stripe max-height="220">
-          <el-table-column prop="backup_type" label="类型" width="100" />
-          <el-table-column prop="backup_method" label="来源" width="100" />
-          <el-table-column prop="backup_date" label="日期" width="100" />
-          <el-table-column prop="created_by" label="创建人" min-width="90" />
+          <el-table-column prop="backup_type" :label="fieldLabel('config_backup', 'backup_type', '备份类型')" width="100" />
+          <el-table-column prop="backup_method" :label="fieldLabel('config_backup', 'backup_method', '备份来源')" width="100" />
+          <el-table-column prop="backup_date" :label="fieldLabel('config_backup', 'backup_date', '备份日期')" width="100" />
+          <el-table-column prop="created_by" :label="fieldLabel('config_backup', 'created_by', '创建人')" min-width="90" />
           <el-table-column label="操作" width="220">
             <template #default="{ row }">
               <el-button v-if="row.has_content" size="small" link type="primary" @click="viewBackup(row)">查看</el-button>
@@ -253,15 +253,15 @@
       <!-- 新增备份弹窗 -->
       <el-dialog v-model="backupAddVisible" title="新增配置备份" width="560px" destroy-on-close>
         <el-form label-width="80px">
-          <el-form-item label="类型">
+          <el-form-item :label="fieldLabel('config_backup', 'backup_type', '备份类型', 'form')">
             <el-select v-model="backupForm.type" class="w-full">
               <el-option v-for="t in ['运行配置', '启动配置', '其他']" :key="t" :label="t" :value="t" />
             </el-select>
           </el-form-item>
-          <el-form-item label="内容">
+          <el-form-item :label="fieldLabel('config_backup', 'config_content', '配置内容', 'form')">
             <el-input v-model="backupForm.content" type="textarea" :rows="8" placeholder="粘贴配置内容（与文件二选一）" />
           </el-form-item>
-          <el-form-item label="文件">
+          <el-form-item :label="fieldLabel('config_backup', 'file_name', '备份文件', 'form')">
             <el-upload ref="backupUploadRef" :auto-upload="false" :limit="1" accept=".txt,.cfg,.conf,.log"
               :on-change="onBackupFileChange" :on-remove="() => backupForm.file = null">
               <el-button size="small" plain :icon="Upload">选择文件（可选）</el-button>
@@ -292,27 +292,27 @@
       <div v-loading="relatedLoading" class="related-list">
         <template v-if="relatedTickets.length || relatedInspections.length">
           <el-table :data="relatedTickets" size="small" border stripe max-height="200">
-            <el-table-column label="关联工单" min-width="200">
+            <el-table-column :label="`${fieldLabel('ticket', 'number', '工单号')} / ${fieldLabel('ticket', 'title', '标题')}`" min-width="200">
               <template #default="{ row }">
                 <router-link :to="toRouterPath(`/app/tickets/${row.id}`)" class="row-link">
                   {{ row.number }} · {{ row.title }}
                 </router-link>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="90" />
-            <el-table-column prop="created_at" label="创建时间" width="100" />
+            <el-table-column prop="status" :label="fieldLabel('ticket', 'status', '状态')" width="90" />
+            <el-table-column prop="created_at" :label="fieldLabel('ticket', 'created_at', '创建时间')" width="100" />
           </el-table>
           <el-table :data="relatedInspections" size="small" border stripe max-height="200" class="mt-2">
-            <el-table-column label="巡检记录" min-width="200">
+            <el-table-column :label="fieldLabel('inspection', 'title', '标题')" min-width="200">
               <template #default="{ row }">
                 <router-link :to="toRouterPath(`/app/inspections/${row.id}`)" class="row-link">
                   {{ row.title }}<span v-if="row.task_title" class="text-muted">（{{ row.task_title }}）</span>
                 </router-link>
               </template>
             </el-table-column>
-            <el-table-column prop="overall_status" label="总体" width="80" />
-            <el-table-column prop="review_status" label="审核" width="90" />
-            <el-table-column prop="inspection_date" label="巡检日期" width="100" />
+            <el-table-column prop="overall_status" :label="fieldLabel('inspection', 'overall_status', '总体状态')" width="90" />
+            <el-table-column prop="review_status" :label="fieldLabel('inspection', 'review_status', '审核状态')" width="90" />
+            <el-table-column prop="inspection_date" :label="fieldLabel('inspection', 'inspection_date', '巡检日期')" width="100" />
           </el-table>
         </template>
         <el-empty v-else-if="!relatedLoading" description="暂无关联工单/巡检" :image-size="40" />
@@ -333,10 +333,10 @@
     <!-- 历史密码弹窗 -->
     <el-dialog v-model="pwdHistoryVisible" title="历史密码（查看明文将记录审计）" width="560px" destroy-on-close>
       <el-table v-loading="pwdHistoryLoading" :data="pwdHistory" size="small" border stripe max-height="360">
-        <el-table-column prop="id" label="#" width="60" />
-        <el-table-column prop="changed_by" label="修改人" width="120" />
-        <el-table-column prop="created_at" label="时间" width="150" />
-        <el-table-column prop="remark" label="备注" min-width="100" />
+        <el-table-column prop="id" :label="fieldLabel('password_history', 'id', '记录号')" width="70" />
+        <el-table-column prop="changed_by" :label="fieldLabel('password_history', 'changed_by', '修改人')" width="120" />
+        <el-table-column prop="created_at" :label="fieldLabel('password_history', 'created_at', '修改时间')" width="150" />
+        <el-table-column prop="remark" :label="fieldLabel('password_history', 'remark', '备注')" min-width="100" />
         <el-table-column label="操作" width="90">
           <template #default="{ row }">
             <el-button size="small" link type="primary" @click="revealHistory(row.id)">查看明文</el-button>
@@ -344,6 +344,17 @@
         </el-table-column>
       </el-table>
       <el-empty v-if="!pwdHistoryLoading && !pwdHistory.length" description="暂无历史记录" :image-size="50" />
+    </el-dialog>
+
+    <el-dialog v-model="sensitiveVisible" :title="sensitiveTitle" width="460px"
+      destroy-on-close @closed="clearSensitiveValue">
+      <el-alert type="warning" :closable="false" show-icon
+        :title="`明文将在 ${sensitiveSeconds}s 后自动清除，关闭弹窗也会立即清除`" />
+      <el-input :model-value="sensitiveValue" readonly class="mt-2" autocomplete="off" />
+      <template #footer>
+        <el-button @click="copySensitive">复制（10秒后清空剪贴板）</el-button>
+        <el-button type="primary" @click="sensitiveVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
 
     <!-- 新增/编辑弹窗 -->
@@ -357,26 +368,26 @@
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="110px" size="default">
         <el-row :gutter="16">
           <el-col :xs="24" :sm="12">
-            <el-form-item label="设备名称" prop="device_name">
+            <el-form-item :label="fieldLabel('device', 'device_name', '设备名称', 'form')" prop="device_name">
               <el-input v-model="form.device_name" placeholder="必填" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="所属客户">
+            <el-form-item :label="fieldLabel('device', 'customer_name', '客户', 'form')">
               <el-select v-model="form.customer_id" filterable clearable class="w-full">
                 <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="设备类型">
+            <el-form-item :label="fieldLabel('device', 'device_type', '设备类型', 'form')">
               <el-select v-model="form.device_type" filterable allow-create clearable class="w-full">
                 <el-option v-for="t in deviceTypes" :key="t.name" :label="t.name" :value="t.name" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="网络类型">
+            <el-form-item :label="fieldLabel('device', 'network_type', '网络类型', 'form')">
               <el-select v-model="form.network_type" filterable allow-create clearable class="w-full">
                 <el-option label="内网" value="内网" />
                 <el-option label="外网" value="外网" />
@@ -385,7 +396,7 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="品牌/型号">
+            <el-form-item :label="`${fieldLabel('device', 'brand', '品牌', 'form')} / ${fieldLabel('device', 'model', '型号', 'form')}`">
               <div class="flex-gap">
                 <el-input v-model="form.brand" placeholder="品牌" />
                 <el-input v-model="form.model" placeholder="型号" />
@@ -393,22 +404,22 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="IP地址">
+            <el-form-item :label="fieldLabel('device', 'ip_address', 'IP', 'form')">
               <el-input v-model="form.ip_address" placeholder="如 192.168.1.1" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="端口">
+            <el-form-item :label="fieldLabel('device', 'port', '端口', 'form')">
               <el-input-number v-model="form.port" :min="1" :max="65535" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="序列号">
+            <el-form-item :label="fieldLabel('device', 'serial_number', '序列号', 'form')">
               <el-input v-model="form.serial_number" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="登录方式">
+            <el-form-item :label="fieldLabel('device', 'login_method', '登录方式', 'form')">
               <el-select v-model="form.login_method" allow-create clearable class="w-full">
                 <el-option label="SSH" value="SSH" />
                 <el-option label="Telnet" value="Telnet" />
@@ -418,70 +429,70 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="用户名">
+            <el-form-item :label="fieldLabel('device', 'username', '登录用户名', 'form')">
               <el-input v-model="form.username" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item :label="form.id ? '新密码' : '密码'">
-              <el-input v-model="form.password" type="password" show-password
+            <el-form-item :label="form.id ? `新${fieldLabel('device', 'password', '登录密码', 'form')}` : fieldLabel('device', 'password', '登录密码', 'form')">
+              <el-input v-model="form.password" type="password" show-password autocomplete="new-password"
                 :placeholder="form.id ? '留空则不修改' : ''" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="安装位置">
+            <el-form-item :label="fieldLabel('device', 'location', '安装位置', 'form')">
               <el-input v-model="form.location" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="接口">
+            <el-form-item :label="fieldLabel('device', 'interface', '接口', 'form')">
               <el-select v-model="form.interface" multiple filterable allow-create default-first-option
                 class="w-full" placeholder="如 GigabitEthernet0/0/1" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="系统版本">
+            <el-form-item :label="fieldLabel('device', 'os_version', '系统版本', 'form')">
               <el-input v-model="form.os_version" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="规则库版本">
+            <el-form-item :label="fieldLabel('device', 'rule_version', '规则库版本', 'form')">
               <el-input v-model="form.rule_version" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="建设时间">
+            <el-form-item :label="fieldLabel('device', 'build_date', '建设时间', 'form')">
               <el-date-picker v-model="form.build_date" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="建设日期" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="授权开始">
+            <el-form-item :label="fieldLabel('device', 'license_start', '授权开始', 'form')">
               <el-date-picker v-model="form.license_start" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="开始日期" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="授权截止">
+            <el-form-item :label="fieldLabel('device', 'license_expiry', '授权截止', 'form')">
               <el-date-picker v-model="form.license_expiry" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="截止日期" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="证书到期">
+            <el-form-item :label="fieldLabel('device', 'cert_expiry_date', '证书到期日期', 'form')">
               <el-date-picker v-model="form.cert_expiry_date" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="证书到期日" />
             </el-form-item>
           </el-col>
           <el-col :xs="24">
-            <el-form-item label="备注">
+            <el-form-item :label="fieldLabel('device', 'remark', '备注', 'form')">
               <el-input v-model="form.remark" type="textarea" :rows="2" />
             </el-form-item>
           </el-col>
           <el-col :xs="24">
             <el-form-item label="状态">
-              <el-checkbox v-model="form.is_in_use">在用</el-checkbox>
-              <el-checkbox v-model="form.is_maintenance">有过维修</el-checkbox>
+              <el-checkbox v-model="form.is_in_use">{{ fieldLabel('device', 'is_in_use', '是否在用', 'form') }}</el-checkbox>
+              <el-checkbox v-model="form.is_maintenance">{{ fieldLabel('device', 'is_maintenance', '是否维修', 'form') }}</el-checkbox>
             </el-form-item>
           </el-col>
         </el-row>
@@ -516,9 +527,15 @@ import {
   type PasswordHistoryItem, type DeviceExportRequestItem,
   requestDeviceExport, fetchDeviceExportRequests, exportPasswordDownloadUrl,
   batchUpdateDevices,
+  auditPasswordCopy,
 } from '@/api/devices'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
+import {
+  entityFieldLabel, fetchEntityMetas, mergeFieldMeta,
+  type EntityFieldMeta, type EntityMeta,
+} from '@/api/meta'
+import { copySensitiveText } from '@/utils/secureClipboard'
 
 const route = useRoute()
 const user = useUserStore()
@@ -529,6 +546,12 @@ const query = reactive<Record<string, unknown>>({ search: '', brand: '', device_
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
+const listFieldMeta = ref<EntityFieldMeta[]>([])
+const entityMetas = ref<Record<string, EntityMeta>>({})
+
+function fieldLabel(entity: string, key: string, fallback: string, profile = 'detail') {
+  return entityFieldLabel(entityMetas.value[entity], key, fallback, profile)
+}
 
 // ==================== 双模式：树（市→客户） / 表格（完整字段） ====================
 const mode = ref<'tree' | 'table'>('tree')
@@ -692,10 +715,23 @@ const columns = computed<DataColumn[]>(() => {
       ] },
   ]
   // 锁定单个客户时范围条已显示客户名，隐藏「客户」列避免重复
+  const unified = mergeFieldMeta(cols, listFieldMeta.value)
   if (query.customer_id) {
-    return cols.filter((c) => c.key !== 'customer_name')
+    return unified.filter((c) => c.key !== 'customer_name')
   }
-  return cols
+  return unified
+})
+
+onMounted(() => {
+  fetchEntityMetas([
+    'device', 'ticket', 'inspection', 'device_export_request', 'config_backup',
+    'password_history',
+  ])
+    .then((metadata) => {
+      entityMetas.value = metadata
+      listFieldMeta.value = metadata.device?.profiles.list || []
+    })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })
 
 // ==================== 地区折叠树（市 → 客户） ====================
@@ -852,6 +888,46 @@ async function doImport() {
 const detailVisible = ref(false)
 const detail = ref<Device | null>(null)
 const pwdVisible = ref(false)
+const sensitiveVisible = ref(false)
+const sensitiveValue = ref('')
+const sensitiveTitle = ref('敏感信息')
+const sensitiveSeconds = ref(10)
+let sensitiveTimer: number | undefined
+
+function clearSensitiveValue() {
+  if (sensitiveTimer) window.clearInterval(sensitiveTimer)
+  sensitiveTimer = undefined
+  sensitiveValue.value = ''
+  sensitiveSeconds.value = 10
+  if (detail.value) detail.value = { ...detail.value, password: undefined }
+  pwdVisible.value = false
+}
+
+function showSensitiveValue(title: string, value: string) {
+  clearSensitiveValue()
+  sensitiveTitle.value = title
+  sensitiveValue.value = value
+  sensitiveVisible.value = true
+  pwdVisible.value = true
+  sensitiveTimer = window.setInterval(() => {
+    sensitiveSeconds.value -= 1
+    if (sensitiveSeconds.value <= 0) {
+      sensitiveVisible.value = false
+      clearSensitiveValue()
+    }
+  }, 1000)
+}
+
+async function copySensitive() {
+  if (!sensitiveValue.value || !detail.value) return
+  try {
+    await copySensitiveText(sensitiveValue.value)
+    await auditPasswordCopy(detail.value.id)
+    ui.toast('已复制；若剪贴板内容未变，将在 10 秒后清空', 'success')
+  } catch (e) {
+    ui.toast((e as Error).message || '复制失败', 'error')
+  }
+}
 /** 今日 YYYY-MM-DD（证书到期比较） */
 const todayStr = new Date().toISOString().slice(0, 10)
 /** 详情弹窗授权行：区间文本 + 状态色框（与列表列同口径） */
@@ -1011,9 +1087,10 @@ async function revealPwd() {
   if (!pwdVisible.value) {
     const res = await revealPassword(detail.value.id)
     detail.value = { ...detail.value, password: res.password }
-    pwdVisible.value = true
+    showSensitiveValue('当前登录密码', res.password || '（空）')
   } else {
-    pwdVisible.value = false
+    sensitiveVisible.value = false
+    clearSensitiveValue()
   }
 }
 
@@ -1039,8 +1116,7 @@ async function revealHistory(historyId: number) {
   if (!detail.value) return
   try {
     const res = await revealPassword(detail.value.id, historyId)
-    ElMessageBox.alert(`历史密码（#${historyId}）：${res.password || '（空）'}`, '历史密码',
-      { confirmButtonText: '关闭' }).catch(() => {})
+    showSensitiveValue(`历史密码（#${historyId}）`, res.password || '（空）')
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }

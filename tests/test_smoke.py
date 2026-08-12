@@ -12,7 +12,7 @@ def test_login_page(client):
 
 def test_login_logout_flow(client):
     r = login(client, 'admin')
-    assert r.status_code == 302
+    assert r.status_code == 200
     # 首页重定向到 /app/
     r = client.get('/')
     assert r.status_code == 302
@@ -22,8 +22,9 @@ def test_login_logout_flow(client):
 
 
 def test_wrong_password(client):
+    # 遗留表单入口只是 302 壳，绝不再接收凭据。
     r = client.post('/login', data={'username': 'admin', 'password': 'bad'})
-    assert r.status_code == 302  # 登录失败不再渲染，重定向 SPA 登录页
+    assert r.status_code == 302
     assert '/app/login' in r.headers.get('Location', '')
     assert client.get('/').status_code == 302  # 未建立会话
 

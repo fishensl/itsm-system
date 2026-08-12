@@ -36,7 +36,7 @@ def csrf_app():
 @pytest.fixture()
 def csrf_client(csrf_app):
     c = csrf_app.test_client()
-    c.post('/login', data={'username': 'op', 'password': 'test123456'})  # login 豁免 CSRF
+    c.post('/api/auth/login', json={'username': 'op', 'password': 'test123456'})
     return c
 
 
@@ -71,14 +71,14 @@ class TestCsrfProtection:
         assert csrf_client.get('/api/rack/cabinets').status_code == 200
         assert csrf_client.get('/api/drafts/list').status_code == 200
 
-    def test_login_exempt_still_works(self, csrf_app):
+    def test_login_shell_exempt_still_redirects(self, csrf_app):
         c = csrf_app.test_client()
         r = c.post('/login', data={'username': 'op', 'password': 'test123456'})
-        assert r.status_code == 302  # 未带 token 也能登录（登录页豁免）
+        assert r.status_code == 302
+        assert '/app/login' in r.headers['Location']
 
 class TestLoginExemptDecoratorOrder:
-    def test_ssr_login_exempt_attribute_preserved(self, csrf_app):
-        """回归：@csrf.exempt 在最外层，Flask-Limiter 包装不吞豁免标记"""
+    def test_legacy_login_shell_exempt_attribute_preserved(self, csrf_app):
         from app import csrf
         assert 'views.auth.login' in csrf._exempt_views
 

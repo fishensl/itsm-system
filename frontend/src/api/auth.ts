@@ -7,7 +7,9 @@ export interface LoginPayload {
 }
 
 export interface LoginResult {
-  user: CurrentUser
+  user?: CurrentUser
+  mfa_required?: boolean
+  bind_required?: boolean
 }
 
 /** 登录（session cookie 由浏览器维护） */
@@ -43,6 +45,51 @@ export function changePassword(oldPassword: string, newPassword: string) {
     method: 'POST',
     data: { old_password: oldPassword, new_password: newPassword },
   })
+}
+
+export function verifyLoginMfa(code: string, recovery = false) {
+  return request<{ user: CurrentUser }>({
+    url: '/api/auth/mfa/verify', method: 'POST', data: { code, recovery },
+  })
+}
+
+export type MfaPurpose = 'login' | 'operation'
+
+export interface MfaSetupResult {
+  purpose: MfaPurpose
+  manual_secret: string
+  provisioning_uri: string
+  qr_data_uri: string
+  backup_codes: string[]
+}
+
+export function fetchMfaStatus() {
+  return request<{ login_enabled: boolean; operation_enabled: boolean; backup_codes_remaining: number;
+    mfa_enforce: boolean; op_code_enforce: boolean }>({ url: '/api/auth/mfa/status', method: 'GET' })
+}
+
+export function setupMfa(purpose: MfaPurpose) {
+  return request<MfaSetupResult>({ url: '/api/auth/mfa/setup', method: 'POST', data: { purpose } })
+}
+
+export function confirmMfa(purpose: MfaPurpose, code: string) {
+  return request<{ user: CurrentUser } | null>({
+    url: '/api/auth/mfa/confirm', method: 'POST', data: { purpose, code },
+  })
+}
+
+export function verifyOperationCode(code: string) {
+  return request<{ token: string; expires_in: number }>({
+    url: '/api/auth/op-verify', method: 'POST', data: { code },
+  })
+}
+
+export function fetchSystemSecurityProfile() {
+  return request<Record<string, string>>({ url: '/api/system/security-profile', method: 'GET' })
+}
+
+export function updateSystemSecurityProfile(data: Record<string, unknown>) {
+  return request<Record<string, string>>({ url: '/api/system/security-profile', method: 'PUT', data })
 }
 
 // ==================== Dashboard ====================

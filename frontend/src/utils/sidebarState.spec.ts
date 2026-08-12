@@ -14,7 +14,7 @@ describe('sidebarState', () => {
     expect(loadOpenGroups()).toEqual([])
   })
 
-  it('save/load 往返一致（SSR base.html 同键同格式）', () => {
+  it('save/load 往返一致', () => {
     saveOpenGroups(['ops', 'dev'])
     expect(sessionStorage.getItem(SIDEBAR_OPEN_KEY)).toBe('["ops","dev"]')
     expect(loadOpenGroups()).toEqual(['ops', 'dev'])

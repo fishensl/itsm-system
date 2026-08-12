@@ -100,24 +100,24 @@
 
               <div class="install-table-wrap">
                 <el-table :data="detail.installs" size="small" border stripe>
-                  <el-table-column label="U位" width="90" align="center">
+                  <el-table-column :label="`${installLabel('start_u', '起始U位')} / ${installLabel('occupy_u', '占用U数')}`" width="120" align="center">
                     <template #default="{ row }">{{ row.start_u }}-{{ row.start_u + row.occupy_u - 1 }}U</template>
                   </el-table-column>
-                  <el-table-column label="名称" min-width="140" prop="name" show-overflow-tooltip />
-                  <el-table-column label="品牌型号" min-width="120">
+                  <el-table-column :label="installLabel('name', '设备名称')" min-width="140" prop="name" show-overflow-tooltip />
+                  <el-table-column :label="`${installLabel('brand', '品牌')} / ${installLabel('model', '型号')}`" min-width="140">
                     <template #default="{ row }">
                       {{ [row.brand, row.model].filter(Boolean).join(' ') || '-' }}
                     </template>
                   </el-table-column>
-                  <el-table-column label="IP" min-width="110" prop="ip" show-overflow-tooltip />
-                  <el-table-column label="来源" width="70" align="center">
+                  <el-table-column :label="installLabel('ip', 'IP')" min-width="110" prop="ip" show-overflow-tooltip />
+                  <el-table-column :label="installLabel('kind', '来源')" width="70" align="center">
                     <template #default="{ row }">
                       <el-tag size="small" :type="row.kind === '托管' ? 'primary' : 'warning'">
                         {{ row.kind }}
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="功耗" width="70" align="right" prop="rated_w" />
+                  <el-table-column :label="installLabel('rated_w', '功耗(W)')" width="80" align="right" prop="rated_w" />
                   <el-table-column label="操作" width="110" fixed="right">
                     <template #default="{ row }">
                       <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary" link
@@ -141,33 +141,33 @@
     <el-dialog v-model="rackFormVisible" :title="rackForm.id ? '编辑机柜' : '新增机柜'" width="520px" top="8vh"
       destroy-on-close>
       <el-form ref="rackFormRef" :model="rackForm" :rules="rackFormRules" label-width="100px">
-        <el-form-item label="名称" prop="name">
+        <el-form-item :label="rackLabel('name', '机柜名称', 'form')" prop="name">
           <el-input v-model="rackForm.name" placeholder="如：A-01" />
         </el-form-item>
-        <el-form-item label="所属客户" prop="customer_id">
+        <el-form-item :label="rackLabel('customer_name', '所属客户', 'form')" prop="customer_id">
           <el-select v-model="rackForm.customer_id" filterable class="w-full">
             <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="机房位置">
+        <el-form-item :label="rackLabel('location', '机房位置', 'form')">
           <el-input v-model="rackForm.location" placeholder="如：2F 机房 B 区" />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :xs="24" :sm="12">
-            <el-form-item label="总U数" prop="total_u">
+            <el-form-item :label="rackLabel('total_u', '总U数', 'form')" prop="total_u">
               <el-input-number v-model="rackForm.total_u" :min="1" :max="120" class="w-full" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="PDU功率">
+            <el-form-item :label="rackLabel('pdu_total_w', 'PDU功率(W)', 'form')">
               <el-input-number v-model="rackForm.pdu_total_w" :min="0" :step="500" class="w-full" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="显示颜色">
+        <el-form-item :label="rackLabel('color', '显示颜色', 'form')">
           <el-color-picker v-model="rackForm.color" />
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item :label="rackLabel('remark', '备注', 'form')">
           <el-input v-model="rackForm.remark" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
@@ -188,25 +188,25 @@
               <el-radio value="manual">手动录入</el-radio>
             </el-radio-group>
           </el-form-item>
-          <el-form-item v-if="installMode === 'device'" label="设备" prop="device_id">
+          <el-form-item v-if="installMode === 'device'" :label="installLabel('name', '设备名称', 'form')" prop="device_id">
             <el-select v-model="installForm.device_id" filterable class="w-full">
               <el-option v-for="d in devices" :key="d.id" :value="d.id" :disabled="d.installed"
                 :label="`${d.name}${d.installed ? '（已上架）' : ''} · ${d.ip || d.brand + ' ' + d.model}`" />
             </el-select>
           </el-form-item>
           <template v-else>
-            <el-form-item label="设备名" prop="manual_name">
+            <el-form-item :label="installLabel('name', '设备名称', 'form')" prop="manual_name">
               <el-input v-model="installForm.manual_name" placeholder="手动设备名称（必填）" />
             </el-form-item>
             <el-row :gutter="12">
               <el-col :xs="24" :sm="12">
-                <el-form-item label="品牌"><el-input v-model="installForm.manual_brand" /></el-form-item>
+                <el-form-item :label="installLabel('brand', '品牌', 'form')"><el-input v-model="installForm.manual_brand" /></el-form-item>
               </el-col>
               <el-col :xs="24" :sm="12">
-                <el-form-item label="型号"><el-input v-model="installForm.manual_model" /></el-form-item>
+                <el-form-item :label="installLabel('model', '型号', 'form')"><el-input v-model="installForm.manual_model" /></el-form-item>
               </el-col>
             </el-row>
-            <el-form-item label="IP"><el-input v-model="installForm.manual_ip" /></el-form-item>
+            <el-form-item :label="installLabel('ip', 'IP', 'form')"><el-input v-model="installForm.manual_ip" /></el-form-item>
           </template>
         </template>
         <template v-else>
@@ -216,22 +216,22 @@
         </template>
         <el-row :gutter="12">
           <el-col :xs="12" :sm="8">
-            <el-form-item label="起始U" prop="start_u">
+            <el-form-item :label="installLabel('start_u', '起始U位', 'form')" prop="start_u">
               <el-input-number v-model="installForm.start_u" :min="1" :max="detail?.total_u || 42" class="w-full" />
             </el-form-item>
           </el-col>
           <el-col :xs="12" :sm="8">
-            <el-form-item label="占用U" prop="occupy_u">
+            <el-form-item :label="installLabel('occupy_u', '占用U数', 'form')" prop="occupy_u">
               <el-input-number v-model="installForm.occupy_u" :min="1" :max="10" class="w-full" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="8">
-            <el-form-item label="功耗(W)">
+            <el-form-item :label="installLabel('rated_w', '功耗(W)', 'form')">
               <el-input-number v-model="installForm.rated_w" :min="0" :step="50" class="w-full" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="备注">
+        <el-form-item :label="installLabel('remark', '备注', 'form')">
           <el-input v-model="installForm.remark" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
@@ -255,10 +255,20 @@ import {
   fetchRackTree,
   type RackDetail, type RackInstall, type RackDevice, type RackDicts,
 } from '@/api/rack'
+import { entityFieldLabel, fetchEntityMetas, type EntityMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<RackDicts | null>(null)
+const metas = ref<Record<string, EntityMeta>>({})
+
+function rackLabel(key: string, fallback: string, profile = 'detail') {
+  return entityFieldLabel(metas.value.rack, key, fallback, profile)
+}
+
+function installLabel(key: string, fallback: string, profile = 'list') {
+  return entityFieldLabel(metas.value.rack_install, key, fallback, profile)
+}
 
 // ==================== 地市 → 客户 → 机柜 树 ====================
 interface TreeNode {
@@ -512,6 +522,9 @@ async function onDeleteRack() {
 onMounted(() => {
   fetchRackDicts().then((d) => (dicts.value = d))
   loadTree()
+  fetchEntityMetas(['rack', 'rack_install'])
+    .then((result) => { metas.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })
 </script>
 

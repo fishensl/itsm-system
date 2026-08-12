@@ -1,4 +1,4 @@
-/** 侧栏展开分组持久化（与 SSR base.html 共用 sessionStorage 键，跨整页加载保持） */
+/** 侧栏展开分组持久化。 */
 
 export const SIDEBAR_OPEN_KEY = 'sidebarOpenGroups'
 

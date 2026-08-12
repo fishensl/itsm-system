@@ -353,6 +353,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Plus, Search, Delete } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMetas, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { BOOL_LABELS } from '@/utils/labels'
@@ -368,6 +369,7 @@ import {
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<SalesDicts | null>(null)
+const fieldMeta = reactive<Record<string, EntityFieldMeta[]>>({})
 
 const activeTab = ref('opps')
 const oppTableRef = ref()
@@ -398,7 +400,7 @@ function reload(kind: 'opp' | 'quot' | 'contract' | 'project') {
 }
 
 // ==================== 商机 ====================
-const oppColumns = computed<DataColumn[]>(() => [
+const oppColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'title', label: '商机标题', minWidth: 200, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 120 },
   { key: 'stage', label: '阶段', width: 100, type: 'tag', asTag: true, tagMap: OPP_STAGE_TAG },
@@ -412,7 +414,7 @@ const oppColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'sales:delete', icon: 'Delete',
         onClick: (row) => onOppDelete(row as unknown as Opportunity) },
     ] },
-])
+], fieldMeta.opportunity || []))
 
 interface OppFormModel {
   id?: number
@@ -487,7 +489,7 @@ async function onOppDelete(o: Opportunity) {
 }
 
 // ==================== 报价 ====================
-const quotColumns = computed<DataColumn[]>(() => [
+const quotColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'number', label: '报价单号', minWidth: 130, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 120 },
   { key: 'opportunity_title', label: '关联商机', minWidth: 140 },
@@ -501,7 +503,7 @@ const quotColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'sales:delete', icon: 'Delete',
         onClick: (row) => onQuotDelete(row as unknown as Quotation) },
     ] },
-])
+], fieldMeta.quotation || []))
 
 interface QuotFormModel {
   id?: number
@@ -592,7 +594,7 @@ async function onQuotDelete(q: Quotation) {
 }
 
 // ==================== 合同 ====================
-const contractColumns = computed<DataColumn[]>(() => [
+const contractColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'number', label: '编号', width: 120 },
   { key: 'title', label: '合同标题', minWidth: 180, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 110 },
@@ -610,7 +612,7 @@ const contractColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'sales:delete', icon: 'Delete',
         onClick: (row) => onContractDelete(row as unknown as ContractItem) },
     ] },
-])
+], fieldMeta.contract || []))
 
 interface ContractFormModel {
   id?: number
@@ -687,7 +689,7 @@ async function onContractDelete(c: ContractItem) {
 }
 
 // ==================== 项目 ====================
-const projectColumns = computed<DataColumn[]>(() => [
+const projectColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'name', label: '项目名称', minWidth: 180, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 110 },
   { key: 'contract_title', label: '关联合同', minWidth: 130 },
@@ -702,7 +704,7 @@ const projectColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'sales:delete', icon: 'Delete',
         onClick: (row) => onProjectDelete(row as unknown as ProjectItem) },
     ] },
-])
+], fieldMeta.project || []))
 
 interface ProjectFormModel {
   id?: number
@@ -779,6 +781,11 @@ async function onProjectDelete(p: ProjectItem) {
 
 onMounted(() => {
   fetchSalesDicts().then((d) => (dicts.value = d))
+  fetchEntityMetas(['opportunity', 'quotation', 'contract', 'project']).then((metas) => {
+    Object.entries(metas).forEach(([name, metadata]) => {
+      fieldMeta[name] = metadata.profiles.list || []
+    })
+  })
 })
 </script>
 

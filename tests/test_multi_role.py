@@ -125,8 +125,8 @@ class TestMultiRoleApi:
             u = User.query.filter_by(username='sales').first()
             u.set_role_codes(['sales', 'operator'])
             db.session.commit()
-        r = client.post('/login', data={'username': 'sales', 'password': 'test123456'})
-        assert r.status_code == 302
+        r = client.post('/api/auth/login', json={'username': 'sales', 'password': 'test123456'})
+        assert r.status_code == 200
         r = client.get('/api/auth/me')
         d = r.get_json()['data']
         assert 'sales' in d['roles'] and 'operator' in d['roles']
@@ -166,8 +166,8 @@ class TestReviewRole:
 
     def test_pure_operator_cannot_review(self, app, client, seed):
         """无 grant 的纯 operator 用户审核 403"""
-        r = client.post('/login', data={'username': 'pure_op', 'password': 'test123456'})
-        assert r.status_code == 302
+        r = client.post('/api/auth/login', json={'username': 'pure_op', 'password': 'test123456'})
+        assert r.status_code == 200
         r = client.post(f"/api/inspections/{seed['i1']}/review", json={'approved': True})
         assert r.status_code == 403
 

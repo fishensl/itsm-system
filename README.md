@@ -1,6 +1,6 @@
 # ITSM 运维管理系统
 
-基于 Python Flask 的 IT 运维管理系统，覆盖客户管理、设备资产管理、巡检任务、故障工单、备件库存、销售管线、知识库、机柜可视化等全流程，支持自动生成 Word 报告。
+基于 Flask JSON API 与 Vue 3 SPA 的 IT 运维管理系统，覆盖客户管理、设备资产管理、巡检任务、故障工单、备件库存、销售管线、知识库、机柜可视化等全流程，支持自动生成 Word 报告。
 
 ---
 
@@ -64,7 +64,7 @@ python app.py
 ```
 
 首次启动会自动：
-- 创建 SQLite 数据库 `instance/itsm.db`
+- 在开发环境未配置数据库时创建 SQLite 数据库 `instance/itsm.db`（生产环境必须配置 PostgreSQL）
 - 创建默认管理员账号 `admin / admin123`
 - 预置设备类型、故障类型等种子数据
 
@@ -127,8 +127,9 @@ sudo bash scripts/migrate-to-github.sh
 ├── blueprints/               # Flask 蓝图模块（13 个）
 ├── services/                 # 服务层（8 个）
 ├── utils/                    # 工具模块（11 个）
-├── templates/                # Jinja2 模板（40+ 目录）
-├── static/                   # CSS/JS/图片/第三方库
+├── frontend/                 # Vue 3 + TypeScript + Element Plus 单页应用
+├── static/app/               # Vue 生产构建产物
+├── static/                   # 图片/上传资源/第三方库
 ├── scripts/                  # 部署运维脚本
 │   ├── deploy.sh             # 首次部署
 │   ├── update.sh             # 在线更新
@@ -212,7 +213,7 @@ sudo bash /opt/itsm/scripts/backup.sh   # 手动备份
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
 
-当前版本：**v1.0**
+当前版本：**v2.5**
 
 ---
 
@@ -227,6 +228,8 @@ itsm-system/
 │   ├── base.py                   # db 单例
 │   └── user/customer/device/inspection/ticket/knowledge/spare/sales/misc/rack.py
 ├── views/                        # 主应用视图（dashboard/auth/admin_users/system）
+├── frontend/                     # Vue 3 SPA（页面、组件、Pinia、API 封装）
+├── domain_metadata/              # 列表/详情/表单/导出字段单一真源
 ├── requirements.txt              # Python 依赖
 ├── requirements-dev.txt          # 开发依赖（pytest/ruff/pip-audit）
 ├── pyproject.toml                # ruff/pytest 配置
@@ -271,15 +274,13 @@ itsm-system/
 │   ├── sidebar_config.py         # 侧边栏配置
 │   └── upload.py                 # 文件上传校验
 │
-├── templates/                    # Jinja2 模板（40+ 业务目录）
 ├── static/                       # 静态资源
-│   ├── css/                      # 样式
-│   ├── js/                       # 脚本
+│   ├── app/                      # Vue 生产构建产物
 │   ├── img/                      # 图片
 │   ├── vendor/                   # 第三方库（Bootstrap 5, Chart.js, drawio）
 │   └── uploads/                  # 用户上传（运行时）
 │
-├── tests/                        # pytest 测试（100+ 用例，详见 AGENTS.md）
+├── tests/                        # pytest 测试（425+ 用例，详见 AGENTS.md）
 ├── migrations/                   # Alembic 数据库迁移
 ├── scripts/                      # 部署运维 + 数据脚本（故障迁移/密钥轮换）
 ├── instance/                     # SQLite 数据库（运行时）
@@ -537,7 +538,7 @@ itsm-system/
 0 3 * * * /opt/itsm/scripts/backup.sh
 ```
 
-备份内容：`instance/itsm.db` + `.secret.key` + `.env`，保留最近 30 份。
+备份内容：PostgreSQL `pg_dump` + `.secret.key`（或 `.secret.key.locked`）+ `.env` + 上传文件，保留最近 30 份；开发 SQLite 模式会备份 `instance/itsm.db`。
 
 ### 紧急回滚
 
@@ -557,10 +558,10 @@ sudo bash /opt/itsm/scripts/rollback.sh backups/itsm.db.pre_update_20260615_1200
 > 修改 `app.py` 最后的端口号，或修改 `scripts/itsm.service` 中 Gunicorn 的 `--bind` 参数。
 
 **Q：数据库在哪里？**
-> `instance/itsm.db`，SQLite 单文件，无需安装数据库服务。
+> 生产使用 `.env` 中 `ITSM_DATABASE_URI` 指向的 PostgreSQL；开发/测试可显式配置 `instance/itsm.db`。
 
 **Q：想清空数据从头开始？**
-> 删除 `instance/itsm.db` 和 `.secret.key`，重启自动重建。
+> 仅开发 SQLite 环境可在完成备份后重建 `instance/itsm.db`；生产环境必须按 PostgreSQL 运维流程操作，不能删除密钥文件。
 
 **Q：批量导入 Excel 格式？**
 > 在设备列表页点击「下载模板」获取标准格式。
@@ -569,7 +570,7 @@ sudo bash /opt/itsm/scripts/rollback.sh backups/itsm.db.pre_update_20260615_1200
 > `.secret.key` 丢失后所有已加密的设备密码将永久无法解密。务必定期备份 `.secret.key` 和数据库。
 
 **Q：如何从旧版本迁移数据？**
-> 将旧环境的 `instance/itsm.db` 和 `.secret.key` 复制到新环境的对应位置即可。
+> 使用部署迁移脚本并同时迁移数据库、上传文件与密钥；详细步骤见 `docs/SECURITY_GUIDE.md` 和部署脚本说明。
 
 **Q：Ubuntu 24 部署后外网无法访问？**
 > Gunicorn 绑定 `0.0.0.0:5000`，检查防火墙是否放行 5000 端口。生产环境建议配置 Nginx 反代。
@@ -586,9 +587,10 @@ sudo bash /opt/itsm/scripts/rollback.sh backups/itsm.db.pre_update_20260615_1200
 | Flask-Login | 用户认证 |
 | Flask-WTF | CSRF 保护 |
 | Flask-Limiter | 速率限制 |
-| SQLite | 数据库 |
-| Jinja2 | 模板引擎 |
-| Bootstrap 5 | 前端 UI |
+| PostgreSQL | 生产数据库 |
+| SQLite | 开发/测试显式配置 |
+| Vue 3 | 唯一业务界面（旧 URL 仅保留重定向兼容壳） |
+| Element Plus | 前端 UI |
 | Gunicorn | 生产 WSGI 服务器 |
 | systemd | 进程管理 |
 | python-docx | Word 报告生成 |
@@ -599,4 +601,4 @@ sudo bash /opt/itsm/scripts/rollback.sh backups/itsm.db.pre_update_20260615_1200
 
 ---
 
-*最后更新: 2026-06-15*
+*最后更新: 2026-08-12*

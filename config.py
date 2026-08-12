@@ -49,6 +49,14 @@ class Config:
         SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(BASE_DIR, 'instance', 'itsm.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MAX_CONTENT_LENGTH = int(os.environ.get('ITSM_MAX_UPLOAD_MB', 100)) * 1024 * 1024
+    FORCE_HTTPS = os.environ.get('ITSM_FORCE_HTTPS', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    IS_PRODUCTION = (os.environ.get('ITSM_ENV') == 'production' or
+                     os.environ.get('FLASK_ENV') == 'production')
+    MFA_ENFORCE = os.environ.get('ITSM_MFA_ENFORCE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    CSP_ENABLED = os.environ.get('ITSM_CSP_ENABLED', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SECURE = FORCE_HTTPS
 
     # 分页
     ITEMS_PER_PAGE = 20
@@ -84,11 +92,24 @@ def setup_security_headers(app):
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        if app.config.get('CSP_ENABLED'):
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+                "script-src 'self'; connect-src 'self'; font-src 'self' data:; "
+                "object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+            )
         # drawio vendor(~21MB JS)与图标库内容不变，开长期 immutable 缓存；
         # 其余（动态接口、HTML 入口）保持 no-store，避免拿到过期数据
         p = request.path
         if p.startswith('/static/vendor/') or p.startswith('/static/stencils/'):
             response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        elif (p.startswith('/api/') or p.startswith('/exports/') or
+              p.startswith('/uploads/')):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
         else:
-            response.headers['Cache-Control'] = 'no-store, max-age=0'
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
         return response

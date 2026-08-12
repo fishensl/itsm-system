@@ -206,7 +206,7 @@ export function fetchInspectionDicts() {
   return request<InspectionDicts>({ url: '/api/dicts/inspections', method: 'GET' })
 }
 
-/** 巡检记录导出 URL（SSR，带筛选参数） */
+/** 巡检记录兼容下载 URL（带筛选参数） */
 export function inspectionExportUrl(params: Record<string, unknown>) {
   return buildQueryUrl('/inspections/export', params)
 }

@@ -1,7 +1,8 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import type { ApiResponse } from '@/types'
+import { currentOperationToken, requestOperationToken } from '@/utils/operationToken'
 
-/** 读取 CSRF token：优先 meta 标签（与 SSR base.html 机制一致），回退 cookie */
+/** 读取 CSRF token：优先 cookie；保留 meta 回退以兼容旧部署缓存。 */
 function getCsrfToken(): string {
   const meta = document.querySelector('meta[name="csrf-token"]')
   if (meta && meta.getAttribute('content')) return meta.getAttribute('content')!
@@ -14,11 +15,13 @@ const instance = axios.create({
   timeout: 30000,
 })
 
-// 请求拦截：非 GET 自动附加 X-CSRFToken（复用 Flask-WTF 现有机制）
+// 请求拦截：非 GET 自动附加 Flask-WTF 所需的 X-CSRFToken
 instance.interceptors.request.use((config) => {
   const method = (config.method || 'get').toUpperCase()
   if (method !== 'GET') {
     config.headers.set('X-CSRFToken', getCsrfToken())
+    const operationToken = currentOperationToken()
+    if (operationToken) config.headers.set('X-Operation-Token', operationToken)
   }
   return config
 })
@@ -49,7 +52,22 @@ instance.interceptors.response.use(
 
 /** 统一请求封装：返回解包后的 data；业务错误抛 Error(message) */
 export async function request<T>(config: AxiosRequestConfig): Promise<T> {
-  const resp = await instance.request<ApiResponse<T>>(config)
+  let resp
+  try {
+    resp = await instance.request<ApiResponse<T>>(config)
+  } catch (error) {
+    const axiosError = error as AxiosError<ApiResponse<T>>
+    const retryConfig = config as AxiosRequestConfig & { _operationRetried?: boolean }
+    if (axiosError.response?.status === 403 &&
+        axiosError.response.data?.message === '需要操作动态码验证' &&
+        !retryConfig._operationRetried) {
+      await requestOperationToken()
+      retryConfig._operationRetried = true
+      resp = await instance.request<ApiResponse<T>>(retryConfig)
+    } else {
+      throw error
+    }
+  }
   const body = resp.data
   if (body.code !== 0) {
     throw new Error(body.message || '请求失败')

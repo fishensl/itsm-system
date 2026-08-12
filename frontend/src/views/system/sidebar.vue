@@ -9,7 +9,7 @@
     </div>
 
     <el-card shadow="never">
-      <div class="tip">调整分组顺序与启停，保存后侧栏即时生效（SSR 与 Vue 双端）。</div>
+      <div class="tip">调整分组顺序与启停，保存后 Vue 侧栏即时生效。</div>
       <div v-loading="loading" class="group-list">
         <div v-for="(g, idx) in groups" :key="g.key" class="group-row">
           <span class="group-order">{{ idx + 1 }}</span>

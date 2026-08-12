@@ -98,8 +98,8 @@ class TestPlaintextPasswordUpgrade:
                      is_active=True)
             db.session.add(u)
             db.session.commit()
-        r = client.post('/login', data={'username': 'legacy', 'password': 'plain123'})
-        assert r.status_code == 302
+        r = client.post('/api/auth/login', json={'username': 'legacy', 'password': 'plain123'})
+        assert r.status_code == 200
         with app.app_context():
             u = User.query.filter_by(username='legacy').first()
             # 已升级为 werkzeug 哈希（scrypt:/pbkdf2:，不再是明文）
@@ -118,8 +118,8 @@ class TestPlaintextPasswordUpgrade:
             db.session.add(u)
             db.session.commit()
             assert u.needs_rehash() is True
-        r = client.post('/login', data={'username': 'pbkdf2user', 'password': 'pw123456'})
-        assert r.status_code == 302
+        r = client.post('/api/auth/login', json={'username': 'pbkdf2user', 'password': 'pw123456'})
+        assert r.status_code == 200
         with app.app_context():
             u = User.query.filter_by(username='pbkdf2user').first()
             assert u.password.startswith('scrypt:')

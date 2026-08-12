@@ -14,7 +14,7 @@
       :expand-on-click-node="false"
       class="cat-tree"
     >
-      <template #default="{ node, data }">
+      <template #default="{ data }">
         <div class="cat-node">
           <el-tag size="small" :type="levelTag(data.level)" effect="plain" class="cat-level">
             {{ ['', '一级', '二级', '三级'][data.level] || '分类' }}

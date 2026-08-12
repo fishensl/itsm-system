@@ -9,6 +9,8 @@ from models import (Device, PasswordHistory)
 from utils.crypto import decrypt_password
 from utils.permission import require_permission
 from utils.decorators import api_view
+from utils.access_control import client_ip
+from utils.operation_token import require_op_token
 from blueprints.asset import asset_bp
 
 
@@ -51,12 +53,13 @@ def api_device_get(id):
 @asset_bp.route('/api/devices/<int:id>/reveal-password', methods=['POST'])
 @login_required
 @require_permission('device:reveal')
+@require_op_token()
 def api_device_reveal_password(id):
     """按需查看设备明文密码（当前密码或指定历史密码）。
 
     安全设计：
     - 独立权限码 device:reveal（admin/operator 默认持有）
-    - POST + CSRF 保护（不豁免），前端 fetch 经 base.html 自动带 X-CSRFToken
+    - POST + CSRF 保护（不豁免），Vue 请求拦截器自动带 X-CSRFToken
     - 每次调用写审计日志（操作人/设备/来源 IP/是否历史密码）
     """
     d = Device.query.get_or_404(id)
@@ -70,7 +73,11 @@ def api_device_reveal_password(id):
         kind = '当前密码'
     current_app.logger.info(
         '密码查看审计: 用户[%s] 查看设备[%s](id=%s) %s, IP=%s',
-        current_user.username, d.device_name, d.id, kind, request.remote_addr)
+        current_user.username, d.device_name, d.id, kind, client_ip())
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:reveal', 'device', d.id, f'查看设备「{d.device_name}」{kind}(legacy)')
+    from utils.security_events import note_password_reveal
+    note_password_reveal(current_user.id, current_user.username, d.id, client_ip())
     return jsonify({'password': pwd})
 
 

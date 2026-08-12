@@ -1,6 +1,7 @@
 """AI 调用客户端"""
 import requests
 from utils.crypto import decrypt_password
+from utils.redaction import redact_text
 
 
 class AIClient:
@@ -21,7 +22,7 @@ class AIClient:
                     json={'model': self.model or 'gpt-4', 'messages': [{'role': 'user', 'content': 'Hello'}], 'max_tokens': 10},
                     timeout=15
                 )
-                return resp.status_code == 200, resp.text[:200]
+                return resp.status_code == 200, redact_text(resp.text, 200)
             elif self.provider == 'Anthropic':
                 resp = requests.post(
                     self.endpoint or 'https://api.anthropic.com/v1/messages',
@@ -29,19 +30,19 @@ class AIClient:
                     json={'model': self.model or 'claude-3-haiku-20240307', 'messages': [{'role': 'user', 'content': 'Hello'}], 'max_tokens': 10},
                     timeout=15
                 )
-                return resp.status_code == 200, resp.text[:200]
+                return resp.status_code == 200, redact_text(resp.text, 200)
             elif self.provider == 'Ollama':
                 resp = requests.post(
                     self.endpoint or 'http://localhost:11434/api/generate',
                     json={'model': self.model or 'llama3', 'prompt': 'Hello', 'stream': False},
                     timeout=15
                 )
-                return resp.status_code == 200, resp.text[:200]
+                return resp.status_code == 200, redact_text(resp.text, 200)
             else:
                 resp = requests.post(self.endpoint, json={'prompt': 'Hello', 'max_tokens': 10}, timeout=15)
-                return resp.status_code == 200, resp.text[:200]
+                return resp.status_code == 200, redact_text(resp.text, 200)
         except Exception as e:
-            return False, str(e)
+            return False, redact_text(e)
 
     def chat(self, prompt_text):
         """通用对话"""
@@ -77,7 +78,7 @@ class AIClient:
                 resp = requests.post(self.endpoint, json={'prompt': prompt_text, 'max_tokens': self.max_tokens}, timeout=60)
                 return resp.text[:2000]
         except Exception as e:
-            return f'[AI Error] {e}'
+            return f'[AI Error] {redact_text(e)}'
 
     def analyze_inspection(self, device_info, metrics, history):
         prompt = f"请分析以下设备的巡检指标并给出诊断建议：\n设备信息：{device_info}\n当前指标：{metrics}\n历史趋势：{history}"

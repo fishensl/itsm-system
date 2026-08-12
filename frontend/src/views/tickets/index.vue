@@ -290,10 +290,12 @@ import { TICKET_PRIORITY_TAG, TICKET_SOURCE_TYPES } from '@/utils/status'
 import type { SubmissionVersion as SV } from '@/api/inspections'
 import { fetchDepartments } from '@/api/system'
 import type { FaultCategoryNode } from '@/api/faults'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<TicketDicts | null>(null)
+const listFieldMeta = ref<EntityFieldMeta[]>([])
 
 /** 关联设备下拉：按所选客户过滤（未选客户时展示全部） */
 const filteredDevices = computed(() => {
@@ -328,13 +330,14 @@ const dateRange = ref<[string, string] | null>(null)
 const incompleteOnly = ref(false)
 const tableRef = ref()
 
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'title', label: '标题', minWidth: 180, asTitle: true },
   { key: 'number', label: '单号', width: 130 },
   { key: 'status', label: '状态', width: 90, type: 'tag', asTag: true, tagMap: TICKET_STATUS_TAG },
   { key: 'priority', label: '优先级', width: 80, type: 'tag', tagMap: TICKET_PRIORITY_TAG },
   { key: 'severity_level', label: '严重级别', width: 100, defaultVisible: false },
   { key: 'customer_name', label: '客户', minWidth: 100 },
+  { key: 'reporter', label: '报修人', width: 100, defaultVisible: false },
   { key: 'fault_category', label: '故障分类', minWidth: 150, defaultVisible: false,
     render: (r) => r.fault_category || '-' },
   { key: 'assigned_to', label: '处理人', width: 90 },
@@ -352,7 +355,7 @@ const columns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'ticket:delete', icon: 'Delete',
         onClick: (row) => onDelete(row as unknown as Ticket) },
     ] },
-])
+], listFieldMeta.value))
 
 // 当前操作目标工单 + 详情数据（审核/提交弹窗共用）
 const actionRow = ref<Ticket | null>(null)
@@ -717,7 +720,7 @@ function onDateChange(val: [string, string] | null) {
   reload()
 }
 
-// V24 导出筛选：列选择 + 处理报告包（新端点，SSR 导出保留兼容）
+// 导出筛选：列选择 + 处理报告包（兼容下载端点继续保留）
 const excelExportVisible = ref(false)
 const bundleExportVisible = ref(false)
 
@@ -765,6 +768,9 @@ function reload() {
 
 onMounted(() => {
   fetchTicketDicts().then((d) => (dicts.value = d))
+  fetchEntityMeta('ticket')
+    .then((metadata) => { listFieldMeta.value = metadata?.profiles.list || [] })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })
 </script>
 

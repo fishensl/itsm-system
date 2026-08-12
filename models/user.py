@@ -62,6 +62,20 @@ class User(UserMixin, db.Model):
     certifications = db.Column(db.Text, default='[]')  # JSON 数组字符串，参见 utils/cert_options.py
     # V28：多渠道通知账号（JSON：{"wecom":"...","dingtalk":"...","feishu":"..."}）
     notify_accounts_json = db.Column(db.Text, default='{}')
+    # 身份安全扩展：迁移先落列，强制能力均由设置开关控制且默认关闭。
+    mfa_secret_encrypted = db.Column(db.Text, nullable=True)
+    mfa_enabled = db.Column(db.Boolean, default=False)
+    mfa_op_secret_encrypted = db.Column(db.Text, nullable=True)
+    mfa_op_enabled = db.Column(db.Boolean, default=False)
+    backup_codes_json = db.Column(db.Text, default='[]')
+    auth_version = db.Column(db.Integer, default=0)
+    vpn_account = db.Column(db.String(128), default='')
+    op_fail_count = db.Column(db.Integer, default=0)
+    op_locked_until = db.Column(db.DateTime, nullable=True)
+    login_fail_count = db.Column(db.Integer, default=0)
+    login_locked_until = db.Column(db.DateTime, nullable=True)
+    mfa_last_counter = db.Column(db.BigInteger, nullable=True)
+    mfa_op_last_counter = db.Column(db.BigInteger, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     department_rel = db.relationship('Department', backref='members', foreign_keys=[department_id])
@@ -257,5 +271,4 @@ class RolePermission(db.Model):
     __table_args__ = (
         db.UniqueConstraint('role_id', 'permission_code', name='uq_role_perm'),
     )
-
 

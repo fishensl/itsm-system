@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/login/index.vue'),
     meta: { public: true, title: '登录' },
   },
+  {
+    path: '/mfa',
+    name: 'mfa-setup',
+    component: () => import('@/views/mfaSetup.vue'),
+    meta: { public: true, title: '身份验证器' },
+  },
   // S7-8：403 无权限页（守卫跳转目标，替代静默踢回工作台）
   {
     path: '/403',
@@ -195,6 +201,12 @@ const routes: RouteRecordRaw[] = [
         name: 'sys-users',
         component: () => import('@/views/system/users.vue'),
         meta: { title: '用户与部门', perm: 'user:view' },
+      },
+      {
+        path: 'system/security',
+        name: 'sys-security',
+        component: () => import('@/views/system/security.vue'),
+        meta: { title: '身份安全', perm: 'system:security' },
       },
       {
         path: 'system/audit',

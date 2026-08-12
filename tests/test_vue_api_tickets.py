@@ -341,9 +341,8 @@ class TestTicketVersionedSubmit:
             db.session.add(u)
             db.session.commit()
         op2_client = app.test_client()
-        r = op2_client.post('/login', data={'username': 'op2', 'password': 'pass123'},
-                            follow_redirects=False)
-        assert r.status_code == 302
+        r = op2_client.post('/api/auth/login', json={'username': 'op2', 'password': 'pass123'})
+        assert r.status_code == 200
         r = op2_client.post(f"/api/tickets/{seed['t']}/action",
                             json={'action': 'assign', 'assignee': 'op'})
         assert r.status_code == 403

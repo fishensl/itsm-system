@@ -7,15 +7,15 @@
     </div>
 
     <el-table v-loading="loading" :data="items" border size="small" row-key="id">
-      <el-table-column prop="name" label="名称" min-width="200" />
-      <el-table-column v-if="showType" prop="field_type" label="字段类型" width="120">
+      <el-table-column prop="name" :label="label('name', '名称')" min-width="200" />
+      <el-table-column v-if="showType" prop="field_type" :label="label('field_type', '字段类型')" width="120">
         <template #default="{ row }">
           <el-tag size="small" :type="row.field_type === 'date' ? 'warning' : 'info'">
             {{ FIELD_TYPE_LABELS[row.field_type] || FIELD_TYPE_LABELS.text }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="sort_order" label="排序" width="80" />
+      <el-table-column prop="sort_order" :label="label('sort_order', '排序')" width="80" />
       <el-table-column v-if="user.hasPerm('device:edit')" label="操作" width="150" fixed="right">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
@@ -29,16 +29,16 @@
 
     <el-dialog v-model="formVisible" :title="form.id ? '编辑' : '新增'" width="420px" destroy-on-close>
       <el-form ref="formRef" :model="form" label-width="80px">
-        <el-form-item label="名称" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
+        <el-form-item :label="label('name', '名称', 'form')" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
           <el-input v-model="form.name" placeholder="名称" />
         </el-form-item>
-        <el-form-item v-if="showType" label="字段类型">
+        <el-form-item v-if="showType" :label="label('field_type', '字段类型', 'form')">
           <el-select v-model="form.field_type" style="width: 100%">
-            <el-option v-for="(label, value) in FIELD_TYPE_OPTIONS" :key="value"
-              :label="label" :value="value" />
+            <el-option v-for="(optionLabel, value) in FIELD_TYPE_OPTIONS" :key="value"
+              :label="optionLabel" :value="value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="排序">
+        <el-form-item :label="label('sort_order', '排序', 'form')">
           <el-input-number v-model="form.sort_order" :min="0" />
         </el-form-item>
       </el-form>
@@ -59,6 +59,7 @@ import {
 } from '@/api/deviceDicts'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const props = defineProps<{ resource: 'types' | 'brands' | 'network-types' | 'custom-fields'; showType: boolean }>()
 
@@ -76,11 +77,16 @@ const FIELD_TYPE_LABELS = FIELD_TYPE_OPTIONS
 const user = useUserStore()
 const ui = useUiStore()
 const items = ref<DictItem[]>([])
+const metadata = ref<EntityMeta>()
 const loading = ref(false)
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({ id: null, name: '', sort_order: 0, field_type: 'text' })
+
+function label(key: string, fallback: string, profile = 'list') {
+  return entityFieldLabel(metadata.value, key, fallback, profile)
+}
 
 function load() {
   loading.value = true
@@ -135,7 +141,12 @@ async function onDelete(row: DictItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  fetchEntityMeta('device_dictionary')
+    .then((result) => { metadata.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
+})
 </script>
 
 <style scoped>

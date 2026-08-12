@@ -14,15 +14,15 @@
         退回时「需修改」项自动生成修改要求，工程师据此修改重传。
       </div>
       <el-table :data="items" size="small" border stripe>
-        <el-table-column label="顺序" width="70" align="center">
+        <el-table-column :label="label('sort_order', '顺序')" width="70" align="center">
           <template #default="{ $index }">{{ $index + 1 }}</template>
         </el-table-column>
-        <el-table-column label="检查项名称" min-width="220">
+        <el-table-column :label="label('name', '检查项名称')" min-width="220">
           <template #default="{ row }">
             <el-input v-model="row.name" size="small" placeholder="如：核心设备配置备份" />
           </template>
         </el-table-column>
-        <el-table-column label="启用" width="90" align="center">
+        <el-table-column :label="label('enabled', '启用')" width="90" align="center">
           <template #default="{ row }">
             <el-switch v-model="row.enabled" />
           </template>
@@ -45,10 +45,16 @@ import { ref, onMounted } from 'vue'
 import { Plus, Check, Delete, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
 import { fetchReviewChecklist, updateReviewChecklist, type ReviewChecklistItem } from '@/api/inspections'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const ui = useUiStore()
 const items = ref<ReviewChecklistItem[]>([])
+const metadata = ref<EntityMeta>()
 const saving = ref(false)
+
+function label(key: string, fallback: string) {
+  return entityFieldLabel(metadata.value, key, fallback, 'list')
+}
 
 function addItem() {
   items.value.push({ name: '', enabled: true })
@@ -90,6 +96,9 @@ onMounted(() => {
   fetchReviewChecklist()
     .then((r) => { items.value = r.items })
     .catch(() => { /* toast */ })
+  fetchEntityMeta('review_checklist')
+    .then((result) => { metadata.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })
 </script>
 

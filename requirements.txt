@@ -16,3 +16,6 @@ svglib>=2.0
 reportlab>=4.0
 apscheduler>=3.10,<4
 pyzipper>=0.3.6
+pyotp>=2.9,<3
+qrcode[pil]>=8.0,<9
+requests>=2.31,<3

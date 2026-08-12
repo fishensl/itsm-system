@@ -146,6 +146,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, CircleCheck } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import {
   fetchRoles, createRole, updateRole, deleteRole, saveRolePermissions,
   fetchUserPermissions, saveUserPermissions, fetchUsers,
@@ -162,9 +163,10 @@ const data = ref<RoleListData | null>(null)
 const loading = ref(false)
 const saving = ref(new Set<string>())
 const roleTableRef = ref()
+const roleFieldMeta = ref<EntityFieldMeta[]>([])
 
 // S7-1 角色表迁 DataTable（列配置 + 分页包装）
-const roleColumns = computed<DataColumn[]>(() => [
+const roleColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'name', label: '名称', minWidth: 120, asTitle: true },
   { key: 'code', label: '代码', minWidth: 120,
     render: (r) => `${r.code}${r.is_system ? '（内置）' : ''}` },
@@ -182,7 +184,7 @@ const roleColumns = computed<DataColumn[]>(() => [
         disabled: (row: { is_system?: boolean }) => Boolean(row.is_system),
         onClick: (row) => onRoleDelete(row as unknown as RoleItem) },
     ] },
-])
+], roleFieldMeta.value))
 
 async function fetchRolePage(params: Record<string, unknown>) {
   const d = await fetchRoles()
@@ -355,6 +357,9 @@ async function saveOverrides() {
 onMounted(() => {
   load()
   loadUsers()
+  fetchEntityMeta('role').then((meta) => {
+    roleFieldMeta.value = meta?.profiles.list || []
+  })
 })
 </script>
 

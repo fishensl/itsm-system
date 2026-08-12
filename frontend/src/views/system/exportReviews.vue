@@ -12,11 +12,11 @@
         <span class="card-title">待审核申请（设备密码导出）</span>
       </template>
       <el-table v-if="items.length" :data="items" size="small" border>
-        <el-table-column prop="created_at" label="申请时间" width="150" />
-        <el-table-column label="申请人" width="140">
+        <el-table-column prop="created_at" :label="label('created_at', '申请时间')" width="150" />
+        <el-table-column :label="label('realname', '申请人')" width="140">
           <template #default="{ row }">{{ row.realname || row.username }}</template>
         </el-table-column>
-        <el-table-column prop="reason" label="申请原因" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="reason" :label="label('reason', '申请原因')" min-width="240" show-overflow-tooltip />
         <el-table-column label="操作" width="220">
           <template #default="{ row }">
             <el-button size="small" type="success" link @click="openReview(row, 'approve')">通过</el-button>
@@ -31,13 +31,13 @@
     <el-dialog v-model="reviewVisible" :title="reviewAction === 'approve' ? '通过申请' : '驳回申请'"
       width="480px" destroy-on-close>
       <el-form label-width="80px">
-        <el-form-item label="申请人">
+        <el-form-item :label="label('realname', '申请人')">
           {{ reviewTarget?.realname || reviewTarget?.username }}
         </el-form-item>
-        <el-form-item label="申请原因">
+        <el-form-item :label="label('reason', '申请原因')">
           <div class="reason-box">{{ reviewTarget?.reason }}</div>
         </el-form-item>
-        <el-form-item :label="reviewAction === 'approve' ? '备注' : '驳回原因'">
+        <el-form-item :label="reviewAction === 'approve' ? label('review_comment', '审核意见') : '驳回原因'">
           <el-input v-model="comment" type="textarea" :rows="3"
             :placeholder="reviewAction === 'reject' ? '驳回原因必填' : '可选备注'" />
         </el-form-item>
@@ -58,14 +58,20 @@ import { ref, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
 import { fetchExportReviews, reviewExportRequest, type ExportReviewItem } from '@/api/system'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const ui = useUiStore()
 const items = ref<ExportReviewItem[]>([])
+const metadata = ref<EntityMeta>()
 const reviewVisible = ref(false)
 const reviewAction = ref<'approve' | 'reject'>('approve')
 const reviewTarget = ref<ExportReviewItem | null>(null)
 const comment = ref('')
 const submitting = ref(false)
+
+function label(key: string, fallback: string) {
+  return entityFieldLabel(metadata.value, key, fallback, 'detail')
+}
 
 async function load() {
   try {
@@ -102,7 +108,12 @@ async function doReview() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  fetchEntityMeta('device_export_request')
+    .then((result) => { metadata.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
+})
 </script>
 
 <style scoped>

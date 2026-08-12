@@ -136,10 +136,12 @@ def system_ui_version():
     """界面版本切换（兼容遗留 POST；保存后回 SPA 系统概览）"""
     from utils.ui_version import set_ui_version
     version = request.form.get('version')
-    if version in ('vue', 'ssr'):
-        set_ui_version(version)
-        current_app.logger.info('用户 [%s] 切换界面版本 → %s', current_user.username, version)
-        flash(f'界面已切换为 {"Vue" if version == "vue" else "SSR"}', 'success')
+    if version == 'vue':
+        set_ui_version('vue')
+        current_app.logger.info('用户 [%s] 确认 Vue 单轨界面', current_user.username)
+        flash('系统仅使用 Vue 界面', 'success')
+    elif version == 'ssr':
+        flash('SSR 已移除，系统仅支持 Vue 界面', 'warning')
     return redirect('/app/system/overview')
 
 

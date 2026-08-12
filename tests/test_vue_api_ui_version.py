@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""界面版本切换：配置读写 / 侧栏映射 / SSR+Vue 双端入口"""
+"""Vue 单轨：旧设置兼容读取 / 侧栏书签映射 / SSR 退役。"""
+
+import pytest
 
 from utils.ui_version import set_ui_version, get_ui_version, sidebar_url
 
@@ -13,8 +15,9 @@ class TestUiVersionCore:
         with app.app_context():
             set_ui_version('vue')
             assert get_ui_version() == 'vue'
-            set_ui_version('ssr')
-            assert get_ui_version() == 'ssr'
+            with pytest.raises(ValueError, match='SSR 已移除'):
+                set_ui_version('ssr')
+            assert get_ui_version() == 'vue'
 
     def test_sidebar_url_mapping(self, app):
         with app.app_context():
@@ -53,13 +56,11 @@ class TestUiVersionCore:
             assert sidebar_url('/ai-config') == '/app/ai-config'
             assert sidebar_url('/inspectors') == '/app/inspectors'
             assert sidebar_url('/task-schedule/') == '/app/task-schedule'
-            set_ui_version('ssr')
-            assert sidebar_url('/devices') == '/devices'
+            assert sidebar_url('/devices') == '/app/devices'
 
     def test_sidebar_url_force(self, app):
         """force=True：与系统界面版本无关，无条件映射（Vue SPA 专用 API）"""
         with app.app_context():
-            set_ui_version('ssr')
             assert sidebar_url('/devices', force=True) == '/app/devices'
             assert sidebar_url('/spare-stocks', force=True) == '/app/spare-parts?tab=stocks'
             assert sidebar_url('/ai-config', force=True) == '/app/ai-config'
@@ -75,7 +76,7 @@ class TestUiVersionApi:
         r = admin_client.get('/api/system/ui-version')
         body = r.get_json()
         assert body['code'] == 0
-        assert body['data']['version'] in ('vue', 'ssr')
+        assert body['data']['version'] == 'vue'
         assert body['data']['vue_migrated_count'] > 0
 
     def test_set_requires_admin(self, op_client):
@@ -89,9 +90,13 @@ class TestUiVersionApi:
         with app.app_context():
             from models import AuditLog
             assert AuditLog.query.filter_by(action='system:ui_version').count() >= 1
-            # 切回
-            admin_client.put('/api/system/ui-version', json={'version': 'ssr'})
-            assert get_ui_version() == 'ssr'
+            assert get_ui_version() == 'vue'
+
+    def test_ssr_switch_is_gone(self, admin_client, app):
+        r = admin_client.put('/api/system/ui-version', json={'version': 'ssr'})
+        assert r.status_code == 410
+        with app.app_context():
+            assert get_ui_version() == 'vue'
 
     def test_invalid_version(self, admin_client):
         r = admin_client.put('/api/system/ui-version', json={'version': 'x'})
@@ -106,8 +111,6 @@ class TestSsrSidebarIntegration:
         r = admin_client.get('/')
         assert r.status_code == 302
         assert r.headers.get('Location', '').endswith('/app/')
-        with app.app_context():
-            set_ui_version('ssr')
         r = admin_client.get('/')
         assert r.status_code == 302
         assert r.headers.get('Location', '').endswith('/app/')

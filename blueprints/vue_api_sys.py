@@ -9,24 +9,27 @@ from flask_login import login_required, current_user
 from blueprints.vue_api import vue_api_bp, ok, fail
 from models import db, Role, user_regions
 from utils.permission import require_permission, admin_required
+from utils.operation_token import require_op_token
 
 
 def audit_log(action, target_type='', target_id=None, detail=''):
     """写操作审计（表 + logger 双写，失败不阻断主流程）"""
     from models import AuditLog
+    from utils.access_control import client_ip
+    source_ip = client_ip()
     try:
         db.session.add(AuditLog(
             user_id=current_user.id if current_user.is_authenticated else None,
             username=current_user.username if current_user.is_authenticated else '',
             action=action, target_type=target_type, target_id=target_id,
-            detail=(detail or '')[:500], ip=request.remote_addr or ''))
+            detail=(detail or '')[:500], ip=source_ip))
         db.session.commit()
         current_app.logger.info(
             '审计[%s] 用户[%s] %s%s, IP=%s',
             action,
             current_user.username if current_user.is_authenticated else '?',
             f'{target_type}#{target_id} ' if target_type else '',
-            detail, request.remote_addr)
+            detail, source_ip)
     except Exception:
         db.session.rollback()
         current_app.logger.warning('审计写入失败: %s', action)
@@ -160,6 +163,9 @@ def api_user_list():
             'customer_ids': cust_map.get(u.id, []),
             'customer_names': [cust_names.get(cid, '') for cid in cust_map.get(u.id, [])],
             'notify_accounts': u.notify_accounts(),
+            'vpn_account': u.vpn_account or '',
+            'mfa_enabled': bool(u.mfa_enabled),
+            'mfa_op_enabled': bool(u.mfa_op_enabled),
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],
         'departments': [{'id': d.id, 'name': d.name}
@@ -202,6 +208,7 @@ def api_user_create():
         u.set_cert_list(list(data['certifications']))
     if data.get('notify_accounts') is not None:
         u.set_notify_accounts(dict(data['notify_accounts']))
+    u.vpn_account = (data.get('vpn_account') or '').strip()
     if data.get('region_ids'):
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
@@ -223,6 +230,7 @@ def api_user_update(user_id):
         return fail('需要管理员权限', 403)
     from models import User
     u = User.query.get_or_404(user_id)
+    was_active = bool(u.is_active)
     data = request.get_json(silent=True) or {}
     new_username = (data.get('username') or '').strip()
     if not new_username:
@@ -247,6 +255,8 @@ def api_user_update(user_id):
         u.set_cert_list(list(data['certifications']))
     if data.get('notify_accounts') is not None:
         u.set_notify_accounts(dict(data['notify_accounts']))
+    if 'vpn_account' in data:
+        u.vpn_account = (data.get('vpn_account') or '').strip()
     if 'region_ids' in data:
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
@@ -258,6 +268,9 @@ def api_user_update(user_id):
     password = data.get('password') or ''
     if password:
         u.set_password(password)
+        u.auth_version = int(u.auth_version or 0) + 1
+    if was_active and not u.is_active:
+        u.auth_version = int(u.auth_version or 0) + 1
     db.session.commit()
     audit_log('user:update', 'user', u.id, f'更新用户 {new_username}')
     return ok(None)
@@ -265,6 +278,7 @@ def api_user_update(user_id):
 
 @vue_api_bp.route('/api/users/<int:user_id>/password', methods=['PUT'])
 @login_required
+@require_op_token()
 def api_user_reset_password(user_id):
     """管理员强制重置任意账号密码（无需原密码）"""
     if not current_user.is_admin:
@@ -276,6 +290,7 @@ def api_user_reset_password(user_id):
     if len(new_pwd) < 6:
         return fail('新密码长度至少 6 位', 400)
     u.set_password(new_pwd)
+    u.auth_version = int(u.auth_version or 0) + 1
     db.session.commit()
     audit_log('user:reset_password', 'user', u.id, f'管理员重置用户 {u.username} 的密码')
     return ok(None)
@@ -283,6 +298,7 @@ def api_user_reset_password(user_id):
 
 @vue_api_bp.route('/api/users/<int:user_id>', methods=['DELETE'])
 @login_required
+@require_op_token()
 def api_user_delete(user_id):
     if not current_user.is_admin:
         return fail('需要管理员权限', 403)
@@ -294,6 +310,29 @@ def api_user_delete(user_id):
     User.query.filter_by(id=user_id).delete()
     db.session.commit()
     return ok(None)
+
+
+@vue_api_bp.route('/api/users/<int:user_id>/offboard', methods=['POST'])
+@login_required
+@require_permission('mfa:manage')
+@require_op_token()
+def api_user_offboard(user_id):
+    """撤销访问权限；用户行和全部历史业务记录均保留。"""
+    from models import User
+    from services.base import ServiceError
+    from services.offboard_service import offboard_user, run_offboard_hooks
+    user = User.query.get_or_404(user_id)
+    try:
+        snapshot = offboard_user(user, current_user.id)
+    except ServiceError as error:
+        return fail(error.message, 400)
+    errors = run_offboard_hooks(snapshot)
+    if errors:
+        current_app.logger.warning('用户 %s 离职钩子失败（访问权限已撤销）: %s',
+                                   snapshot['username'], '; '.join(errors))
+    audit_log('user:offboard', 'user', user.id,
+              f'离职清理 {snapshot["username"]}；历史业务记录保留')
+    return ok({'hook_warnings': errors})
 
 
 # ==================== 部门 ====================
@@ -391,9 +430,11 @@ def api_ui_version_set():
     version = data.get('version')
     if version not in ('vue', 'ssr'):
         return fail('非法的界面版本', 400)
+    if version == 'ssr':
+        return fail('SSR 已移除，系统仅支持 Vue 界面', 410)
     set_ui_version(version)
     audit_log('system:ui_version', 'system', None, f'切换默认界面为 {version}')
-    return ok({'version': version})
+    return ok({'version': 'vue'})
 
 
 # ==================== 系统概览 ====================
@@ -770,7 +811,9 @@ def api_backup_config_save():
     except Exception:
         current_app.logger.warning('备份任务重排失败')
     audit_log('backup:config', 'backup', None, '更新自动备份配置')
-    current_app.logger.info('用户 [%s] 更新自动备份配置: %s', current_user.username, data)
+    safe_config = {key: data.get(key) for key in ('backup_enabled', 'backup_time', 'backup_keep')
+                   if key in data}
+    current_app.logger.info('用户 [%s] 更新自动备份配置: %s', current_user.username, safe_config)
     return ok(None)
 
 # ==================== 权限管理 ====================

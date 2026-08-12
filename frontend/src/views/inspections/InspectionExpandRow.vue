@@ -2,37 +2,37 @@
   <div v-loading="loading" class="expand-detail">
     <template v-if="detail">
       <el-descriptions :column="cols" border size="small">
-        <el-descriptions-item label="总体状态">
+        <el-descriptions-item :label="label('overall_status', '总体状态')">
           <el-tag size="small" :type="OVERALL_STATUS_TAG[detail.overall_status] || 'info'">
             {{ detail.overall_status }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="审核状态">
+        <el-descriptions-item :label="label('review_status', '审核状态')">
           <el-tag size="small" :type="REVIEW_STATUS_TAG[detail.review_status] || 'info'">
             {{ detail.review_status }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="客户">{{ detail.customer_name || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="关联任务">{{ detail.task_title || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="巡检日期">{{ detail.inspection_date || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="巡检人员">{{ detail.inspector_name || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="现场报告">
+        <el-descriptions-item :label="label('customer_name', '客户')">{{ detail.customer_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('task_title', '关联任务')">{{ detail.task_title || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('inspection_date', '巡检日期')">{{ detail.inspection_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('inspector_name', '巡检人员')">{{ detail.inspector_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('submitted_report_name', '现场报告')">
           <el-link v-if="detail.submitted_report_name" type="primary" :underline="false"
             @click="downloadLatest">下载</el-link>
           <span v-else class="text-muted">无</span>
         </el-descriptions-item>
-        <el-descriptions-item label="正式报告">
+        <el-descriptions-item :label="label('report_file_name', '正式报告')">
           <el-link v-if="detail.report_file && detail.report_file_name" type="primary" :underline="false"
             @click="downloadFormal">下载</el-link>
           <span v-else class="text-muted">未生成</span>
         </el-descriptions-item>
-        <el-descriptions-item label="资料完整">
+        <el-descriptions-item :label="label('complete', '资料完整')">
           <el-tag size="small" :type="detail.complete ? 'success' : 'warning'">
             {{ detail.complete ? '完整' : '缺:' + (detail.missing_fields || []).join('、') }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="巡检地点">{{ detail.location || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
+        <el-descriptions-item :label="label('location', '巡检地点')">{{ detail.location || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('created_at', '创建时间')">{{ detail.created_at }}</el-descriptions-item>
       </el-descriptions>
 
       <el-divider content-position="left">结论</el-divider>
@@ -77,6 +77,7 @@ import {
   versionReportUrl, formalReportUrl,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type SubmissionVersion,
 } from '@/api/inspections'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const { isMobile } = useMobile()
 // 移动端降为 2 列，避免每项过窄
@@ -94,6 +95,8 @@ const user = useUserStore()
 const loading = ref(false)
 const detail = ref<Inspection | null>(null)
 const versions = ref<SubmissionVersion[]>([])
+const metadata = ref<EntityMeta>()
+const label = (key: string, fallback: string) => entityFieldLabel(metadata.value, key, fallback)
 
 async function load() {
   loading.value = true
@@ -124,6 +127,7 @@ function downloadFormal() {
 watch(() => props.row, () => { load() })
 
 load()
+fetchEntityMeta('inspection').then((meta) => { metadata.value = meta })
 </script>
 
 <style scoped>

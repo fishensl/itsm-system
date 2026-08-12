@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import joinedload
 
+from domain_metadata import get_entity_schema
 from models import db
 
 # 一次性导出文件落盘目录（测试可 monkeypatch）
@@ -18,50 +19,14 @@ EXPORT_DIR = os.path.join('reports', 'exports')
 
 # ============================ 设备列定义 ============================
 # (code, 中文列名)；用户可自由增删/调序，列码是前后端唯一契约
-DEVICE_EXPORT_COLUMNS = [
-    ('customer', '客户'),
-    ('rack_location', '机房位置'),
-    ('rack_name', '机柜号'),
-    ('location', '安装位置'),
-    ('name', '名称'),
-    ('type', '类型'),
-    ('brand', '品牌'),
-    ('model', '型号'),
-    ('sn', '序列号'),
-    ('ip', 'IP'),
-    ('port', '端口'),
-    ('login_method', '登录方式'),
-    ('username', '登录用户名'),
-    ('password', '登录密码'),
-    ('build_date', '建设时间'),
-    ('os_version', '系统版本'),
-    ('rule_version', '规则库版本'),
-    ('license_start', '授权开始'),
-    ('license_expiry', '授权截止'),
-    ('is_maintenance', '是否维修'),
-    ('is_in_use', '是否在用'),
-    ('pwd_changed_by', '上次修改密码账号'),
-    ('pwd_changed_at', '上次修改密码时间'),
-    ('remark', '备注'),
-]
-DEVICE_EXPORT_COLUMN_MAP = dict(DEVICE_EXPORT_COLUMNS)
+# 代码仍沿用历史 export_key，避免破坏已有接口；标签等展示口径统一由注册中心维护。
+DEVICE_EXPORT_COLUMNS = get_entity_schema('device').export_columns()
+DEVICE_EXPORT_AVAILABLE_COLUMNS = get_entity_schema('device').export_columns('export_available')
+DEVICE_EXPORT_COLUMN_MAP = dict(DEVICE_EXPORT_AVAILABLE_COLUMNS)
 
 # 三类预设默认列集合（字段顺序按业务给定；用户可在此基础上增删）
-DEVICE_PRESETS = {
-    'asset': ['customer', 'rack_location', 'rack_name', 'location', 'name', 'type', 'brand',
-              'model', 'sn', 'ip', 'build_date', 'is_maintenance', 'is_in_use', 'remark'],
-    'password': ['customer', 'rack_location', 'rack_name', 'location', 'name', 'type', 'brand',
-                 'model', 'sn', 'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
-                 'pwd_changed_by', 'pwd_changed_at', 'remark'],
-    'version': ['customer', 'rack_location', 'rack_name', 'location', 'name', 'type', 'brand',
-                'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
-                'license_expiry', 'is_in_use', 'remark'],
-}
-DEVICE_PRESET_LABELS = {
-    'asset': '设备资产表',
-    'password': '设备密码表',
-    'version': '网络安全版本控制表',
-}
+DEVICE_PRESETS = get_entity_schema('device').export_preset_columns()
+DEVICE_PRESET_LABELS = dict(get_entity_schema('device').export_preset_labels)
 
 
 def resolve_device_columns(preset, columns):
@@ -95,6 +60,8 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
         return rack_map.get(d.id, ('', '', ''))[0]
     if code == 'rack_name':
         return rack_map.get(d.id, ('', '', ''))[1]
+    if code == 'rack_slot':
+        return rack_map.get(d.id, ('', '', ''))[2]
     if code == 'location':
         return d.location or ''
     if code == 'name':
@@ -107,6 +74,8 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
         return d.model or ''
     if code == 'sn':
         return d.serial_number or ''
+    if code == 'network_type':
+        return d.network_type or ''
     if code == 'ip':
         return d.ip_address or ''
     if code == 'port':
@@ -115,6 +84,10 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
         return d.login_method or ''
     if code == 'username':
         return d.username or ''
+    if code == 'interface':
+        from utils.json_fields import parse_json
+        value = parse_json(d.interface or '', default=[], field_name='device.interface')
+        return '、'.join(str(item) for item in value) if isinstance(value, list) else str(value or '')
     if code == 'password':
         from utils.crypto import decrypt_password
         return decrypt_password(d.password_encrypted) if d.password_encrypted else ''
@@ -128,6 +101,8 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
         return d.license_start.strftime('%Y-%m-%d') if d.license_start else ''
     if code == 'license_expiry':
         return d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else ''
+    if code == 'cert_expiry_date':
+        return d.cert_expiry_date.strftime('%Y-%m-%d') if d.cert_expiry_date else ''
     if code == 'is_maintenance':
         return '是' if d.is_maintenance else '否'
     if code == 'is_in_use':
@@ -138,6 +113,8 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
         return pwd_map.get(d.id, ('', ''))[1]
     if code == 'remark':
         return d.remark or ''
+    if code == 'created_at':
+        return d.created_at.strftime('%Y-%m-%d %H:%M') if d.created_at else ''
     return ''
 
 
@@ -176,31 +153,17 @@ def build_pwd_map(devices):
 
 
 # ============================ 巡检 / 工单 / 故障 / 备件列定义 ============================
-INSPECTION_EXPORT_COLUMNS = [
-    ('title', '标题'), ('customer', '客户'), ('inspector', '巡检员'),
-    ('inspection_date', '巡检日期'), ('overall_status', '总体状态'),
-    ('review_status', '审核状态'), ('conclusion', '结论'), ('location', '位置'),
-    ('created_at', '创建时间'),
-]
+INSPECTION_EXPORT_COLUMNS = get_entity_schema('inspection').export_columns()
 
-TICKET_EXPORT_COLUMNS = [
-    ('number', '工单号'), ('title', '标题'), ('priority', '优先级'), ('status', '状态'),
-    ('customer', '客户'), ('reporter', '报修人'), ('assigned_to', '处理人'),
-    ('created_by', '创建人'), ('created_at', '创建时间'), ('completed_at', '完成时间'),
-]
+TICKET_EXPORT_COLUMNS = get_entity_schema('ticket').export_columns()
+TICKET_EXPORT_AVAILABLE_COLUMNS = get_entity_schema('ticket').export_columns('export_available')
 
-FAULT_EXPORT_COLUMNS = [
-    ('title', '标题'), ('customer', '客户'), ('handler', '处理人'),
-    ('fault_time', '故障时间'), ('fault_type', '故障类型'), ('result', '处理结果'),
-    ('recovery_time', '恢复时间'), ('created_at', '创建时间'),
-]
+FAULT_EXPORT_COLUMNS = get_entity_schema('fault').export_columns()
+FAULT_EXPORT_AVAILABLE_COLUMNS = get_entity_schema('fault').export_columns('export_available')
 
-SPARE_EXPORT_COLUMNS = [
-    ('code', '备件编码'), ('name', '名称'), ('category', '类别'), ('specification', '规格'),
-    ('unit', '单位'), ('brand', '品牌'), ('model', '型号'), ('serial_number', '序列号'),
-    ('manufacturer', '厂家'), ('quantity', '库存数量'), ('min_stock', '库存下限'),
-    ('remark', '备注'), ('created_at', '创建时间'),
-]
+SPARE_EXPORT_COLUMNS = get_entity_schema('spare').export_columns()
+
+CUSTOMER_EXPORT_COLUMNS = get_entity_schema('customer').export_columns('export_available')
 
 BUNDLE_ITEM_LABELS = {
     'report': '现场报告',

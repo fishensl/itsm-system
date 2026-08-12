@@ -49,7 +49,7 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, h, type VNode } from 'vue'
-import { Search, Download, Delete } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { http } from '@/utils/request'
 import type { PageResult } from '@/types'
@@ -58,6 +58,7 @@ import {
 } from '@/api/reports'
 import { fetchCustomers } from '@/api/customers'
 import { useUiStore } from '@/stores/ui'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 
 const ui = useUiStore()
 
@@ -67,6 +68,7 @@ const query = reactive<Record<string, unknown>>({
 })
 const stats = reactive<{ customers: number; total: number }>({ customers: 0, total: 0 })
 const tableRef = ref()
+const listFieldMeta = ref<EntityFieldMeta[]>([])
 
 const customers = ref<{ id: number; name: string }[]>([])
 
@@ -88,7 +90,7 @@ function reportCell(row: Record<string, any>): string | VNode {
   ])
 }
 
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'type', label: '类型', width: 90, type: 'tag', asTag: true,
     tagMap: REPORT_TYPE_TAG, valueMap: REPORT_TYPE_MAP },
   { key: 'title', label: '标题 / 文件名', minWidth: 200, asTitle: true, type: 'link',
@@ -108,7 +110,7 @@ const columns = computed<DataColumn[]>(() => [
         disabled: (row) => row.type !== 'file' || !row.deletable,
         onClick: (row) => deleteFile(row as Record<string, unknown>) },
     ] },
-])
+], listFieldMeta.value))
 
 /** DataTable 适配：分页拉取统一列表，同步页头统计 */
 async function fetchReportsData(params: Record<string, any>): Promise<PageResult<Record<string, any>>> {
@@ -148,6 +150,9 @@ async function deleteFile(row: Record<string, unknown>) {
 }
 
 onMounted(() => {
+  fetchEntityMeta('report')
+    .then((metadata) => { listFieldMeta.value = metadata?.profiles.list || [] })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
   fetchCustomers({ page: 1, page_size: 100 }).then((d) => {
     customers.value = d.items.map((c) => ({ id: c.id, name: c.name }))
   }).catch(() => {})

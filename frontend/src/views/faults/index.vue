@@ -143,10 +143,12 @@ import {
   fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts, type FaultCategoryNode,
 } from '@/api/faults'
 import FaultCategories from './FaultCategories.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
 const dicts = ref<FaultDicts | null>(null)
+const listFieldMeta = ref<EntityFieldMeta[]>([])
 
 // V24 导出筛选
 const exportVisible = ref(false)
@@ -205,7 +207,7 @@ const cascadeOptions = computed(() => {
   return convert(l1Categories.value)
 })
 
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'title', label: '标题', type: 'link', minWidth: 200, asTitle: true,
     link: (r) => `/app/faults/${r.id}` },
   { key: 'customer_name', label: '客户', minWidth: 100 },
@@ -227,7 +229,7 @@ const columns = computed<DataColumn[]>(() => [
         disabled: (row: { ticket_id?: number | null }) => Boolean(row.ticket_id),
         onClick: (row) => onConvert(row as unknown as Fault) },
     ] },
-])
+], listFieldMeta.value))
 
 async function onDelete(f: Fault) {
   try {
@@ -347,7 +349,12 @@ async function loadDicts() {
   } catch { /* toast */ }
 }
 
-onMounted(loadDicts)
+onMounted(() => {
+  loadDicts()
+  fetchEntityMeta('fault')
+    .then((metadata) => { listFieldMeta.value = metadata?.profiles.list || [] })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
+})
 
 </script>
 

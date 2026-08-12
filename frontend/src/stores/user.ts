@@ -7,6 +7,7 @@ export const useUserStore = defineStore('user', () => {
   const user = ref<CurrentUser | null>(null)
   const sidebarGroups = ref<SidebarGroup[]>([])
   const loaded = ref(false)
+  const pendingMfa = ref<'verify' | 'bind' | null>(null)
 
   const isAuthenticated = computed(() => user.value !== null)
   const permissions = computed(() => user.value?.permissions || [])
@@ -37,7 +38,22 @@ export const useUserStore = defineStore('user', () => {
 
   async function login(username: string, password: string) {
     const result = await authApi.login({ username, password })
+    if (result.mfa_required || result.bind_required) {
+      pendingMfa.value = result.bind_required ? 'bind' : 'verify'
+      return result
+    }
+    if (!result.user) throw new Error('登录响应缺少用户信息')
     user.value = result.user
+    pendingMfa.value = null
+    loaded.value = true
+    sidebarGroups.value = await authApi.fetchSidebarGroups()
+    return result
+  }
+
+  async function verifyMfa(code: string, recovery = false) {
+    const result = await authApi.verifyLoginMfa(code, recovery)
+    user.value = result.user
+    pendingMfa.value = null
     loaded.value = true
     sidebarGroups.value = await authApi.fetchSidebarGroups()
   }
@@ -52,5 +68,6 @@ export const useUserStore = defineStore('user', () => {
     loaded.value = false
   }
 
-  return { user, sidebarGroups, loaded, isAuthenticated, permissions, hasPerm, isSupervisor, init, login, logout }
+  return { user, sidebarGroups, loaded, pendingMfa, isAuthenticated, permissions, hasPerm, isSupervisor,
+    init, login, verifyMfa, logout }
 })

@@ -61,10 +61,24 @@ def pg_server():
     _pg_server = pgserver.get_server(data_dir)
     _pg_server.ensure_pgdata_inited()
     _pg_server.ensure_postgres_running()
+    # 嵌入式实例是可随时重建的测试库，无需生产级落盘保证。Windows 上默认 fsync
+    # 会在 checkpoint/关库时同步数万文件，令全量回归从分钟级退化到半小时以上。
+    # 仅调整本机嵌入式实例；显式 ITSM_TEST_DATABASE_URI（CI/预演库）不会走到这里。
+    import psycopg2
+    tune_conn = psycopg2.connect(_pg_server.get_uri())
+    tune_conn.autocommit = True
+    with tune_conn.cursor() as cur:
+        cur.execute("ALTER SYSTEM SET fsync = 'off'")
+        cur.execute("ALTER SYSTEM SET synchronous_commit = 'off'")
+        cur.execute("ALTER SYSTEM SET full_page_writes = 'off'")
+        cur.execute("ALTER SYSTEM SET autovacuum = 'off'")
+        cur.execute("ALTER SYSTEM SET checkpoint_timeout = '1h'")
+        cur.execute("ALTER SYSTEM SET max_wal_size = '2GB'")
+        cur.execute('SELECT pg_reload_conf()')
+    tune_conn.close()
     # 一次重置 public schema：嵌入式 PG 数据目录跨会话复用 → 清残留表/序列，
     # 且避免每次重置（各测试模块 app fixture 的 upgrade 幂等、只跑一次建表）
     try:
-        import psycopg2
         conn = psycopg2.connect(_pg_server.get_uri())
         conn.autocommit = True
         with conn.cursor() as cur:
@@ -181,9 +195,8 @@ def client(app):
 
 
 def login(client, username, password=TEST_PASSWORD):
-    """测试辅助：表单登录"""
-    return client.post('/login', data={'username': username, 'password': password},
-                       follow_redirects=False)
+    """测试辅助：Vue JSON 登录（唯一认证入口）。"""
+    return client.post('/api/auth/login', json={'username': username, 'password': password})
 
 
 # 各角色客户端：独立 test_client（cookie jar 隔离，避免同测试内多角色登录互相覆盖）

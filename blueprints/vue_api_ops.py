@@ -353,6 +353,8 @@ def _fault_payload(f, customer_map=None, ticket_map=None):
         'fault_category': category,
         'result': f.result or '',
         'impact_range': f.impact_range or '',
+        'recovery_time': f.recovery_time.strftime('%Y-%m-%d %H:%M') if f.recovery_time else '',
+        'created_at': f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else '',
         'ticket_id': f.ticket_id,          # S6: 已转工单桥接（前端显示/防重复转单）
         'ticket_number': (ticket_map or {}).get(f.ticket_id, '') if f.ticket_id else '',
     }

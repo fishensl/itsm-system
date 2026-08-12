@@ -153,6 +153,13 @@ export function revealPassword(id: number, historyId?: number) {
   })
 }
 
+export function auditPasswordCopy(id: number) {
+  return request<void>({
+    url: `/api/v2/devices/${id}/password-copy-audit`,
+    method: 'POST',
+  })
+}
+
 export interface PasswordHistoryItem {
   id: number
   changed_by: string

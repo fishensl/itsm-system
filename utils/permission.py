@@ -79,6 +79,8 @@ PERMISSION_MAP = {
     'system:access_control': '系统设置-访问控制',
     'contract:review': '合同例外审核',
     'notify:view': '通知渠道-查看', 'notify:edit': '通知渠道-管理',
+    'mfa:manage': '身份安全-MFA管理',
+    'system:security': '系统设置-身份安全配置',
 }
 
 ADMIN_PERMISSIONS = list(PERMISSION_MAP.keys())

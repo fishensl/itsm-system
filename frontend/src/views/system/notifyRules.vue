@@ -12,9 +12,9 @@
       </template>
 
       <el-table :data="allRules" size="small" border>
-        <el-table-column prop="label" label="通知类型" min-width="140" />
-        <el-table-column prop="event_type" label="事件标识" min-width="180" />
-        <el-table-column label="接收角色" min-width="200">
+        <el-table-column prop="label" :label="label('label', '通知类型')" min-width="140" />
+        <el-table-column prop="event_type" :label="label('event_type', '事件标识')" min-width="180" />
+        <el-table-column :label="label('roles', '接收角色')" min-width="200">
           <template #default="{ row }">
             <el-select v-model="row.roles" multiple collapse-tags clearable size="small" class="w-full"
               placeholder="选择接收角色（如销售/主管）">
@@ -22,7 +22,7 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="接收用户" min-width="220">
+        <el-table-column :label="label('users', '接收用户')" min-width="220">
           <template #default="{ row }">
             <el-select v-model="row.users" multiple filterable collapse-tags clearable size="small" class="w-full"
               placeholder="额外指定用户（如老板）">
@@ -30,7 +30,7 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="启用" width="80" align="center">
+        <el-table-column :label="label('is_enabled', '启用')" width="80" align="center">
           <template #default="{ row }">
             <el-switch v-model="row.is_enabled" />
           </template>
@@ -52,18 +52,27 @@ import {
   fetchNotifyRules, saveNotifyRule, fetchUsers, type UserItem,
   type NotifyRuleItem,
 } from '@/api/system'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const ui = useUiStore()
 const rules = ref<NotifyRuleItem[]>([])
+const metadata = ref<EntityMeta>()
 const userOptions = ref<UserItem[]>([])
 const roleOptions = ref<string[]>([])
 
 /** 已种入规则 + 未种入事件类型 → 全量可配置列表 */
 const allRules = computed(() => rules.value)
 
+function label(key: string, fallback: string) {
+  return entityFieldLabel(metadata.value, key, fallback, 'list')
+}
+
 onMounted(async () => {
   try {
-    const [r, u] = await Promise.all([fetchNotifyRules(), fetchUsers({ page: 1, page_size: 100 })])
+    const [r, u, meta] = await Promise.all([
+      fetchNotifyRules(), fetchUsers({ page: 1, page_size: 100 }), fetchEntityMeta('notify_rule'),
+    ])
+    metadata.value = meta
     rules.value = r.rules
     userOptions.value = u.users
     const roles = u.roles as string[] | undefined

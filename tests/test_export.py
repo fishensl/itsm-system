@@ -11,7 +11,7 @@ from utils.crypto import encrypt_password
 @pytest.fixture()
 def seed(app):
     with app.app_context():
-        c = Customer(name='导出客户A')
+        c = Customer(name='导出客户A', office='A座', office_room='1201')
         c2 = Customer(name='导出客户B')
         db.session.add_all([c, c2])
         db.session.flush()
@@ -187,6 +187,18 @@ class TestModuleExports:
         assert header == ['客户名称', '创建时间']
         names = {row[0] for row in rows}
         assert '导出客户A' in names
+
+    def test_customer_export_accepts_opt_in_detail_columns(self, admin_client, seed):
+        r = admin_client.post('/api/v2/customers/export', json={
+            'columns': ['name', 'office', 'office_room', 'contract_status',
+                        'device_count', 'inspection_count', 'ticket_count'],
+        })
+        header, rows = _decode_xlsx(r)
+        assert header == ['客户名称', '办公室', '办公室门牌号', '合同状态',
+                          '设备数量', '巡检数量', '工单数量']
+        by_name = {row[0]: row for row in rows}
+        assert by_name['导出客户A'][1:3] == ['A座', '1201']
+        assert by_name['导出客户A'][4:] == [1, 1, 1]
 
     def test_spare_export(self, app, op_client, seed):
         from models import SparePart, SpareStock

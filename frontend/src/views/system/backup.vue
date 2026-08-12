@@ -34,7 +34,7 @@
               </el-radio-group>
             </el-form-item>
             <el-form-item label="加密密码">
-              <el-input v-model="exportPassword" type="password" show-password
+              <el-input v-model="exportPassword" type="password" show-password autocomplete="new-password"
                 placeholder="可选，导入时需提供" />
             </el-form-item>
             <el-form-item>
@@ -56,7 +56,7 @@
               <el-checkbox v-model="restoreKey">同时还原 .secret.key</el-checkbox>
             </el-form-item>
             <el-form-item label="加密密码">
-              <el-input v-model="importPassword" type="password" show-password placeholder="如有" />
+              <el-input v-model="importPassword" type="password" show-password autocomplete="new-password" placeholder="如有" />
             </el-form-item>
             <el-form-item label="二次确认">
               <el-input v-model="confirmText" placeholder='输入"我确认覆盖"' />

@@ -27,7 +27,7 @@
                 <el-input v-model="ch.config.agent_id" placeholder="自建应用 AgentId" />
               </el-form-item>
               <el-form-item label="应用 Secret">
-                <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password
+                <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password autocomplete="new-password"
                   :placeholder="ch.has_secret ? '已配置，留空不修改' : '必填'" />
               </el-form-item>
             </template>
@@ -39,7 +39,7 @@
                 <el-input v-model="ch.config.agent_id" placeholder="钉钉应用 AgentId" />
               </el-form-item>
               <el-form-item label="AppSecret">
-                <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password
+                <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password autocomplete="new-password"
                   :placeholder="ch.has_secret ? '已配置，留空不修改' : '必填'" />
               </el-form-item>
             </template>
@@ -48,7 +48,7 @@
                 <el-input v-model="ch.config.app_id" placeholder="飞书自建应用 App ID" />
               </el-form-item>
               <el-form-item label="App Secret">
-                <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password
+                <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password autocomplete="new-password"
                   :placeholder="ch.has_secret ? '已配置，留空不修改' : '必填'" />
               </el-form-item>
             </template>

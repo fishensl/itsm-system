@@ -5,7 +5,7 @@
 import os
 
 from flask import (Flask, request, redirect, url_for,
-                   jsonify, current_app)
+                   jsonify, current_app, session)
 from flask_login import (LoginManager)
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_limiter import Limiter
@@ -98,7 +98,13 @@ def inject_csrf_token():
 @login_manager.user_loader
 def load_user(user_id):
     # 仅加载启用账号：停用用户的现有 session 立即失效
-    return User.query.filter_by(id=int(user_id), is_active=True).first()
+    user = User.query.filter_by(id=int(user_id), is_active=True).first()
+    if user is None:
+        return None
+    stored_version = session.get('auth_version')
+    if stored_version is not None and int(stored_version) != int(user.auth_version or 0):
+        return None
+    return user
 
 
 
@@ -155,6 +161,13 @@ def create_app(test_config=None):
     app.config['SQLALCHEMY_DATABASE_URI'] = Config.SQLALCHEMY_DATABASE_URI
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = Config.SQLALCHEMY_TRACK_MODIFICATIONS
     app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
+    app.config['FORCE_HTTPS'] = Config.FORCE_HTTPS
+    app.config['IS_PRODUCTION'] = Config.IS_PRODUCTION
+    app.config['MFA_ENFORCE'] = Config.MFA_ENFORCE
+    app.config['CSP_ENABLED'] = Config.CSP_ENABLED
+    app.config['SESSION_COOKIE_HTTPONLY'] = Config.SESSION_COOKIE_HTTPONLY
+    app.config['SESSION_COOKIE_SAMESITE'] = Config.SESSION_COOKIE_SAMESITE
+    app.config['SESSION_COOKIE_SECURE'] = Config.SESSION_COOKIE_SECURE
     # CSRF：默认对所有 POST/PUT/PATCH/DELETE 启用
     app.config['WTF_CSRF_HEADERS'] = ['X-CSRFToken', 'X-CSRF-Token']
     app.config['WTF_CSRF_TIME_LIMIT'] = 60 * 60 * 4  # 4 小时
@@ -180,10 +193,16 @@ def create_app(test_config=None):
     from utils.access_guard import register_access_guard
     register_access_guard(app)
 
+    from utils.transport_security import register_transport_security
+    register_transport_security(app)
+
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     limiter.init_app(app)
+
+    from utils.session_security import register_session_security
+    register_session_security(app)
 
     # API 请求未登录返回 JSON 401（而非 302 跳登录页，避免前端 fetch 解析到 HTML）
     # 判定同 utils.permission._is_api_request：兼容蓝图内 /xxx/api/... 路径

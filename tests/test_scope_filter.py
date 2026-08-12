@@ -19,7 +19,7 @@ def _make_dept_user(app, username, realname, scope='department'):
 
 def _login_user(app, username):
     c = app.test_client()
-    c.post('/login', data={'username': username, 'password': 'x'})
+    c.post('/api/auth/login', json={'username': username, 'password': 'x'})
     return c
 
 

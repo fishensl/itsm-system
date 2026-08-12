@@ -340,6 +340,7 @@ import {
 } from '@/api/spare'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
+import { fetchEntityMeta, fetchEntityMetas, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -396,7 +397,9 @@ function reload(kind: 'part' | 'stock' | 'purchase' | 'sales' | 'borrows') {
 }
 
 // ==================== 档案 ====================
-const partColumns = computed<DataColumn[]>(() => [
+const partFieldMeta = ref<EntityFieldMeta[]>([])
+const transactionFieldMeta = reactive<Record<string, EntityFieldMeta[]>>({})
+const partColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'name', label: '名称', minWidth: 160, asTitle: true },
   { key: 'code', label: '编码', width: 110 },
   { key: 'category', label: '分类', width: 90 },
@@ -414,7 +417,7 @@ const partColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'spare:delete', icon: 'Delete',
         onClick: (row) => onPartDelete(row as unknown as SparePart) },
     ] },
-])
+], partFieldMeta.value))
 
 interface PartFormModel {
   id?: number
@@ -499,7 +502,7 @@ async function onPartDelete(p: SparePart) {
 }
 
 // ==================== 库存 ====================
-const stockColumns = computed<DataColumn[]>(() => [
+const stockColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'spare_part_name', label: '备件', minWidth: 180, asTitle: true },
   { key: 'location', label: '库位', minWidth: 110 },
   { key: 'quantity', label: '数量', width: 90 },
@@ -512,7 +515,7 @@ const stockColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'spare:delete', icon: 'Delete',
         onClick: (row) => onStockDelete(row as unknown as SpareStock) },
     ] },
-])
+], transactionFieldMeta.spare_stock || []))
 
 interface StockFormModel {
   id?: number
@@ -585,7 +588,7 @@ async function onStockDelete(s: SpareStock) {
 }
 
 // ==================== 采购 ====================
-const purchaseColumns = computed<DataColumn[]>(() => [
+const purchaseColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'spare_part_name', label: '备件', minWidth: 160, asTitle: true },
   { key: 'supplier_name', label: '供应商', minWidth: 120 },
   { key: 'quantity', label: '数量', width: 80 },
@@ -598,7 +601,7 @@ const purchaseColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'spare:delete', icon: 'Delete',
         onClick: (row) => onPurchaseDelete(row as unknown as PurchaseOrderItem) },
     ] },
-])
+], transactionFieldMeta.purchase_order || []))
 
 interface PurchaseFormModel {
   spare_part_id: number | null
@@ -666,7 +669,7 @@ async function onPurchaseDelete(po: PurchaseOrderItem) {
 }
 
 // ==================== 销售 ====================
-const salesColumns = computed<DataColumn[]>(() => [
+const salesColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'spare_part_name', label: '备件', minWidth: 150, asTitle: true },
   { key: 'customer_name', label: '客户', minWidth: 130 },
   { key: 'quantity', label: '数量', width: 80 },
@@ -679,11 +682,11 @@ const salesColumns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'spare:delete', icon: 'Delete',
         onClick: (row) => onSalesDelete(row as unknown as SalesOrderItem) },
     ] },
-])
+], transactionFieldMeta.sales_order || []))
 
 // ==================== 借用管理 ====================
 const borrowTableRef = ref()
-const borrowColumns = computed<DataColumn[]>(() => [
+const borrowColumns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'part_name', label: '备件', minWidth: 140, asTitle: true },
   { key: 'borrower', label: '借用人', width: 90 },
   { key: 'borrower_phone', label: '电话', minWidth: 100 },
@@ -699,7 +702,7 @@ const borrowColumns = computed<DataColumn[]>(() => [
       { label: '归还', type: 'primary', link: true, perm: 'spare:edit',
         onClick: (row) => onBorrowReturn(row as unknown as SpareBorrow) },
     ] },
-])
+], transactionFieldMeta.spare_borrow || []))
 
 function fetchBorrows(params: Record<string, unknown>) {
   return fetchSpareBorrows({ page: params.page, page_size: params.page_size,
@@ -829,6 +832,15 @@ async function onSalesDelete(so: SalesOrderItem) {
 
 onMounted(() => {
   fetchSpareDicts().then((d) => (dicts.value = d))
+  fetchEntityMeta('spare').then((meta) => {
+    partFieldMeta.value = meta?.profiles.list || []
+  })
+  fetchEntityMetas(['spare_stock', 'purchase_order', 'sales_order', 'spare_borrow'])
+    .then((metas) => {
+      Object.entries(metas).forEach(([name, metadata]) => {
+        transactionFieldMeta[name] = metadata.profiles.list || []
+      })
+    })
 })
 </script>
 

@@ -161,7 +161,7 @@ export function fetchTicketDicts() {
   return request<TicketDicts>({ url: '/api/dicts/tickets', method: 'GET' })
 }
 
-/** 工单记录导出 URL（SSR，带筛选参数） */
+/** 工单记录兼容下载 URL（带筛选参数） */
 export function ticketExportUrl(params: Record<string, unknown>) {
   return buildQueryUrl('/tickets/export', params)
 }

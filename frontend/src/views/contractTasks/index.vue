@@ -29,21 +29,21 @@
 
     <el-card shadow="never" class="mt-3">
       <el-table v-loading="loading" :data="data?.contracts || []" border row-key="id" size="default">
-        <el-table-column prop="title" label="合同" min-width="220" />
-        <el-table-column prop="customer_name" label="客户" min-width="120" />
-        <el-table-column prop="inspection_frequency" label="巡检频率" width="100">
+        <el-table-column prop="title" :label="label('contract', 'title', '合同标题')" min-width="220" />
+        <el-table-column prop="customer_name" :label="label('contract', 'customer_name', '客户')" min-width="120" />
+        <el-table-column prop="inspection_frequency" :label="label('contract', 'inspection_frequency', '巡检频率')" width="100">
           <template #default="{ row }">
             <el-tag size="small" type="warning">{{ row.inspection_frequency }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="auto_generate_tasks" label="自动生成" width="90">
+        <el-table-column prop="auto_generate_tasks" :label="label('contract', 'auto_generate_tasks', '自动巡检')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.auto_generate_tasks ? 'success' : 'info'">
               {{ row.auto_generate_tasks ? '开启' : '关闭' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="end_date" label="合同到期" width="110">
+        <el-table-column prop="end_date" :label="label('contract', 'end_date', '结束日期')" width="110">
           <template #default="{ row }">{{ row.end_date || '-' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
@@ -61,10 +61,10 @@
     <el-dialog v-model="previewVisible" title="预览将生成的任务" width="640px">
       <div v-if="previewMsg" class="preview-msg">{{ previewMsg }}</div>
       <el-table v-if="previewTasks.length" :data="previewTasks" size="small" border max-height="420">
-        <el-table-column prop="title" label="任务" min-width="200" />
-        <el-table-column prop="planned_start" label="计划开始" width="110" />
-        <el-table-column prop="planned_end" label="计划结束" width="110" />
-        <el-table-column prop="assigned_to" label="负责人" width="100">
+        <el-table-column prop="title" :label="label('inspection_task', 'title', '任务标题')" min-width="200" />
+        <el-table-column prop="planned_start" :label="label('inspection_task', 'planned_start', '计划开始')" width="110" />
+        <el-table-column prop="planned_end" :label="label('inspection_task', 'planned_end', '计划结束')" width="110" />
+        <el-table-column prop="assigned_to" :label="label('inspection_task', 'assigned_to', '负责人')" width="100">
           <template #default="{ row }">{{ row.assigned_to_name || row.assigned_to || '-' }}</template>
         </el-table-column>
       </el-table>
@@ -73,14 +73,14 @@
     <!-- 已生成任务弹窗 -->
     <el-dialog v-model="tasksVisible" title="已生成的巡检任务" width="640px">
       <el-table v-if="generatedTasks.length" :data="generatedTasks" size="small" border max-height="420">
-        <el-table-column prop="title" label="任务" min-width="220" />
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="title" :label="label('inspection_task', 'title', '任务标题')" min-width="220" />
+        <el-table-column prop="status" :label="label('inspection_task', 'status', '状态')" width="100">
           <template #default="{ row }">
             <el-tag size="small">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="planned_start" label="计划开始" width="110" />
-        <el-table-column prop="planned_end" label="计划结束" width="110" />
+        <el-table-column prop="planned_start" :label="label('inspection_task', 'planned_start', '计划开始')" width="110" />
+        <el-table-column prop="planned_end" :label="label('inspection_task', 'planned_end', '计划结束')" width="110" />
       </el-table>
       <el-empty v-else description="暂无生成记录" :image-size="50" />
     </el-dialog>
@@ -88,12 +88,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
 import {
   fetchContractTasks, generateContractTasks, previewContractTasks, fetchGeneratedTasks,
   type ContractTaskListData, type ContractTaskItem,
 } from '@/api/contractTasks'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMetas, type EntityMeta } from '@/api/meta'
 
 const ui = useUiStore()
 const data = ref<ContractTaskListData | null>(null)
@@ -112,6 +113,9 @@ const previewTasks = ref<Array<Record<string, unknown>>>([])
 const previewMsg = ref('')
 const tasksVisible = ref(false)
 const generatedTasks = ref<Array<Record<string, unknown>>>([])
+const metadata = reactive<Record<string, EntityMeta>>({})
+const label = (entity: string, key: string, fallback: string) =>
+  entityFieldLabel(metadata[entity], key, fallback)
 
 function load() {
   loading.value = true
@@ -158,7 +162,11 @@ async function onShowTasks(row: ContractTaskItem) {
   } catch { /* toast */ }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  fetchEntityMetas(['contract', 'inspection_task'])
+    .then((metas) => Object.assign(metadata, metas))
+})
 </script>
 
 <style scoped>

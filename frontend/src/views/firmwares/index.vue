@@ -39,17 +39,17 @@
         <div v-for="t in g.types" :key="t.firmware_type" class="fw-type">
           <div class="fw-type-title">{{ t.firmware_type }}</div>
           <el-table :data="t.items" size="small" border row-key="id">
-            <el-table-column prop="version" label="版本号" width="140">
+            <el-table-column prop="version" :label="label('version', '版本号')" width="140">
               <template #default="{ row }">
                 <span class="fw-version">{{ row.version }}</span>
                 <el-tag v-if="row.is_latest" size="small" type="success" class="ml-2">最新</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="release_date" label="发布日期" width="110">
+            <el-table-column prop="release_date" :label="label('release_date', '发布日期')" width="110">
               <template #default="{ row }">{{ row.release_date || '-' }}</template>
             </el-table-column>
-            <el-table-column prop="file_size_mb" label="大小(MB)" width="90" />
-            <el-table-column prop="changelog" label="更新说明" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="file_size_mb" :label="label('file_size_mb', '文件大小(MB)')" width="110" />
+            <el-table-column prop="changelog" :label="label('changelog', '更新说明')" min-width="180" show-overflow-tooltip />
             <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
@@ -64,11 +64,11 @@
         <div v-if="g.devices.length" class="fw-devices">
           <div class="fw-type-title">在用设备版本</div>
           <el-table :data="g.devices" size="small" border>
-            <el-table-column prop="name" label="设备" min-width="160" />
-            <el-table-column prop="os_version" label="系统版本" min-width="140">
+            <el-table-column prop="name" :label="deviceLabel('device_name', '设备名称')" min-width="160" />
+            <el-table-column prop="os_version" :label="deviceLabel('os_version', '系统版本')" min-width="140">
               <template #default="{ row }">{{ row.os_version || '-' }}</template>
             </el-table-column>
-            <el-table-column prop="rule_version" label="规则库版本" min-width="140">
+            <el-table-column prop="rule_version" :label="deviceLabel('rule_version', '规则库版本')" min-width="140">
               <template #default="{ row }">{{ row.rule_version || '-' }}</template>
             </el-table-column>
           </el-table>
@@ -82,14 +82,14 @@
       <el-form ref="formRef" :model="form" label-width="110px">
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="品牌" prop="brand" :rules="[{ required: true, message: '必填', trigger: 'blur' }]">
+            <el-form-item :label="label('brand', '品牌', 'form')" prop="brand" :rules="[{ required: true, message: '必填', trigger: 'blur' }]">
               <el-select v-model="form.brand" filterable allow-create clearable style="width: 100%">
                 <el-option v-for="b in data?.all_brands || []" :key="b" :label="b" :value="b" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="型号" prop="model" :rules="[{ required: true, message: '必填', trigger: 'blur' }]">
+            <el-form-item :label="label('model', '型号', 'form')" prop="model" :rules="[{ required: true, message: '必填', trigger: 'blur' }]">
               <el-select v-model="form.model" filterable allow-create clearable style="width: 100%">
                 <el-option v-for="m in data?.all_models || []" :key="m" :label="m" :value="m" />
               </el-select>
@@ -98,51 +98,51 @@
         </el-row>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="固件类型">
+            <el-form-item :label="label('firmware_type', '固件类型', 'form')">
               <el-select v-model="form.firmware_type" style="width: 100%">
                 <el-option v-for="t in data?.all_types || []" :key="t" :label="t" :value="t" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="版本号" prop="version" :rules="[{ required: true, message: '必填', trigger: 'blur' }]">
+            <el-form-item :label="label('version', '版本号', 'form')" prop="version" :rules="[{ required: true, message: '必填', trigger: 'blur' }]">
               <el-input v-model="form.version" placeholder="如 V2R20" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="发布日期">
+            <el-form-item :label="label('release_date', '发布日期', 'form')">
               <el-date-picker v-model="form.release_date" type="date" value-format="YYYY-MM-DD"
                 style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="文件大小(MB)">
+            <el-form-item :label="label('file_size_mb', '文件大小(MB)', 'form')">
               <el-input-number v-model="form.file_size_mb" :min="0" :precision="2" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="最新版本">
+        <el-form-item :label="label('is_latest', '最新版本', 'form')">
           <el-switch v-model="form.is_latest" active-text="标记为最新" />
           <div class="form-tip">同品牌+型号+类型仅一条最新</div>
         </el-form-item>
-        <el-form-item label="下载地址">
+        <el-form-item :label="label('download_url', '下载地址', 'form')">
           <el-input v-model="form.download_url" placeholder="https://..." />
         </el-form-item>
-        <el-form-item label="MD5 校验">
+        <el-form-item :label="label('md5_checksum', 'MD5 校验', 'form')">
           <el-input v-model="form.md5_checksum" placeholder="可选" />
         </el-form-item>
-        <el-form-item label="最低硬件要求">
+        <el-form-item :label="label('min_compatible_hardware', '最低硬件要求', 'form')">
           <el-input v-model="form.min_compatible_hardware" />
         </el-form-item>
-        <el-form-item label="更新说明">
+        <el-form-item :label="label('changelog', '更新说明', 'form')">
           <el-input v-model="form.changelog" type="textarea" :rows="3" />
         </el-form-item>
-        <el-form-item label="升级步骤">
+        <el-form-item :label="label('upgrade_guide', '升级步骤', 'form')">
           <el-input v-model="form.upgrade_guide" type="textarea" :rows="3" />
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item :label="label('remark', '备注', 'form')">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
@@ -164,10 +164,12 @@ import {
 } from '@/api/firmwares'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMetas, type EntityMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
 const data = ref<FirmwareListData | null>(null)
+const metas = ref<Record<string, EntityMeta>>({})
 const loading = ref(false)
 const filters = reactive<Record<string, string>>({ brand: '', model: '', firmware_type: '' })
 const formVisible = ref(false)
@@ -178,6 +180,14 @@ const form = reactive<Record<string, unknown>>({
   release_date: '', changelog: '', download_url: '', file_size_mb: 0, md5_checksum: '',
   is_latest: false, min_compatible_hardware: '', upgrade_guide: '', remark: '',
 })
+
+function label(key: string, fallback: string, profile = 'list') {
+  return entityFieldLabel(metas.value.firmware, key, fallback, profile)
+}
+
+function deviceLabel(key: string, fallback: string) {
+  return entityFieldLabel(metas.value.device, key, fallback, 'list')
+}
 
 function reload() {
   const params: Record<string, string> = {}
@@ -247,7 +257,12 @@ async function onDelete(row: FirmwareItem) {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  reload()
+  fetchEntityMetas(['firmware', 'device'])
+    .then((result) => { metas.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
+})
 </script>
 
 <style scoped>

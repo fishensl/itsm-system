@@ -90,6 +90,11 @@
               <el-input v-model="form.wecom_account" placeholder="企业微信通讯录账号（userid），用于接收系统通知" />
             </el-form-item>
           </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="VPN账号">
+              <el-input v-model="form.vpn_account" autocomplete="off" />
+            </el-form-item>
+          </el-col>
           <el-col :xs="24">
             <el-form-item label="负责区域">
               <el-tree-select
@@ -123,12 +128,12 @@
           </el-col>
           <el-col v-if="!form.id" :xs="24" :sm="12">
             <el-form-item label="初始密码">
-              <el-input v-model="form.password" type="password" show-password />
+              <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
             </el-form-item>
           </el-col>
           <el-col v-if="form.id" :xs="24" :sm="12">
             <el-form-item label="新密码">
-              <el-input v-model="form.password" type="password" show-password
+              <el-input v-model="form.password" type="password" show-password autocomplete="new-password"
                 placeholder="留空则不修改" />
             </el-form-item>
           </el-col>
@@ -162,7 +167,7 @@
       <el-form label-width="90px">
         <el-form-item label="用户">{{ resetTarget?.username }}</el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="resetPwd" type="password" show-password placeholder="至少 6 位" />
+          <el-input v-model="resetPwd" type="password" show-password autocomplete="new-password" placeholder="至少 6 位" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -205,11 +210,12 @@ import { nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import type { PageResult } from '@/types'
 import { useUiStore } from '@/stores/ui'
 import { ROLE_LABELS, ROLE_TAG, ACTIVE_LABELS } from '@/utils/labels'
 import {
-  fetchUsers, createUser, updateUser, deleteUser, resetUserPassword,
+  fetchUsers, createUser, updateUser, deleteUser, resetUserPassword, resetUserMfa, offboardUser,
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
   type UserItem, type DepartmentItem,
 } from '@/api/system'
@@ -231,6 +237,7 @@ const allUsers = ref<{ id: number; name: string }[]>([])
 const roles = ref<string[]>([])
 const roleNames = ref<Record<string, string>>({})
 const tableRef = ref()
+const userFieldMeta = ref<EntityFieldMeta[]>([])
 
 /** 角色名称映射（内置 + 自定义角色），列表列/下拉统一用名称展示 */
 const roleLabelMap = computed(() => ({ ...ROLE_LABELS, ...roleNames.value }))
@@ -301,7 +308,7 @@ const loadUsers = async (params: Record<string, unknown>): Promise<PageResult<Re
   }
 }
 
-const userColumns = computed(() => [
+const userColumns = computed(() => mergeFieldMeta([
   { key: 'username', label: '用户名', minWidth: 110, asTitle: true },
   { key: 'realname', label: '姓名', width: 90 },
   { key: 'roles', label: '角色', width: 180, type: 'custom',
@@ -318,17 +325,27 @@ const userColumns = computed(() => [
   { key: 'is_active', label: '状态', width: 80, type: 'tag', asTag: true,
     tagMap: { true: 'success', false: 'info' }, valueMap: ACTIVE_LABELS },
   { key: 'phone', label: '电话', minWidth: 110 },
+  { key: 'vpn_account', label: 'VPN账号', minWidth: 110, defaultVisible: false },
+  { key: 'mfa_enabled', label: '登录MFA', width: 90, type: 'tag',
+    tagMap: { true: 'success', false: 'info' }, valueMap: { true: '已绑定', false: '未绑定' } },
+  { key: 'mfa_op_enabled', label: '操作码', width: 90, type: 'tag',
+    tagMap: { true: 'success', false: 'info' }, valueMap: { true: '已绑定', false: '未绑定' } },
   { key: 'created_at', label: '创建时间', width: 100 },
-  { key: 'actions', label: '操作', width: 170, type: 'action', fixed: 'right',
+  { key: 'actions', label: '操作', width: 280, type: 'action', fixed: 'right',
     actions: [
       { label: '编辑', type: 'primary', link: true, icon: 'Edit', perm: 'user:edit',
         onClick: (row) => openEdit(row as unknown as UserItem) },
       { label: '重置密码', type: 'warning', link: true, perm: 'user:edit',
         onClick: (row) => openResetPwd(row as unknown as UserItem) },
+      { label: '重置MFA', type: 'warning', link: true, perm: 'mfa:manage',
+        onClick: (row) => onResetMfa(row as unknown as UserItem) },
+      { label: '离职清理', type: 'danger', link: true, perm: 'mfa:manage',
+        disabled: (row) => !row.is_active,
+        onClick: (row) => onOffboard(row as unknown as UserItem) },
       { label: '删除', type: 'danger', link: true, icon: 'Delete', perm: 'user:delete',
         onClick: (row) => onDelete(row as unknown as UserItem) },
     ] },
-] as DataColumn[])
+] as DataColumn[], userFieldMeta.value))
 
 // 用户表单
 const formVisible = ref(false)
@@ -377,7 +394,7 @@ async function doResetPwd() {
 
 function openCreate() {
   form.value = { username: '', realname: '', roles: ['viewer'], department_id: null,
-    phone: '', email: '', wecom_account: '', password: '', is_active: true, certifications: [],
+    phone: '', email: '', wecom_account: '', vpn_account: '', password: '', is_active: true, certifications: [],
     region_ids: [], customer_ids: [] }
   formVisible.value = true
 }
@@ -387,6 +404,7 @@ function openEdit(u: UserItem) {
     roles: (u.roles && u.roles.length ? [...u.roles] : [u.role || 'viewer']),
     department_id: u.department_id, phone: u.phone, email: u.email,
     wecom_account: u.notify_accounts?.wecom || '',
+    vpn_account: u.vpn_account || '',
     password: '', is_active: u.is_active, certifications: [...(u.certifications || [])],
     region_ids: [...(u.region_ids || [])], customer_ids: [...(u.customer_ids || [])] }
   formVisible.value = true
@@ -428,6 +446,33 @@ async function onDelete(u: UserItem) {
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
+}
+
+async function onResetMfa(u: UserItem) {
+  try {
+    await ElMessageBox.confirm(`重置「${u.username}」的登录 MFA、操作码和恢复码？`,
+      '重置 MFA', { type: 'warning' })
+  } catch { return }
+  try {
+    await resetUserMfa(u.id)
+    ui.toast('MFA 已重置，用户现有会话将失效', 'success')
+    tableRef.value?.refresh()
+  } catch (e) { ui.toast((e as Error).message, 'error') }
+}
+
+async function onOffboard(u: UserItem) {
+  try {
+    await ElMessageBox.confirm(
+      `离职清理只撤销「${u.username}」的访问权限和认证凭据；工单、巡检、报告、审计等历史记录全部保留。是否继续？`,
+      '离职清理', { type: 'warning', confirmButtonText: '撤销访问权限' })
+  } catch { return }
+  try {
+    const result = await offboardUser(u.id)
+    const hasWarnings = Boolean(result.hook_warnings?.length)
+    ui.toast(hasWarnings ? '访问已撤销，外部钩子执行失败，请查日志' : '访问权限已撤销',
+      hasWarnings ? 'warning' : 'success')
+    tableRef.value?.refresh()
+  } catch (e) { ui.toast((e as Error).message, 'error') }
 }
 
 // 部门表单
@@ -474,6 +519,9 @@ onMounted(() => {
   load()
   loadRegions()
   loadCustomers()
+  fetchEntityMeta('user').then((meta) => {
+    userFieldMeta.value = meta?.profiles.list || []
+  })
 })
 </script>
 

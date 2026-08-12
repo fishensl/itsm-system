@@ -2,11 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">系统概览</h2>
-      <div class="header-actions">
-        <el-button size="small" type="primary" @click="onUiSwitch">
-          {{ uiVersion === 'vue' ? '切换原界面（SSR）' : '切换新界面（Vue）' }}
-        </el-button>
-      </div>
+      <div class="header-actions"><el-tag type="success">Vue 单轨</el-tag></div>
     </div>
 
     <!-- 1. 资源监控 -->
@@ -137,7 +133,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Odometer, DataAnalysis, Box } from '@element-plus/icons-vue'
 import {
-  fetchSystemOverview, fetchUiVersion, setUiVersion, repairDeviceCounts,
+  fetchSystemOverview, repairDeviceCounts,
   type SystemOverview,
 } from '@/api/system'
 import { useUiStore } from '@/stores/ui'
@@ -147,19 +143,7 @@ import { ROLE_LABELS } from '@/utils/labels'
 const ui = useUiStore()
 const user = useUserStore()
 const overview = ref<SystemOverview | null>(null)
-const uiVersion = ref<'vue' | 'ssr'>('ssr')
 const repairing = ref(false)
-
-async function onUiSwitch() {
-  const target = uiVersion.value === 'vue' ? 'ssr' : 'vue'
-  try {
-    const res = await setUiVersion(target)
-    uiVersion.value = res.version
-    ui.toast(`默认界面已切换为 ${res.version === 'vue' ? 'Vue' : 'SSR'}，刷新后生效`, 'success')
-  } catch (e) {
-    ui.toast((e as Error).message, 'error')
-  }
-}
 
 async function onRepairCounts() {
   repairing.value = true
@@ -214,9 +198,7 @@ function roleTag(role: string) {
 
 onMounted(async () => {
   try {
-    const [ov, uv] = await Promise.all([fetchSystemOverview(), fetchUiVersion()])
-    overview.value = ov
-    uiVersion.value = uv.version
+    overview.value = await fetchSystemOverview()
   } catch { /* toast */ }
 })
 </script>

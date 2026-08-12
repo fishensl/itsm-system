@@ -80,6 +80,7 @@ import {
   type ExportColumn,
 } from '@/utils/exportColumns'
 import { fetchCustomers } from '@/api/customers'
+import { fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const props = defineProps<{
   modelValue: boolean
@@ -94,8 +95,15 @@ const emit = defineEmits<{
   (e: 'submit', payload: Record<string, unknown>): void
 }>()
 
-const devicePresets = DEVICE_PRESETS
+const activeMeta = ref<EntityMeta>()
+const devicePresets = computed(() => activeMeta.value?.exportPresets?.length
+  ? activeMeta.value.exportPresets
+  : DEVICE_PRESETS)
 const allColumns = computed<ExportColumn[]>(() => {
+  const registered = activeMeta.value?.profiles?.export_available
+  if (registered?.length) {
+    return registered.map((field) => ({ key: field.exportKey, label: field.label }))
+  }
   const map: Record<string, ExportColumn[]> = {
     device: DEVICE_EXPORT_COLUMNS, inspection: INSPECTION_EXPORT_COLUMNS,
     ticket: TICKET_EXPORT_COLUMNS, fault: FAULT_EXPORT_COLUMNS,
@@ -147,10 +155,13 @@ function selectAll() {
 function resetCols() {
   const key = props.module === 'device' ? preset.value : ''
   if (key && props.module === 'device') {
-    const p = devicePresets.find((x) => x.key === key)
+    const p = devicePresets.value.find((x) => x.key === key)
     selectedCols.value = p ? [...p.columns] : allColumns.value.map((c) => c.key)
   } else {
-    selectedCols.value = allColumns.value.map((c) => c.key)
+    const defaults = activeMeta.value?.profiles?.export_default
+    selectedCols.value = defaults?.length
+      ? defaults.map((field) => field.exportKey)
+      : allColumns.value.map((c) => c.key)
   }
 }
 
@@ -165,14 +176,14 @@ function loadSaved() {
   }
   if (props.module === 'device') {
     const p = localStorage.getItem(presetKey.value)
-    if (p && devicePresets.some((x) => x.key === p)) preset.value = p
+    if (p && devicePresets.value.some((x) => x.key === p)) preset.value = p
   }
   if (!selectedCols.value.length) resetCols()
 }
 
 /** 切换预设 → 自动勾选该预设的默认列集合（可再增删） */
 function onPresetChange(key: string) {
-  const p = devicePresets.find((x) => x.key === key)
+  const p = devicePresets.value.find((x) => x.key === key)
   if (p) {
     selectedCols.value = [...p.columns]
     localStorage.setItem(presetKey.value, key)
@@ -187,14 +198,24 @@ function loadCustomers() {
 
 watch(
   () => props.modelValue,
-  (v) => {
+  async (v) => {
     if (!v) return
+    activeMeta.value = undefined
+    // 先用内置契约同步初始化，保证弹窗即时可用；元数据随后无闪烁覆盖。
     loadSaved()
     items.value = bundleItems.value.map((i) => i.key)
     customerIds.value = props.defaultCustomerIds?.length ? [...props.defaultCustomerIds] : []
     dateRange.value = null
     reason.value = ''
     if (hasCustomerFilter.value && !customerOptions.value.length) loadCustomers()
+    if (['device', 'inspection', 'ticket', 'fault', 'spare', 'customer'].includes(props.module)) {
+      try {
+        activeMeta.value = await fetchEntityMeta(props.module)
+        if (!localStorage.getItem(storageKey.value)) resetCols()
+      } catch {
+        // 兼容滚动发布期间的旧后端：本地列定义继续可用。
+      }
+    }
   },
   { immediate: true },
 )

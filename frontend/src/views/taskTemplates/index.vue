@@ -11,25 +11,25 @@
 
     <el-card shadow="never">
       <el-table v-loading="loading" :data="data?.templates || []" border row-key="id">
-        <el-table-column prop="name" label="模板名称" min-width="180" />
-        <el-table-column prop="category" label="类别" width="100">
+        <el-table-column prop="name" :label="label('name', '模板名称')" min-width="180" />
+        <el-table-column prop="category" :label="label('category', '类别')" width="100">
           <template #default="{ row }"><el-tag size="small">{{ row.category || '-' }}</el-tag></template>
         </el-table-column>
-        <el-table-column prop="inspection_type" label="巡检类型" width="120" />
-        <el-table-column prop="frequency" label="推荐频率" width="90">
+        <el-table-column prop="inspection_type" :label="label('inspection_type', '巡检类型')" width="120" />
+        <el-table-column prop="frequency" :label="label('frequency', '推荐频率')" width="90">
           <template #default="{ row }">{{ row.frequency || '-' }}</template>
         </el-table-column>
-        <el-table-column label="适用级别" width="100">
+        <el-table-column :label="label('customer_tier', '适用客户级别')" width="110">
           <template #default="{ row }">{{ row.customer_tier === 'all' ? '全部' : (row.customer_tier || '-') }}</template>
         </el-table-column>
-        <el-table-column label="关联设备模板" min-width="160">
+        <el-table-column :label="label('device_template_ids', '关联设备模板')" min-width="160">
           <template #default="{ row }">
             <el-tag v-for="dt in deviceTemplateNames(row.device_template_ids)" :key="dt.id" size="small"
               class="dt-tag">{{ dt.name }}</el-tag>
             <span v-if="!row.device_template_ids?.length" class="muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="is_active" label="状态" width="80">
+        <el-table-column prop="is_active" :label="label('is_active', '状态')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? '启用' : '停用' }}</el-tag>
           </template>
@@ -48,19 +48,19 @@
     <!-- 新增/编辑 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑任务模板' : '新增任务模板'" width="720px" destroy-on-close>
       <el-form ref="formRef" :model="form" label-width="110px">
-        <el-form-item label="模板名称" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
+        <el-form-item :label="label('name', '模板名称', 'form')" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
           <el-input v-model="form.name" placeholder="如：季度巡检任务模板" />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="类别">
+            <el-form-item :label="label('category', '类别', 'form')">
               <el-select v-model="form.category" style="width: 100%">
                 <el-option v-for="c in ['日常巡检', '季度巡检', '年度巡检', '应急巡检']" :key="c" :label="c" :value="c" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="巡检类型">
+            <el-form-item :label="label('inspection_type', '巡检类型', 'form')">
               <el-select v-model="form.inspection_type" style="width: 100%">
                 <el-option v-for="t in ['月度巡检', '季度巡检', '攻防演练专项', '漏洞扫描专项']" :key="t" :label="t" :value="t" />
               </el-select>
@@ -69,14 +69,14 @@
         </el-row>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="推荐频率">
+            <el-form-item :label="label('frequency', '推荐频率', 'form')">
               <el-select v-model="form.frequency" clearable style="width: 100%">
                 <el-option v-for="f in ['每月', '每季度', '每半年', '每年']" :key="f" :label="f" :value="f" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="适用客户级别">
+            <el-form-item :label="label('customer_tier', '适用客户级别', 'form')">
               <el-select v-model="form.customer_tier" style="width: 100%">
                 <el-option v-for="t in [{ v: 'all', l: '全部' }, { v: '核心', l: '核心' }, { v: '重点', l: '重点' }, { v: '常规', l: '常规' }]"
                   :key="t.v" :label="t.l" :value="t.v" />
@@ -85,7 +85,7 @@
           </el-col>
         </el-row>
 
-        <el-form-item label="章节配置">
+        <el-form-item :label="label('sections', '章节配置', 'form')">
           <div class="sections-editor">
             <div v-for="(s, i) in (form.sections as TaskTemplateSection[])" :key="i" class="section-row">
               <el-input v-model="s.title" placeholder="章节标题" class="section-title" />
@@ -96,7 +96,7 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="关联设备模板">
+        <el-form-item :label="label('device_template_ids', '关联设备模板', 'form')">
           <div class="dt-select">
             <el-select v-model="form.device_template_ids" multiple filterable placeholder="选择设备检查模板（按选择顺序）"
               style="width: 100%">
@@ -110,7 +110,7 @@
             <el-button size="small" plain class="mt-1" @click="openMatcher">按客户设备自动匹配</el-button>
           </div>
         </el-form-item>
-        <el-form-item label="必传资料">
+        <el-form-item :label="label('required_assets', '必传资料', 'form')">
           <div class="required-editor">
             <div v-for="item in REQUIRED_ASSET_ITEMS" :key="item.key" class="required-row">
               <el-switch v-model="(form.required_assets as Record<string, boolean>)[item.key]" />
@@ -123,7 +123,7 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="备注">
+        <el-form-item :label="label('remark', '备注', 'form')">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
@@ -174,10 +174,12 @@ import {
 } from '@/api/templates'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
 const data = ref<TaskTemplateListData | null>(null)
+const metadata = ref<EntityMeta>()
 const loading = ref(false)
 const formVisible = ref(false)
 const saving = ref(false)
@@ -200,6 +202,10 @@ const matchVisible = ref(false)
 const matchCustomerId = ref<number | null>(null)
 const matching = ref(false)
 const matchData = ref<{ groups: MatchGroup[]; total_devices: number } | null>(null)
+
+function label(key: string, fallback: string, profile: 'list' | 'form' = 'list') {
+  return entityFieldLabel(metadata.value, key, fallback, profile)
+}
 
 function load() {
   loading.value = true
@@ -309,7 +315,12 @@ async function onDelete(row: TaskTemplateItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  fetchEntityMeta('task_template')
+    .then((result) => { metadata.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
+})
 </script>
 
 <style scoped>

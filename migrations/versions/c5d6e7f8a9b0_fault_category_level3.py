@@ -55,8 +55,17 @@ def upgrade():
             "WHERE table_name='fault_types' AND constraint_type='FOREIGN KEY'")).fetchall()
         fk_exists = bool(rows)
     if not fk_exists:
-        op.create_foreign_key('fk_fault_types_parent_id', 'fault_types', 'fault_types',
-                              ['parent_id'], ['id'], ondelete='SET NULL')
+        if bind.dialect.name == 'sqlite':
+            # SQLite 不支持 ALTER TABLE ADD CONSTRAINT；batch 模式通过重建表添加外键。
+            # recreate='always' 也覆盖“列已由上一个幂等批次补齐”的增量修复场景。
+            with op.batch_alter_table('fault_types', schema=None,
+                                      recreate='always') as batch_op:
+                batch_op.create_foreign_key(
+                    'fk_fault_types_parent_id', 'fault_types', ['parent_id'], ['id'],
+                    ondelete='SET NULL')
+        else:
+            op.create_foreign_key('fk_fault_types_parent_id', 'fault_types', 'fault_types',
+                                  ['parent_id'], ['id'], ondelete='SET NULL')
 
     fcols = _existing_columns(bind, 'faults')
     if 'fault_category_level3' not in fcols:

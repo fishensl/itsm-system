@@ -41,6 +41,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, type CategoryItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -50,13 +51,14 @@ const ui = useUiStore()
 const tableRef = ref()
 const items = ref<CategoryItem[]>([])
 const loading = ref(false)
+const fieldMeta = ref<EntityFieldMeta[]>([])
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({ id: null, name: '', sort_order: 0 })
 
 // S7-1 DataTable：列配置 + 分页包装（fetchCategories 返回裸数组）
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'name', label: '类别名称', minWidth: 200, asTitle: true },
   { key: 'sort_order', label: '排序', width: 100 },
   { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right',
@@ -66,7 +68,7 @@ const columns = computed<DataColumn[]>(() => [
       { label: '删除', type: 'danger', link: true, perm: 'category:edit',
         onClick: (row) => onDelete(row as unknown as CategoryItem) },
     ] },
-])
+], fieldMeta.value))
 
 async function fetchPage(params: Record<string, unknown>) {
   const list = await fetchCategories()
@@ -125,5 +127,10 @@ async function onDelete(row: CategoryItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  fetchEntityMeta('customer_category').then((meta) => {
+    fieldMeta.value = meta?.profiles.list || []
+  })
+})
 </script>

@@ -18,6 +18,9 @@ export interface UserItem {
   customer_ids?: number[]
   customer_names?: string[]
   notify_accounts?: Record<string, string>
+  vpn_account?: string
+  mfa_enabled?: boolean
+  mfa_op_enabled?: boolean
   created_at: string
 }
 
@@ -162,14 +165,6 @@ export function fetchUiVersion() {
   return request<{ version: 'vue' | 'ssr'; vue_migrated_count: number }>({
     url: '/api/system/ui-version',
     method: 'GET',
-  })
-}
-
-export function setUiVersion(version: 'vue' | 'ssr') {
-  return request<{ version: 'vue' | 'ssr' }>({
-    url: '/api/system/ui-version',
-    method: 'PUT',
-    data: { version },
   })
 }
 
@@ -378,6 +373,16 @@ export function reviewExportRequest(id: number, action: 'approve' | 'reject', co
 export interface AccessControlData {
   trusted_networks: string[]
   enabled: boolean
+}
+
+export function resetUserMfa(id: number, purpose: 'all' | 'login' | 'operation' = 'all') {
+  return request<null>({ url: `/api/users/${id}/mfa-reset`, method: 'POST', data: { purpose } })
+}
+
+export function offboardUser(id: number) {
+  return request<{ hook_warnings: string[] }>({
+    url: `/api/users/${id}/offboard`, method: 'POST',
+  })
 }
 
 export function fetchAccessControl() {

@@ -70,7 +70,7 @@ class TestUserApi:
             assert User.query.get(uid).regions == []
         # me 回显
         c = app.test_client()
-        c.post('/login', data={'username': 'eng1', 'password': 'pass123'})
+        c.post('/api/auth/login', json={'username': 'eng1', 'password': 'pass123'})
         r = c.get('/api/auth/me')
         assert r.get_json()['data']['region_ids'] == []
 
@@ -104,7 +104,7 @@ class TestUserApi:
             assert User.query.get(uid).customers == []
         # me 回显
         c = app.test_client()
-        c.post('/login', data={'username': 'eng2', 'password': 'pass123'})
+        c.post('/api/auth/login', json={'username': 'eng2', 'password': 'pass123'})
         r = c.get('/api/auth/me')
         assert r.get_json()['data']['customer_ids'] == []
 

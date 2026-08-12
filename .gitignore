@@ -40,8 +40,11 @@ instance/scheduler.lock
 
 # Secrets
 .secret.key
+.secret.key.locked
+.secret.key.bak.*
 .env
 .env.*
+!/.env.example
 cookies.txt
 
 # Claude Code

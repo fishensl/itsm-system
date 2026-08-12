@@ -2,13 +2,13 @@
   <div v-loading="loading" class="expand-detail">
     <template v-if="detail">
       <el-descriptions :column="cols" border size="small">
-        <el-descriptions-item label="状态">
+        <el-descriptions-item :label="label('status', '状态')">
           <el-tag size="small" :type="TICKET_STATUS_TAG[detail.status] || 'info'">{{ detail.status }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="优先级">
+        <el-descriptions-item :label="label('priority', '优先级')">
           <el-tag size="small" :type="detail.priority === '紧急' ? 'danger' : 'warning'">{{ detail.priority }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="客户">
+        <el-descriptions-item :label="label('customer_name', '客户')">
           <template v-if="detail.customer">
             <span>{{ detail.customer.name || '-' }}</span>
             <span v-if="detail.customer.office_room || detail.customer.office" class="cust-min">
@@ -18,24 +18,24 @@
           </template>
           <span v-else>{{ detail.customer_name || '-' }}</span>
         </el-descriptions-item>
-        <el-descriptions-item label="关联设备">
+        <el-descriptions-item :label="label('related_device_name', '关联设备')">
           <router-link v-if="detail.related_device_id" :to="`/devices/${detail.related_device_id}`"
             class="row-link">{{ detail.related_device_name || '#' }}</router-link>
           <span v-else>-</span>
         </el-descriptions-item>
-        <el-descriptions-item label="处理人">{{ detail.assigned_to || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="故障分类">{{ detail.fault_category || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="创建人">{{ detail.created_by || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="创建时间">{{ detail.created_at }}</el-descriptions-item>
-        <el-descriptions-item label="来源">{{ detail.source_type || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="严重级别">{{ detail.severity_level || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="处理报告">
+        <el-descriptions-item :label="label('assigned_to', '处理人')">{{ detail.assigned_to || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('fault_category', '故障分类')">{{ detail.fault_category || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('created_by', '创建人')">{{ detail.created_by || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('created_at', '创建时间')">{{ detail.created_at }}</el-descriptions-item>
+        <el-descriptions-item :label="label('source_type', '来源')">{{ detail.source_type || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('severity_level', '严重级别')">{{ detail.severity_level || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('report_file', '处理报告')">
           <el-link v-if="detail.report_file" type="primary" :underline="false" @click="downloadLatest">
             {{ detail.report_name || '下载' }}
           </el-link>
           <span v-else class="text-muted">无</span>
         </el-descriptions-item>
-        <el-descriptions-item label="资料完整">
+        <el-descriptions-item :label="label('complete', '资料完整')">
           <el-tag size="small" :type="detail.complete ? 'success' : 'warning'">
             {{ detail.complete ? '完整' : '缺:' + (detail.missing_fields || []).join('、') }}
           </el-tag>
@@ -186,6 +186,7 @@ import { useUserStore } from '@/stores/user'
 import { fetchTicket, fetchTicketVersions, versionReportUrl, TICKET_STATUS_TAG, type Ticket } from '@/api/tickets'
 import { fetchDepartments } from '@/api/system'
 import { TICKET_STATUS } from '@/utils/status'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const { isMobile } = useMobile()
 // 移动端降为 2 列
@@ -209,6 +210,8 @@ const user = useUserStore()
 const loading = ref(false)
 const detail = ref<Ticket | null>(null)
 const versions = ref<SV[]>([])
+const metadata = ref<EntityMeta>()
+const label = (key: string, fallback: string) => entityFieldLabel(metadata.value, key, fallback)
 const assignUserId = ref<number | null>(null)
 const assignUsers = ref<{ id: number; name: string }[]>([])
 const assignUserName = computed(() =>
@@ -264,6 +267,7 @@ function downloadLatest() {
 watch(() => props.row, () => { load() })
 
 load()
+fetchEntityMeta('ticket').then((meta) => { metadata.value = meta })
 </script>
 
 <style scoped>

@@ -90,7 +90,7 @@ class TestBackupApi:
                 username='admin', password='test123456', realname='管理员', role='admin'))
             _db.session.commit()
         client = app2.test_client()
-        client.post('/login', data={'username': 'admin', 'password': 'test123456'})
+        client.post('/api/auth/login', json={'username': 'admin', 'password': 'test123456'})
 
         # 最小备份包（含 manifest + data.json，供导入）
         def _make_zip() -> bytes:

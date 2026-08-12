@@ -39,12 +39,14 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import { fetchAuditLogs, fetchAuditDicts } from '@/api/system'
 import { AUDIT_ACTION_LABELS, AUDIT_TARGET_LABELS } from '@/utils/labels'
 
 const dicts = ref<{ actions: string[]; target_types: string[] } | null>(null)
 const dateRange = ref<[string, string] | null>(null)
 const tableRef = ref()
+const fieldMeta = ref<EntityFieldMeta[]>([])
 
 const query = reactive<Record<string, unknown>>({ username: '', action: '', target_type: '' })
 
@@ -57,19 +59,22 @@ const tableQuery = computed(() => ({
 const fetchLogs = (params: Record<string, unknown>) =>
   fetchAuditLogs(params as Record<string, string | number>)
 
-const columns = computed<DataColumn[]>(() => [
+const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'created_at', label: '时间', width: 150 },
   { key: 'username', label: '操作人', width: 100, asTitle: true },
   { key: 'action', label: '操作', width: 130, type: 'tag', valueMap: AUDIT_ACTION_LABELS },
   { key: 'target_type', label: '对象', width: 90, valueMap: AUDIT_TARGET_LABELS },
   { key: 'detail', label: '详情', minWidth: 220 },
   { key: 'ip', label: 'IP', width: 130 },
-])
+], fieldMeta.value))
 
 function reload() { tableRef.value?.refresh() }
 
 onMounted(() => {
   fetchAuditDicts().then((d) => (dicts.value = d))
+  fetchEntityMeta('audit_log').then((meta) => {
+    fieldMeta.value = meta?.profiles.list || []
+  })
 })
 </script>
 

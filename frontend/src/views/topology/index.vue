@@ -34,7 +34,7 @@
             <el-tag size="small" type="info" class="grp-badge">{{ g.rows.length }}</el-tag>
           </template>
           <el-table :data="g.rows" size="small" border stripe>
-            <el-table-column label="名称" min-width="260">
+            <el-table-column :label="label('name', '名称')" min-width="260">
               <template #default="{ row }">
                 <div class="topo-name-row">
                   <b class="topo-name">{{ row.name }}</b>
@@ -56,13 +56,13 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="描述" min-width="160">
+            <el-table-column :label="label('description', '描述')" min-width="160">
               <template #default="{ row }">{{ row.description || '-' }}</template>
             </el-table-column>
-            <el-table-column label="上传人" width="100">
+            <el-table-column :label="label('upload_by', '上传人')" width="100">
               <template #default="{ row }">{{ row.upload_by || '-' }}</template>
             </el-table-column>
-            <el-table-column label="上传时间" width="140">
+            <el-table-column :label="label('created_at', '上传时间')" width="140">
               <template #default="{ row }">{{ row.created_at || '-' }}</template>
             </el-table-column>
             <el-table-column label="操作" width="130" fixed="right">
@@ -85,29 +85,29 @@
     <!-- 上传弹窗 -->
     <el-dialog v-model="uploadVisible" title="上传拓扑图" width="520px" top="8vh" destroy-on-close>
       <el-form label-width="90px">
-        <el-form-item label="拓扑图类型" required>
+        <el-form-item :label="label('file_type', '拓扑图类型', 'form')" required>
           <el-select v-model="uploadForm.topo_type" class="w-full" @change="autoName">
             <el-option v-for="t in TOPO_TYPES" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
-        <el-form-item label="名称">
+        <el-form-item :label="label('name', '名称', 'form')">
           <el-input v-model="uploadForm.name" placeholder="留空时按「客户+类型+日期」自动拼接"
             @input="nameTouched = true" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="label('description', '描述', 'form')">
           <el-input v-model="uploadForm.description" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="客户">
+        <el-form-item :label="label('customer_name', '客户', 'form')">
           <el-select v-model="uploadForm.customer_id" clearable filterable class="w-full" @change="autoName">
             <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="地区">
+        <el-form-item :label="label('region_name', '地区', 'form')">
           <el-select v-model="uploadForm.region_id" clearable filterable class="w-full">
             <el-option v-for="r in dicts?.regions || []" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="文件" required>
+        <el-form-item :label="label('file_name', '文件', 'form')" required>
           <input ref="fileInput" type="file" class="el-input__inner file-input"
             accept=".jpg,.jpeg,.png,.gif,.bmp,.pdf,.vsd,.vsdx,.drawio,.xml" @change="onFileChange" />
           <div class="text-muted">支持 JPG/PNG/PDF/Visio/drawio 文件</div>
@@ -123,18 +123,18 @@
     <el-dialog v-model="editVisible" :title="`编辑「${editForm.name || ''}」`" width="520px" top="8vh"
       destroy-on-close>
       <el-form ref="editFormRef" :model="editForm" :rules="editFormRules" label-width="90px">
-        <el-form-item label="名称" prop="name">
+        <el-form-item :label="label('name', '名称', 'form')" prop="name">
           <el-input v-model="editForm.name" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="label('description', '描述', 'form')">
           <el-input v-model="editForm.description" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="客户">
+        <el-form-item :label="label('customer_name', '客户', 'form')">
           <el-select v-model="editForm.customer_id" clearable filterable class="w-full">
             <el-option v-for="c in dicts?.customers || []" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="地区">
+        <el-form-item :label="label('region_name', '地区', 'form')">
           <el-select v-model="editForm.region_id" clearable filterable class="w-full">
             <el-option v-for="r in dicts?.regions || []" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
@@ -171,6 +171,7 @@ import {
   fetchTopologyDicts, uploadTopology, fetchTopologyTemplates,
   type TopologyItem, type TopologyFile, type TopologyDicts, type TopologyTemplate,
 } from '@/api/topology'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -196,6 +197,11 @@ const query = reactive<Record<string, unknown>>({ search: '' })
 const groups = ref<TopoGroup[]>([])
 const activeNames = ref<string[]>([])
 const loading = ref(false)
+const metadata = ref<EntityMeta>()
+
+function label(key: string, fallback: string, profile = 'list') {
+  return entityFieldLabel(metadata.value, key, fallback, profile)
+}
 
 async function loadAll() {
   loading.value = true
@@ -435,6 +441,9 @@ async function onDeleteGroup(row: TopologyItem) {
 const dicts = ref<TopologyDicts | null>(null)
 
 onMounted(() => {
+  fetchEntityMeta('topology')
+    .then((result) => { metadata.value = result })
+    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
   fetchTopologyDicts().then((d) => (dicts.value = d)).catch(() => { /* toast */ })
   loadAll()
 })
