@@ -9,7 +9,7 @@
 ### 1.1 审计方法与边界
 
 - 以当前工作区源码、路由注册顺序、模型、服务层、Vue 调用、测试和部署脚本为依据，逐项复核已有审计结论；不把旧报告中的结论直接视为当前事实。
-- 审计基线核对 229 个 Python 文件、45 个 Vue 视图、36 个迁移文件、64 个测试文件，当时可收集 840 个 pytest 用例；本轮新增回归后当前收集数为 868。
+- 审计基线核对 229 个 Python 文件、45 个 Vue 视图、36 个迁移文件、64 个测试文件，当时可收集 840 个 pytest 用例；整改持续增加回归后当前收集数为 891。
 - 本次未连接生产数据库、生产主机、systemd、定时任务或真实通知渠道。因此“生产实际是否启用备份、文件权限、当前密钥是否已轮换”等只能列为上线核验项，不能由代码仓库推断为已完成。
 - 严重程度口径：高＝可导致越权、敏感数据泄露、主流程不可用或恢复失败；中＝重要功能不闭环、跨层不一致或存在明显运维风险；低＝一致性、体验、可维护性和长期成本问题。
 
@@ -34,7 +34,7 @@
 - Vue SPA 已是唯一业务 UI，GlobalSearch、NotificationBell、移动端底栏、DataTable 移动卡片和列设置均已落地（`frontend/src/layouts/MainLayout.vue:169-200`；`frontend/src/components/DataTable.vue:1-157`）。
 - 安全基础并非空白：设备/AI/通知密钥已加密，设备明文查看有权限、操作动态码、限流和审计；CSRF 默认开启，前端非 GET 自动携带令牌（`utils/crypto.py:25-109`；`frontend/src/utils/request.ts:18-25`；`blueprints/vue_api.py:1081-1124`）。
 - 备份侧已有 PG 自定义格式 dump、Web 加密备份包、一次性下载、导入前快照和可配置调度器，这些可作为 P1 加固基础，无需推倒重做（`scripts/backup.sh:27-47`；`blueprints/vue_api_sys.py:638-817`；`utils/scheduler.py:75-106`）。
-- CI 已覆盖 Python 3.10/3.12、pytest、Ruff、前端 lint/unit/build；本轮又增加迁移不可变门禁，当前 868 个测试可收集，测试资产较扎实（`.github/workflows/ci.yml`）。
+- CI 已覆盖 Python 3.10/3.12、pytest、Ruff、前端 lint/unit/build；本轮又增加迁移不可变门禁，当前 891 个测试可收集，测试资产较扎实（`.github/workflows/ci.yml`）。
 
 ### 1.4 当前状态标记
 
@@ -45,18 +45,20 @@
 | 当前生产密钥轮换 | **未核验/未执行** | 需要停服窗口、备份配对检查和用户确认；本轮未执行 `scripts/rotate_secret_key.py --apply` |
 | P0 代码止血 | **已修复** | 提交 `507c2fd`：设备详情契约、任务越权、CSRF、匿名上传、知识库 XSS、拓扑白名单、敏感审计、遗留明文导出、缺钥 fail-closed、初始管理员和合同例外审核闭环 |
 | P1 备份/恢复/发布代码 | **已修复（约定范围）** | 提交 `507c2fd`：备份失败硬退出、PG 完整性校验、配对轮转、导入 staging、不可变前端包、迁移门禁、health/ready、临时导出清理 |
-| 数据 scope、跨进程 RBAC、自动备份状态告警 | **未实施** | 属于原报告 WP-10/BR-01 的后续 P1 工作，不在本轮用户明确实施清单内 |
+| 数据 scope、跨进程 RBAC、自动备份状态告警 | **代码已完成，scope 待启用** | `30a040e` 完成统一范围、RBAC 版本失效、导出审计、备份 RPO/失败告警；`c2a73bf` 增加默认关闭的 `ITSM_CUSTOMER_SCOPE_ENFORCE` 发布闸门，生产关联审计后再开启 |
 | P2/P3 产品与架构 Backlog | **未实施** | 保持第 9 节 Backlog，等待产品规则和独立工作包决策 |
 
-### 1.5 本轮整改状态（提交 `507c2fd`）
+### 1.5 本轮整改状态（提交 `507c2fd`、`30a040e`、`c2a73bf`）
 
 | 状态 | 审计项 | 说明 |
 |---|---|---|
 | **已修复** | FL-01、FL-02、FL-03 | 设备详情唯一契约；任务合同例外可见、可审、可审计、可通知；通用更新不能绕过审核 |
 | **已修复** | DS-02～DS-10、DS-14、DS-15 | 匿名上传 404、HTML 白名单净化、RBAC/配置审计、旧明文导出下线、任务权限、缺钥拒启、显式初始化、CSRF 和上传白名单、访问异常 fail-closed、12 位密码与首次改密 |
-| **部分修复** | DS-11 | 已补 AI、角色/权限矩阵、用户覆盖、可信网段、通知渠道/规则及测试审计；批量业务导出统一审计仍留后续 |
+| **已修复** | DS-11、DS-13 | 已补敏感配置与批量导出审计；RBAC 采用数据库版本号+2 秒 TTL 且未知/停用角色 fail closed |
+| **代码已完成，待启用** | DS-12 | 统一客户/设备范围已覆盖列表、详情、搜索、字典、导出及密码导出审批；scope 强制开关默认关闭，待生产关系审计后开启 |
+| **已修复** | BR-01 | 自动备份记录最后尝试/成功/失败、连续失败、耗时和 RPO；失败产生站内及可配置外部渠道告警，系统概览和备份页展示健康状态。生产是否启用仍需现场核验 |
 | **已修复** | BR-02～BR-08、BR-10～BR-17 | 备份/导入硬失败与原子激活、不可变前端 Release、同版本离线 manifest、失败停止、配对轮转、迁移锁/CI、ready、生产日志和校验和 |
-| **部分修复** | BR-09 | 已要求 dump/meta 配对、预检查与恢复后 ready；代码、前端、schema 的自动同版本回退仍需发布单元继续收敛 |
+| **部分修复** | BR-09 | 已要求 dump/meta 配对、预检查与恢复后 ready；健康失败可自动恢复上一版前端并保留失败版本。代码/schema 自动同版本回退仍需发布单元继续收敛 |
 | **待确认** | DS-01 / G1、G2、G3 | 历史 blob 清理、生产密钥轮换、隔离恢复演练均未执行 |
 
 ## 2. 维度一：流程闭环
@@ -155,9 +157,9 @@
 | DS-08 | `app.py:351-357,383`；`blueprints/vue_api_sys.py:187` | 高 | 空库自动创建并打印已知凭据 `admin/admin123`，新建用户未传密码时默认 `changeme`，且没有强制首次改密字段。生产首次启动窗口存在接管风险。 | 生产禁止内置默认密码；通过一次性随机引导密钥/CLI 创建首个管理员，不写日志；新增 `must_change_password`，首次登录只能改密和绑 MFA。 |
 | DS-09 | `blueprints/asset/config_backups.py:13-16`；`views/dashboard.py:81-101`；`views/system.py:148-171`；`frontend/src/utils/request.ts:18-25` | 中 | 5 个 SPA/内部写端点使用 `@api_view` 豁免 CSRF，而统一 request 已自动带 token，没有保留豁免的必要。 | 删除这些写端点的豁免；GET 上的 `@api_view` 也应清理语义；`tests/test_csrf.py` 增加无 token 400/有 token 成功回归。 |
 | DS-10 | `blueprints/vue_api_asset.py:523-560` | 中 | 拓扑上传的 unknown 分支设 `allowed=set()`，随后 `if allowed` 为假，任意未知扩展名都会被保存到静态目录。 | 未识别扩展名直接 400；所有分支统一调用 `validate_upload`，校验大小、扩展、MIME/文件头；XML/SVG 类主动内容使用下载附件或隔离预览。 |
-| DS-11 | `blueprints/vue_api_sys.py:560-636,1006-1035,1066-1123,1151-1177`；`blueprints/vue_api.py:712-755,2207-2265,3432-3715`；`blueprints/vue_api_sales.py:99-151` | 中 | AI 配置增删改/测试、可信网段、通知渠道/规则和多类批量导出没有统一写入审计表；普通 logger 不满足查询、留存和关联分析。 | 建立审计动作目录和封装；配置测试也记录目标及结果但绝不记录 secret；导出记录模块、筛选、列、行数和文件 token，不记录导出内容。 |
-| DS-12 | `utils/permission.py:257-298`；`blueprints/vue_api.py:592-709,997-1005,1355-1389,2120-2148,2369-2460` | 中 | `apply_scope_filter` 的客户分支是 `pass`；设备列表/树/详情、全局搜索和部分字典未应用客户/部门 scope。拥有查看权限但 scope 非 all 的账号仍可能枚举其他部门资产。 | 建立统一“可见客户 ID”查询并作用于列表、详情、树、搜索、导出和字典；直接 ID 访问同样校验；增加 all/department/self 四角色横向越权测试。 |
-| DS-13 | `utils/permission.py:15-27,212-238`；`scripts/itsm.service:12` | 中 | 角色权限使用进程级缓存，写操作只失效当前 worker；Gunicorn 4 worker 下其他进程可持续使用旧权限。不存在/停用角色还会 fallback 到 viewer 权限。 | 权限变更后通过 Redis/数据库版本号广播失效，或使用短 TTL+版本校验；未知/停用角色应 fail closed 为空权限，不应继承 viewer。 |
+| DS-11 | `blueprints/vue_api_sys.py:560-636,1006-1035,1066-1123,1151-1177`；`blueprints/vue_api.py:712-755,2207-2265,3432-3715`；`blueprints/vue_api_sales.py:99-151` | 中 | 审计时 AI、可信网段、通知配置和批量导出存在缺口。**状态：已修复（`507c2fd`、`30a040e`）**，导出审计只记录筛选、列、行数和 token，不写导出内容或 secret。 | 后续把 helper 独立 commit 收敛到同事务/outbox，并纳入审计可靠性监控。 |
+| DS-12 | `utils/permission.py:257-298`；`blueprints/vue_api.py:592-709,997-1005,1355-1389,2120-2148,2369-2460` | 中 | 审计时客户范围未统一。**状态：代码已修复（`30a040e`、`c2a73bf`）**，强制过滤默认关闭；开启前必须审计 `customer_engineers`、部门及 scope 配置，避免历史关联缺失导致误拒绝。 | 生产先观察日志并补齐关系，再设置 `ITSM_CUSTOMER_SCOPE_ENFORCE=1`；开启后验收 all/department/self、直接 ID、搜索、导出和密码审批范围。 |
+| DS-13 | `utils/permission.py:15-27,212-238`；`scripts/itsm.service:12` | 中 | 审计时角色缓存仅进程内且未知角色回退 viewer。**状态：已修复（`30a040e`）**，数据库版本号与 2 秒短 TTL 让多 worker 失效，未知/停用角色为空权限，停用 admin 也失去快捷权限。 | 生产以两个 worker 做权限撤销秒级生效演练；长期可按规模迁移到 Redis/pub-sub。 |
 | DS-14 | `utils/access_guard.py:75-80` | 中 | 可信网段判断异常时按内网放行，配置/数据库异常会扩大外网权限边界。 | 对敏感 API fail closed 并告警；对 `/app` 静态壳可降级放行，实际数据 API 必须拒绝；增加异常注入测试。 |
 | DS-15 | `blueprints/vue_api.py:214-227`；`blueprints/vue_api_sys.py:283-295`；`frontend/src/layouts/MainLayout.vue:203-217` | 中 | 密码策略仅 6 位；无常见密码阻断、强制首次改密或管理员重置后失效流程。 | 采用至少 12 位口令/长密码策略，禁止已知默认值；重置后 `auth_version` 已可用于踢下线，再补首次改密和 MFA 引导。 |
 
@@ -173,7 +175,7 @@
 
 | ID | 文件:行号 | 严重程度 | 问题描述 | 修复建议 |
 |---|---|---|---|---|
-| BR-01 | `utils/backup_config.py:8-12`；`utils/scheduler.py:75-106` | 高 | 自动备份默认关闭；调度失败只写本机日志，没有通知、连续失败计数或“最后成功时间”。生产是否实际开启无法由仓库确认。 | 生产安装向导必须显式选择并验证备份计划；记录 last_success/last_failure；连续失败触发站内+外部安全告警；系统概览显示 RPO 状态。 |
+| BR-01 | `utils/backup_config.py:8-12`；`utils/scheduler.py:75-106` | 高 | 审计时自动备份失败只有本机日志。**状态：代码已修复（`30a040e`）**，现已持久化最后成功/失败、连续失败和 RPO，并触发站内及外部渠道告警；默认是否开启仍是生产配置决策。 | 上线核验调度器实际启用、通知规则收件人、最近成功时间和一次故障注入；未完成现场核验前不宣称 RPO 已保障。 |
 | BR-02 | `scripts/backup.sh:44-46,59-64,69-74` | 高 | `tar ... 2>/dev/null || true` 吞掉密钥、配置或业务文件归档失败，即使 meta 包不完整也显示备份完成并返回 0。 | 必需项缺失或 tar 失败立即非零退出；可选目录先建空目录或动态组装参数；失败写 stderr 并触发调度告警。 |
 | BR-03 | `utils/data_io.py:340-354` | 高 | 备份包 sha256 不一致只追加 warning，仍继续清空和回灌数据库，损坏或被篡改的包可进入恢复流程。 | 哈希不一致硬拒绝；无 manifest/旧格式走显式兼容确认；长期为 manifest 增加签名或 HMAC，并对文件清单、大小和 schema 版本做前置校验。 |
 | BR-04 | `utils/data_io.py:393-484`；`blueprints/vue_api_sys.py:749-761` | 高 | 文件和 `.secret.key` 在数据库 commit 前直接覆盖；若 commit 失败，DB 回滚但磁盘/密钥不能回滚，形成数据—密钥—附件不一致。 | 先解压到 staging；数据库 commit 成功后用 `os.replace` 原子落盘；保存原文件/密钥回滚副本；任一步失败恢复原状。大规模恢复宜停服执行。 |
@@ -210,7 +212,7 @@ P0 完成定义：新增安全回归全部通过；匿名无法获取上传文�
 
 ### P1：短期（1–2 个迭代，恢复能力与权限边界）
 
-> **实施状态：本轮明确要求的备份、导入、临时导出及发布/迁移加固已完成，提交 `507c2fd`；数据 scope、跨进程 RBAC、自动备份状态告警和 G3 演练仍未完成。**
+> **实施状态：P1 代码已由 `507c2fd`、`30a040e`、`c2a73bf` 完成；数据 scope 强制开关默认关闭，需生产关联审计后启用。G3 隔离恢复演练仍未完成。**
 
 1. 加固 `backup.sh`：去掉吞错、dump 完整性校验、dump/meta 配对轮转、`.secret.key*` 权限断言、失败告警和最后成功时间。
 2. 重构导入：哈希失败硬拒绝；数据库先提交，文件/密钥 staging+原子替换；pre-import 备份失败默认阻断；增加恢复演练脚本。
@@ -294,12 +296,12 @@ P0 完成定义：新增安全回归全部通过；匿名无法获取上传文�
 
 ### 10.3 当前验证结果
 
-- `.venv/Scripts/python -m pytest tests/ -q --maxfail=1 -W ignore`：**868 项全量通过**，退出码 0，耗时 1257.8 秒；`-W ignore` 仅抑制仓库既有弃用告警展示，不改变断言或收集范围。
+- `.venv/Scripts/python -m pytest tests/ -q --disable-warnings`：**891 项全量通过**，退出码 0，耗时 2202.8 秒；`--disable-warnings` 只隐藏告警汇总，不改变断言或收集范围。
 - `.venv/Scripts/python -m ruff check .`：**通过**，`All checks passed!`。
 - 前端 `npm run lint`：**通过**（27 条既有 warning、0 error）；`npm run test:unit`：**28 项通过**；`npm run build`：**通过**。
-- Git Bash `bash -n`：`backup.sh`、`deploy.sh`、`update.sh`、`rollback.sh`、`make-release.sh`、`push-update.sh` **全部通过**。
-- 迁移不可变检查脚本自检通过；当前共收集 868 项测试。
-- 尚未完成的发布门禁：隔离 PostgreSQL 的真实备份—恢复—解密—`readyz` 演练，以及生产主机/定时任务/权限核验。不能据本地 SQLite 结果宣称生产恢复已验证。
+- Git Bash `bash -n`：`backup.sh`、`update.sh`、`lib-release.sh` **全部通过**；发布恢复 3 条故障注入测试全部通过。
+- 当前共收集 891 项测试；测试 PostgreSQL 改为每次运行使用随机目录，避免中断后的 `postmaster.pid` 污染后续运行。
+- 尚未完成的发布门禁：隔离 PostgreSQL 的真实备份—恢复—解密—`readyz` 演练，以及生产主机/定时任务/权限核验。以上测试使用本地嵌入式 PostgreSQL，但不等同于生产恢复演练。
 
 ## 11. 需要单独确认的高风险操作
 
