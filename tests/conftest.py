@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """pytest 全局夹具：临时数据库（默认嵌入式 PostgreSQL，可 ITSM_TEST_DATABASE_URI 覆盖）+ 四角色用户 + 测试客户端"""
 import os
+import shutil
 import sys
 import tempfile
 
@@ -15,6 +16,23 @@ from app import create_app  # noqa: E402
 from models import db, User  # noqa: E402
 
 TEST_PASSWORD = 'test123456'
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _isolated_test_master_key():
+    """Never let tests encrypt with or overwrite the checkout/production key files."""
+    import utils.crypto as crypto
+
+    key_dir = tempfile.mkdtemp(prefix='itsm_test_key_')
+    original = (crypto.KEY_FILE, crypto.WRAPPED_KEY_FILE, crypto._memory_key)
+    crypto.KEY_FILE = os.path.join(key_dir, '.secret.key')
+    crypto.WRAPPED_KEY_FILE = os.path.join(key_dir, '.secret.key.locked')
+    crypto._memory_key = None
+    try:
+        yield
+    finally:
+        crypto.KEY_FILE, crypto.WRAPPED_KEY_FILE, crypto._memory_key = original
+        shutil.rmtree(key_dir, ignore_errors=True)
 
 # ---- Flask-Login g._login_user 跨请求缓存兼容补丁（测试环境专用） ----
 # Flask 3.1 下 g 绑定 contextvar，test_client 在同一线程顺序发起多请求时，

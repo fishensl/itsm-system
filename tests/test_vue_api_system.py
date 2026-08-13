@@ -18,7 +18,7 @@ class TestUserApi:
 
     def test_create_update_delete(self, admin_client, app):
         r = admin_client.post('/api/users', json={
-            'username': 'newuser', 'password': 'pass123', 'realname': '新用户',
+            'username': 'newuser', 'password': 'StrongPass123!', 'realname': '新用户',
             'role': 'operator', 'is_active': True})
         assert r.status_code == 200
         with app.app_context():
@@ -51,7 +51,7 @@ class TestUserApi:
             city_id, dist_id = city.id, dist.id
         # 创建带区域
         r = admin_client.post('/api/users', json={
-            'username': 'eng1', 'password': 'pass123', 'realname': '驻场工程师',
+            'username': 'eng1', 'password': 'StrongPass123!', 'realname': '驻场工程师',
             'role': 'operator', 'region_ids': [city_id, dist_id]})
         assert r.status_code == 200
         with app.app_context():
@@ -70,7 +70,7 @@ class TestUserApi:
             assert User.query.get(uid).regions == []
         # me 回显
         c = app.test_client()
-        c.post('/api/auth/login', json={'username': 'eng1', 'password': 'pass123'})
+        c.post('/api/auth/login', json={'username': 'eng1', 'password': 'StrongPass123!'})
         r = c.get('/api/auth/me')
         assert r.get_json()['data']['region_ids'] == []
 
@@ -85,7 +85,7 @@ class TestUserApi:
             c1_id, c2_id = c1.id, c2.id
         # 创建带关联客户
         r = admin_client.post('/api/users', json={
-            'username': 'eng2', 'password': 'pass123', 'realname': '驻场工程师',
+            'username': 'eng2', 'password': 'StrongPass123!', 'realname': '驻场工程师',
             'role': 'operator', 'customer_ids': [c1_id, c2_id]})
         assert r.status_code == 200
         with app.app_context():
@@ -104,7 +104,7 @@ class TestUserApi:
             assert User.query.get(uid).customers == []
         # me 回显
         c = app.test_client()
-        c.post('/api/auth/login', json={'username': 'eng2', 'password': 'pass123'})
+        c.post('/api/auth/login', json={'username': 'eng2', 'password': 'StrongPass123!'})
         r = c.get('/api/auth/me')
         assert r.get_json()['data']['customer_ids'] == []
 
@@ -116,7 +116,7 @@ class TestUserApi:
                                 is_system=False, is_active=True))
             db.session.commit()
         r = admin_client.post('/api/users', json={
-            'username': 'eng3', 'password': 'pass123', 'role': 'ops_zhuchang'})
+            'username': 'eng3', 'password': 'StrongPass123!', 'role': 'ops_zhuchang'})
         assert r.status_code == 200
         r = admin_client.get('/api/users')
         data = r.get_json()['data']

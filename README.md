@@ -65,8 +65,15 @@ python app.py
 
 首次启动会自动：
 - 在开发环境未配置数据库时创建 SQLite 数据库 `instance/itsm.db`（生产环境必须配置 PostgreSQL）
-- 创建默认管理员账号 `admin / admin123`
 - 预置设备类型、故障类型等种子数据
+
+系统不再创建固定默认账号。数据库迁移完成后，使用交互式命令创建首个管理员和主密钥：
+
+```bash
+flask --app app:create_app init-admin
+```
+
+该命令仅允许在空用户库执行，首个管理员登录后必须修改密码。
 
 ### 4. 访问
 

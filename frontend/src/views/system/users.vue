@@ -148,13 +148,14 @@
           </el-col>
           <el-col v-if="!form.id" :xs="24" :sm="12">
             <el-form-item label="初始密码">
-              <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
+              <el-input v-model="form.password" type="password" show-password autocomplete="new-password"
+                placeholder="至少 12 位；用户首次登录后必须修改" />
             </el-form-item>
           </el-col>
           <el-col v-if="form.id" :xs="24" :sm="12">
             <el-form-item label="新密码">
               <el-input v-model="form.password" type="password" show-password autocomplete="new-password"
-                placeholder="留空则不修改" />
+                placeholder="留空则不修改；设置后用户须再次改密" />
             </el-form-item>
           </el-col>
           <el-col :xs="24">
@@ -187,7 +188,7 @@
       <el-form label-width="90px">
         <el-form-item label="用户">{{ resetTarget?.username }}</el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="resetPwd" type="password" show-password autocomplete="new-password" placeholder="至少 6 位" />
+          <el-input v-model="resetPwd" type="password" show-password autocomplete="new-password" placeholder="至少 12 位" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -410,8 +411,8 @@ function openResetPwd(u: UserItem) {
 
 async function doResetPwd() {
   if (!resetTarget.value) return
-  if (resetPwd.value.length < 6) {
-    ui.toast('新密码长度至少 6 位', 'warning')
+  if (resetPwd.value.length < 12) {
+    ui.toast('新密码长度至少 12 位', 'warning')
     return
   }
   resettingPwd.value = true

@@ -114,6 +114,8 @@ def register_routes(app):
     from views import dashboard, auth, system
 
     app.add_url_rule('/', 'index', dashboard.index)
+    app.add_url_rule('/healthz', 'healthz', healthz)
+    app.add_url_rule('/readyz', 'readyz', readyz)
     app.add_url_rule('/login', 'login', auth.login, methods=['GET', 'POST'])
     app.add_url_rule('/logout', 'logout', auth.logout)
     app.add_url_rule('/me/change_password', 'me_change_password', auth.me_change_password,
@@ -133,6 +135,48 @@ def register_routes(app):
                      dashboard.api_dashboard_preferences_save, methods=['POST'])
     app.add_url_rule('/api/dashboard/preferences/reset', 'api_dashboard_preferences_reset',
                      dashboard.api_dashboard_preferences_reset, methods=['POST'])
+
+
+def healthz():
+    """Shallow liveness probe; does not touch database or disclose configuration."""
+    return jsonify({'status': 'ok', 'version': _APP_VERSION})
+
+
+def readyz():
+    """Internal readiness probe for DB, migration, master key, and Vue assets."""
+    from sqlalchemy import text
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+    from utils.crypto import ensure_master_key_available, master_key_status
+
+    checks = {}
+    try:
+        db.session.execute(text('SELECT 1'))
+        checks['database'] = 'ok'
+    except Exception:
+        db.session.rollback()
+        checks['database'] = 'error'
+
+    try:
+        current = db.session.execute(text('SELECT version_num FROM alembic_version')).scalar()
+        alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__), 'migrations', 'alembic.ini'))
+        alembic_cfg.set_main_option('script_location', os.path.join(os.path.dirname(__file__), 'migrations'))
+        head = ScriptDirectory.from_config(alembic_cfg).get_current_head()
+        checks['migration'] = 'ok' if current == head else 'mismatch'
+    except Exception:
+        db.session.rollback()
+        checks['migration'] = 'error'
+
+    try:
+        ensure_master_key_available()
+        checks['master_key'] = master_key_status()
+    except Exception:
+        checks['master_key'] = 'error'
+
+    vue_index = os.path.join(current_app.static_folder, 'app', 'index.html')
+    checks['frontend'] = 'ok' if os.path.isfile(vue_index) else 'missing'
+    ready = all(value in {'ok', 'available'} for value in checks.values())
+    return jsonify({'status': 'ready' if ready else 'not_ready', 'checks': checks}), 200 if ready else 503
 
 
 # ==================== 运行时目录 ====================
@@ -203,6 +247,12 @@ def create_app(test_config=None):
 
     from utils.session_security import register_session_security
     register_session_security(app)
+
+    from utils.password_change_guard import register_password_change_guard
+    register_password_change_guard(app)
+
+    from utils.bootstrap_cli import register_bootstrap_cli
+    register_bootstrap_cli(app)
 
     # API 请求未登录返回 JSON 401（而非 302 跳登录页，避免前端 fetch 解析到 HTML）
     # 判定同 utils.permission._is_api_request：兼容蓝图内 /xxx/api/... 路径
@@ -330,7 +380,18 @@ def init_db(app):
         _bootstrap_legacy_db(app)
 
         # 应用所有待执行的迁移（空库会从 initial_schema 一路建到 head；遗留库只跑 pg_type_fixes）
-        _migrate_upgrade(directory=migrations_dir)
+        migration_locked = False
+        try:
+            if db.engine.dialect.name == 'postgresql':
+                from sqlalchemy import text as _sql_text
+                db.session.execute(_sql_text('SELECT pg_advisory_lock(2026081301)'))
+                migration_locked = True
+            _migrate_upgrade(directory=migrations_dir)
+        finally:
+            if migration_locked:
+                from sqlalchemy import text as _sql_text
+                db.session.execute(_sql_text('SELECT pg_advisory_unlock(2026081301)'))
+                db.session.commit()
 
         # V14: 权限/角色 seed（幂等，仅写数据不改 schema）
         try:
@@ -347,14 +408,6 @@ def init_db(app):
         except Exception as e:
             app.logger.warning('通知规则 seed 失败（非致命）: %s', e)
             db.session.rollback()
-
-        # 创建默认管理员：仅在系统中不存在任何 admin 角色用户时（首次空库引导），
-        # 避免管理员把 admin 改名/删除后，重启又重建 admin/admin123 弱口令后门
-        if User.query.filter_by(role='admin').count() == 0:
-            admin = User.create_with_password(username='admin', password='admin123', realname='管理员', role='admin')
-            db.session.add(admin)
-            db.session.commit()
-            app.logger.info('默认管理员已创建: admin / admin123')
 
         # 创建默认设备类型
         if DeviceType.query.count() == 0:
@@ -380,7 +433,7 @@ if __name__ == '__main__':
     app.logger.info('=' * 50)
     app.logger.info('=== ITSM 简易运维管理系统 ===')
     app.logger.info('=' * 50)
-    app.logger.info('默认登录: admin / admin123')
+    app.logger.info('首次安装请显式运行: flask --app app:create_app init-admin')
     app.logger.info('访问地址: http://127.0.0.1:5000')
     app.logger.info('=' * 50)
     app.run(debug=True, host='127.0.0.1', port=5000)

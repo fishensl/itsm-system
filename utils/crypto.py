@@ -22,6 +22,10 @@ class MasterKeyLocked(RuntimeError):
     """The wrapped master key exists but no valid unlock secret was supplied."""
 
 
+class MasterKeyMissing(RuntimeError):
+    """Production cannot start without an existing application master key."""
+
+
 def _atomic_write(path: str, payload: bytes) -> None:
     directory = os.path.dirname(path) or '.'
     fd, tmp_path = tempfile.mkstemp(prefix='.key-', dir=directory)
@@ -114,22 +118,48 @@ def ensure_master_key_available() -> None:
     _get_or_create_key()
 
 
+def master_key_status() -> str:
+    """Return a non-sensitive status for diagnostics."""
+    if _memory_key or os.path.exists(KEY_FILE):
+        return 'available'
+    if os.path.exists(WRAPPED_KEY_FILE):
+        return 'locked'
+    return 'missing'
+
+
+def initialize_master_key() -> bytes:
+    """Explicitly create the first master key; never overwrite an existing key."""
+    if master_key_status() != 'missing':
+        raise FileExistsError('主密钥已经存在，拒绝覆盖')
+    key = Fernet.generate_key()
+    _atomic_write(KEY_FILE, key)
+    return key
+
+
+def _is_production() -> bool:
+    return (os.environ.get('ITSM_ENV', '').lower() == 'production'
+            or os.environ.get('FLASK_ENV', '').lower() == 'production')
+
+
 def _get_or_create_key() -> bytes:
     global _memory_key
     if _memory_key:
         return _memory_key
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, 'rb') as stream:
-            return stream.read().strip()
+            key = stream.read().strip()
+        Fernet(key)
+        return key
     if os.path.exists(WRAPPED_KEY_FILE):
         auto_key = os.environ.get('ITSM_AUTO_UNLOCK_KEY', '')
         if not auto_key:
             raise MasterKeyLocked(
                 '主密钥已锁定；请执行 scripts/unlock.py，或配置 ITSM_AUTO_UNLOCK_KEY')
         return unlock_master_key(auto_key, persist=False)
-    key = Fernet.generate_key()
-    _atomic_write(KEY_FILE, key)
-    return key
+    if _is_production():
+        raise MasterKeyMissing(
+            '生产环境未找到主密钥；请从配对备份恢复，或在确认空库后运行 flask init-admin')
+    return initialize_master_key()
 
 
 def encrypt_password(password: str) -> str:

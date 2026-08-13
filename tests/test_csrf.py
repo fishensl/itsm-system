@@ -71,6 +71,26 @@ class TestCsrfProtection:
         assert csrf_client.get('/api/rack/cabinets').status_code == 200
         assert csrf_client.get('/api/drafts/list').status_code == 200
 
+    @pytest.mark.parametrize(('path', 'json_body'), [
+        ('/api/dashboard/preferences', {'cards': ['ticket']}),
+        ('/api/dashboard/preferences/reset', {}),
+        ('/api/sidebar/reset', {}),
+    ])
+    def test_legacy_spa_writes_require_token(self, csrf_client, path, json_body):
+        assert csrf_client.post(path, json=json_body).status_code == 400
+
+    def test_config_backup_upload_requires_token(self, csrf_client):
+        r = csrf_client.post('/api/devices/1/config-backups/upload-from-inspection')
+        assert r.status_code == 400
+
+    def test_removed_exempt_markers(self):
+        from blueprints.asset.config_backups import api_config_backup_upload
+        from views.dashboard import api_dashboard_preferences_save, api_dashboard_preferences_reset
+        from views.system import system_sidebar, api_sidebar_reset
+        funcs = (api_config_backup_upload, api_dashboard_preferences_save,
+                 api_dashboard_preferences_reset, system_sidebar, api_sidebar_reset)
+        assert all(not getattr(func, '__csrf_exempt__', False) for func in funcs)
+
     def test_login_shell_exempt_still_redirects(self, csrf_app):
         c = csrf_app.test_client()
         r = c.post('/login', data={'username': 'op', 'password': 'test123456'})

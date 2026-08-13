@@ -17,6 +17,10 @@ export interface TaskScheduleItem {
   overdue: boolean
   source: string
   remark: string
+  contract_exception_status: string
+  contract_exception_reason: string
+  contract_exception_by: string
+  contract_exception_at: string
 }
 
 export interface TaskScheduleData {
@@ -31,6 +35,7 @@ export interface TaskScheduleData {
     running: number
     reviewing: number
     done: number
+    contract_review: number
     overdue: number
     est_effort: number
     act_effort: number
@@ -63,6 +68,14 @@ export function updateTaskSchedule(id: number, data: Record<string, unknown>) {
 
 export function deleteTaskSchedule(id: number) {
   return request<null>({ url: `/api/task-schedule/${id}`, method: 'DELETE' })
+}
+
+export function reviewTaskContract(id: number, approved: boolean, comment = '') {
+  return request<{ id: number; status: string; contract_exception_status: string }>({
+    url: `/api/task-schedule/${id}/contract-review`,
+    method: 'POST',
+    data: { approved, comment },
+  })
 }
 
 export function batchTaskSchedule(ids: number[], action: 'status' | 'assign' | 'delete', value?: unknown) {

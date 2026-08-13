@@ -331,7 +331,7 @@ def is_supervisor(user=None):
 
 def _is_api_request():
     """判定 API 请求：路径含 /api/ 段（兼容蓝图内 API，如 /contract-tasks/api/...）"""
-    return '/api/' in request.path
+    return '/api/' in request.path or request.is_json
 
 
 def require_permission(code):

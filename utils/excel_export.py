@@ -68,3 +68,18 @@ def cleanup_export_tmp(path):
         os.unlink(path)
     except Exception:
         pass
+
+
+def send_temp_export(path, download_name, *, cleanup_paths=()):
+    """Send a generated file and remove all temporary artifacts on response close."""
+    from flask import send_file
+
+    response = send_file(path, as_attachment=True, download_name=download_name)
+
+    def _cleanup():
+        cleanup_export_tmp(path)
+        for extra in cleanup_paths:
+            cleanup_export_tmp(extra)
+
+    response.call_on_close(_cleanup)
+    return response

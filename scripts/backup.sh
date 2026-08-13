@@ -15,18 +15,73 @@ BACKUP_DIR="${APP_DIR}/backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # 保留份数：Web 备份管理可经 ITSM_BACKUP_KEEP 覆盖（默认 30）
 KEEP_COUNT="${ITSM_BACKUP_KEEP:-30}"
+PARTIAL_FILES=()
+
+on_error() {
+    local exit_code="$1"
+    local line_no="$2"
+    trap - ERR
+    for partial in "${PARTIAL_FILES[@]}"; do
+        [ -n "${partial}" ] && rm -f -- "${partial}"
+    done
+    local message="ITSM backup failed at line ${line_no} (exit ${exit_code})"
+    echo "[backup][ERROR] ${message}" >&2
+    if command -v logger >/dev/null 2>&1; then
+        logger -p user.err -t itsm-backup "${message}"
+    fi
+    exit "${exit_code}"
+}
+trap 'on_error $? $LINENO' ERR
+
+if ! [[ "${KEEP_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[backup][FATAL] ITSM_BACKUP_KEEP 必须是正整数" >&2
+    exit 2
+fi
 
 mkdir -p "${BACKUP_DIR}"
 
-# 从 .env 读 DB URI（systemd 也注入，这里直跑时补齐）
-DB_URI_VAL=""
-if [ -f "${ENV_FILE}" ]; then
-    DB_URI_VAL=$(grep -E '^ITSM_DATABASE_URI=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- || true)
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "[backup][FATAL] 缺少 ${ENV_FILE}" >&2
+    exit 2
 fi
+
+KEY_ITEMS=()
+shopt -s nullglob
+KEY_PATHS=("${APP_DIR}"/.secret.key*)
+for key_path in "${KEY_PATHS[@]}"; do
+    [ -f "${key_path}" ] || continue
+    chmod 600 "${key_path}"
+    key_mode=$(stat -c '%a' "${key_path}")
+    if [ "${key_mode}" != "600" ]; then
+        echo "[backup][FATAL] ${key_path} 权限必须为 600，当前为 ${key_mode}" >&2
+        exit 2
+    fi
+done
+# 备份集合只携带当前活动密钥；历史 .bak 文件仅断言权限，不再次扩散。
+for key_name in .secret.key .secret.key.locked; do
+    [ -f "${APP_DIR}/${key_name}" ] && KEY_ITEMS+=("${key_name}")
+done
+if [ "${#KEY_ITEMS[@]}" -eq 0 ]; then
+    echo "[backup][FATAL] 未找到 .secret.key 或 .secret.key.locked" >&2
+    exit 2
+fi
+
+for required_dir in reports uploads static/uploads; do
+    if [ ! -d "${APP_DIR}/${required_dir}" ]; then
+        echo "[backup][FATAL] 缺少业务文件目录 ${APP_DIR}/${required_dir}" >&2
+        exit 2
+    fi
+done
+
+# 从 .env 读 DB URI（systemd 也注入，这里直跑时补齐）
+DB_URI_VAL=$(awk -F= '$1 == "ITSM_DATABASE_URI" {sub(/^[^=]*=/, ""); print; exit}' "${ENV_FILE}")
 
 if [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == postgresql* ]]; then
     # ---- PostgreSQL：pg_dump ----
     BACKUP_FILE="${BACKUP_DIR}/itsm_pg_${TIMESTAMP}.dump"
+    DUMP_PARTIAL="${BACKUP_FILE}.partial"
+    META_PARTIAL="${BACKUP_DIR}/itsm_meta_${TIMESTAMP}.tar.gz.partial"
+    PARTIAL_FILES+=("${DUMP_PARTIAL}" "${META_PARTIAL}")
     echo "[backup] PostgreSQL 模式，pg_dump 自定义格式..."
     # 从 URI 解析库/用户/主机/端口
     # postgresql://user:pass@host:port/dbname
@@ -37,13 +92,16 @@ if [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == postgresql* ]]; then
     [ "${PG_PORT}" = "${DB_URI_VAL}" ] && PG_PORT="5432"
     # 用 .pgpass 或 URI 内联密码；此处用 PGPASSWORD 环境变量
     export PGPASSWORD=$(echo "${DB_URI_VAL}" | sed -E 's#^postgresql://[^:]+:([^@]+)@.*#\1#')
-    pg_dump -Fc -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DB}" -f "${BACKUP_FILE}"
+    pg_dump -Fc -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DB}" -f "${DUMP_PARTIAL}"
+    pg_restore --list "${DUMP_PARTIAL}" >/dev/null
     # 密钥 + .env + 业务文件目录（reports/uploads/static/uploads）一并 tar
     # —— 文件目录缺失会导致整机恢复后报告/上传文件丢失，故必须包含
     EXTRA="${BACKUP_DIR}/itsm_meta_${TIMESTAMP}.tar.gz"
-    tar -czf "${EXTRA}" -C "${APP_DIR}" \
-        .secret.key .env \
-        reports uploads static/uploads 2>/dev/null || true
+    tar -czf "${META_PARTIAL}" -C "${APP_DIR}" \
+        "${KEY_ITEMS[@]}" .env reports uploads static/uploads
+    tar -tzf "${META_PARTIAL}" >/dev/null
+    mv "${DUMP_PARTIAL}" "${BACKUP_FILE}"
+    mv "${META_PARTIAL}" "${EXTRA}"
     echo "[backup] 完成: ${BACKUP_FILE} (+ ${EXTRA})"
 elif [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == sqlite* ]]; then
     # ---- SQLite：文件级 tar ----
@@ -56,31 +114,42 @@ elif [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == sqlite* ]]; then
         # 常见默认：sqlite:/// 后的路径就是相对于 APP_DIR 的 instance/itsm.db
         DB_ABS="${APP_DIR}/instance/itsm.db"
     fi
-    tar -czf "${BACKUP_FILE}" \
+    FULL_PARTIAL="${BACKUP_FILE}.partial"
+    PARTIAL_FILES+=("${FULL_PARTIAL}")
+    tar -czf "${FULL_PARTIAL}" \
         -C "${APP_DIR}" \
         instance/itsm.db \
-        .secret.key \
+        "${KEY_ITEMS[@]}" \
         .env \
-        reports uploads static/uploads 2>/dev/null || true
+        reports uploads static/uploads
+    tar -tzf "${FULL_PARTIAL}" >/dev/null
+    mv "${FULL_PARTIAL}" "${BACKUP_FILE}"
     echo "[backup] 完成: ${BACKUP_FILE}"
 else
-    # ---- 未知/未配置 URI：按旧逻辑默认 SQLite 文件 ----
-    BACKUP_FILE="${BACKUP_DIR}/itsm_full_${TIMESTAMP}.tar.gz"
-    tar -czf "${BACKUP_FILE}" \
-        -C "${APP_DIR}" \
-        instance/itsm.db \
-        .secret.key \
-        .env \
-        reports uploads static/uploads 2>/dev/null || true
-    echo "[backup] 完成: ${BACKUP_FILE}（未在 .env 检测到 URI，按默认 SQLite 处理）"
+    echo "[backup][FATAL] ITSM_DATABASE_URI 缺失或不受支持，拒绝猜测数据库类型" >&2
+    exit 2
 fi
 
-# 保留最近 KEEP_COUNT 份（按时间倒序）
-# glob 无匹配时（如纯 PG 环境无 itsm_full_*.tar.gz）ls 报错：pipefail 下退出码 2 会经
-# set -e 中断脚本，故命令替换与清理管道均需 || true 兜底
-OLD_COUNT=$(ls -1 "${BACKUP_DIR}"/itsm_full_*.tar.gz "${BACKUP_DIR}"/itsm_pg_*.dump 2>/dev/null | wc -l || true)
-if [ "${OLD_COUNT}" -gt "${KEEP_COUNT}" ]; then
-    ls -1t "${BACKUP_DIR}"/itsm_full_*.tar.gz "${BACKUP_DIR}"/itsm_pg_*.dump 2>/dev/null \
-        | tail -n +$((KEEP_COUNT + 1)) | xargs -r rm -f || true
-    echo "已清理旧备份"
+# 按备份集轮转；PostgreSQL dump 与同时间戳 meta 必须一起删除。
+shopt -s nullglob
+FULL_BACKUPS=("${BACKUP_DIR}"/itsm_full_*.tar.gz)
+PG_BACKUPS=("${BACKUP_DIR}"/itsm_pg_*.dump)
+BACKUP_SETS=("${FULL_BACKUPS[@]}" "${PG_BACKUPS[@]}")
+if [ "${#BACKUP_SETS[@]}" -gt "${KEEP_COUNT}" ]; then
+    mapfile -t BACKUP_SETS < <(
+        for backup_file in "${BACKUP_SETS[@]}"; do
+            printf '%s\t%s\n' "$(stat -c '%Y' "${backup_file}")" "${backup_file}"
+        done | sort -rn | cut -f2-
+    )
+    for backup_file in "${BACKUP_SETS[@]:${KEEP_COUNT}}"; do
+        if [[ "${backup_file}" == */itsm_pg_*.dump ]]; then
+            backup_stamp="${backup_file##*/itsm_pg_}"
+            backup_stamp="${backup_stamp%.dump}"
+            meta_file="${BACKUP_DIR}/itsm_meta_${backup_stamp}.tar.gz"
+            rm -f -- "${backup_file}" "${meta_file}"
+        else
+            rm -f -- "${backup_file}"
+        fi
+    done
+    echo "[backup] 已按备份集清理旧备份"
 fi

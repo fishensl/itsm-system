@@ -53,3 +53,31 @@ def test_wrapped_master_key_rejects_wrong_password():
     envelope = crypto.wrap_master_key(Fernet.generate_key(), 'correct horse battery staple')
     with pytest.raises(crypto.MasterKeyLocked):
         crypto.unwrap_master_key(envelope, 'wrong password')
+
+
+def test_production_missing_master_key_fails_closed(tmp_path, monkeypatch):
+    import utils.crypto as crypto
+
+    monkeypatch.setattr(crypto, 'KEY_FILE', str(tmp_path / '.secret.key'))
+    monkeypatch.setattr(crypto, 'WRAPPED_KEY_FILE', str(tmp_path / '.secret.key.locked'))
+    monkeypatch.setattr(crypto, '_memory_key', None)
+    monkeypatch.setenv('ITSM_ENV', 'production')
+    with pytest.raises(crypto.MasterKeyMissing):
+        crypto.ensure_master_key_available()
+    assert crypto.master_key_status() == 'missing'
+    assert not (tmp_path / '.secret.key').exists()
+
+
+def test_explicit_master_key_initialization_is_non_overwriting(tmp_path, monkeypatch):
+    import utils.crypto as crypto
+
+    key_file = tmp_path / '.secret.key'
+    monkeypatch.setattr(crypto, 'KEY_FILE', str(key_file))
+    monkeypatch.setattr(crypto, 'WRAPPED_KEY_FILE', str(tmp_path / '.secret.key.locked'))
+    monkeypatch.setattr(crypto, '_memory_key', None)
+    assert crypto.master_key_status() == 'missing'
+    key = crypto.initialize_master_key()
+    assert key_file.read_bytes() == key
+    assert crypto.master_key_status() == 'available'
+    with pytest.raises(FileExistsError):
+        crypto.initialize_master_key()

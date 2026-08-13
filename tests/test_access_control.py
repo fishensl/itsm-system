@@ -109,6 +109,40 @@ class TestExternalAllowed:
         assert r.status_code in (200, 301, 302)
 
 
+class TestUploadedStaticFiles:
+    def test_anonymous_is_404_and_authenticated_is_allowed(
+            self, app, client, admin_client, tmp_path):
+        original = app.static_folder
+        static_dir = tmp_path / 'static'
+        upload_dir = static_dir / 'uploads' / 'reports'
+        upload_dir.mkdir(parents=True)
+        (upload_dir / 'audit.txt').write_text('protected', encoding='utf-8')
+        app.static_folder = str(static_dir)
+        try:
+            anonymous = client.get('/static/uploads/reports/audit.txt')
+            authenticated = admin_client.get('/static/uploads/reports/audit.txt')
+        finally:
+            app.static_folder = original
+        assert anonymous.status_code == 404
+        assert authenticated.status_code == 200
+        assert authenticated.data == b'protected'
+
+
+def test_access_control_exception_fails_closed_for_sensitive_api(
+        admin_client, monkeypatch):
+    import utils.access_control as access_control
+
+    def _broken_networks():
+        raise RuntimeError('database unavailable')
+
+    monkeypatch.setattr(access_control, 'get_trusted_networks', _broken_networks)
+    sensitive = admin_client.get('/api/users')
+    assert sensitive.status_code == 403
+    assert '临时关闭' in sensitive.get_json()['message']
+    # 外网工单处置白名单仍按既有权限工作，不因配置读取异常被整体锁死。
+    assert admin_client.get('/api/tickets').status_code == 200
+
+
 @pytest.mark.usefixtures('networks')
 class TestInternalAccess:
     def test_customers_ok_internal(self, admin_client, app):

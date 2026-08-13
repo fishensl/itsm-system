@@ -9,12 +9,11 @@
 数据来源：Excel(成员分工安排表) 一次性导入 → InspectionTask（source='Excel导入'）。
 后续仍可与 /inspection-tasks 老页面并行使用，新页面侧重"主管 / 全员"分工视角。
 """
-import os
 import re
 from datetime import date, datetime, timezone, timedelta
 
 from flask import (Blueprint, request, redirect, url_for,
-                   flash, jsonify, send_from_directory, current_app)
+                   flash, jsonify, current_app)
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 
@@ -321,7 +320,7 @@ PRIORITY_VALUES = {'低', '中', '高', '紧急'}
 @require_permission('task:schedule')
 def import_template():
     """下载 Excel 导入模板（含表头 + 1 行示例）"""
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
         '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15', '1', '1.5'
@@ -331,10 +330,7 @@ def import_template():
         filename='任务安排导入模板.xlsx',
         sheet_name='成员分工安排表',
     )
-    return send_from_directory(
-        os.path.dirname(tmp_path), os.path.basename(tmp_path),
-        as_attachment=True, download_name=download_name,
-    )
+    return send_temp_export(tmp_path, download_name)
 
 
 @task_schedule_bp.route('/import', methods=['POST'])
@@ -571,6 +567,7 @@ def change_assignee(task_id):
 
 @task_schedule_bp.route('/<int:task_id>/status-form', methods=['POST'])
 @login_required
+@require_permission('task:schedule')
 def change_status_form(task_id):
     """表单版改状态（兼容老 task_dispatch 的 accept/start/complete 重定向落点）"""
     task = InspectionTask.query.get_or_404(task_id)
@@ -665,6 +662,17 @@ def quick_add():
     )
     db.session.add(task)
     db.session.commit()
+    if status == TASK_CONTRACT_REVIEW:
+        try:
+            from utils.notifications import notify_contract_review_request
+            notify_contract_review_request(
+                current_user.department_id,
+                f'任务合同例外申请：{task.title}',
+                f'{current_user.realname or current_user.username} 申请为过期合同客户安排任务：'
+                f'{exception_reason}',
+                '/app/task-schedule', except_user_id=current_user.id)
+        except Exception:
+            current_app.logger.warning('任务合同例外通知失败 task_id=%s', task.id, exc_info=True)
     flash('任务已创建', 'success')
     return redirect(request.referrer or url_for('task_schedule.index'))
 
@@ -826,7 +834,7 @@ def task_detail(task_id):
 @require_permission('task:schedule')
 def export_excel():
     """按当前筛选条件导出 Excel"""
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
 
     # V18: 导出口径与看板一致（默认本季度）
     eff_args, _eff_period = _effective_request_args(request.args)
@@ -854,7 +862,4 @@ def export_excel():
         filename=f'任务安排_{date.today().isoformat()}.xlsx',
         sheet_name='成员分工安排表',
     )
-    return send_from_directory(
-        os.path.dirname(tmp_path), os.path.basename(tmp_path),
-        as_attachment=True, download_name=download_name,
-    )
+    return send_temp_export(tmp_path, download_name)

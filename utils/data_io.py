@@ -343,11 +343,12 @@ def perform_import(zip_path, restore_secret_key=False, password=None):
 
 
 def _perform_import_inner(zip_path, restore_secret_key=False):
-    """导入 zip：清空并回灌全部表数据 + 还原文件 + 可选还原密钥。
+    """导入 zip：回灌表数据，并把文件/密钥暂存到提交后发布区。
 
     zip_path: 备份包磁盘路径（由调用方提供，通常是上传保存的临时文件）。
     返回 dict 汇总：{restored_rows, restored_files, secret_key_restored, warnings}
-    失败抛 ValueError。本函数不做 commit/rollback，由调用方包在外层事务里。
+    失败抛 ValueError。本函数不做 commit/rollback；调用方 commit 成功后必须调用
+    finalize_import_restore()，rollback 时调用 discard_import_restore()。
     """
     root = _app_root()
     warnings = []
@@ -382,7 +383,7 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
             sha.update(zf.read(name))
         actual = sha.hexdigest()
         if actual != expected_sha:
-            warnings.append('备份包完整性校验未通过（sha256 不一致），可能被篡改或损坏，请谨慎确认')
+            raise ValueError('备份包完整性校验失败（sha256 不一致），拒绝导入')
 
     # === schema 漂移检查：表级 + 列级 ===
     current_tables = set(_table_names_in_order())
@@ -424,6 +425,8 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
     if is_pg:
         db.session.execute(text('SET CONSTRAINTS ALL DEFERRED'))
 
+    staging_dir = ''
+    pending_files = []
     try:
         # === 1. 数据回灌（单事务，由调用方决定 commit） ===
         ordered = [t for t in _table_names_in_order() if t in data]
@@ -453,11 +456,17 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
             seq_warnings = _reset_pg_sequences(ordered)
             warnings.extend(seq_warnings)
 
-        # === 2. 文件还原 ===
+        # === 2. 文件/密钥只写入同文件系统暂存区 ===
+        # 调用方必须先提交 DB，再调用 finalize_import_restore() 原子落盘。
+        has_restore_files = any(
+            any(name.startswith(zip_sub + '/') and not name.endswith('/') for name in names)
+            for zip_sub, _disk_rel in FILE_DIRS
+        )
+        if has_restore_files or (restore_secret_key and 'secret.key' in names):
+            staging_dir = tempfile.mkdtemp(prefix='.itsm-restore-', dir=root)
         for zip_sub, disk_rel in FILE_DIRS:
             prefix = zip_sub + '/'
             disk_abs = os.path.join(root, disk_rel)
-            os.makedirs(disk_abs, exist_ok=True)
             for name in names:
                 if name.startswith(prefix) and not name.endswith('/'):
                     rel = name[len(prefix):]
@@ -467,21 +476,29 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
                        and os.path.abspath(target) != os.path.abspath(disk_abs):
                         warnings.append(f'跳过可疑路径: {rel}')
                         continue
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    with zf.open(name) as src, open(target, 'wb') as dst:
+                    staged = os.path.join(staging_dir, 'files', disk_rel, rel)
+                    os.makedirs(os.path.dirname(staged), exist_ok=True)
+                    with zf.open(name) as src, open(staged, 'wb') as dst:
                         shutil.copyfileobj(src, dst)
+                    pending_files.append((staged, target, False))
                     restored_files += 1
 
-        # === 3. 密钥还原（可选） ===
+        # === 3. 密钥同样暂存，绝不在 DB commit 前覆盖当前密钥 ===
         if restore_secret_key and 'secret.key' in names:
             key_path = os.path.join(root, SECRET_KEY_FILE)
-            with zf.open('secret.key') as src, open(key_path, 'wb') as dst:
+            staged_key = os.path.join(staging_dir, 'secret.key')
+            with zf.open('secret.key') as src, open(staged_key, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
+            # 先验证 Fernet 格式，避免提交 DB 后才发现密钥文件不可用。
+            from cryptography.fernet import Fernet
+            with open(staged_key, 'rb') as stream:
+                Fernet(stream.read().strip())
+            pending_files.append((staged_key, key_path, True))
             secret_key_restored = True
-            try:
-                os.chmod(key_path, 0o600)
-            except Exception:
-                pass  # Windows 无效，忽略
+    except Exception:
+        if staging_dir:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
     finally:
         if is_pg:
             # 恢复约束为立即校验（默认行为），避免影响后续正常写操作
@@ -499,4 +516,37 @@ def _perform_import_inner(zip_path, restore_secret_key=False):
         'restored_files': restored_files,
         'secret_key_restored': secret_key_restored,
         'warnings': warnings,
+        '_staging_dir': staging_dir,
+        '_pending_files': pending_files,
     }
+
+
+def finalize_import_restore(result):
+    """Atomically publish staged files after the database transaction commits."""
+    staging_dir = result.pop('_staging_dir', '')
+    pending_files = result.pop('_pending_files', [])
+    try:
+        for staged, target, is_secret in pending_files:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            os.replace(staged, target)
+            if is_secret:
+                try:
+                    os.chmod(target, 0o600)
+                except OSError:
+                    pass
+                # A process-unlocked key must not survive replacement of the key file.
+                import utils.crypto as crypto
+                crypto._memory_key = None
+    finally:
+        if staging_dir:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+    return result
+
+
+def discard_import_restore(result):
+    """Remove staged files when the database transaction is rolled back."""
+    staging_dir = result.pop('_staging_dir', '') if result else ''
+    if result:
+        result.pop('_pending_files', None)
+    if staging_dir:
+        shutil.rmtree(staging_dir, ignore_errors=True)

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """P2 设备 Vue API：列表/筛选/增删改/密码 reveal/字典"""
+from datetime import date
+
 import pytest
 
 from models import db, Customer, Device
@@ -16,7 +18,7 @@ def seed(app):
         db.session.flush()
         d1 = Device(customer_id=c1.id, device_name='SW-A', device_type='交换机',
                     brand='华为', ip_address='10.0.0.1', is_in_use=True,
-                    network_type='内网', cert_expiry_date='2026-12-31',
+                    network_type='内网', cert_expiry_date=date(2026, 12, 31),
                     password_encrypted=encrypt_password('Sec#1'))
         d2 = Device(customer_id=c2.id, device_name='FW-B', device_type='防火墙',
                     brand='深信服', ip_address='10.0.0.2', is_in_use=False)

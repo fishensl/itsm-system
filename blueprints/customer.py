@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """客户导出 + 地区/上级单位候选 API（SSR CRUD 与导入已由 Vue SPA /api/v2/* 接管）"""
-import os
 from datetime import date
-from flask import (Blueprint, request, send_from_directory, jsonify)
+from flask import (Blueprint, request, jsonify)
 from flask_login import login_required
 from models import (Customer, Region)
 from services.customer_hierarchy import candidate_parents
@@ -17,7 +16,7 @@ customer_bp = Blueprint('customer', __name__)
 @require_permission('customer:export')
 def customer_export():
     """导出客户列表到 Excel（列序与导入模板保持一致，便于导出后修改再导入）"""
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
     headers = ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址',
                '单位类别', '客户等级',
                '办公室', '有无驻场', '驻场联系人', '驻场联系方式', '驻场办公室',
@@ -50,10 +49,7 @@ def customer_export():
         filename=f'客户导出_{date.today().isoformat()}.xlsx',
         sheet_name='客户信息',
     )
-    return send_from_directory(
-        os.path.dirname(tmp_path), os.path.basename(tmp_path),
-        as_attachment=True, download_name=download_name,
-    )
+    return send_temp_export(tmp_path, download_name)
 
 
 @customer_bp.route('/api/regions/children/<int:parent_id>')

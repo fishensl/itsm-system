@@ -68,14 +68,12 @@ def _ticket_export_rows(tickets):
 def ticket_export():
     """工单记录导出 Excel（?customer_id=&date_from=&date_to=）"""
     from datetime import date as _date
-    from utils.excel_export import export_xlsx
-    from flask import send_from_directory
+    from utils.excel_export import export_xlsx, send_temp_export
     tickets = _ticket_export_filter(request.args)
     headers, rows, _files = _ticket_export_rows(tickets)
     path, download_name = export_xlsx(
         headers, rows, f'工单导出_{_date.today().isoformat()}.xlsx', sheet_name='工单记录')
-    return send_from_directory(os.path.dirname(path), os.path.basename(path),
-                               as_attachment=True, download_name=download_name)
+    return send_temp_export(path, download_name)
 
 
 @ops_bp.route('/tickets/reports-zip')
@@ -84,9 +82,8 @@ def ticket_export():
 def ticket_reports_zip():
     """工单记录+处理报告打包下载（按客户/时间段筛选）"""
     from datetime import date as _date
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
     from utils.report_zip import build_records_zip
-    from flask import send_file
     tickets = _ticket_export_filter(request.args)
     headers, rows, files = _ticket_export_rows(tickets)
     if not rows:
@@ -94,5 +91,5 @@ def ticket_reports_zip():
         return redirect(request.referrer or '/app/tickets')
     excel_path, _ = export_xlsx(headers, rows, '工单明细.xlsx', sheet_name='工单记录')
     zip_path = build_records_zip(excel_path, files, '工单报告包')
-    return send_file(zip_path, as_attachment=True,
-                     download_name=f'工单报告包_{_date.today().isoformat()}.zip')
+    return send_temp_export(
+        zip_path, f'工单报告包_{_date.today().isoformat()}.zip', cleanup_paths=(excel_path,))

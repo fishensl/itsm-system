@@ -18,6 +18,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -30,6 +32,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+
+      - name: Published migrations are immutable
+        env:
+          MIGRATION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python scripts/check_migration_immutability.py
 
       - name: Ruff (pyflakes)
         run: ruff check .
@@ -69,16 +76,22 @@ jobs:
       - name: Build
         run: npm run build
 
-      # master push 时发布 dist 到 GitHub Release（update.sh 拉取部署，服务器免 Node）
+      # master push 时按 commit SHA 发布不可变 dist（update.sh 按后端 HEAD 精确拉取）
       - name: Publish dist (master only)
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: |
           cd dist
           zip -r ../itsm-vue-dist.zip .
           cd ..
-          gh release upload vue-dist itsm-vue-dist.zip --clobber \
-            --repo "$GITHUB_REPOSITORY" 2>/dev/null || \
-            gh release create vue-dist itsm-vue-dist.zip --repo "$GITHUB_REPOSITORY" \
-              --title "Vue 前端构建产物" --notes "由 CI 自动构建（master push）"
+          sha256sum itsm-vue-dist.zip | awk '{print $1}' > itsm-vue-dist.zip.sha256
+          RELEASE_TAG="vue-dist-${GITHUB_SHA}"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG 已存在；拒绝覆盖不可变产物" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" itsm-vue-dist.zip itsm-vue-dist.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Vue 前端构建产物 ${GITHUB_SHA}" \
+            --notes "由 CI 从 commit ${GITHUB_SHA} 构建；产物不可覆盖。"
         env:
           GH_TOKEN: ${{ github.token }}

@@ -65,6 +65,69 @@ class TestTaskScheduleApi:
         assert titles.index('2026年二季度巡检') < titles.index('2026年三季度巡检') \
             < titles.index('待审核任务')
 
+    def test_contract_review_flow_and_notification(self, admin_client, op_client, app, monkeypatch):
+        cid, _ = _seed(app)
+        with app.app_context():
+            customer = db.session.get(Customer, cid)
+            customer.contract_end_date = date.today() - timedelta(days=1)
+            db.session.commit()
+        events = []
+        monkeypatch.setattr(
+            'utils.wecom_notify.wecom_broadcast',
+            lambda event_type, *args, **kwargs: events.append(event_type) or (1, 0))
+        created = op_client.post('/api/task-schedule', json={
+            'title': '过期合同巡检', 'customer_id': cid,
+            'contract_exception_reason': '紧急安全检查',
+            'planned_start': date.today().isoformat(),
+            'planned_end': (date.today() + timedelta(days=7)).isoformat(),
+        })
+        assert created.status_code == 200
+        task_id = created.get_json()['data']['id']
+        board = admin_client.get('/api/task-schedule?view=status').get_json()['data']
+        assert board['kpi']['contract_review'] == 1
+        assert board['status_groups']['合同审批'][0]['contract_exception_reason'] == '紧急安全检查'
+        assert 'contract_review' in events
+
+        # 通用更新接口不能绕过专用审核入口。
+        bypass = admin_client.put(
+            f'/api/task-schedule/{task_id}', json={'status': '待执行'})
+        assert bypass.status_code == 400
+        assert '审核接口' in bypass.get_json()['message']
+        assert op_client.post(
+            f'/api/task-schedule/{task_id}/contract-review',
+            json={'approved': True}).status_code == 403
+
+        reviewed = admin_client.post(
+            f'/api/task-schedule/{task_id}/contract-review',
+            json={'approved': True, 'comment': '同意本次例外'})
+        assert reviewed.status_code == 200
+        assert reviewed.get_json()['data']['status'] == '待执行'
+        with app.app_context():
+            from models import AuditLog, Notification
+            task = db.session.get(InspectionTask, task_id)
+            assert task.contract_exception_status == '通过'
+            assert '审核意见：同意本次例外' in task.contract_exception_reason
+            assert AuditLog.query.filter_by(
+                action='task:contract_review', target_id=task_id).count() == 1
+            assert Notification.query.filter(
+                Notification.title.contains('任务合同例外审核通过')).count() >= 1
+
+    def test_contract_review_rejects_to_cancelled(self, admin_client, app):
+        cid, _ = _seed(app)
+        with app.app_context():
+            task = InspectionTask(
+                title='拒绝例外', customer_id=cid, status='合同审批',
+                contract_exception_status='待审核', contract_exception_reason='无合同',
+                contract_exception_by='op')
+            db.session.add(task)
+            db.session.commit()
+            task_id = task.id
+        r = admin_client.post(
+            f'/api/task-schedule/{task_id}/contract-review',
+            json={'approved': False})
+        assert r.status_code == 200
+        assert r.get_json()['data']['status'] == '已取消'
+
     def test_status_machine_validation(self, admin_client, app):
         """V21: 状态机校验 — 已取消不可回退；待审核不可手工重复"""
         cid, _ = _seed(app)
@@ -207,3 +270,12 @@ class TestTaskScheduleApi:
         assert viewer_client.get('/api/task-schedule').status_code == 403  # 无 task:schedule
         assert op_client.get('/api/task-schedule').status_code == 200
         assert viewer_client.post('/api/task-schedule', json={}).status_code == 403
+
+    def test_legacy_status_form_requires_task_permission(self, viewer_client, app):
+        cid, _ = _seed(app)
+        with app.app_context():
+            task_id = InspectionTask.query.filter_by(customer_id=cid).first().id
+        r = viewer_client.post(
+            f'/task-schedule/{task_id}/status-form', json={'status': '执行中'})
+        assert r.status_code == 403
+        assert r.get_json()['required'] == 'task:schedule'

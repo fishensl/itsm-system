@@ -69,6 +69,7 @@ class User(UserMixin, db.Model):
     mfa_op_enabled = db.Column(db.Boolean, default=False)
     backup_codes_json = db.Column(db.Text, default='[]')
     auth_version = db.Column(db.Integer, default=0)
+    must_change_password = db.Column(db.Boolean, default=False, nullable=False)
     vpn_account = db.Column(db.String(128), default='')
     op_fail_count = db.Column(db.Integer, default=0)
     op_locked_until = db.Column(db.DateTime, nullable=True)
@@ -271,4 +272,3 @@ class RolePermission(db.Model):
     __table_args__ = (
         db.UniqueConstraint('role_id', 'permission_code', name='uq_role_perm'),
     )
-

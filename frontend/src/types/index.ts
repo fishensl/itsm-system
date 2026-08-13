@@ -33,6 +33,7 @@ export interface CurrentUser {
   permissions: string[]
   /** 是否为部门负责人（部门主管，可执行派单等主管动作） */
   is_supervisor?: boolean
+  must_change_password?: boolean
 }
 
 /** 侧栏分组（数据源与后端 sidebar_config 对齐） */

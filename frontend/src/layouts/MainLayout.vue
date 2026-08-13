@@ -200,7 +200,15 @@
     </el-drawer>
 
     <!-- 修改密码弹窗 -->
-    <el-dialog v-model="pwdVisible" title="修改密码" width="420px" destroy-on-close>
+    <el-dialog
+      v-model="pwdVisible"
+      :title="mustChangePassword ? '首次登录必须修改密码' : '修改密码'"
+      width="420px"
+      destroy-on-close
+      :show-close="!mustChangePassword"
+      :close-on-click-modal="!mustChangePassword"
+      :close-on-press-escape="!mustChangePassword"
+    >
       <el-form ref="pwdFormRef" :model="pwdForm" label-width="90px">
         <el-form-item label="原密码" prop="old_password"
           :rules="[{ required: true, message: '请输入原密码', trigger: 'blur' }]">
@@ -208,7 +216,7 @@
         </el-form-item>
         <el-form-item label="新密码" prop="new_password"
           :rules="[{ required: true, message: '请输入新密码', trigger: 'blur' },
-                   { min: 6, message: '至少 6 位', trigger: 'blur' }]">
+                   { min: 12, message: '至少 12 位', trigger: 'blur' }]">
           <el-input v-model="pwdForm.new_password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirm"
@@ -218,7 +226,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="pwdVisible = false">取消</el-button>
+        <el-button v-if="!mustChangePassword" @click="pwdVisible = false">取消</el-button>
         <el-button type="primary" :loading="pwdSaving" @click="savePassword">确认修改</el-button>
       </template>
     </el-dialog>
@@ -260,6 +268,7 @@ const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
 const ui = useUiStore()
+const mustChangePassword = computed(() => Boolean(user.user?.must_change_password))
 
 const mobileNotif = ref(false)
 const mobileSearch = ref(false)
@@ -367,6 +376,7 @@ const activeGroupKey = computed(() => {
 
 onMounted(() => {
   applyTheme(theme.value)
+  if (mustChangePassword.value) openPwdDialog()
   // 首次进入：自动展开当前路由所在分组（防直接访问子页面时全折叠）
   const key = activeGroupKey.value
   if (key && !openGroups.value.has(key)) {
@@ -376,6 +386,10 @@ onMounted(() => {
     saveOpenGroups([...next])
   }
 })
+
+watch(mustChangePassword, (required) => {
+  if (required) openPwdDialog()
+}, { immediate: true })
 </script>
 
 <style scoped>

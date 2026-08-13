@@ -113,3 +113,27 @@ class TestBackupApi:
         assert len(files) == 1
         assert files[0] == d['pre_import_file']
         assert '导入前已自动备份' in d['message']
+
+    def test_import_stops_when_pre_backup_fails(self, admin_client, monkeypatch):
+        import io
+        import zipfile
+        import utils.data_io as data_io
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            zf.writestr('manifest.json',
+                        '{"format_version":1,"table_counts":{},"table_columns":{},"sha256":""}')
+            zf.writestr('data.json', '{}')
+        buf.seek(0)
+
+        def _fail_backup(*_args, **_kwargs):
+            raise OSError('disk full')
+
+        monkeypatch.setattr(data_io, 'build_export_zip', _fail_backup)
+        response = admin_client.post('/api/system/backup/import', data={
+            'backup_file': (buf, 'bak.zip'),
+            'confirm': '我确认覆盖',
+            'restore_secret_key': '0',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 500
+        assert '已停止导入' in response.get_json()['message']

@@ -3,35 +3,23 @@
 import os
 from datetime import date
 from flask import (request, redirect, url_for,
-                   flash, send_from_directory, jsonify, current_app)
+                   flash, jsonify, current_app)
 from flask_login import (login_required, current_user)
 from models import db, UserDashboardPreference
 from utils.permission import require_permission, admin_required
-from utils.decorators import api_view
 
 
 # ==================== 简化的 admin 路由（暂留 app.py 后续蓝图化）====================
 @login_required
 @admin_required
 def repair_schema():
-    """一键诊断 + 修复 DB schema：显示 alembic 版本/缺失列，尝试 flask db upgrade，
-    并对 alembic 误判 head 但列实际缺失的情况直接 ALTER TABLE 补列。"""
-    import io
-    import contextlib
+    """只读诊断 DB schema；修复必须通过 Alembic 部署命令执行。"""
     from sqlalchemy import inspect as sqla_inspect, text
     reports = []
 
     # 关键列及其定义（表名 → (列名, SQL 类型)）— 与 models.py / 迁移保持一致
     # 注：用方言无关的 SQLAlchemy 类型生成补列语句（DATETIME 是 SQLite 专属，
     # PG 上必须用 TIMESTAMP，直接写死 DATETIME 会导致 PG 补列失败）
-    from sqlalchemy import types as _sat
-    _col_type_map = {
-        'FLOAT': _sat.Float(),
-        'TEXT': _sat.Text(),
-        'VARCHAR(16)': _sat.String(16),
-        'VARCHAR(512)': _sat.String(512),
-        'DATETIME': _sat.DateTime(),
-    }
     CRITICAL_COLUMNS = {
         'inspection_tasks': [
             ('estimated_effort', 'FLOAT'),
@@ -71,44 +59,17 @@ def repair_schema():
                 if col_name in existing_cols:
                     reports.append((f'{tbl}.{col_name}', '✅ 存在', 'ok'))
                 else:
-                    # 直接补列（alembic 误判 head 时绕过迁移直接修 schema）
-                    # 用 SQLAlchemy 类型编译为当前方言的 DDL（SQLite→DATETIME / PG→TIMESTAMP）
-                    try:
-                        from sqlalchemy.schema import AddColumn, Column
-                        from sqlalchemy import Table, MetaData
-                        _md = MetaData()
-                        _tbl = Table(tbl, _md)
-                        _col = Column(col_name, _col_type_map.get(col_type, _sat.Text()))
-                        db.session.execute(AddColumn(_tbl, _col))
-                        db.session.commit()
-                        reports.append((f'{tbl}.{col_name}', '🔧 已补列', 'ok'))
-                    except Exception as add_err:
-                        db.session.rollback()
-                        reports.append((f'{tbl}.{col_name}',
-                                        f'❌ 缺失，补列失败: {str(add_err)[:150]}', 'danger'))
+                    reports.append((f'{tbl}.{col_name}',
+                                    f'❌ 缺失（期望类型 {col_type}），请执行迁移', 'danger'))
     except Exception as e:
         reports.append(('列检查失败', str(e), 'danger'))
-
-    # 3. 尝试 flask db upgrade（补列后跑一次，确保其余迁移到位）
-    upgrade_output = []
-    try:
-        from flask_migrate import upgrade as _migrate_upgrade
-        import os as _os
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            _migrate_upgrade(directory=_os.path.join(
-                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'migrations'))
-        upgrade_output = [l for l in buf.getvalue().split('\n') if l.strip()]
-        reports.append(('flask db upgrade', '✅ 成功', 'ok'))
-    except Exception as e:
-        reports.append(('flask db upgrade', '⚠ ' + str(e)[:300], 'warn'))
 
     # SSR 剥离：返回 JSON（原 render_template 的 repair_schema.html 已下线）
     return jsonify({
         'success': True,
         'reports': [{'name': name, 'status': status, 'detail': detail}
                     for name, detail, status in reports],
-        'upgrade_output': upgrade_output,
+        'upgrade_output': [],
     })
 
 
@@ -147,7 +108,6 @@ def system_ui_version():
 
     # ==================== 侧栏自定义 ====================
 @login_required
-@api_view  # POST 路由需要豁免 CSRF（前端用 fetch + JSON body）
 def system_sidebar():
     """侧栏自定义（GET 已剥离渲染，302 到 SPA；POST 保留 JSON 保存）"""
     from utils.sidebar_config import save_user_sidebar
@@ -162,7 +122,6 @@ def system_sidebar():
 
 
 @login_required
-@api_view
 def api_sidebar_reset():
     """重置为默认"""
     pref = UserDashboardPreference.query.filter_by(user_id=current_user.id).first()
@@ -245,9 +204,6 @@ def download_template(module):
     wb.save(tmp.name)
     tmp.close()
 
-    return send_from_directory(
-        os.path.dirname(tmp.name),
-        os.path.basename(tmp.name),
-        as_attachment=True,
-        download_name=f'{tpl["name"]}_{date.today().isoformat()}.xlsx'
-    )
+    from utils.excel_export import send_temp_export
+    return send_temp_export(
+        tmp.name, f'{tpl["name"]}_{date.today().isoformat()}.xlsx')

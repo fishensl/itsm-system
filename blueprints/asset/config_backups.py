@@ -6,14 +6,12 @@ from flask import request, jsonify, current_app
 from flask_login import login_required, current_user
 from models import (Device, db, DeviceConfigBackup)
 from utils.permission import require_permission
-from utils.decorators import api_view
 from blueprints.asset import asset_bp
 
 
 @asset_bp.route('/api/devices/<int:id>/config-backups/upload-from-inspection', methods=['POST'])
 @login_required
 @require_permission('device:edit')
-@api_view
 def api_config_backup_upload(id):
     """巡检表单中 config_backup 字段类型上传配置文件时调用，自动创建一条 DeviceConfigBackup 记录。"""
     import hashlib

@@ -42,12 +42,8 @@ def _admin_user_ids(except_user_id=None):
     return ids
 
 
-def notify_review_submitted(department_id, category, title, content='', link='',
-                            except_user_id=None):
-    """提交审核通知：提交人所在部门的负责人（Department.head_id）+ 全部 admin。
-
-    用于工单提交审核 / 巡检提交审核 / 任务上传全套资料三处，失败静默不阻断主流程。
-    """
+def review_recipient_ids(department_id, except_user_id=None):
+    """返回审核接收人：申请人所在部门负责人 + 全部管理员。"""
     from models import Department
     targets = []
     if department_id:
@@ -55,8 +51,29 @@ def notify_review_submitted(department_id, category, title, content='', link='',
         if dept and dept.head_id and dept.head_id != except_user_id:
             targets.append(dept.head_id)
     targets.extend(_admin_user_ids(except_user_id))
-    for uid in dict.fromkeys(targets):
+    return list(dict.fromkeys(targets))
+
+
+def notify_review_submitted(department_id, category, title, content='', link='',
+                            except_user_id=None):
+    """提交审核通知：提交人所在部门的负责人（Department.head_id）+ 全部 admin。
+
+    用于工单提交审核 / 巡检提交审核 / 任务上传全套资料三处，失败静默不阻断主流程。
+    """
+    for uid in review_recipient_ids(department_id, except_user_id):
         notify(uid, category, title, content, link)
+
+
+def notify_contract_review_request(department_id, title, content='', link='',
+                                   except_user_id=None):
+    """合同例外待审：站内通知与 EVENT_CONTRACT_REVIEW 多渠道事件同时投递。"""
+    targets = review_recipient_ids(department_id, except_user_id)
+    for uid in targets:
+        notify(uid, 'contract', title, content, link)
+    from utils.wecom_notify import wecom_broadcast, EVENT_CONTRACT_REVIEW
+    wecom_broadcast(EVENT_CONTRACT_REVIEW, title, content, link,
+                    target_user_ids=targets)
+    return len(targets)
 
 
 def notify_overdue_tasks():

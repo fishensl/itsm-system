@@ -65,8 +65,8 @@ python3 -m venv "${VENV}"
 "${VENV}/bin/pip" install --upgrade pip -q
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
-# ---- 5. 生成密钥 ----
-echo "[5/8] 生成密钥..."
+# ---- 5. 生成会话密钥 ----
+echo "[5/8] 生成会话密钥..."
 
 if [ ! -f "${APP_DIR}/.env" ]; then
     SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -79,18 +79,6 @@ EOF
     echo "  .env 已创建"
 else
     echo "  .env 已存在，跳过"
-fi
-
-if [ ! -f "${APP_DIR}/.secret.key" ]; then
-    "${VENV}/bin/python" -c "
-from cryptography.fernet import Fernet
-with open('${APP_DIR}/.secret.key', 'wb') as f:
-    f.write(Fernet.generate_key())
-"
-    chmod 600 "${APP_DIR}/.secret.key"
-    echo "  .secret.key 已创建"
-else
-    echo "  .secret.key 已存在，跳过"
 fi
 
 # ---- 5.5 PostgreSQL（可选，设 ITSM_USE_PG=1 启用）----
@@ -123,7 +111,20 @@ fi
 # ---- 6. 初始化数据库 ----
 echo "[6/8] 初始化数据库..."
 cd "${APP_DIR}"
+set -a
+# shellcheck disable=SC1091
+source "${APP_DIR}/.env"
+set +a
 "${VENV}/bin/python" -c "from app import create_app, init_db; init_db(create_app()); print('数据库初始化完成')"
+
+USER_COUNT=$("${VENV}/bin/python" -c "from app import create_app; from models import User; app=create_app({'RATELIMIT_ENABLED': False}); app.app_context().push(); print(User.query.count())")
+if [ "${USER_COUNT}" = "0" ]; then
+    echo "  请输入首个管理员的强密码（至少 12 位）"
+    "${VENV}/bin/flask" --app app:create_app init-admin
+fi
+for key_file in "${APP_DIR}"/.secret.key "${APP_DIR}"/.secret.key.locked; do
+    [ -f "${key_file}" ] && chmod 600 "${key_file}"
+done
 
 # ---- 7. 创建系统用户 ----
 echo "[7/8] 创建系统用户..."
@@ -152,7 +153,7 @@ echo "服务状态:"
 systemctl status itsm --no-pager -l || true
 echo ""
 echo "访问地址: http://<服务器IP>:5000"
-echo "默认登录: admin / admin123"
+echo "管理员账号由部署时的 init-admin 命令创建；首次登录必须修改密码"
 echo ""
 echo "常用命令:"
 echo "  管理控制台: sudo bash ${APP_DIR}/scripts/itsm-admin.sh  (菜单：部署/更新/备份/迁移/改密码/改端口)"

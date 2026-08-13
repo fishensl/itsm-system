@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """故障导出 + 故障类型 API（SSR CRUD 已由 Vue SPA /api/* 接管）"""
-import os
-from flask import request, send_from_directory, jsonify
+from flask import request, jsonify
 from flask_login import login_required
 from sqlalchemy.orm import joinedload
 from models import Fault, FaultType, db
@@ -15,7 +14,7 @@ from blueprints.ops import ops_bp
 def fault_export():
     # 统一走 utils.excel_export；joinedload 消除逐行 customer N+1
     from datetime import date
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
     rows = [[f.title, f.customer_rel.name if f.customer_rel else '-', f.handler or '',
              f.fault_time.strftime('%Y-%m-%d %H:%M') if f.fault_time else '',
              f.result or '']
@@ -24,8 +23,7 @@ def fault_export():
     path, download_name = export_xlsx(
         ['标题', '客户', '处理人', '故障时间', '结果'], rows,
         f'故障导出_{date.today().isoformat()}.xlsx', sheet_name='故障记录')
-    return send_from_directory(os.path.dirname(path), os.path.basename(path),
-                               as_attachment=True, download_name=download_name)
+    return send_temp_export(path, download_name)
 
 
 # ============================ 故障类型 (API) ============================

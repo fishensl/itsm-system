@@ -498,6 +498,17 @@ class TestTopologyUpload:
         assert r.get_json()['code'] == 1
         assert '文件' in r.get_json()['message']
 
+    def test_upload_rejects_unknown_extension_without_writing(self, admin_client, seed, app):
+        upload_dir = os.path.join(app.root_path, 'static', 'uploads', 'topologies')
+        before = set(os.listdir(upload_dir)) if os.path.isdir(upload_dir) else set()
+        r = admin_client.post('/api/topologies/upload',
+                              data={'topo_file': (io.BytesIO(b'<script>x</script>'), 'evil.html')},
+                              content_type='multipart/form-data')
+        after = set(os.listdir(upload_dir)) if os.path.isdir(upload_dir) else set()
+        assert r.status_code == 400
+        assert r.get_json()['code'] == 1
+        assert before == after
+
     def test_upload_requires_permission(self, viewer_client, seed):
         r = viewer_client.post('/api/topologies/upload',
                                data={'topo_file': (io.BytesIO(b'x'), 'a.png')},

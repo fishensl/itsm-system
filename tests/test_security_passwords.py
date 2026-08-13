@@ -41,8 +41,15 @@ class TestDeviceJsonNoPassword:
         r = op_client.get(f'/api/devices/{device_id}')
         assert r.status_code == 200
         body = r.get_json()
-        assert 'password' not in body
-        assert body['has_password'] is True
+        assert body['code'] == 0
+        assert 'password' not in body['data']
+        assert body['data']['has_password'] is True
+
+    def test_device_detail_has_one_get_route(self, app):
+        matches = [rule for rule in app.url_map.iter_rules()
+                   if rule.rule == '/api/devices/<int:device_id>' and 'GET' in rule.methods]
+        assert len(matches) == 1
+        assert matches[0].endpoint == 'vue_api.api_device_get'
 
     def test_device_json_requires_login(self, client, device):
         device_id, _ = device
@@ -96,29 +103,11 @@ class TestPasswordHistoryApi:
         assert rows[0]['changed_by'] == 'admin'
 
 
-class TestExportPasswordColumn:
-    def _export_headers(self, client, cols):
-        r = client.post('/devices/export', data={'export_columns': cols})
-        assert r.status_code == 200
-        wb = openpyxl.load_workbook(io.BytesIO(r.data))
-        ws = wb.active
-        return [c.value for c in ws[1]], [[c.value for c in row] for row in ws.iter_rows(min_row=2)]
-
-    def test_viewer_export_strips_password_column(self, viewer_client, device):
-        """viewer 无 reveal 权限：即使显式勾选密码列也被剥离"""
-        headers, rows = self._export_headers(
-            viewer_client, ['device_name', 'password'])
-        assert '登录密码' not in headers
-        assert '设备名称' in headers
-        for row in rows:
-            assert PLAIN_PWD not in [str(v) for v in row]
-
-    def test_operator_export_includes_password_with_audit(self, op_client, device):
-        headers, rows = self._export_headers(
-            op_client, ['device_name', 'password'])
-        assert '登录密码' in headers
-        pwd_idx = headers.index('登录密码')
-        assert rows[0][pwd_idx] == PLAIN_PWD
+class TestLegacyExportRetired:
+    def test_plaintext_export_route_is_gone(self, op_client, device):
+        r = op_client.post('/devices/export', data={
+            'export_columns': ['device_name', 'password']})
+        assert r.status_code == 404
 
 
 class TestV2ExportPasswordColumn:

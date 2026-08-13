@@ -28,7 +28,9 @@ export const useUserStore = defineStore('user', () => {
     if (loaded.value) return
     try {
       user.value = await authApi.fetchMe()
-      sidebarGroups.value = await authApi.fetchSidebarGroups()
+      sidebarGroups.value = user.value.must_change_password
+        ? []
+        : await authApi.fetchSidebarGroups()
     } catch {
       user.value = null
     } finally {
@@ -46,7 +48,9 @@ export const useUserStore = defineStore('user', () => {
     user.value = result.user
     pendingMfa.value = null
     loaded.value = true
-    sidebarGroups.value = await authApi.fetchSidebarGroups()
+    sidebarGroups.value = result.user.must_change_password
+      ? []
+      : await authApi.fetchSidebarGroups()
     return result
   }
 
@@ -55,7 +59,9 @@ export const useUserStore = defineStore('user', () => {
     user.value = result.user
     pendingMfa.value = null
     loaded.value = true
-    sidebarGroups.value = await authApi.fetchSidebarGroups()
+    sidebarGroups.value = result.user.must_change_password
+      ? []
+      : await authApi.fetchSidebarGroups()
   }
 
   async function logout() {

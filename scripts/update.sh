@@ -21,30 +21,19 @@ if [ -f "${APP_DIR}/VERSION" ]; then
 fi
 echo "当前版本: ${OLD_VERSION}"
 
-# ---- 1. 备份数据库 ----
-# PG 模式（ITSM_DATABASE_URI=postgresql*）调用 backup.sh 做真实 pg_dump 备份；
-# 仅 SQLite/未配置才复制 instance/itsm.db 文件（PG 下该文件可能是遗留死文件，复制无意义）。
+# ---- 1. 生成完整配对备份 ----
 echo ""
 echo "[1/6] 备份数据库..."
-mkdir -p "${APP_DIR}/backups"
-DB_URI_VAL=""
-if [ -f "${APP_DIR}/.env" ]; then
-    DB_URI_VAL=$(grep -E '^ITSM_DATABASE_URI=' "${APP_DIR}/.env" 2>/dev/null | cut -d= -f2- || true)
-fi
-if [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == postgresql* ]]; then
-    echo "  PostgreSQL 模式，调用 backup.sh 执行 pg_dump 真实备份..."
-    bash "${APP_DIR}/scripts/backup.sh" "${APP_DIR}"
-elif [ -f "${APP_DIR}/instance/itsm.db" ]; then
-    cp "${APP_DIR}/instance/itsm.db" "${APP_DIR}/backups/itsm.db.pre_update_${TIMESTAMP}"
-    echo "  已保存: backups/itsm.db.pre_update_${TIMESTAMP}"
-else
-    echo "  数据库不存在，跳过"
-fi
+bash "${APP_DIR}/scripts/backup.sh" "${APP_DIR}"
 
-# ---- 2. 暂存本地修改 ----
-echo "[2/6] 暂存本地修改..."
+# ---- 2. 工作区必须干净 ----
+echo "[2/6] 检查工作区..."
 cd "${APP_DIR}"
-git stash push --include-untracked -m "auto-stash-${TIMESTAMP}" 2>/dev/null || true
+if [ -n "$(git status --porcelain)" ]; then
+    echo "[FATAL] 工作区存在未提交修改，拒绝自动 stash/覆盖" >&2
+    git status --short
+    exit 1
+fi
 
 # ---- 公共：GitHub 多通道（git pull / vue-dist 下载共用） ----
 # 代理列表：ITSM_PROXIES(逗号分隔) > ITSM_PROXY > 系统 https_proxy/http_proxy
@@ -73,8 +62,10 @@ if [ -n "${ITSM_MIRRORS:-}" ]; then
 fi
 
 GITHUB_REPO_URL=$(git -C "${APP_DIR}" remote get-url origin 2>/dev/null | sed 's/\.git$//')
-GITHUB_RELEASE_URL="${GITHUB_REPO_URL}/releases/download/vue-dist/itsm-vue-dist.zip"
-GITHUB_RELEASE_BASE="${GITHUB_RELEASE_URL#https://github.com/}"
+GITHUB_RELEASE_URL=""
+GITHUB_RELEASE_SHA_URL=""
+GITHUB_RELEASE_BASE=""
+ITSM_AVAILABLE=()
 
 # 探测 URL 可用性（Range 请求 1 字节，HTTP 200/206 即可用，每个 ≤10s）
 probe_url() {
@@ -124,6 +115,7 @@ git_pull_with_fallback() {
         echo "  [INFO] 发现离线代码包 backups/itsm-update.bundle，本地应用..."
         if timeout 60 git pull "${bundle}" "${branch}" 2>/dev/null; then
             mv "${bundle}" "${bundle}.used.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || rm -f "${bundle}"
+            rm -f "${bundle}.sha256"
             echo "  [OK] 代码已更新（本地 bundle，零网络依赖）"
             return 0
         else
@@ -167,25 +159,56 @@ git_pull_with_fallback() {
 }
 
 # ---- 发布包完整性校验（离线包两个文件必须成对，缺一即中断） ----
-if [ -f "${APP_DIR}/backups/itsm-update.bundle" ] && [ ! -f "${APP_DIR}/backups/vue-dist-manual.zip" ]; then
-    echo "[FATAL] 发布包不完整：已上传代码包 backups/itsm-update.bundle，但缺少前端包 backups/vue-dist-manual.zip"
-    echo "        请用 scripts/make-release.sh 生成发布包，并同时上传两个文件到 backups/ 后重跑本脚本"
-    exit 1
+if [ -f "${APP_DIR}/backups/itsm-update.bundle" ]; then
+    for release_file in itsm-update.bundle.sha256 vue-dist-manual.zip \
+        vue-dist-manual.zip.sha256 itsm-release-manifest.txt; do
+        if [ ! -f "${APP_DIR}/backups/${release_file}" ]; then
+            echo "[FATAL] 发布包不完整：缺少 backups/${release_file}" >&2
+            exit 1
+        fi
+    done
+    expected_bundle=$(tr -d '[:space:]' < "${APP_DIR}/backups/itsm-update.bundle.sha256")
+    actual_bundle=$(sha256sum "${APP_DIR}/backups/itsm-update.bundle" | awk '{print $1}')
+    if [ "${expected_bundle}" != "${actual_bundle}" ]; then
+        echo "[FATAL] itsm-update.bundle SHA256 校验失败" >&2
+        exit 1
+    fi
+    OFFLINE_MANIFEST="${APP_DIR}/backups/itsm-release-manifest.txt"
+    OFFLINE_EXPECTED_COMMIT=$(awk -F= '$1 == "commit" {print $2; exit}' "${OFFLINE_MANIFEST}")
+    manifest_bundle_sha=$(awk -F= '$1 == "bundle_sha256" {print $2; exit}' "${OFFLINE_MANIFEST}")
+    manifest_vue_sha=$(awk -F= '$1 == "vue_sha256" {print $2; exit}' "${OFFLINE_MANIFEST}")
+    expected_vue=$(tr -d '[:space:]' < "${APP_DIR}/backups/vue-dist-manual.zip.sha256")
+    if ! [[ "${OFFLINE_EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || \
+       [ "${manifest_bundle_sha}" != "${actual_bundle}" ] || \
+       [ "${manifest_vue_sha}" != "${expected_vue}" ]; then
+        echo "[FATAL] 离线发布 manifest 与 bundle/前端校验和不匹配" >&2
+        exit 1
+    fi
 fi
 
 # ---- 3. 拉取最新代码 ----
 echo "[3/6] 拉取最新代码..."
 # 统一生产分支为 master：CI 仅 master 发布 vue-dist，必须同源拉取（避免 main/master 错位）
-# 先探测通道（代理/直连/镜像），git pull 限时执行，失败走代理/镜像兜底（不无限卡死）
-echo "  [INFO] 探测下载通道（代理/直连/镜像）..."
-probe_all_channels || true
+# git pull 限时执行，失败走代理/镜像兜底（不无限卡死）
 if ! git_pull_with_fallback master; then
-    echo "  [WARN] 代码拉取失败，继续后续流程（可能使用旧代码）"
+    echo "  [FATAL] 代码拉取失败，已在依赖、迁移和重启前停止" >&2
+    exit 1
 fi
 
-# ---- 4. 恢复本地修改 ----
-echo "[4/6] 恢复本地修改..."
-git stash pop 2>/dev/null || true
+BACKEND_COMMIT=$(git rev-parse HEAD)
+if [ -n "${OFFLINE_EXPECTED_COMMIT:-}" ] && \
+   [ "${BACKEND_COMMIT}" != "${OFFLINE_EXPECTED_COMMIT}" ]; then
+    echo "[FATAL] 离线 bundle 应用后的 HEAD 与发布 manifest 不一致" >&2
+    exit 1
+fi
+# 在线产物使用后端 HEAD 对应的唯一 Release，禁止滚动覆盖造成前后端错配。
+RELEASE_TAG="vue-dist-${BACKEND_COMMIT}"
+GITHUB_RELEASE_URL="${GITHUB_REPO_URL}/releases/download/${RELEASE_TAG}/itsm-vue-dist.zip"
+GITHUB_RELEASE_SHA_URL="${GITHUB_RELEASE_URL}.sha256"
+GITHUB_RELEASE_BASE="${GITHUB_RELEASE_URL#https://github.com/}"
+
+# ---- 4. 确认代码版本 ----
+echo "[4/6] 当前代码: $(git rev-parse --short HEAD)"
 
 # ---- 5. 更新依赖 ----
 echo "[5/6] 更新 Python 依赖..."
@@ -194,8 +217,8 @@ if ! dpkg -s libcairo2 >/dev/null 2>&1; then
     apt-get install -y -qq libcairo2
 fi
 # unzip：Vue 构建产物解压依赖（部分最小化系统未预装）
-if ! dpkg -s unzip >/dev/null 2>&1; then
-    apt-get install -y -qq unzip
+if ! dpkg -s unzip zip >/dev/null 2>&1; then
+    apt-get install -y -qq unzip zip
 fi
 "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
 
@@ -212,21 +235,40 @@ mkdir -p "${VUE_DIST_DIR}"
 
 # 部署 zip：校验完整性 + index.html 存在后，临时目录 → 原子替换
 deploy_vue_dist() {
-    local zip_file="$1" tmp_dir
+    local zip_file="$1" checksum_file="$2" tmp_dir previous_dir expected_sha actual_sha
     if [ ! -f "${zip_file}" ] || ! unzip -t -q "${zip_file}" >/dev/null 2>&1; then
         echo "  [WARN] vue-dist zip 缺失或校验失败: ${zip_file}"
         return 1
     fi
+    if [ ! -f "${checksum_file}" ]; then
+        echo "  [WARN] vue-dist 缺少 SHA256 文件: ${checksum_file}"
+        return 1
+    fi
+    expected_sha=$(tr -d '[:space:]' < "${checksum_file}")
+    actual_sha=$(sha256sum "${zip_file}" | awk '{print $1}')
+    if ! [[ "${expected_sha}" =~ ^[0-9a-fA-F]{64}$ ]] || \
+       [ "${expected_sha,,}" != "${actual_sha}" ]; then
+        echo "  [WARN] vue-dist SHA256 校验失败"
+        return 1
+    fi
     tmp_dir="${VUE_DIST_DIR}.new"
+    previous_dir="${VUE_DIST_DIR}.previous"
     rm -rf "${tmp_dir}" && mkdir -p "${tmp_dir}"
     unzip -o -q "${zip_file}" -d "${tmp_dir}"
-    rm -f "${zip_file}"
     if [ ! -f "${tmp_dir}/index.html" ]; then
         echo "  [WARN] vue-dist 缺少 index.html，取消部署"
         rm -rf "${tmp_dir}"
         return 1
     fi
-    rm -rf "${VUE_DIST_DIR}" && mv "${tmp_dir}" "${VUE_DIST_DIR}"
+    rm -f "${zip_file}" "${checksum_file}"
+    rm -rf "${previous_dir}"
+    if [ -e "${VUE_DIST_DIR}" ]; then
+        mv "${VUE_DIST_DIR}" "${previous_dir}"
+    fi
+    if ! mv "${tmp_dir}" "${VUE_DIST_DIR}"; then
+        [ -e "${previous_dir}" ] && mv "${previous_dir}" "${VUE_DIST_DIR}"
+        return 1
+    fi
     # 部署验证闭环：入口 asset + 关键 chunk（巡检审核清单）存在
     local entry rc
     entry=$(grep -o 'assets/index-[^"]*\.js' "${VUE_DIST_DIR}/index.html" 2>/dev/null | head -1)
@@ -240,11 +282,11 @@ deploy_vue_dist() {
 VUE_DEPLOYED=false
 # 0) 本地手动包优先（网络被墙时管理员 scp 上传到 backups/vue-dist-manual.zip）
 LOCAL_ZIP="${APP_DIR}/backups/vue-dist-manual.zip"
+LOCAL_ZIP_SHA="${LOCAL_ZIP}.sha256"
 if [ -f "${LOCAL_ZIP}" ]; then
     echo "  [INFO] 发现本地手动包 backups/vue-dist-manual.zip，优先部署..."
-    if deploy_vue_dist "${LOCAL_ZIP}"; then
+    if deploy_vue_dist "${LOCAL_ZIP}" "${LOCAL_ZIP_SHA}"; then
         VUE_DEPLOYED=true
-        mv "${LOCAL_ZIP}" "${LOCAL_ZIP}.used.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || rm -f "${LOCAL_ZIP}"
     fi
 fi
 
@@ -262,22 +304,32 @@ if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
                 kind="${item%%|*}"
                 url="${item#*|}"
                 echo "  [INFO] 下载通道: ${kind} ${url}"
-                rm -f /tmp/itsm-vue-dist.zip
+                rm -f /tmp/itsm-vue-dist.zip /tmp/itsm-vue-dist.zip.sha256
                 if [ "${kind}" = "proxy" ]; then
                     curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
                         --proxy "${url}" "${GITHUB_RELEASE_URL}" 2>/dev/null
+                    curl -fL --connect-timeout 15 --max-time 60 -o /tmp/itsm-vue-dist.zip.sha256 \
+                        --proxy "${url}" "${GITHUB_RELEASE_SHA_URL}" 2>/dev/null
+                elif [ "${kind}" = "direct" ]; then
+                    curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
+                        "${GITHUB_RELEASE_URL}" 2>/dev/null
+                    curl -fL --connect-timeout 15 --max-time 60 -o /tmp/itsm-vue-dist.zip.sha256 \
+                        "${GITHUB_RELEASE_SHA_URL}" 2>/dev/null
                 else
                     curl -fL --connect-timeout 15 --max-time 300 -o /tmp/itsm-vue-dist.zip \
                         "${url}" 2>/dev/null
+                    curl -fL --connect-timeout 15 --max-time 60 -o /tmp/itsm-vue-dist.zip.sha256 \
+                        "${url}.sha256" 2>/dev/null
                 fi
-                if [ -s /tmp/itsm-vue-dist.zip ] && deploy_vue_dist /tmp/itsm-vue-dist.zip; then
+                if [ -s /tmp/itsm-vue-dist.zip ] && \
+                   deploy_vue_dist /tmp/itsm-vue-dist.zip /tmp/itsm-vue-dist.zip.sha256; then
                     VUE_DEPLOYED=true
                     break
                 else
                     echo "  [WARN] 该通道下载/校验失败，尝试下一个"
                 fi
             done
-            rm -f /tmp/itsm-vue-dist.zip
+            rm -f /tmp/itsm-vue-dist.zip /tmp/itsm-vue-dist.zip.sha256
         else
             echo "  [WARN] 所有通道（代理/直连/镜像）均不可达"
         fi
@@ -285,9 +337,10 @@ if [ "${VUE_DEPLOYED}" != "true" ] && command -v curl >/dev/null 2>&1; then
 fi
 # 2) gh CLI 拉取
 if [ "${VUE_DEPLOYED}" != "true" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if gh release download vue-dist --pattern 'itsm-vue-dist.zip' --dir /tmp/itsm_vue --clobber 2>/dev/null && \
+    if gh release download "${RELEASE_TAG}" --pattern 'itsm-vue-dist.zip*' --dir /tmp/itsm_vue --clobber 2>/dev/null && \
        [ -f /tmp/itsm_vue/itsm-vue-dist.zip ]; then
-        deploy_vue_dist /tmp/itsm_vue/itsm-vue-dist.zip && VUE_DEPLOYED=true || true
+        deploy_vue_dist /tmp/itsm_vue/itsm-vue-dist.zip \
+            /tmp/itsm_vue/itsm-vue-dist.zip.sha256 && VUE_DEPLOYED=true || true
     else
         echo "  [WARN] gh 拉取 vue-dist 失败"
     fi
@@ -296,15 +349,25 @@ fi
 # 3) 本地构建（服务器需 Node）
 if [ "${VUE_DEPLOYED}" != "true" ] && [ -d "${APP_DIR}/frontend" ] && command -v npm >/dev/null 2>&1; then
     echo "  [WARN] 拉取失败，改用本地构建（服务器需 Node）..."
-    (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund 2>/dev/null && npm run build 2>/dev/null && \
-     cp -r dist/* "${VUE_DIST_DIR}/") && VUE_DEPLOYED=true && echo "  [OK] 本地构建完成" || echo "  [WARN] 本地构建失败"
+    LOCAL_BUILD_ZIP="/tmp/itsm-vue-dist-local.zip"
+    LOCAL_BUILD_SHA="${LOCAL_BUILD_ZIP}.sha256"
+    rm -f "${LOCAL_BUILD_ZIP}" "${LOCAL_BUILD_SHA}"
+    if (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund 2>/dev/null && \
+        npm run build 2>/dev/null && cd dist && zip -qr "${LOCAL_BUILD_ZIP}" .) && \
+       sha256sum "${LOCAL_BUILD_ZIP}" | awk '{print $1}' > "${LOCAL_BUILD_SHA}" && \
+       deploy_vue_dist "${LOCAL_BUILD_ZIP}" "${LOCAL_BUILD_SHA}"; then
+        VUE_DEPLOYED=true
+        echo "  [OK] 本地构建完成并原子部署"
+    else
+        echo "  [WARN] 本地构建失败"
+    fi
 fi
 # 4) 最终检查：前端产物缺失 → 更新失败（明确报错退出，不再"SSR 保底"糊弄"更新完成"）
 if [ "${VUE_DEPLOYED}" != "true" ]; then
     echo "  [FATAL] 前端产物部署失败（无手动包且网络多通道均不可达）"
     echo "         请用 scripts/make-release.sh 生成发布包（itsm-update.bundle + vue-dist-manual.zip），"
     echo "         同时上传到 backups/ 后重跑本脚本"
-    FRONTEND_FAILED=true
+    exit 1
 fi
 
 # ---- 6. 数据库迁移 + schema 同步 ----
@@ -344,14 +407,9 @@ echo "============================================"
 echo ""
 echo "[最后] 重启服务..."
 systemctl restart itsm
-systemctl --no-pager -l status itsm || true
-
-if [ "${FRONTEND_FAILED:-false}" = "true" ]; then
-    echo ""
-    echo "============================================"
-    echo "  更新失败：前端产物未部署！"
-    echo "  请用 scripts/make-release.sh 生成发布包并上传 backups/ 后重跑"
-    echo "============================================"
+systemctl --no-pager -l status itsm
+if ! curl -fsS --connect-timeout 5 --max-time 20 http://127.0.0.1:5000/readyz >/dev/null; then
+    echo "[FATAL] 服务重启后 readyz 未通过，请立即按本次配对备份执行回滚" >&2
     exit 1
 fi
 

@@ -10,7 +10,8 @@
 
 未配置可信网段（全部内网）时本守卫不生效（兼容存量零配置部署）。
 """
-from flask import request, jsonify, redirect
+from flask import request, jsonify, redirect, abort
+from flask_login import current_user
 
 # 外网放行的路径前缀（其余 /api/* 一律拒绝）
 _EXTERNAL_API_PREFIXES = (
@@ -21,7 +22,7 @@ _EXTERNAL_API_PREFIXES = (
 )
 # 页面/静态前缀（SPA 入口 + 静态资源，照片等上传文件在 static/uploads/ 下）
 _EXTERNAL_PAGE_PREFIXES = ('/app/', '/static/', '/uploads/')
-_EXTERNAL_NAKED_PATHS = {'/', '/login', '/logout'}
+_EXTERNAL_NAKED_PATHS = {'/', '/login', '/logout', '/healthz'}
 
 # 放行前缀内的敏感子路径（外网仍拒绝）
 _EXTERNAL_BLOCKED_FRAGMENTS = (
@@ -69,6 +70,10 @@ def register_access_guard(app):
 
     @app.before_request
     def _access_guard():
+        # 业务上传文件不能继承 Flask /static 的匿名直出行为。返回 404 而不是
+        # 401/302，避免向匿名请求确认备份、报告或照片是否存在。
+        if request.path.startswith('/static/uploads/') and not current_user.is_authenticated:
+            abort(404)
         # 静态资源（drawio/图标等大文件）不参与判定，避免每请求读配置
         if request.path.startswith('/static/vendor/') or request.path.startswith('/static/stencils/'):
             return None
@@ -76,7 +81,11 @@ def register_access_guard(app):
             if is_internal_request():
                 return None
         except Exception:
-            # 访问控制异常时按内网放行（安全兜底：宁可多放不可误锁）
+            app.logger.exception('可信网段判定失败')
+            # SPA 壳与外网工单流程维持可用；其余敏感 API 在判定异常时 fail closed。
+            if request.path.startswith('/api/') and not _external_allowed(
+                    request.path, request.method):
+                return _deny('访问控制状态异常，敏感接口已临时关闭')
             return None
         if _external_allowed(request.path, request.method):
             return None

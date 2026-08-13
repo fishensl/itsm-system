@@ -78,7 +78,6 @@ def api_dashboard_preferences():
     })
 
 @login_required
-@api_view
 def api_dashboard_preferences_save():
     data = request.get_json(silent=True) or {}
     card_keys = data.get('cards', [])
@@ -93,7 +92,6 @@ def api_dashboard_preferences_save():
     return jsonify({'success': True, 'cards': valid})
 
 @login_required
-@api_view
 def api_dashboard_preferences_reset():
     pref = UserDashboardPreference.query.filter_by(user_id=current_user.id).first()
     if pref:

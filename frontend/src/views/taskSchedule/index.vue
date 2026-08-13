@@ -66,7 +66,7 @@
 
     <!-- 按状态视图 -->
     <div v-if="data?.view === 'status'" class="board-cols">
-      <div v-for="st in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
+      <div v-for="st in [TASK_STATUS.CONTRACT_REVIEW, TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
         <div class="col-head" :class="`col-${st}`">
           {{ st }}
           <span class="col-count">{{ data.status_groups?.[st]?.length || 0 }}</span>
@@ -98,8 +98,8 @@
                   <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
                 </el-select>
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
-                  :disabled="t.status === TASK_STATUS.REVIEWING"
-                  :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
+                  :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
+                  :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
                   <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
                 </el-select>
               </template>
@@ -107,13 +107,25 @@
               <span class="task-range">{{ rangeText(t) }}</span>
             </div>
             <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
+            <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
+              <span>例外原因：{{ t.contract_exception_reason || '-' }}</span>
+            </div>
             <div v-if="expandedId === t.id" class="task-actions">
-              <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-              <el-button size="small" type="warning" plain @click="openUpload">
-                {{ record ? '重新上传' : '上传' }}
-              </el-button>
-              <el-button size="small" @click="cancelInline">取消</el-button>
-              <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
+              <template v-if="t.status === TASK_STATUS.CONTRACT_REVIEW">
+                <el-button v-if="canContractReview" size="small" type="success"
+                  @click="reviewContract(t, true)">合同例外审核通过</el-button>
+                <el-button v-if="canContractReview" size="small" type="danger"
+                  @click="reviewContract(t, false)">拒绝</el-button>
+                <el-button size="small" @click="cancelInline">取消</el-button>
+              </template>
+              <template v-else>
+                <el-button size="small" type="primary" @click="saveInline">保存</el-button>
+                <el-button size="small" type="warning" plain @click="openUpload">
+                  {{ record ? '重新上传' : '上传' }}
+                </el-button>
+                <el-button size="small" @click="cancelInline">取消</el-button>
+                <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
+              </template>
             </div>
           </div>
           <el-empty v-if="!(data.status_groups?.[st] || []).length" description="无任务" :image-size="40" />
@@ -151,8 +163,8 @@
                   <el-option v-for="eng in data?.engineers || []" :key="eng.id" :label="eng.name" :value="eng.id" />
                 </el-select>
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
-                  :disabled="t.status === TASK_STATUS.REVIEWING"
-                  :placeholder="t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
+                  :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
+                  :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
                   <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
                 </el-select>
               </template>
@@ -160,13 +172,25 @@
               <span class="task-range">{{ rangeText(t) }}</span>
             </div>
             <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
+            <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
+              <span>例外原因：{{ t.contract_exception_reason || '-' }}</span>
+            </div>
             <div v-if="expandedId === t.id" class="task-actions">
-              <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-              <el-button size="small" type="warning" plain @click="openUpload">
-                {{ record ? '重新上传' : '上传' }}
-              </el-button>
-              <el-button size="small" @click="cancelInline">取消</el-button>
-              <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
+              <template v-if="t.status === TASK_STATUS.CONTRACT_REVIEW">
+                <el-button v-if="canContractReview" size="small" type="success"
+                  @click="reviewContract(t, true)">合同例外审核通过</el-button>
+                <el-button v-if="canContractReview" size="small" type="danger"
+                  @click="reviewContract(t, false)">拒绝</el-button>
+                <el-button size="small" @click="cancelInline">取消</el-button>
+              </template>
+              <template v-else>
+                <el-button size="small" type="primary" @click="saveInline">保存</el-button>
+                <el-button size="small" type="warning" plain @click="openUpload">
+                  {{ record ? '重新上传' : '上传' }}
+                </el-button>
+                <el-button size="small" @click="cancelInline">取消</el-button>
+                <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
+              </template>
             </div>
           </div>
           <el-empty v-if="!(data.engineer_groups?.[String(e.id)] || []).length" description="无任务" :image-size="40" />
@@ -223,6 +247,10 @@
             <el-radio value="计划">计划</el-radio>
             <el-radio value="突发">突发</el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="合同例外原因">
+          <el-input v-model="createForm.contract_exception_reason" type="textarea" :rows="2"
+            placeholder="客户合同已过期时必填，提交后由主管审核" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -360,7 +388,7 @@ import { Plus, Search, Download, Upload, UploadFilled, Delete } from '@element-p
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
-  fetchRequiredAssets,
+  fetchRequiredAssets, reviewTaskContract,
   type TaskScheduleData, type TaskScheduleItem,
 } from '@/api/taskSchedule'
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
@@ -386,7 +414,7 @@ const creating = ref(false)
 const createFormRef = ref()
 const createForm = reactive<Record<string, unknown>>({
   title: '', customer_id: undefined, assignee_id: null, planned_start: '', planned_end: '',
-  priority: '中', estimated_effort: null, task_type: '计划', remark: '',
+  priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
 })
 
 // 行内展开编辑（V29：点击卡片在卡片下方展开，状态/负责人快捷修改，不再弹窗）
@@ -435,6 +463,8 @@ const uploadHint = computed(() => {
   if (record.value?.review_status === REVIEW_STATUS.PENDING) return '已有报告在审核中，请等待审核结果'
   return ''
 })
+const canContractReview = computed(() =>
+  user.hasPerm('contract:review') || user.isSupervisor)
 
 const kpiCards = computed(() => {
   const k = data.value?.kpi
@@ -444,6 +474,8 @@ const kpiCards = computed(() => {
     { key: 'running', label: TASK_STATUS.RUNNING, value: k.running, cls: 'primary', status: TASK_STATUS.RUNNING },
     { key: 'reviewing', label: TASK_STATUS.REVIEWING, value: k.reviewing, cls: 'info', status: TASK_STATUS.REVIEWING },
     { key: 'done', label: TASK_STATUS.DONE, value: k.done, cls: 'success', status: TASK_STATUS.DONE },
+    { key: 'contract_review', label: TASK_STATUS.CONTRACT_REVIEW, value: k.contract_review,
+      cls: 'danger', status: TASK_STATUS.CONTRACT_REVIEW },
   ]
   return [
     { key: 'total', label: '总任务', value: k.total, cls: '', clickable: true, action: clearFilters },
@@ -548,7 +580,7 @@ async function runBatch(action: 'status' | 'assign' | 'delete', value?: unknown)
 function openCreate() {
   Object.assign(createForm, {
     title: '', customer_id: undefined, assignee_id: null, planned_start: '', planned_end: '',
-    priority: '中', estimated_effort: null, task_type: '计划', remark: '',
+    priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
   })
   createVisible.value = true
 }
@@ -600,6 +632,22 @@ async function saveInline() {
   try {
     await updateTaskSchedule(detail.value.id, patch)
     ui.toast('已保存', 'success')
+    cancelInline()
+    reload()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
+
+async function reviewContract(task: TaskScheduleItem, approved: boolean) {
+  try {
+    await ElMessageBox.confirm(
+      approved ? `确认通过「${task.title}」的合同例外申请？` : `确认拒绝「${task.title}」的合同例外申请？`,
+      '合同例外审核', { type: approved ? 'warning' : 'error' })
+  } catch { return }
+  try {
+    await reviewTaskContract(task.id, approved)
+    ui.toast(approved ? '审核已通过' : '审核已拒绝', 'success')
     cancelInline()
     reload()
   } catch (e) {

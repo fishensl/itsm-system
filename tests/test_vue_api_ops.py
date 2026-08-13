@@ -121,6 +121,24 @@ class TestKbCreate:
         with app.app_context():
             assert KnowledgeBase.query.filter_by(title='直发').first().is_published is True
 
+    def test_stored_xss_is_sanitized(self, op_client, app):
+        payload = ('<p onclick="alert(1)">安全<strong>正文</strong></p>'
+                   '<script>alert(2)</script>'
+                   '<a href="javascript:alert(3)">危险链接</a>'
+                   '<a href="https://example.com" target="_blank">安全链接</a>')
+        r = op_client.post('/api/knowledge-base', json={'title': '净化测试', 'content': payload})
+        assert r.status_code == 200
+        kb_id = r.get_json()['data']['id']
+        with app.app_context():
+            content = db.session.get(KnowledgeBase, kb_id).content
+        assert '<script' not in content
+        assert 'alert(2)' not in content
+        assert 'onclick' not in content
+        assert 'javascript:' not in content
+        assert '<strong>正文</strong>' in content
+        assert 'href="https://example.com"' in content
+        assert 'rel="noopener noreferrer"' in content
+
 
 class TestKbPublish:
     def test_publish_flow(self, op_client, app):
@@ -165,6 +183,16 @@ class TestKbUpdateDelete:
     def test_update_empty_title(self, op_client, kb_seed):
         r = op_client.put(f"/api/knowledge-base/{kb_seed['k1']}", json={'title': ''})
         assert r.status_code == 400
+
+    def test_update_sanitizes_xss(self, op_client, kb_seed, app):
+        r = op_client.put(f"/api/knowledge-base/{kb_seed['k1']}", json={
+            'title': '更新净化', 'content': '<img src=x onerror=alert(1)><iframe>bad</iframe>'})
+        assert r.status_code == 200
+        with app.app_context():
+            content = db.session.get(KnowledgeBase, kb_seed['k1']).content
+        assert 'onerror' not in content
+        assert '<iframe' not in content
+        assert 'bad' not in content
 
     def test_delete_by_admin(self, admin_client, kb_seed, app):
         r = admin_client.delete(f"/api/knowledge-base/{kb_seed['k1']}")
@@ -278,6 +306,9 @@ class TestKbDicts:
 @pytest.fixture()
 def fault_seed(app):
     with app.app_context():
+        from scripts.seed_fault_categories import seed_fault_categories
+
+        seed_fault_categories(app)
         c = Customer(name='故障客户')
         db.session.add(c)
         db.session.flush()

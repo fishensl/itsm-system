@@ -226,7 +226,7 @@ def import_task_excel(file_storage, user):
         cleanup_temp_file(tmp)
 
 
-def check_task_transition(task, new_status, allow_reopen=False):
+def check_task_transition(task, new_status, allow_reopen=False, allow_contract_review=False):
     """任务状态机校验（SSR 看板 / Vue 看板共用）。
 
     - 合法转换见 utils.constants.TASK_TRANSITIONS；
@@ -242,6 +242,9 @@ def check_task_transition(task, new_status, allow_reopen=False):
         return '非法状态：%s' % new_status
     if new_status == task.status:
         return None
+    from utils.constants import TASK_CONTRACT_REVIEW
+    if task.status == TASK_CONTRACT_REVIEW and not allow_contract_review:
+        return '合同审批任务只能通过合同例外审核接口流转'
     allowed = TASK_TRANSITIONS.get(task.status, set())
     if new_status in allowed:
         if new_status == '已完成' and task.records:
@@ -258,13 +261,15 @@ def check_task_transition(task, new_status, allow_reopen=False):
     return '不允许从「%s」变更为「%s」' % (task.status, new_status)
 
 
-def apply_task_status(task, new_status, allow_reopen=False):
+def apply_task_status(task, new_status, allow_reopen=False, allow_contract_review=False):
     """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end。
 
     与 blueprints/task_schedule._apply_status 行为一致，供 Vue API 复用；
     校验失败抛 ValueError。allow_reopen 语义见 check_task_transition。
     """
-    err = check_task_transition(task, new_status, allow_reopen=allow_reopen)
+    err = check_task_transition(
+        task, new_status, allow_reopen=allow_reopen,
+        allow_contract_review=allow_contract_review)
     if err:
         raise ValueError(err)
     now = local_now()
@@ -276,4 +281,23 @@ def apply_task_status(task, new_status, allow_reopen=False):
     # 重开（终态→执行中）：清空完成时间戳，重新计时
     if new_status == '执行中' and task.actual_end:
         task.actual_end = None
+    return task
+
+
+def review_task_contract_exception(task, approved, reviewer_name, comment=''):
+    """审核过期客户任务的合同例外申请。"""
+    from utils.constants import TASK_CONTRACT_REVIEW, TASK_PENDING, TASK_CANCELLED
+
+    if task.status != TASK_CONTRACT_REVIEW:
+        raise ValueError(f'任务当前状态「{task.status}」不能进行合同例外审核')
+    target = TASK_PENDING if approved else TASK_CANCELLED
+    apply_task_status(task, target, allow_contract_review=True)
+    task.contract_exception_status = '通过' if approved else '拒绝'
+    note = (comment or '').strip()
+    if note:
+        current = (task.contract_exception_reason or '').rstrip()
+        task.contract_exception_reason = f'{current}\n审核意见：{note}' if current else f'审核意见：{note}'
+    current_app.logger.info(
+        '任务合同例外审核: task_id=%s approved=%s reviewer=%s',
+        task.id, approved, reviewer_name)
     return task

@@ -218,13 +218,18 @@ def api_change_password():
     new_pwd = data.get('new_password') or ''
     if not current_user.check_password(old_pwd):
         return fail('原密码不正确', 400)
-    if len(new_pwd) < 6:
-        return fail('新密码长度至少 6 位', 400)
+    from utils.password_policy import password_policy_error
+    error = password_policy_error(new_pwd)
+    if error:
+        return fail(error, 400)
+    user_id = current_user.id
+    username = current_user.username
     current_user.set_password(new_pwd)
+    current_user.must_change_password = False
     current_user.auth_version = int(current_user.auth_version or 0) + 1
     db.session.commit()
     from blueprints.vue_api_sys import audit_log
-    audit_log('user:change_password', 'user', current_user.id, f'用户 {current_user.username} 自助修改密码')
+    audit_log('user:change_password', 'user', user_id, f'用户 {username} 自助修改密码')
     logout_user()
     return ok(None)
 
@@ -242,6 +247,7 @@ def _user_payload(user):
         'customer_ids': [c.id for c in user.customers],
         'permissions': get_user_permissions(user),
         'is_supervisor': user.is_supervisor,
+        'must_change_password': bool(user.must_change_password),
     }
 
 
@@ -1836,6 +1842,18 @@ def api_ticket_create():
                         f'/app/tickets/{t.id}')
     except Exception:
         current_app.logger.warning('工单新建多渠道通知失败 id=%s', t.id)
+    from utils.constants import TICKET_CONTRACT_REVIEW
+    if t.status == TICKET_CONTRACT_REVIEW:
+        try:
+            from utils.notifications import notify_contract_review_request
+            notify_contract_review_request(
+                current_user.department_id,
+                f'工单合同例外申请：{t.number}',
+                f'{me} 申请为过期合同客户创建工单「{t.title}」：'
+                f'{t.contract_exception_reason}',
+                f'/app/tickets/{t.id}', except_user_id=current_user.id)
+        except Exception:
+            current_app.logger.warning('工单合同例外通知失败 id=%s', t.id, exc_info=True)
     return ok({'id': t.id, 'number': t.number})
 
 

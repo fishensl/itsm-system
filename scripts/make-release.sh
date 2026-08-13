@@ -3,7 +3,7 @@
 # 工作机离线发布包生成器
 # 用法: bash scripts/make-release.sh
 #
-# 生成两个文件（scp 到服务器 backups/ 后跑 update.sh 即完成离线更新）：
+# 生成代码包、前端包、各自校验和及同版本 manifest：
 #   backups/itsm-update.bundle   代码包（git bundle，含 master 全部提交，秒级应用）
 #   backups/vue-dist-manual.zip  前端构建产物（update.sh 优先部署）
 #
@@ -22,21 +22,25 @@ echo "============================================"
 
 # ---- 1. 代码包：git bundle ----
 echo ""
-echo "[1/2] 生成代码包 backups/itsm-update.bundle ..."
+echo "[1/3] 生成代码包 backups/itsm-update.bundle ..."
 # 尽力同步远端（失败时用本地 master；仅出包需要网络）
 git fetch origin master 2>/dev/null || echo "  [WARN] 远端同步失败，使用本地 master（可能落后）"
 git bundle create "${OUT_DIR}/itsm-update.bundle" master
+sha256sum "${OUT_DIR}/itsm-update.bundle" | awk '{print $1}' > "${OUT_DIR}/itsm-update.bundle.sha256"
 echo "  [OK] bundle 已生成：$(git log --oneline -1 master)"
 
 # ---- 2. 前端构建产物 ----
 echo ""
-echo "[2/2] 构建前端并打包 backups/vue-dist-manual.zip ..."
+echo "[2/3] 构建前端并打包 backups/vue-dist-manual.zip ..."
 if [ ! -d "${APP_DIR}/frontend" ]; then
-    echo "  [WARN] 无 frontend 目录，跳过前端打包（保持现有 static/app 不变）"
-    exit 0
+    echo "  [FATAL] 无 frontend 目录，不能生成同版本发布包" >&2
+    exit 1
 fi
 
-(cd "${APP_DIR}/frontend" && npm run build 2>/dev/null || { echo "  [WARN] npm build 失败，改用现有 dist 打包"; true; })
+if ! (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund && npm run build); then
+    echo "  [FATAL] 前端构建失败，拒绝打包旧 dist" >&2
+    exit 1
+fi
 
 PY="python3"; command -v python3 >/dev/null 2>&1 || PY="python"
 rm -f "${OUT_DIR}/vue-dist-manual.zip"
@@ -48,8 +52,8 @@ import os
 out = sys.argv[1]
 dist = os.path.join('frontend', 'dist')
 if not os.path.isdir(dist):
-    print('[WARN] frontend/dist 不存在，前端包未生成')
-    sys.exit(0)
+    print('[FATAL] frontend/dist 不存在')
+    sys.exit(1)
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
     for root, _dirs, files in os.walk(dist):
         for f in files:
@@ -57,11 +61,24 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(full, os.path.relpath(full, dist))
 print('[OK] 前端包已生成')
 PY
+sha256sum "${OUT_DIR}/vue-dist-manual.zip" | awk '{print $1}' > "${OUT_DIR}/vue-dist-manual.zip.sha256"
+
+# ---- 3. 同版本 manifest：防止误把不同提交的 bundle 与前端包混用 ----
+echo "[3/3] 生成同版本发布 manifest ..."
+RELEASE_COMMIT=$(git rev-parse master)
+BUNDLE_SHA=$(tr -d '[:space:]' < "${OUT_DIR}/itsm-update.bundle.sha256")
+VUE_SHA=$(tr -d '[:space:]' < "${OUT_DIR}/vue-dist-manual.zip.sha256")
+{
+    printf 'commit=%s\n' "${RELEASE_COMMIT}"
+    printf 'bundle_sha256=%s\n' "${BUNDLE_SHA}"
+    printf 'vue_sha256=%s\n' "${VUE_SHA}"
+} > "${OUT_DIR}/itsm-release-manifest.txt"
 
 echo ""
 echo "============================================"
 echo "  发布包已生成，scp 到服务器后执行 update.sh："
-echo "    scp ${OUT_DIR}/itsm-update.bundle ${OUT_DIR}/vue-dist-manual.zip root@<服务器>:/home/itsm-system_20260614/backups/"
+echo "    scp ${OUT_DIR}/itsm-update.bundle* ${OUT_DIR}/vue-dist-manual.zip* ${OUT_DIR}/itsm-release-manifest.txt root@<服务器>:/home/itsm-system_20260614/backups/"
 echo "    sudo bash /home/itsm-system_20260614/scripts/update.sh /home/itsm-system_20260614"
 echo "============================================"
-ls -lh "${OUT_DIR}/itsm-update.bundle" "${OUT_DIR}/vue-dist-manual.zip"
+ls -lh "${OUT_DIR}/itsm-update.bundle"* "${OUT_DIR}/vue-dist-manual.zip"* \
+    "${OUT_DIR}/itsm-release-manifest.txt"

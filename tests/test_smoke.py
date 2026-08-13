@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """T0 工厂化冒烟：应用可创建、核心路由可达、未授权 API 返回 JSON 401"""
+from models import db
 from tests.conftest import login
 
 
@@ -35,6 +36,17 @@ def test_api_unauthorized_json_401(client):
     assert r.is_json
 
 
+def test_health_and_readiness_do_not_disclose_secrets(client):
+    health = client.get('/healthz')
+    assert health.status_code == 200
+    assert health.get_json()['status'] == 'ok'
+    ready = client.get('/readyz')
+    assert ready.status_code in (200, 503)
+    payload = ready.get_json()
+    assert set(payload['checks']) == {'database', 'migration', 'master_key', 'frontend'}
+    assert '.secret.key' not in str(payload)
+
+
 def test_page_unauthorized_redirects_to_login(client):
     r = client.get('/system/repair-schema')
     assert r.status_code == 302
@@ -46,6 +58,24 @@ def test_index_ok_for_admin(admin_client):
     r = admin_client.get('/')
     assert r.status_code == 302
     assert r.headers.get('Location', '').endswith('/app/')
+
+
+def test_schema_repair_endpoint_is_read_only(admin_client, app):
+    from sqlalchemy import inspect
+    with app.app_context():
+        before = {
+            table: {column['name'] for column in inspect(db.engine).get_columns(table)}
+            for table in ('inspection_tasks', 'topologies')
+        }
+    response = admin_client.get('/system/repair-schema')
+    assert response.status_code == 200
+    assert response.get_json()['upgrade_output'] == []
+    with app.app_context():
+        after = {
+            table: {column['name'] for column in inspect(db.engine).get_columns(table)}
+            for table in ('inspection_tasks', 'topologies')
+        }
+    assert after == before
 
 
 def test_404_page(admin_client):

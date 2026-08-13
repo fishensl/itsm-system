@@ -544,11 +544,11 @@ def api_topology_upload():
         file_type = 'drawio'
         allowed = {'.drawio', '.xml'}
     else:
-        file_type = 'other'
-        allowed = set()
+        ext = os.path.splitext(name_lower)[1]
+        return fail(f'不支持的文件类型 {ext or "（无扩展名）"}', 400)
 
     ext = os.path.splitext(name_lower)[1]
-    if allowed and ext not in allowed:
+    if ext not in allowed:
         return fail(f'不支持的文件类型 {ext}', 400)
 
     upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')

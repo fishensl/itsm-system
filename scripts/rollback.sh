@@ -11,7 +11,7 @@
 #
 # 注意：本脚本只回滚「数据/密钥」，不自动回滚代码。PG 模式下恢复后
 # 库结构回到备份时刻，需管理员将代码切到对应版本（git checkout <tag>）
-# 并还原前端 static/app.bak，再重启，否则 schema/代码不匹配。
+# 并还原前端 static/app.previous，再重启，否则 schema/代码不匹配。
 # ============================================================
 set -euo pipefail
 
@@ -34,6 +34,20 @@ fi
 if [ ! -f "${BACKUP}" ]; then
     echo "[FATAL] 备份文件不存在: ${BACKUP}"
     exit 1
+fi
+
+# 在停服务及任何覆盖操作前验证 PostgreSQL 备份集完整性。
+if [[ "${BACKUP}" == *.dump ]]; then
+    META_PRECHECK="${BACKUP//itsm_pg_/itsm_meta_}"
+    META_PRECHECK="${META_PRECHECK%.dump}.tar.gz"
+    if [ ! -f "${META_PRECHECK}" ]; then
+        echo "[FATAL] 缺少同时间戳 meta 包（${META_PRECHECK}），拒绝停止服务" >&2
+        exit 1
+    fi
+    pg_restore --list "${BACKUP}" >/dev/null
+    tar -tzf "${META_PRECHECK}" >/dev/null
+elif [[ "${BACKUP}" == *.tar.gz ]]; then
+    tar -tzf "${BACKUP}" >/dev/null
 fi
 
 echo "即将回滚到: ${BACKUP}"
@@ -70,13 +84,16 @@ if [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == postgresql* ]] && [[ "${BACKU
     # 同时间戳 meta 包（.secret.key/.env）存在则还原
     META="${BACKUP//itsm_pg_/itsm_meta_}"
     META="${META%.dump}.tar.gz"
-    if [ -f "${META}" ]; then
-        echo "还原密钥与配置: ${META}"
-        tar -xzf "${META}" -C "${APP_DIR}"
-        chown itsm:itsm "${APP_DIR}/.secret.key" "${APP_DIR}/.env" 2>/dev/null || true
-    else
-        echo "  [WARN] 未找到同时间戳 meta 包（${META}），密钥/.env 未还原"
+    if [ ! -f "${META}" ]; then
+        echo "[FATAL] 缺少同时间戳 meta 包（${META}），拒绝不完整的 PostgreSQL 恢复" >&2
+        exit 1
     fi
+    pg_restore --list "${BACKUP}" >/dev/null
+    echo "还原密钥与配置: ${META}"
+    tar -tzf "${META}" >/dev/null
+    tar -xzf "${META}" -C "${APP_DIR}"
+    chown itsm:itsm "${APP_DIR}"/.secret.key* "${APP_DIR}/.env" 2>/dev/null || true
+    chmod 600 "${APP_DIR}"/.secret.key* "${APP_DIR}/.env"
     echo "PostgreSQL 回滚完成"
 
 # ---- SQLite / 旧式 .pre_update_ 文件 ----
@@ -101,6 +118,11 @@ fi
 
 echo "启动服务..."
 systemctl start itsm
+systemctl status itsm --no-pager -l
+if ! curl -fsS --connect-timeout 5 --max-time 20 http://127.0.0.1:5000/readyz >/dev/null; then
+    echo "[FATAL] 回滚后的 readyz 未通过；保持当前现场，禁止宣告回滚成功" >&2
+    exit 1
+fi
 
 echo ""
 echo "============================================"
@@ -108,7 +130,6 @@ echo "  回滚完成（数据/密钥层面）"
 if [ -n "${DB_URI_VAL}" ] && [[ "${DB_URI_VAL}" == postgresql* ]]; then
     echo "  ⚠ PG 模式：库结构与数据已回到备份时刻。"
     echo "  若代码/前端仍是最新版本，请将代码切回对应版本"
-    echo "  （git checkout <旧tag>）并还原 static/app.bak 后重启，再验证。"
+    echo "  （git checkout <旧tag>）并还原 static/app.previous 后重启，再验证。"
 fi
 echo "============================================"
-systemctl status itsm --no-pager -l || true

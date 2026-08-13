@@ -165,6 +165,7 @@ def api_kb_get(kb_id):
 @require_permission('kb:add')
 def api_kb_create():
     from models import KnowledgeBase as _KB
+    from utils.sanitize import sanitize_html
     data = request.get_json(silent=True) or {}
     title = (data.get('title') or '').strip()
     if not title:
@@ -172,7 +173,7 @@ def api_kb_create():
     k = _KB(
         title=title,
         category=data.get('category') or '故障案例',
-        content=data.get('content') or '',
+        content=sanitize_html(data.get('content') or ''),
         tags=data.get('tags') or '',
         # S6：默认草稿（False）——知识库发布审核流；显式传 is_published=true 可直发
         is_published=bool(data.get('is_published', False)),
@@ -188,6 +189,7 @@ def api_kb_create():
 @require_permission('kb:edit')
 def api_kb_update(kb_id):
     from models import KnowledgeBase as _KB
+    from utils.sanitize import sanitize_html
     k = _KB.query.get_or_404(kb_id)
     data = request.get_json(silent=True) or {}
     title = (data.get('title') or '').strip()
@@ -197,7 +199,7 @@ def api_kb_update(kb_id):
     if 'category' in data:
         k.category = data.get('category') or '故障案例'
     if 'content' in data:
-        k.content = data.get('content') or ''
+        k.content = sanitize_html(data.get('content') or '')
     if 'tags' in data:
         k.tags = data.get('tags') or ''
     if 'is_published' in data:
@@ -1290,6 +1292,12 @@ def api_task_schedule_board():
             'overdue': is_overdue(t, today),
             'source': t.source or '',
             'remark': t.remark or '',
+            'contract_exception_status': t.contract_exception_status or '',
+            'contract_exception_reason': t.contract_exception_reason or '',
+            'contract_exception_by': t.contract_exception_by or '',
+            'contract_exception_at': (
+                t.contract_exception_at.strftime('%Y-%m-%d %H:%M')
+                if t.contract_exception_at else ''),
         }
 
     items = [payload(t) for t in tasks]
@@ -1301,6 +1309,7 @@ def api_task_schedule_board():
         'running': sum(1 for t in items if t['status'] == '执行中'),
         'reviewing': sum(1 for t in items if t['status'] == '待审核'),
         'done': sum(1 for t in items if t['status'] == '已完成'),
+        'contract_review': sum(1 for t in items if t['status'] == '合同审批'),
         'overdue': sum(1 for t in items if t['overdue']),
         'est_effort': round(sum(t['estimated_effort'] or 0 for t in items), 2),
         'act_effort': round(sum(t['actual_effort'] or 0 for t in items), 2),
@@ -1313,7 +1322,8 @@ def api_task_schedule_board():
         groups['__unassigned__'] = [t for t in items if not t['assignee_id']]
         data = {'engineer_groups': groups, 'engineers': engineers, 'view': 'engineer'}
     else:
-        groups = {st: [t for t in items if t['status'] == st] for st in ('待执行', '执行中', '待审核', '已完成')}
+        groups = {st: [t for t in items if t['status'] == st]
+                  for st in ('合同审批', '待执行', '执行中', '待审核', '已完成')}
         data = {'status_groups': groups, 'engineers': engineers, 'view': 'status'}
     data['tasks'] = items
     data['kpi'] = kpi
@@ -1371,6 +1381,17 @@ def api_task_schedule_quick_add():
     )
     db.session.add(t)
     db.session.commit()
+    if status == TASK_CONTRACT_REVIEW:
+        try:
+            from utils.notifications import notify_contract_review_request
+            notify_contract_review_request(
+                current_user.department_id,
+                f'任务合同例外申请：{t.title}',
+                f'{current_user.realname or current_user.username} 申请为过期合同客户安排任务：'
+                f'{exception_reason}',
+                '/app/task-schedule', except_user_id=current_user.id)
+        except Exception:
+            current_app.logger.warning('任务合同例外通知失败 task_id=%s', t.id, exc_info=True)
     return ok({'id': t.id})
 
 
@@ -1427,6 +1448,55 @@ def api_task_schedule_update(task_id):
         t.remark = (data['remark'] or '').strip()
     db.session.commit()
     return ok(None)
+
+
+@vue_api_bp.route('/api/task-schedule/<int:task_id>/contract-review', methods=['POST'])
+@login_required
+def api_task_schedule_contract_review(task_id):
+    """合同例外审核：通过回到待执行，拒绝进入已取消。"""
+    from models import InspectionTask as _IT, User as _U
+    from services.task_schedule_service import review_task_contract_exception
+    from utils.permission import has_permission, is_supervisor
+
+    if not has_permission('contract:review') and not current_user.is_admin \
+            and not is_supervisor(current_user):
+        return fail('合同例外审核需要部门主管或合同审核权限', 403)
+    data = request.get_json(silent=True) or {}
+    approved = data.get('approved')
+    if not isinstance(approved, bool):
+        return fail('approved 必须为布尔值', 400)
+    comment = (data.get('comment') or '').strip()[:500]
+    task = _IT.query.get_or_404(task_id)
+    requester_name = task.contract_exception_by or task.created_by or ''
+    try:
+        review_task_contract_exception(
+            task, approved, current_user.realname or current_user.username, comment)
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return fail(str(exc), 400)
+
+    from blueprints.vue_api_sys import audit_log
+    audit_log('task:contract_review', 'inspection_task', task.id,
+              f'任务「{task.title}」合同例外审核{"通过" if approved else "拒绝"}')
+    try:
+        from utils.notifications import notify_by_name
+        notify_by_name(
+            requester_name, 'contract',
+            f'任务合同例外审核{"通过" if approved else "拒绝"}：{task.title}',
+            comment, '/app/task-schedule', except_user_id=current_user.id)
+        requester = _U.query.filter(
+            (_U.username == requester_name) | (_U.realname == requester_name)).first()
+        from utils.wecom_notify import wecom_broadcast, EVENT_CONTRACT_REVIEW
+        wecom_broadcast(
+            EVENT_CONTRACT_REVIEW,
+            f'任务合同例外审核{"通过" if approved else "拒绝"}：{task.title}',
+            comment, '/app/task-schedule',
+            target_user_ids=[requester.id] if requester else [])
+    except Exception:
+        current_app.logger.warning('任务合同审核结果通知失败 task_id=%s', task.id, exc_info=True)
+    return ok({'id': task.id, 'status': task.status,
+               'contract_exception_status': task.contract_exception_status})
 
 
 @vue_api_bp.route('/api/task-schedule/<int:task_id>', methods=['DELETE'])

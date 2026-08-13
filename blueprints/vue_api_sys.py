@@ -166,6 +166,7 @@ def api_user_list():
             'vpn_account': u.vpn_account or '',
             'mfa_enabled': bool(u.mfa_enabled),
             'mfa_op_enabled': bool(u.mfa_op_enabled),
+            'must_change_password': bool(u.must_change_password),
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],
         'departments': [{'id': d.id, 'name': d.name}
@@ -184,9 +185,13 @@ def api_user_create():
     from models import User
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
-    password = data.get('password') or 'changeme'
+    password = data.get('password') or ''
     if not username:
         return fail('用户名不能为空', 400)
+    from utils.password_policy import password_policy_error
+    error = password_policy_error(password)
+    if error:
+        return fail(error, 400)
     if User.query.filter_by(username=username).first():
         return fail(f'用户名「{username}」已存在', 400)
     u = User.create_with_password(
@@ -209,6 +214,7 @@ def api_user_create():
     if data.get('notify_accounts') is not None:
         u.set_notify_accounts(dict(data['notify_accounts']))
     u.vpn_account = (data.get('vpn_account') or '').strip()
+    u.must_change_password = True
     if data.get('region_ids'):
         from models import Region
         u.regions = Region.query.filter(Region.id.in_(
@@ -267,7 +273,12 @@ def api_user_update(user_id):
             [int(x) for x in data['customer_ids']])).all() if data['customer_ids'] else []
     password = data.get('password') or ''
     if password:
+        from utils.password_policy import password_policy_error
+        error = password_policy_error(password)
+        if error:
+            return fail(error, 400)
         u.set_password(password)
+        u.must_change_password = True
         u.auth_version = int(u.auth_version or 0) + 1
     if was_active and not u.is_active:
         u.auth_version = int(u.auth_version or 0) + 1
@@ -287,9 +298,12 @@ def api_user_reset_password(user_id):
     u = User.query.get_or_404(user_id)
     data = request.get_json(silent=True) or {}
     new_pwd = (data.get('new_password') or '').strip()
-    if len(new_pwd) < 6:
-        return fail('新密码长度至少 6 位', 400)
+    from utils.password_policy import password_policy_error
+    error = password_policy_error(new_pwd)
+    if error:
+        return fail(error, 400)
     u.set_password(new_pwd)
+    u.must_change_password = True
     u.auth_version = int(u.auth_version or 0) + 1
     db.session.commit()
     audit_log('user:reset_password', 'user', u.id, f'管理员重置用户 {u.username} 的密码')
@@ -580,6 +594,8 @@ def api_ai_config_add():
     db.session.add(cfg)
     db.session.commit()
     current_app.logger.info('AI 配置新增: id=%s', cfg.id)
+    audit_log('ai:create', 'ai_config', cfg.id,
+              f'新增 AI 配置 {cfg.provider}/{cfg.model_name or "未指定模型"}')
     return ok({'id': cfg.id})
 
 
@@ -611,6 +627,8 @@ def api_ai_config_update(cid):
     if key:
         cfg.api_key_encrypted = encrypt_password(key)
     db.session.commit()
+    audit_log('ai:update', 'ai_config', cfg.id,
+              f'更新 AI 配置 {cfg.provider}/{cfg.model_name or "未指定模型"}')
     return ok(None)
 
 
@@ -619,9 +637,12 @@ def api_ai_config_update(cid):
 @require_permission('ai:edit')
 def api_ai_config_delete(cid):
     from models import AIConfig
-    AIConfig.query.filter_by(id=cid).delete()
+    cfg = AIConfig.query.get_or_404(cid)
+    label = f'{cfg.provider}/{cfg.model_name or "未指定模型"}'
+    db.session.delete(cfg)
     db.session.commit()
     current_app.logger.info('AI 配置删除: id=%s', cid)
+    audit_log('ai:delete', 'ai_config', cid, f'删除 AI 配置 {label}')
     return ok(None)
 
 
@@ -633,6 +654,9 @@ def api_ai_config_test(cid):
     from utils.ai_client import AIClient
     cfg = AIConfig.query.get_or_404(cid)
     ok_flag, msg = AIClient(cfg).test_connection()
+    audit_log('ai:test', 'ai_config', cfg.id,
+              f'测试 AI 配置 {cfg.provider}/{cfg.model_name or "未指定模型"}：'
+              f'{"成功" if ok_flag else "失败"}')
     return ok({'success': ok_flag, 'message': msg})
 
 # ==================== 数据备份 ====================
@@ -727,9 +751,7 @@ def api_backup_import():
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip', prefix='itsm_import_')
     os.close(tmp_fd)
 
-    # 导入前自动备份当前数据（覆盖恢复有风险：DB 回灌可回滚，但文件/密钥还原不走事务，
-    # 磁盘覆盖后无法原子回滚 → 必须先在备份目录留一份全量 zip 兜底）。
-    # 失败仅告警不阻断导入（兜底失效但导入流程不受影响）。
+    # 导入前自动备份当前数据；兜底失败时拒绝继续覆盖恢复。
     pre_import_name = ''
     try:
         from utils.data_io import build_export_zip
@@ -742,19 +764,29 @@ def api_backup_import():
         audit_log('backup:pre_import', 'backup', None,
                   f'导入前自动备份当前数据到 backups/{pre_import_name}')
         current_app.logger.info('用户 [%s] 导入前自动备份: %s', current_user.username, pre_import_name)
-    except Exception:
+    except Exception as e:
         pre_import_name = ''
-        current_app.logger.warning('导入前自动备份失败（导入继续）', exc_info=True)
+        current_app.logger.exception('导入前自动备份失败，已停止导入')
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return fail(f'导入前自动备份失败，已停止导入：{e}', 500)
 
     try:
         f.save(tmp_path)
+        result = None
         try:
-            from utils.data_io import perform_import
+            from utils.data_io import perform_import, finalize_import_restore
             result = perform_import(tmp_path, restore_secret_key=restore_key,
                                     password=import_password)
             db.session.commit()
+            finalize_import_restore(result)
         except Exception as e:
             db.session.rollback()
+            if result is not None:
+                from utils.data_io import discard_import_restore
+                discard_import_restore(result)
             current_app.logger.exception('导入备份失败')
             if pre_import_name:
                 return fail(f'导入失败：{e}（已自动备份当前数据到 backups/{pre_import_name}，可据此恢复）')
@@ -868,6 +900,7 @@ def api_roles_add():
                 sort_order=int(data.get('sort_order') or 99))
     db.session.add(role)
     db.session.commit()
+    audit_log('role:create', 'role', role.id, f'创建角色 {role.code}/{role.name}')
     return ok({'id': role.id})
 
 
@@ -888,6 +921,7 @@ def api_roles_update(rid):
     role.is_active = bool(data.get('is_active', role.is_active))
     db.session.commit()
     invalidate_role(role.code)
+    audit_log('role:update', 'role', role.id, f'更新角色 {role.code}/{role.name}')
     return ok(None)
 
 
@@ -906,10 +940,12 @@ def api_roles_delete(rid):
         User.is_active == True).count()
     if bound > 0:
         return fail(f'角色 {role.name} 还有 {bound} 个活跃用户，无法删除', 400)
+    role_id, role_label = role.id, f'{role.code}/{role.name}'
     RolePermission.query.filter_by(role_id=role.id).delete()
     db.session.delete(role)
     db.session.commit()
     invalidate_role(role.code)
+    audit_log('role:delete', 'role', role_id, f'删除角色 {role_label}')
     return ok(None)
 
 
@@ -933,6 +969,8 @@ def api_roles_permissions_save(rid):
             db.session.delete(rp)
     db.session.commit()
     invalidate_role(role.code)
+    audit_log('role:permissions', 'role', role.id,
+              f'更新角色 {role.code} 权限矩阵：{len(existing)} → {len(target)} 项')
     return ok(None)
 
 
@@ -986,6 +1024,8 @@ def api_user_permissions_save(uid):
             expire_at=expire_at, remark=(item.get('remark') or '').strip(),
         ))
     db.session.commit()
+    audit_log('user:permissions', 'user', user.id,
+              f'更新用户 {user.username} 权限覆盖：{len(overrides)} 项')
     return ok(None)
 
 
@@ -1032,6 +1072,8 @@ def api_access_control_save():
         db.session.add(row)
     row.value = '\n'.join(lines)
     db.session.commit()
+    audit_log('system:access_control', 'system_setting', None,
+              f'保存可信网段配置：{len(lines)} 条')
     return ok({'trusted_networks': lines, 'enabled': bool(lines)})
 
 
@@ -1095,6 +1137,8 @@ def api_notify_channel_save(channel_type):
         cfg[str(k)] = v
     row.config_json = dumps_json(cfg)
     db.session.commit()
+    audit_log('notify:channel_save', 'notify_channel', row.id,
+              f'保存通知渠道 {channel_type}，启用={bool(row.is_enabled)}')
     return ok(_channel_payload(row))
 
 
@@ -1120,6 +1164,8 @@ def api_notify_channel_test(channel_type):
     cfg = parse_json(row.config_json or '', default={}, field_name='channel_config')
     ch = cls({'channel_type': row.channel_type}, cfg if isinstance(cfg, dict) else {})
     ok_flag, message = ch.send_test(account, mode)
+    audit_log('notify:channel_test', 'notify_channel', row.id,
+              f'测试通知渠道 {channel_type}：{"成功" if ok_flag else "失败"}')
     return ok({'ok': ok_flag, 'message': message}) if ok_flag else fail(message, 400)
 
 
@@ -1174,4 +1220,6 @@ def api_notify_rule_save():
             pass
     row.recipients_json = dumps_json({'roles': roles, 'users': users})
     db.session.commit()
+    audit_log('notify:rule_save', 'notify_rule', row.id,
+              f'保存通知规则 {event_type}：角色 {len(roles)} 个、用户 {len(users)} 个')
     return ok(None)

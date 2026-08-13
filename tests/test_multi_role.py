@@ -88,7 +88,7 @@ class TestMultiRoleModel:
 class TestMultiRoleApi:
     def test_create_and_echo_roles(self, admin_client):
         r = admin_client.post('/api/users', json={
-            'username': 'mr_api', 'password': 'test123456', 'realname': 'MR',
+            'username': 'mr_api', 'password': 'StrongPass123!', 'realname': 'MR',
             'roles': ['operator', 'sales'], 'is_active': True})
         assert r.get_json()['code'] == 0
         r = admin_client.get('/api/users?search=mr_api')
@@ -98,7 +98,7 @@ class TestMultiRoleApi:
 
     def test_update_roles(self, admin_client):
         admin_client.post('/api/users', json={
-            'username': 'mr_upd', 'password': 'test123456', 'realname': 'MU',
+            'username': 'mr_upd', 'password': 'StrongPass123!', 'realname': 'MU',
             'roles': ['viewer'], 'is_active': True})
         r = admin_client.get('/api/users?search=mr_upd')
         uid = r.get_json()['data']['users'][0]['id']
@@ -112,11 +112,11 @@ class TestMultiRoleApi:
 
     def test_create_roles_invalid(self, admin_client):
         r = admin_client.post('/api/users', json={
-            'username': 'mr_bad', 'password': 'test123456', 'realname': 'MB',
+            'username': 'mr_bad', 'password': 'StrongPass123!', 'realname': 'MB',
             'roles': [], 'is_active': True})
         assert r.status_code == 400
         r = admin_client.post('/api/users', json={
-            'username': 'mr_bad2', 'password': 'test123456', 'realname': 'MB2',
+            'username': 'mr_bad2', 'password': 'StrongPass123!', 'realname': 'MB2',
             'roles': ['not_exists'], 'is_active': True})
         assert r.status_code == 400
 

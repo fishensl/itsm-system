@@ -16,14 +16,19 @@ echo "  ITSM 一键推送更新  → ${SERVER}"
 echo "============================================"
 
 # 1. 确认发布包存在
-if [ ! -f "${APP_DIR}/backups/itsm-update.bundle" ] || [ ! -f "${APP_DIR}/backups/vue-dist-manual.zip" ]; then
+if [ ! -f "${APP_DIR}/backups/itsm-update.bundle" ] || \
+   [ ! -f "${APP_DIR}/backups/itsm-update.bundle.sha256" ] || \
+   [ ! -f "${APP_DIR}/backups/vue-dist-manual.zip" ] || \
+   [ ! -f "${APP_DIR}/backups/vue-dist-manual.zip.sha256" ] || \
+   [ ! -f "${APP_DIR}/backups/itsm-release-manifest.txt" ]; then
     echo "[FATAL] 发布包缺失，请先执行 bash scripts/make-release.sh"
     exit 1
 fi
 
 # 2. 传输发布包（scp，内网秒级）
 echo "[1/2] 传输发布包..."
-scp -o ConnectTimeout=10 "${APP_DIR}/backups/itsm-update.bundle" "${APP_DIR}/backups/vue-dist-manual.zip" \
+scp -o ConnectTimeout=10 "${APP_DIR}/backups/itsm-update.bundle"* "${APP_DIR}/backups/vue-dist-manual.zip"* \
+    "${APP_DIR}/backups/itsm-release-manifest.txt" \
     "${SERVER}:${REMOTE_DIR}/backups/"
 
 # 3. 远程执行更新（bundle 应用 + 前端部署 + 迁移 + 重启，全程本地文件零网络）

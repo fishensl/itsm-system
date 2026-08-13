@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """巡检导出端点 + 设备模板匹配 API（SSR CRUD 已由 Vue SPA /api/* 接管）"""
 import os
-from flask import request, redirect, flash, send_from_directory, jsonify
+from flask import request, redirect, flash, jsonify
 from flask_login import login_required
 from sqlalchemy.orm import joinedload
 from models import (Inspection, Customer, Device,
@@ -82,14 +82,13 @@ def api_devices_with_templates(cid):
 def inspection_export():
     """巡检记录导出 Excel（?customer_id=&date_from=&date_to= 按客户/时间段筛选）"""
     from datetime import date
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
     rows = _inspection_export_rows(request.args)
     path, download_name = export_xlsx(
         ['标题', '客户', '巡检员', '巡检日期', '总体状态', '审核状态', '现场报告',
          '正式报告', '审核意见', '结论', '资料完整'], rows,
         f'巡检导出_{date.today().isoformat()}.xlsx', sheet_name='巡检记录')
-    return send_from_directory(os.path.dirname(path), os.path.basename(path),
-                               as_attachment=True, download_name=download_name)
+    return send_temp_export(path, download_name)
 
 
 @ops_bp.route('/inspections/reports-zip')
@@ -98,9 +97,8 @@ def inspection_export():
 def inspection_reports_zip():
     """巡检记录+报告文件打包下载（按客户/时间段筛选）"""
     from datetime import date
-    from utils.excel_export import export_xlsx
+    from utils.excel_export import export_xlsx, send_temp_export
     from utils.report_zip import build_records_zip
-    from flask import send_file
     from models import SubmissionVersion, InspectionTask
     from services.inspection_service import inspection_completeness
 
@@ -143,8 +141,8 @@ def inspection_reports_zip():
         ])
     excel_path, _ = export_xlsx(headers, rows, '巡检明细.xlsx', sheet_name='巡检记录')
     zip_path = build_records_zip(excel_path, files, '巡检报告包')
-    return send_file(zip_path, as_attachment=True,
-                     download_name=f'巡检报告包_{date.today().isoformat()}.zip')
+    return send_temp_export(
+        zip_path, f'巡检报告包_{date.today().isoformat()}.zip', cleanup_paths=(excel_path,))
 
 
 def _inspection_export_query(args):
