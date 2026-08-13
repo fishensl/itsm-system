@@ -54,6 +54,9 @@ class Config:
                      os.environ.get('FLASK_ENV') == 'production')
     MFA_ENFORCE = os.environ.get('ITSM_MFA_ENFORCE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     CSP_ENABLED = os.environ.get('ITSM_CSP_ENABLED', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    # 数据范围扩展采用分阶段发布：先观察/补齐 customer_engineers，再显式启用强制过滤。
+    CUSTOMER_SCOPE_ENFORCE = os.environ.get(
+        'ITSM_CUSTOMER_SCOPE_ENFORCE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = FORCE_HTTPS

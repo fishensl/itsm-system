@@ -133,6 +133,7 @@ def app(pg_server):
         'SQLALCHEMY_DATABASE_URI': db_uri,
         'WTF_CSRF_ENABLED': False,   # 测试默认关 CSRF；CSRF 行为由专门用例覆盖
         'RATELIMIT_ENABLED': False,  # 限流不干扰测试
+        'CUSTOMER_SCOPE_ENFORCE': True,  # 越权回归显式验证强制模式
     })
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with application.app_context():

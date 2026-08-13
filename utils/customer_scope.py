@@ -11,6 +11,8 @@
 的非敏感字段；列表、详情、搜索、导出与设备 API 复用同一套范围判断。
 """
 
+_observed_scope_signatures = set()
+
 
 def has_full_customer_scope(user) -> bool:
     """当前用户是否拥有全量客户数据范围。"""
@@ -21,8 +23,8 @@ def has_full_customer_scope(user) -> bool:
     return get_user_scope(user) == 'all'
 
 
-def visible_customer_ids(user):
-    """返回可见客户 ID 集合；``None`` 表示全量。"""
+def _configured_customer_ids(user):
+    """按用户配置计算客户 ID；不受分阶段发布开关影响。"""
     if has_full_customer_scope(user):
         return None
     if not user or not getattr(user, 'is_authenticated', False):
@@ -44,6 +46,25 @@ def visible_customer_ids(user):
         .where(customer_engineers.c.engineer_id.in_(user_ids))
         .distinct()
     ))
+
+
+def visible_customer_ids(user):
+    """返回当前实际生效的客户 ID；``None`` 表示暂不强制过滤。"""
+    ids = _configured_customer_ids(user)
+    if ids is None:
+        return None
+    from flask import current_app
+    if current_app.config.get('CUSTOMER_SCOPE_ENFORCE', False):
+        return ids
+
+    # 观测期不改变新增的列表/详情结果，但每进程只记录一次稳定摘要，避免刷日志和泄露 ID。
+    signature = (getattr(user, 'id', None), getattr(user, 'scope', None), len(ids))
+    if signature not in _observed_scope_signatures:
+        _observed_scope_signatures.add(signature)
+        current_app.logger.info(
+            '客户数据范围处于观测模式: user_id=%s scope=%s configured_customer_count=%s',
+            signature[0], signature[1], signature[2])
+    return None
 
 
 def apply_customer_scope(query, model_or_column, user):
@@ -86,11 +107,15 @@ def require_device_access(user, device) -> None:
 
 
 def customer_dropdown_options(user):
-    """按统一范围返回客户下拉候选（不含联系人、电话、地址等敏感字段）。"""
+    """按已配置关联返回客户下拉候选；观测期也不扩大既有下拉范围。"""
     from models import Customer
     from utils.customer_contract import contract_status
 
-    rows = apply_customer_scope(Customer.query, Customer, user).order_by(Customer.name).all()
+    ids = _configured_customer_ids(user)
+    query = Customer.query
+    if ids is not None:
+        query = query.filter(Customer.id.in_(ids))
+    rows = query.order_by(Customer.name).all()
     return [{
         'id': c.id,
         'name': c.name,

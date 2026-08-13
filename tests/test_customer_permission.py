@@ -29,6 +29,17 @@ def seed(app):
 
 
 class TestOperatorScoped:
+    def test_rollout_switch_defaults_to_observe_without_expanding_existing_dropdown(
+            self, app, op_client, seed):
+        app.config['CUSTOMER_SCOPE_ENFORCE'] = False
+        try:
+            assert op_client.get('/api/customers').get_json()['data']['total'] == 2
+            names = [item['name'] for item in
+                     op_client.get('/api/dicts/tickets').get_json()['data']['customers']]
+            assert names == ['敏感客户A']
+        finally:
+            app.config['CUSTOMER_SCOPE_ENFORCE'] = True
+
     def test_list_only_linked(self, op_client, seed):
         r = op_client.get('/api/customers')
         assert r.status_code == 200
