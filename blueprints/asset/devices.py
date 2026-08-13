@@ -24,6 +24,8 @@ def api_device_reveal_password(id):
     - 每次调用写审计日志（操作人/设备/来源 IP/是否历史密码）
     """
     d = Device.query.get_or_404(id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, d)
     history_id = request.form.get('history_id', type=int)
     if history_id:
         h = PasswordHistory.query.filter_by(id=history_id, device_id=id).first_or_404()
@@ -48,7 +50,8 @@ def api_device_reveal_password(id):
 @api_view
 def api_device_password_history(id):
     """历史密码列表（不含明文；明文经 reveal-password?history_id= 单独查看并审计）"""
-    Device.query.get_or_404(id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, Device.query.get_or_404(id))
     rows = PasswordHistory.query.filter_by(device_id=id)\
         .order_by(PasswordHistory.id.desc()).limit(50).all()
     return jsonify([{

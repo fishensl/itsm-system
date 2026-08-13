@@ -9,7 +9,7 @@ import io
 import openpyxl
 import pytest
 
-from models import db, Customer, Device, PasswordHistory
+from models import db, Customer, Device, PasswordHistory, User
 from utils.crypto import encrypt_password
 
 PLAIN_PWD = 'S3cret!密码'
@@ -23,6 +23,7 @@ def device(app):
         c = Customer(name='密码测试客户')
         db.session.add(c)
         db.session.flush()
+        User.query.filter_by(username='op').first().customers = [c]
         d = Device(customer_id=c.id, device_name='核心交换机SW1',
                    password_encrypted=encrypt_password(PLAIN_PWD))
         db.session.add(d)

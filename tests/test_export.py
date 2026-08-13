@@ -4,7 +4,7 @@ import base64
 import io
 import pytest
 
-from models import db, Customer, Device, Rack, RackInstall, PasswordHistory, Inspection, Ticket, Fault
+from models import db, Customer, Device, Rack, RackInstall, PasswordHistory, Inspection, Ticket, Fault, User
 from utils.crypto import encrypt_password
 
 
@@ -40,6 +40,7 @@ def seed(app):
         f1 = Fault(title='导出故障', customer_id=c.id, handler='op', fault_type='硬件故障',
                    result='已解决')
         db.session.add_all([i1, t1, f1])
+        User.query.filter_by(username='op').first().customers = [c, c2]
         db.session.commit()
         yield {'c': c.id, 'c2': c2.id, 'd1': d1.id, 'd2': d2.id, 'i1': i1.id,
                't1': t1.id, 'f1': f1.id}

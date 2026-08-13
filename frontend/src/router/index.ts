@@ -44,13 +44,13 @@ const routes: RouteRecordRaw[] = [
         path: 'customers',
         name: 'customers',
         component: () => import('@/views/customers/index.vue'),
-        meta: { title: '客户管理', perm: 'customer:manage' },
+        meta: { title: '客户管理', perm: 'customer:view' },
       },
       {
         path: 'customers/:id(\\d+)',
         name: 'customer-detail',
         component: () => import('@/views/customers/index.vue'),
-        meta: { title: '客户详情', perm: 'customer:manage' },
+        meta: { title: '客户详情', perm: 'customer:view' },
       },
       {
         path: 'regions',
@@ -218,7 +218,7 @@ const routes: RouteRecordRaw[] = [
         path: 'system/export-reviews',
         name: 'sys-export-reviews',
         component: () => import('@/views/system/exportReviews.vue'),
-        meta: { title: '导出审核', perm: 'user:view' },
+        meta: { title: '导出审核', perm: 'device:export_review' },
       },
       {
         path: 'system/overview',

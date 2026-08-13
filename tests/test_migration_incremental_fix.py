@@ -110,6 +110,8 @@ class TestMigrationIncrementalFix:
         with app.app_context():
             from models import User
             if not User.query.filter_by(username='admin').first():
+                from utils.seed_permissions import seed_all
+                seed_all()
                 db.session.add(User.create_with_password(
                     username='admin', password='x', realname='admin', role='admin'))
                 db.session.commit()

@@ -76,6 +76,19 @@ def notify_contract_review_request(department_id, title, content='', link='',
     return len(targets)
 
 
+def notify_backup_failure(content):
+    """自动备份失败：站内通知全部管理员，并触发可配置的外部渠道。"""
+    targets = _admin_user_ids()
+    title = '自动备份执行失败'
+    link = '/app/system/backup'
+    for uid in targets:
+        notify(uid, 'system', title, content, link)
+    from utils.wecom_notify import wecom_broadcast, EVENT_BACKUP_FAILURE
+    wecom_broadcast(EVENT_BACKUP_FAILURE, title, content, link,
+                    target_user_ids=targets)
+    return len(targets)
+
+
 def notify_overdue_tasks():
     """逾期任务提醒（调度器每日调用）：通知任务指派工程师"""
     from datetime import datetime

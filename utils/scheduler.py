@@ -84,12 +84,18 @@ def _backup_job():
         log.exception('调度：读取备份配置失败')
         return 0
     import subprocess
+    import time
+    from utils.backup_config import record_backup_result
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     script = os.path.join(base, 'scripts', 'backup.sh')
     if not os.path.isfile(script):
         log.warning('调度：backup.sh 不存在（%s），跳过自动备份', script)
+        status = record_backup_result(False, 'backup.sh 不存在')
+        from utils.notifications import notify_backup_failure
+        notify_backup_failure(f'备份脚本不存在；连续失败 {status["consecutive_failures"]} 次')
         return 0
     try:
+        started = time.monotonic()
         env = dict(os.environ)
         keep = cfg.get('backup_keep') or '30'
         env['ITSM_BACKUP_KEEP'] = keep
@@ -97,12 +103,26 @@ def _backup_job():
             ['bash', script, base],
             env=env, capture_output=True, text=True, timeout=1800)
         if result.returncode == 0:
+            record_backup_result(True, duration_seconds=time.monotonic() - started)
             log.info('调度：自动备份完成（保留 %s 份）', keep)
             return 1
+        error = f'backup.sh 返回码 {result.returncode}: {result.stderr[-300:]}'
+        status = record_backup_result(False, error, time.monotonic() - started)
         log.error('调度：自动备份失败 rc=%s\n%s', result.returncode, result.stderr[-1000:])
-    except Exception:
+        from utils.notifications import notify_backup_failure
+        notify_backup_failure(
+            f'backup.sh 返回码 {result.returncode}；连续失败 {status["consecutive_failures"]} 次')
+    except Exception as exc:
         db.session.rollback()
         log.exception('调度：自动备份执行异常')
+        try:
+            status = record_backup_result(False, f'{type(exc).__name__}: {exc}')
+            from utils.notifications import notify_backup_failure
+            notify_backup_failure(
+                f'自动备份执行异常；连续失败 {status["consecutive_failures"]} 次')
+        except Exception:
+            db.session.rollback()
+            log.exception('调度：记录备份失败状态或发送告警时异常')
     return 0
 
 

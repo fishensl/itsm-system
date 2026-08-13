@@ -142,6 +142,7 @@ export interface SystemOverview {
   recent_users: RecentUser[]
   version: string
   deploy: DeployInfo
+  backup: Omit<BackupStatus, 'last_error'>
 }
 
 export function fetchSystemOverview() {
@@ -246,8 +247,20 @@ export function testAiConfig(id: number) {
   return request<{ success: boolean; message: string }>({ url: `/api/ai-config/${id}/test`, method: 'POST' })
 }
 
+export interface BackupStatus {
+  enabled: boolean
+  health: 'disabled' | 'never' | 'ok' | 'stale' | 'failed'
+  last_attempt_at: string
+  last_success_at: string
+  last_failure_at: string
+  last_error: string
+  consecutive_failures: number
+  last_duration_seconds: string
+  rpo_age_hours: number | null
+}
+
 export function fetchBackupStats() {
-  return request<{ stats: Record<string, number>; file_size_mb: number }>({
+  return request<{ stats: Record<string, number>; file_size_mb: number; backup: BackupStatus }>({
     url: '/api/system/backup/stats',
     method: 'GET',
   })

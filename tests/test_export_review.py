@@ -17,6 +17,8 @@ def seed(app):
                    username='root', password_encrypted=encrypt_password('p@ssw0rd!'),
                    login_method='SSH')
         db.session.add(d)
+        op = User.query.filter_by(username='op').first()
+        op.customers = [c]
         db.session.commit()
         yield {'c': c.id, 'd': d.id}
 
@@ -31,6 +33,25 @@ class TestRequest:
         r = op_client.post('/api/v2/devices/export-password-request',
                            json={'filters': {'columns': ['name']}, 'reason': '等保审计'})
         assert r.status_code == 400
+
+    def test_request_requires_reveal_permission(self, viewer_client, seed):
+        r = viewer_client.post('/api/v2/devices/export-password-request', json={
+            'filters': {'preset': 'password', 'customer_id': seed['c']},
+            'reason': 'not allowed',
+        })
+        assert r.status_code == 403
+
+    def test_request_rejects_out_of_scope_customer(self, app, op_client, seed):
+        with app.app_context():
+            customer = Customer(name='scope-hidden-request-customer')
+            db.session.add(customer)
+            db.session.commit()
+            customer_id = customer.id
+        r = op_client.post('/api/v2/devices/export-password-request', json={
+            'filters': {'preset': 'password', 'customer_id': customer_id},
+            'reason': 'not allowed',
+        })
+        assert r.status_code == 404
 
     def test_submit_creates_pending_and_notifies_admin(self, app, op_client, seed):
         r = op_client.post('/api/v2/devices/export-password-request', json={
@@ -117,6 +138,34 @@ class TestReviewFlow:
             assert ExportFile.query.filter_by(token=req.file_token).first()
             # 审计
             assert AuditLog.query.filter_by(action='device:export_review').count() == 1
+
+    def test_approval_uses_requester_customer_scope(self, app, admin_client, op_client, seed,
+                                                    monkeypatch, tmp_path):
+        from blueprints import vue_export
+        monkeypatch.setattr(vue_export, 'EXPORT_DIR', str(tmp_path))
+        with app.app_context():
+            other_customer = Customer(name='scope-hidden-customer')
+            db.session.add(other_customer)
+            db.session.flush()
+            db.session.add(Device(
+                customer_id=other_customer.id,
+                device_name='scope-hidden-device',
+                password_encrypted=encrypt_password('must-not-export'),
+            ))
+            db.session.commit()
+
+        r = op_client.post('/api/v2/devices/export-password-request', json={
+            'filters': {'preset': 'password'},
+            'reason': 'scope regression',
+        })
+        req_id = r.get_json()['data']['id']
+        r = admin_client.post(f'/api/v2/devices/export-password-reviews/{req_id}',
+                              json={'action': 'approve', 'comment': 'ok'})
+        assert r.get_json()['code'] == 0
+
+        with app.app_context():
+            audit = AuditLog.query.filter_by(action='device:export_review').one()
+            assert '1 ' in audit.detail
 
     def test_approve_then_download_one_time_with_password(self, app, admin_client, op_client,
                                                           seed, monkeypatch, tmp_path):

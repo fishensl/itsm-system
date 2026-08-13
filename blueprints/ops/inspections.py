@@ -2,7 +2,7 @@
 """巡检导出端点 + 设备模板匹配 API（SSR CRUD 已由 Vue SPA /api/* 接管）"""
 import os
 from flask import request, redirect, flash, jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
 from models import (Inspection, Customer, Device,
                     InspectionDeviceTemplate, InspectionTaskTemplate)
@@ -21,7 +21,9 @@ def api_devices_with_templates(cid):
       排序）驱动——新建巡检选择任务模板快速创建的支撑端点
     响应 items 为 get_normalized_items()（含 sub_items），前端直接渲染，无需二次请求。
     """
-    Customer.query.get_or_404(cid)
+    customer = Customer.query.get_or_404(cid)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, customer.id)
     task_template_id = request.args.get('task_template_id', type=int)
 
     devices = Device.query.filter_by(customer_id=cid, is_in_use=True)\

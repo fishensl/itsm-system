@@ -1119,6 +1119,8 @@ def api_task_template_delete(tid):
 def api_task_template_match(cid):
     from collections import defaultdict
     from models import Device, InspectionDeviceTemplate
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, cid)
     devices = Device.query.filter_by(customer_id=cid, is_in_use=True).all()
     by_cat = defaultdict(list)
     for d in devices:

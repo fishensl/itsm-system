@@ -616,6 +616,8 @@ def api_device_list():
         _jl(_Device.customer).joinedload(_Customer.region_rel),
         _sil(_Device.rack_installs).joinedload(_RI.rack_rel),
     )
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _Device, current_user)
     if search:
         q = q.filter(_Device.device_name.contains(search) |
                      _Device.ip_address.contains(search) |
@@ -633,7 +635,9 @@ def api_device_list():
 
     total = q.count()
     rows = q.order_by(_Device.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    customer_map = {c.id: c.name for c in _Customer.query.all()}
+    visible_customer_ids = {d.customer_id for d in rows if d.customer_id}
+    customer_map = {c.id: c.name for c in _Customer.query.filter(
+        _Customer.id.in_(visible_customer_ids)).all()} if visible_customer_ids else {}
     from blueprints.vue_export import build_rack_map, build_pwd_map
     rack_map = build_rack_map(rows)
     pwd_map = build_pwd_map(rows)
@@ -659,6 +663,8 @@ def api_device_tree():
     device_type = (request.args.get('device_type') or '').strip()
     is_in_use = request.args.get('is_in_use', type=int)
     q = _D.query.options(_sil(_D.rack_installs).joinedload(_RI.rack_rel))
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _D, current_user)
     if search:
         q = q.filter(_D.device_name.contains(search) |
                      _D.ip_address.contains(search) |
@@ -670,7 +676,9 @@ def api_device_tree():
     if is_in_use is not None:
         q = q.filter(_D.is_in_use == bool(is_in_use))
     devices = q.order_by(_D.id.desc()).all()
-    customers = {c.id: c for c in _C.query.all()}
+    visible_customer_ids = {d.customer_id for d in devices if d.customer_id}
+    customers = {c.id: c for c in _C.query.filter(
+        _C.id.in_(visible_customer_ids)).all()} if visible_customer_ids else {}
     regions = {r.id: r for r in _R.query.all()}
     customer_map = {c.id: c.name for c in customers.values()}
     from blueprints.vue_export import build_rack_map, build_pwd_map
@@ -739,13 +747,17 @@ def api_v2_device_export():
     q = _D.query.options(
         _sil(_D.rack_installs).joinedload(_RI.rack_rel),
     )
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _D, current_user)
     if search:
         q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
                      _D.brand.contains(search))
     if customer_id:
         q = q.filter(_D.customer_id == int(customer_id))
     devices = q.order_by(_D.id.desc()).all()
-    customer_map = {c.id: c.name for c in _C.query.all()}
+    visible_customer_ids = {d.customer_id for d in devices if d.customer_id}
+    customer_map = {c.id: c.name for c in _C.query.filter(
+        _C.id.in_(visible_customer_ids)).all()} if visible_customer_ids else {}
     headers = [DEVICE_EXPORT_COLUMN_MAP[c] for c in codes]
     rows = device_export_rows(devices, codes, customer_map,
                               build_rack_map(devices), build_pwd_map(devices))
@@ -758,6 +770,10 @@ def api_v2_device_export():
         os.remove(tmp_path)
     except OSError:
         pass
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('device:export', 'device', None,
+              export_audit_detail(data, len(devices), codes))
     return ok({'filename': download_name, 'content': b64})
 
 
@@ -797,7 +813,11 @@ def api_v2_device_import():
             '安装位置': 'location', '系统版本': 'os_version', '规则库版本': 'rule_version',
             '备注': 'remark', '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
         }
-        customers = {c.name: c for c in _C.query.all()}
+        from utils.customer_scope import apply_customer_scope
+        customers = {c.name: c for c in apply_customer_scope(
+            _C.query, _C, current_user).all()}
+        from utils.customer_scope import has_full_customer_scope
+        allow_unassigned = has_full_customer_scope(current_user)
         new_devices = []
         for row_idx in range(2, ws.max_row + 1):
             row_data = {}
@@ -811,6 +831,9 @@ def api_v2_device_import():
                 errors.append(f'第{row_idx}行：设备名称为空，跳过')
                 continue
             customer = customers.get(row_data.get('customer_name', '')) if row_data.get('customer_name') else None
+            if not row_data.get('customer_name') and not allow_unassigned:
+                errors.append(f'第{row_idx}行：受限数据范围用户必须填写可见客户，已跳过')
+                continue
             if row_data.get('customer_name') and not customer:
                 errors.append(f'第{row_idx}行：客户 "{row_data["customer_name"]}" 不存在，已跳过')
                 continue
@@ -873,9 +896,11 @@ def api_v2_device_batch_update():
     ids = [int(x) for x in (data.get('device_ids') or []) if x]
     if not ids:
         return fail('请选择要批量修改的设备', 400)
-    devices = _D.query.filter(_D.id.in_(ids)).all()
+    from utils.customer_scope import apply_customer_scope
+    devices = apply_customer_scope(
+        _D.query.filter(_D.id.in_(ids)), _D, current_user).all()
     if len(devices) != len(ids):
-        return fail('部分设备不存在或已删除', 400)
+        return fail('部分设备不存在、已删除或不在当前数据范围', 400)
 
     # ---------- 机柜位置批量迁移 ----------
     if 'rack_id' in data:
@@ -976,7 +1001,9 @@ def api_v2_device_batch_update():
 @require_permission('device:view')
 def api_device_related(device_id):
     """设备反向关联：关联工单（related_device_id）+ 巡检记录（任务 device_ids_json 反查）"""
-    from models import Ticket as _TK, InspectionTask as _IT, Inspection as _IC
+    from models import Device as _D, Ticket as _TK, InspectionTask as _IT, Inspection as _IC
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, _D.query.get_or_404(device_id))
     tickets = [{'id': t.id, 'number': t.number, 'title': t.title, 'status': t.status,
                 'created_at': t.created_at.strftime('%Y-%m-%d') if t.created_at else ''}
                for t in _TK.query.filter_by(related_device_id=device_id)
@@ -1006,6 +1033,8 @@ def api_device_related(device_id):
 def api_device_get(device_id):
     from models import Device as _Device
     d = _Device.query.get_or_404(device_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, d)
     from blueprints.vue_export import build_rack_map, build_pwd_map
     return ok(_device_payload(d, {d.customer_id: d.customer.name if d.customer else ''},
                               build_rack_map([d]), build_pwd_map([d])))
@@ -1017,6 +1046,10 @@ def api_device_get(device_id):
 def api_device_create():
     from services.device_service import create_device_from_form
     data = request.get_json(silent=True) or {}
+    from utils.customer_scope import has_full_customer_scope, require_customer_access
+    if not data.get('customer_id') and not has_full_customer_scope(current_user):
+        return fail('受限数据范围用户创建设备时必须选择可见客户', 400)
+    require_customer_access(current_user, data.get('customer_id'))
     # checkbox 归一化：JSON boolean → service 期望 'on'
     form = dict(data)
     form['is_maintenance'] = 'on' if data.get('is_maintenance') else ''
@@ -1040,6 +1073,11 @@ def api_device_update(device_id):
     from services.device_service import update_device_from_form
     from flask_login import current_user as _cu
     data = request.get_json(silent=True) or {}
+    from models import Device as _Device
+    from utils.customer_scope import require_device_access, require_customer_access
+    existing_device = _Device.query.get_or_404(device_id)
+    require_device_access(current_user, existing_device)
+    require_customer_access(current_user, data.get('customer_id', existing_device.customer_id))
     form = dict(data)
     form['is_maintenance'] = 'on' if data.get('is_maintenance') else ''
     form['is_in_use'] = 'on' if data.get('is_in_use') else ''
@@ -1064,6 +1102,8 @@ def api_device_delete(device_id):
     from services.device_service import delete_device
     from models import Device as _D
     d = _D.query.get_or_404(device_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, d)
     from blueprints.vue_api_sys import audit_log
     audit_log('device:delete', 'device', device_id, f'删除设备「{d.device_name}」')
     try:
@@ -1096,6 +1136,8 @@ def api_device_reveal_password(device_id):
     history_id = request.get_json(silent=True) or {}
     history_id = history_id.get('history_id')
     d = _Device.query.get_or_404(device_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, d)
     if history_id:
         h = _PH.query.filter_by(id=int(history_id), device_id=device_id).first()
         if not h:
@@ -1125,6 +1167,8 @@ def api_device_password_copy_audit(device_id):
     from models import Device as _Device
     from blueprints.vue_api_sys import audit_log
     device = _Device.query.get_or_404(device_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, device)
     audit_log('device:password_copy', 'device', device.id,
               f'复制设备「{device.device_name}」密码到剪贴板')
     return ok(None)
@@ -1135,7 +1179,9 @@ def api_device_password_copy_audit(device_id):
 @require_permission('device:view')
 def api_device_password_history(device_id):
     """历史密码列表（不含明文）"""
-    from models import PasswordHistory as _PH
+    from models import Device as _D, PasswordHistory as _PH
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, _D.query.get_or_404(device_id))
     rows = _PH.query.filter_by(device_id=device_id)\
         .order_by(_PH.id.desc()).limit(50).all()
     return ok([{
@@ -1152,7 +1198,9 @@ def api_device_password_history(device_id):
 @require_permission('device:view')
 def api_device_config_backups(device_id):
     """设备配置备份列表（含巡检上传同步的记录）"""
-    from models import DeviceConfigBackup as _DCB
+    from models import Device as _D, DeviceConfigBackup as _DCB
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, _D.query.get_or_404(device_id))
     rows = _DCB.query.filter_by(device_id=device_id).order_by(_DCB.id.desc()).limit(50).all()
     return ok([{
         'id': b.id,
@@ -1175,6 +1223,8 @@ def api_device_config_backup_download(backup_id):
     """配置备份文件受控下载（防路径穿越，替代静态裸暴露）"""
     from models import DeviceConfigBackup as _DCB
     b = _DCB.query.get_or_404(backup_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, b.device_rel)
     if not b.file_path:
         return fail('该备份无附件文件', 404)
     full = os.path.realpath(os.path.join('static', b.file_path))
@@ -1191,6 +1241,8 @@ def api_device_config_backup_content(backup_id):
     """配置文本在线查看"""
     from models import DeviceConfigBackup as _DCB
     b = _DCB.query.get_or_404(backup_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, b.device_rel)
     return ok({'id': b.id, 'content': b.config_content or ''})
 
 
@@ -1204,7 +1256,8 @@ def api_device_config_backup_add(device_id):
     from werkzeug.utils import secure_filename
     from models import DeviceConfigBackup as _DCB
     from models import Device as _D
-    _D.query.get_or_404(device_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, _D.query.get_or_404(device_id))
     content = request.form.get('config_content', '')
     backup_type = request.form.get('backup_type', '运行配置')
     backup_method = request.form.get('backup_method', '手动输入')
@@ -1250,6 +1303,8 @@ def api_device_config_backup_delete(backup_id):
     import os as _os
     from models import DeviceConfigBackup as _DCB
     backup = _DCB.query.get_or_404(backup_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, backup.device_rel)
     if backup.file_path:
         full = _os.path.join(current_app.root_path, 'static', backup.file_path.replace('/', _os.sep))
         if _os.path.exists(full):
@@ -1271,6 +1326,8 @@ def api_device_config_backup_rollback(backup_id):
     from datetime import date as _date
     from models import DeviceConfigBackup as _DCB
     src = _DCB.query.get_or_404(backup_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, src.device_rel)
     content = src.config_content or ''
     checksum = hashlib.md5(content.encode('utf-8')).hexdigest() if content else ''
     backup = _DCB(
@@ -1299,6 +1356,9 @@ def api_device_config_backup_diff():
     bb = _DCB.query.get(b_id)
     if not ba or not bb:
         return fail('备份版本不存在', 404)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, ba.device_rel)
+    require_device_access(current_user, bb.device_rel)
     return ok({'lines': _compute_config_diff(ba.config_content or '', bb.config_content or '')})
 
 
@@ -1370,17 +1430,23 @@ def api_global_search():
 
     if has_permission('device:view'):
         from models import Device, Customer
-        cname_map = {c.id: c.name for c in Customer.query.all()}
-        rows = Device.query.filter(
+        from utils.customer_scope import apply_customer_scope
+        device_q = apply_customer_scope(Device.query, Device, current_user)
+        rows = device_q.filter(
             Device.device_name.contains(q) | Device.ip_address.contains(q)
         ).order_by(Device.id.desc()).limit(5).all()
+        customer_ids = {d.customer_id for d in rows if d.customer_id}
+        cname_map = {c.id: c.name for c in Customer.query.filter(
+            Customer.id.in_(customer_ids)).all()} if customer_ids else {}
         result['devices'] = [{'id': d.id, 'title': d.device_name,
                               'sub': f"{cname_map.get(d.customer_id, '')} · {d.ip_address or ''}"}
                              for d in rows]
 
     if has_permission('customer:view'):
         from models import Customer
-        rows = Customer.query.filter(
+        from utils.customer_scope import apply_customer_scope
+        customer_q = apply_customer_scope(Customer.query, Customer, current_user)
+        rows = customer_q.filter(
             Customer.name.contains(q) | Customer.contact_person.contains(q) |
             Customer.phone.contains(q)
         ).order_by(Customer.id.desc()).limit(5).all()
@@ -2241,6 +2307,8 @@ def api_v2_customer_export():
     date_from = (data.get('date_from') or '').strip()
     date_to = (data.get('date_to') or '').strip()
     q = _C.query.options(_jl(_C.category_rel), _jl(_C.region_rel)).order_by(_C.name)
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _C, current_user)
     if date_from:
         q = q.filter(_C.created_at >= date_from)
     if date_to:
@@ -2306,6 +2374,10 @@ def api_v2_customer_export():
         os.remove(tmp_path)
     except OSError:
         pass
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('customer:export', 'customer', None,
+              export_audit_detail(data, len(customers), codes))
     return ok({'filename': download_name, 'content': b64})
 
 
@@ -2325,6 +2397,7 @@ def api_v2_customer_import():
     tmp = save_temp_upload(f, suffix='.xlsx')
     success = 0
     unknown_categories = set()
+    imported_customers = []
     try:
         wb, ws, err2 = open_excel(tmp, app=current_app)
         if err2:
@@ -2363,7 +2436,7 @@ def api_v2_customer_import():
                     category_id = cat.id
                 else:
                     unknown_categories.add(cat_name)
-            db.session.add(_C(
+            customer = _C(
                 name=name, contact_person=_cell(r, '联系人') or None,
                 phone=_cell(r, '电话') or None, email=_cell(r, '邮箱') or None,
                 region_id=region_id, category_id=category_id,
@@ -2376,8 +2449,13 @@ def api_v2_customer_import():
                 has_drill=_cell(r, '有无攻防演练') in TRUE_SET,
                 inspection_frequency=_cell(r, '巡检频率') or '',
                 source=_cell(r, '来源') or None, remark=_cell(r, '备注') or None,
-            ))
+            )
+            db.session.add(customer)
+            imported_customers.append(customer)
             success += 1
+        from utils.customer_scope import has_full_customer_scope
+        if imported_customers and not has_full_customer_scope(current_user):
+            current_user.customers.extend(imported_customers)
         db.session.commit()
     finally:
         cleanup_temp_file(tmp)
@@ -2386,7 +2464,7 @@ def api_v2_customer_import():
 
 @vue_api_bp.route('/api/customers', methods=['GET'])
 @login_required
-@require_permission('customer:manage')
+@require_permission('customer:view')
 def api_customer_list():
     """客户分页列表（DataTable 数据源）"""
     from models import Customer as _C, Region as _R, CustomerCategory as _CC
@@ -2398,7 +2476,8 @@ def api_customer_list():
     category_id = request.args.get('category_id', type=int)
     region_id = request.args.get('region_id', type=int)
 
-    q = _C.query
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(_C.query, _C, current_user)
     if search:
         q = q.filter(_C.name.contains(search) |
                      _C.contact_person.contains(search) |
@@ -2420,7 +2499,7 @@ def api_customer_list():
 
 @vue_api_bp.route('/api/customers/tree', methods=['GET'])
 @login_required
-@require_permission('customer:manage')
+@require_permission('customer:view')
 def api_customer_tree():
     """客户两级折叠树：市 → 客户（区县客户并入市组，行内附 district 区县名）
 
@@ -2430,7 +2509,8 @@ def api_customer_tree():
     search = (request.args.get('search') or '').strip()
     level = (request.args.get('level') or '').strip()
     category_id = request.args.get('category_id', type=int)
-    q = _C.query
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(_C.query, _C, current_user)
     if search:
         q = q.filter(_C.name.contains(search) |
                      _C.contact_person.contains(search) |
@@ -2470,10 +2550,12 @@ def api_customer_tree():
 
 @vue_api_bp.route('/api/customers/<int:customer_id>', methods=['GET'])
 @login_required
-@require_permission('customer:manage')
+@require_permission('customer:view')
 def api_customer_get(customer_id):
     from models import Customer as _C, Region as _R, CustomerCategory as _CC
     c = _C.query.get_or_404(customer_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, c.id)
     region_map = {r.id: r.name for r in _R.query.all()}
     category_map = {cc.id: cc.name for cc in _CC.query.all()}
     payload = _customer_payload(c, region_map, category_map)
@@ -2495,6 +2577,9 @@ def api_customer_create():
     form['extra_fields'] = _serialize_extra_fields(data.get('extra_fields'))
     try:
         c = create_customer(form, device_count=0)
+        from utils.customer_scope import has_full_customer_scope
+        if not has_full_customer_scope(current_user):
+            current_user.customers.append(c)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -2515,6 +2600,8 @@ def api_customer_create():
 def api_customer_update(customer_id):
     from services.customer_service import update_customer
     data = request.get_json(silent=True) or {}
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, customer_id)
     form = dict(data)
     form['has_onsite'] = 'on' if data.get('has_onsite') else ''
     form['has_drill'] = 'on' if data.get('has_drill') else ''
@@ -2542,6 +2629,8 @@ def api_customer_delete(customer_id):
     from models import Customer as _C
     from services.customer_service import delete_customer
     c = _C.query.get_or_404(customer_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, c.id)
     current_app.logger.info(
         '客户删除审计(Vue): 用户[%s] 删除客户[%s](id=%s), IP=%s',
         current_user.username, c.name, c.id, request.remote_addr)
@@ -3492,6 +3581,10 @@ def api_v2_inspection_export():
         os.remove(tmp_path)
     except OSError:
         pass
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('inspection:export', 'inspection', None,
+              export_audit_detail(data, len(records), codes))
     return ok({'filename': download_name, 'content': b64})
 
 
@@ -3514,6 +3607,8 @@ def api_v2_inspection_export_bundle():
     if not items:
         return fail('请至少勾选一个导出项目', 400)
     q = _I.query.options(_jl(_I.customer_rel))
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _I, current_user)
     if data.get('customer_id'):
         q = q.filter(_I.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _I.inspection_date, data)
@@ -3572,6 +3667,10 @@ def api_v2_inspection_export_bundle():
     zip_path = build_records_bundle(excel_path, files, '巡检资料包')
     token = save_export_file(zip_path, f'巡检资料包_{_date.today().isoformat()}.zip',
                              user_id=current_user.id)
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('inspection:export_bundle', 'inspection', None,
+              export_audit_detail(data, len(records), sorted(items), token))
     return ok({'filename': f'巡检资料包_{_date.today().isoformat()}.zip',
                'download_url': f'/api/v2/export-download/{token}'})
 
@@ -3595,6 +3694,8 @@ def api_v2_ticket_export():
     except ValueError as e:
         return fail(str(e), 400)
     q = _T.query.options(_jl(_T.customer_rel))
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _T, current_user)
     if data.get('customer_id'):
         q = q.filter(_T.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _T.created_at, data)
@@ -3637,6 +3738,10 @@ def api_v2_ticket_export():
         os.remove(tmp_path)
     except OSError:
         pass
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('ticket:export', 'ticket', None,
+              export_audit_detail(data, len(records), codes))
     return ok({'filename': download_name, 'content': b64})
 
 
@@ -3654,6 +3759,8 @@ def api_v2_ticket_export_bundle():
     from models import Ticket as _T, Customer as _C
     data = _export_body()
     q = _T.query.options(_jl(_T.customer_rel))
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _T, current_user)
     if data.get('customer_id'):
         q = q.filter(_T.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _T.created_at, data)
@@ -3690,6 +3797,10 @@ def api_v2_ticket_export_bundle():
     zip_path = build_records_bundle(excel_path, files, '工单报告包')
     token = save_export_file(zip_path, f'工单报告包_{_date.today().isoformat()}.zip',
                              user_id=current_user.id)
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('ticket:export_bundle', 'ticket', None,
+              export_audit_detail(data, len(records), ['report'], token))
     return ok({'filename': f'工单报告包_{_date.today().isoformat()}.zip',
                'download_url': f'/api/v2/export-download/{token}'})
 
@@ -3713,6 +3824,8 @@ def api_v2_fault_export():
     except ValueError as e:
         return fail(str(e), 400)
     q = _F.query.options(_jl(_F.customer_rel))
+    from utils.permission import apply_scope_filter
+    q = apply_scope_filter(q, _F, current_user)
     if data.get('customer_id'):
         q = q.filter(_F.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _F.fault_time, data)
@@ -3746,6 +3859,10 @@ def api_v2_fault_export():
         os.remove(tmp_path)
     except OSError:
         pass
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('fault:export', 'fault', None,
+              export_audit_detail(data, len(records), codes))
     return ok({'filename': download_name, 'content': b64})
 
 

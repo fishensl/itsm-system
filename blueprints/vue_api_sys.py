@@ -478,8 +478,11 @@ def api_system_overview():
             version = f.read().strip()
     except Exception:
         version = 'unknown'
+    from utils.backup_config import get_backup_status
+    backup_status = get_backup_status()
+    backup_status.pop('last_error', None)
     return ok({'stats': stats, 'recent_users': recent_users, 'version': version,
-               'deploy': collect_deployment_info()})
+               'deploy': collect_deployment_info(), 'backup': backup_status})
 
 
 @vue_api_bp.route('/api/system/repair-device-counts', methods=['POST'])
@@ -685,7 +688,9 @@ def api_backup_stats():
                         file_size += os.path.getsize(os.path.join(dp, fn))
                     except OSError:
                         pass
-    return ok({'stats': stats, 'file_size_mb': round(file_size / 1024 / 1024, 1)})
+    from utils.backup_config import get_backup_status
+    return ok({'stats': stats, 'file_size_mb': round(file_size / 1024 / 1024, 1),
+               'backup': get_backup_status()})
 
 
 @vue_api_bp.route('/api/system/backup/export', methods=['POST'])
@@ -780,6 +785,8 @@ def api_backup_import():
             from utils.data_io import perform_import, finalize_import_restore
             result = perform_import(tmp_path, restore_secret_key=restore_key,
                                     password=import_password)
+            from utils.permission import bump_role_cache_version
+            bump_role_cache_version()
             db.session.commit()
             finalize_import_restore(result)
         except Exception as e:
@@ -899,6 +906,8 @@ def api_roles_add():
                 is_system=False, is_active=bool(data.get('is_active', True)),
                 sort_order=int(data.get('sort_order') or 99))
     db.session.add(role)
+    from utils.permission import bump_role_cache_version
+    bump_role_cache_version()
     db.session.commit()
     audit_log('role:create', 'role', role.id, f'创建角色 {role.code}/{role.name}')
     return ok({'id': role.id})
@@ -909,7 +918,7 @@ def api_roles_add():
 @require_permission('permission:edit')
 def api_roles_update(rid):
     from models import Role
-    from utils.permission import invalidate_role
+    from utils.permission import bump_role_cache_version, invalidate_role
     role = Role.query.get_or_404(rid)
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
@@ -919,6 +928,7 @@ def api_roles_update(rid):
     role.description = (data.get('description') or '').strip()
     role.sort_order = int(data.get('sort_order') or 0)
     role.is_active = bool(data.get('is_active', role.is_active))
+    bump_role_cache_version()
     db.session.commit()
     invalidate_role(role.code)
     audit_log('role:update', 'role', role.id, f'更新角色 {role.code}/{role.name}')
@@ -931,7 +941,7 @@ def api_roles_update(rid):
 @admin_required
 def api_roles_delete(rid):
     from models import Role, RolePermission, User
-    from utils.permission import invalidate_role
+    from utils.permission import bump_role_cache_version, invalidate_role
     role = Role.query.get_or_404(rid)
     if role.is_system:
         return fail(f'角色 {role.name} 是系统内置角色，不可删除', 400)
@@ -943,6 +953,7 @@ def api_roles_delete(rid):
     role_id, role_label = role.id, f'{role.code}/{role.name}'
     RolePermission.query.filter_by(role_id=role.id).delete()
     db.session.delete(role)
+    bump_role_cache_version()
     db.session.commit()
     invalidate_role(role.code)
     audit_log('role:delete', 'role', role_id, f'删除角色 {role_label}')
@@ -954,7 +965,7 @@ def api_roles_delete(rid):
 @require_permission('permission:edit')
 def api_roles_permissions_save(rid):
     from models import Role, RolePermission
-    from utils.permission import invalidate_role
+    from utils.permission import bump_role_cache_version, invalidate_role
     role = Role.query.get_or_404(rid)
     if role.code == 'admin':
         return fail('admin 角色拥有系统全部权限，无需配置', 400)
@@ -967,6 +978,7 @@ def api_roles_permissions_save(rid):
         rp = RolePermission.query.filter_by(role_id=role.id, permission_code=code).first()
         if rp:
             db.session.delete(rp)
+    bump_role_cache_version()
     db.session.commit()
     invalidate_role(role.code)
     audit_log('role:permissions', 'role', role.id,

@@ -2,7 +2,7 @@
 """巡检模板 / 设备检查模板 / 任务模板只读 API（SSR CRUD 已由 Vue SPA /api/* 接管）"""
 import json
 from flask import jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 from models import (InspectionTemplate, InspectionDeviceTemplate, Device)
 from utils.permission import require_permission
 from blueprints.ops import ops_bp
@@ -43,6 +43,8 @@ def api_match_device_templates(cid):
     - 返回每个大类下的设备数 + 匹配到的模板列表（命中分越高越靠前）
     """
     from collections import defaultdict
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, cid)
     devices = Device.query.filter_by(customer_id=cid, is_in_use=True).all()
     # 按 device_type 分组
     by_cat = defaultdict(list)

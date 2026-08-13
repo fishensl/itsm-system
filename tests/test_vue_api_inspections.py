@@ -15,6 +15,7 @@ def seed(app):
         db.session.add(c)
         db.session.flush()
         op = User.query.filter_by(username='op').first()
+        op.customers = [c]
         t1 = InspectionTask(title='核心机房月度巡检任务', customer_id=c.id,
                             status='执行中', assigned_to_user_id=op.id)
         t2 = InspectionTask(title='季度巡检任务', customer_id=c.id,

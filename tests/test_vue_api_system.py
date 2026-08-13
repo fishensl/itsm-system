@@ -190,7 +190,7 @@ class TestAuditApi:
     def test_audit_recorded_on_reveal(self, op_client, admin_client, app):
         """设备密码 reveal 写审计（op 执行 → admin 可查）"""
         with app.app_context():
-            from models import Customer, Device
+            from models import Customer, Device, User
             from utils.crypto import encrypt_password
             c = Customer(name='审计客户')
             db.session.add(c)
@@ -198,6 +198,7 @@ class TestAuditApi:
             d = Device(customer_id=c.id, device_name='审计设备',
                        password_encrypted=encrypt_password('x'))
             db.session.add(d)
+            User.query.filter_by(username='op').first().customers = [c]
             db.session.commit()
             did = d.id
         op_client.post(f'/api/v2/devices/{did}/reveal-password')

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """设备固件版本库匹配 API（SSR 页面与 CRUD 已由 Vue SPA /api/firmwares/* 接管）"""
 from flask import jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 from models import (Device, DeviceFirmware)
 from utils.permission import require_permission
 from blueprints.asset import asset_bp
@@ -13,6 +13,8 @@ from blueprints.asset import asset_bp
 def api_firmware_match_device(device_id):
     """V12: 给定设备 id，返回该设备 brand+model 下所有固件版本（以及最新版本标记）"""
     d = Device.query.get_or_404(device_id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, d)
     fws = DeviceFirmware.query.filter_by(brand=d.brand, model=d.model).order_by(
         DeviceFirmware.firmware_type, DeviceFirmware.is_latest.desc(), DeviceFirmware.release_date.desc()
     ).all()

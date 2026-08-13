@@ -140,7 +140,13 @@ class User(UserMixin, db.Model):
 
     @property
     def is_admin(self):
-        return self.has_role('admin')
+        if not self.has_role('admin'):
+            return False
+        # 角色停用必须实时 fail-closed；仅 role_codes 中残留 admin 不能继续绕过权限。
+        try:
+            return db.session.query(Role.id).filter_by(code='admin', is_active=True).first() is not None
+        except Exception:
+            return False
 
     @property
     def is_supervisor(self):

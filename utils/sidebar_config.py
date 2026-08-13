@@ -105,9 +105,9 @@ SIDEBAR_GROUPS = [
         'icon': 'bi-people',
         'default_order': 40,  # 在资产管理下、知识库上
         'children': [
-            # 核心（客户主数据仅管理者可见：工程师不显示客户管理）
-            {'name': '客户列表', 'url': '/customers', 'icon': 'bi-person-lines-fill', 'perm': 'customer:manage'},
-            # 字典/分类放后（随客户主数据门控，工程师整组不可见）
+            # 客户列表按数据 scope 展示；新增/编辑/导出仍由各动作权限控制。
+            {'name': '客户列表', 'url': '/customers', 'icon': 'bi-person-lines-fill', 'perm': 'customer:view'},
+            # 字典/分类仍仅管理者可见。
             {'name': '地区管理', 'url': '/regions', 'icon': 'bi-geo-alt', 'perm': 'customer:manage'},
             {'name': '单位类别', 'url': '/customer-categories', 'icon': 'bi-bookmark-star', 'perm': 'customer:manage'},
         ],
@@ -152,7 +152,7 @@ SIDEBAR_GROUPS = [
             {'name': '部门管理', 'url': '/departments/', 'icon': 'bi-diagram-3', 'perm': 'department:view'},
             {'name': '权限管理', 'url': '/permissions', 'icon': 'bi-shield-lock', 'perm': 'permission:view'},
             # 设备密码导出申请审核（admin）
-            {'name': '导出审核', 'url': '/system/export-reviews', 'icon': 'bi-file-earmark-check', 'perm': 'user:view'},
+            {'name': '导出审核', 'url': '/system/export-reviews', 'icon': 'bi-file-earmark-check', 'perm': 'device:export_review'},
             # 集成/配置
             {'name': 'AI 对接', 'url': '/ai-config', 'icon': 'bi-robot', 'perm': 'ai:view'},
             # 通知渠道/规则（内网管理项，外网 403）

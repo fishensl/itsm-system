@@ -10,6 +10,14 @@ APP_DIR="${1:-/opt/itsm}"
 VENV="${APP_DIR}/venv"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
+if [ -f "${APP_DIR}/scripts/lib-release.sh" ]; then
+    # shellcheck disable=SC1091
+    source "${APP_DIR}/scripts/lib-release.sh"
+else
+    # 首次从不含共享库的旧版本自更新时不阻断更新；健康失败仍会明确进入人工回滚。
+    restore_previous_frontend() { return 1; }
+fi
+
 echo "============================================"
 echo "  ITSM 在线更新  ${TIMESTAMP}"
 echo "============================================"
@@ -193,6 +201,11 @@ echo "[3/6] 拉取最新代码..."
 if ! git_pull_with_fallback master; then
     echo "  [FATAL] 代码拉取失败，已在依赖、迁移和重启前停止" >&2
     exit 1
+fi
+# 兼容从旧版本自更新：git pull 后重新加载可能刚新增的发布恢复函数。
+if [ -f "${APP_DIR}/scripts/lib-release.sh" ]; then
+    # shellcheck disable=SC1091
+    source "${APP_DIR}/scripts/lib-release.sh"
 fi
 
 BACKEND_COMMIT=$(git rev-parse HEAD)
@@ -409,7 +422,18 @@ echo "[最后] 重启服务..."
 systemctl restart itsm
 systemctl --no-pager -l status itsm
 if ! curl -fsS --connect-timeout 5 --max-time 20 http://127.0.0.1:5000/readyz >/dev/null; then
-    echo "[FATAL] 服务重启后 readyz 未通过，请立即按本次配对备份执行回滚" >&2
+    echo "[ERROR] 服务重启后 readyz 未通过，尝试恢复上一版前端..." >&2
+    FAILED_VUE_DIR="${VUE_DIST_DIR}.failed.${TIMESTAMP}"
+    if restore_previous_frontend "${VUE_DIST_DIR}" "${VUE_DIST_DIR}.previous" "${FAILED_VUE_DIR}"; then
+        systemctl restart itsm
+        if curl -fsS --connect-timeout 5 --max-time 20 http://127.0.0.1:5000/readyz >/dev/null; then
+            echo "[ROLLBACK] 已恢复上一版前端；失败版本保留在 ${FAILED_VUE_DIR}" >&2
+        else
+            echo "[FATAL] 上一版前端已恢复，但 readyz 仍失败；请按本次配对备份回滚后端/数据库" >&2
+        fi
+    else
+        echo "[FATAL] 上一版前端自动恢复失败；请按本次配对备份执行人工回滚" >&2
+    fi
     exit 1
 fi
 

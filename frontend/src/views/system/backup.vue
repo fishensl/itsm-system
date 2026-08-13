@@ -37,6 +37,16 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="backupStatus && backupStatus.health !== 'ok' && backupStatus.health !== 'disabled'"
+      :type="backupStatus.health === 'failed' ? 'error' : 'warning'"
+      :title="backupHealthTitle"
+      :description="backupHealthDescription"
+      :closable="false"
+      show-icon
+      class="backup-health-alert"
+    />
+
     <el-row :gutter="14" class="main-grid">
       <el-col :xs="24" :lg="14">
         <el-card shadow="never" class="section-card">
@@ -225,6 +235,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { computed, onMounted, ref } from 'vue'
 import { Clock, Download, Files, FolderOpened } from '@element-plus/icons-vue'
 import { exportBackup, fetchBackupConfig, fetchBackupStats, importBackup, saveBackupConfig } from '@/api/system'
+import type { BackupStatus } from '@/api/system'
 import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
@@ -246,6 +257,19 @@ const backupEnabled = ref(false)
 const backupTime = ref('03:00')
 const backupKeep = ref(30)
 const savingCfg = ref(false)
+const backupStatus = ref<BackupStatus | null>(null)
+
+const backupHealthTitle = computed(() => {
+  if (backupStatus.value?.health === 'failed') return `自动备份连续失败 ${backupStatus.value.consecutive_failures} 次`
+  if (backupStatus.value?.health === 'stale') return '最近成功备份已超过 26 小时'
+  return '自动备份已启用，但尚无成功记录'
+})
+const backupHealthDescription = computed(() => {
+  const status = backupStatus.value
+  if (!status) return ''
+  const last = status.last_success_at ? `最近成功：${new Date(status.last_success_at).toLocaleString()}` : '尚无成功记录'
+  return status.last_error ? `${last}；最近错误：${status.last_error}` : last
+})
 
 const exportScope = computed(() => exportConfigOnly.value
   ? ['系统配置', '加密密钥']
@@ -256,6 +280,7 @@ async function load() {
   try {
     const [stats, config] = await Promise.all([fetchBackupStats(), fetchBackupConfig()])
     fileSizeMb.value = String(stats.file_size_mb)
+    backupStatus.value = stats.backup
     backupEnabled.value = config.backup_enabled === '1'
     backupTime.value = config.backup_time || '03:00'
     backupKeep.value = Number(config.backup_keep) || 30
@@ -354,6 +379,7 @@ onMounted(load)
 <style scoped>
 .backup-page { max-width: 1500px; margin: 0 auto; }
 .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.backup-health-alert { margin-top: 12px; }
 .summary-item {
   display: flex; align-items: center; gap: 12px; min-width: 0; padding: 15px 16px;
   background: var(--itsm-card-bg); border: 1px solid var(--itsm-border); border-radius: 10px;

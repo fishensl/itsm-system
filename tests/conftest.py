@@ -75,7 +75,9 @@ def pg_server():
         yield None
         return
     import pgserver
-    data_dir = os.path.join(tempfile.gettempdir(), 'itsm_pg_data')
+    # 每次 pytest 运行使用独立实例，避免上次被中断后残留的 postmaster.pid
+    # 或非 ready 状态污染下一次运行。
+    data_dir = tempfile.mkdtemp(prefix='itsm_pg_data_')
     _pg_server = pgserver.get_server(data_dir)
     _pg_server.ensure_pgdata_inited()
     _pg_server.ensure_postgres_running()
@@ -110,6 +112,7 @@ def pg_server():
         _pg_server.cleanup()
     except Exception:
         pass
+    shutil.rmtree(data_dir, ignore_errors=True)
 
 
 def _test_db_uri(pg_server):
@@ -197,6 +200,10 @@ def _create_test_users():
             db.session.add(User.create_with_password(
                 username=username, password=TEST_PASSWORD,
                 realname=username, role=role))
+    # 四类数据范围基线：admin 由角色隐式 all；销售显式 all；工程师 department；viewer self。
+    User.query.filter_by(username='sales').first().scope = 'all'
+    User.query.filter_by(username='op').first().scope = 'department'
+    User.query.filter_by(username='viewer').first().scope = 'self'
     db.session.flush()
     op = User.query.filter_by(username='op').first()
     for perm_code in ('inspection:review', 'ticket:review', 'ticket:assign'):

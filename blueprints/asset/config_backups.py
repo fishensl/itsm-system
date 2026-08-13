@@ -16,7 +16,8 @@ def api_config_backup_upload(id):
     """巡检表单中 config_backup 字段类型上传配置文件时调用，自动创建一条 DeviceConfigBackup 记录。"""
     import hashlib
     from werkzeug.utils import secure_filename
-    Device.query.get_or_404(id)
+    from utils.customer_scope import require_device_access
+    require_device_access(current_user, Device.query.get_or_404(id))
     f = request.files.get('file')
     if not f or not f.filename:
         return jsonify({'error': '未选择文件'}), 400

@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from models import db, Customer, Device
+from models import db, Customer, Device, User
 from utils.crypto import encrypt_password
 
 
@@ -23,6 +23,8 @@ def seed(app):
         d2 = Device(customer_id=c2.id, device_name='FW-B', device_type='防火墙',
                     brand='深信服', ip_address='10.0.0.2', is_in_use=False)
         db.session.add_all([d1, d2])
+        op = User.query.filter_by(username='op').first()
+        op.customers = [c1, c2]
         # 字典种子（conftest 不种 DeviceType）
         if not DeviceType.query.first():
             db.session.add(DeviceType(name='交换机'))
@@ -324,7 +326,7 @@ class TestDeviceDicts:
         assert any(t['name'] == '交换机' for t in data['device_types'])
         assert len(data['customers']) >= 2
 
-    def test_tree_three_levels(self, op_client, seed, app):
+    def test_tree_three_levels(self, admin_client, seed, app):
         """设备树：市 → 客户 → 设备 三级；未关联客户设备独立成组
 
         注：测试环境 SQLite SingletonThreadPool 同线程连接快照问题，
@@ -342,7 +344,7 @@ class TestDeviceDicts:
                                   device_type='交换机', brand='H3C', is_in_use=True))
             db.session.add(Device(customer_id=None, device_name='无主设备'))
             db.session.commit()
-        r = op_client.get('/api/devices/tree')
+        r = admin_client.get('/api/devices/tree')
         assert r.status_code == 200
         data = r.get_json()['data']
         assert data['total'] == 4  # SW-A + FW-B + SW-NEW + 无主设备

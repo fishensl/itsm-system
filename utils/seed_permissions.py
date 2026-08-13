@@ -117,4 +117,7 @@ def _seed_all_impl() -> None:
             RolePermission.role_id == role.id,
             RolePermission.permission_code.in_(remove_codes),
         ).delete(synchronize_session=False)
+    from utils.permission import bump_role_cache_version, invalidate_all_roles
+    bump_role_cache_version()
     db.session.commit()
+    invalidate_all_roles()

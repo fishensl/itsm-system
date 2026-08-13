@@ -5,6 +5,15 @@
       <div class="header-actions"><el-tag type="success">Vue 单轨</el-tag></div>
     </div>
 
+    <el-alert
+      v-if="overview?.backup?.health && overview.backup.health !== 'ok'"
+      :type="overview.backup.health === 'failed' ? 'error' : 'warning'"
+      :title="backupStatusText"
+      :closable="false"
+      show-icon
+      class="mb-3"
+    />
+
     <!-- 1. 资源监控 -->
     <h6 class="module-title"><el-icon><Odometer /></el-icon>资源监控</h6>
     <template v-if="resources?.available">
@@ -180,6 +189,14 @@ const resources = computed(() => overview.value?.deploy?.resources)
 const sysInfo = computed(() => overview.value?.deploy?.sys_info)
 const dbInfo = computed(() => overview.value?.deploy?.db_info)
 const recentUsers = computed(() => overview.value?.recent_users || [])
+const backupStatusText = computed(() => {
+  const backup = overview.value?.backup
+  if (!backup) return ''
+  if (backup.health === 'disabled') return '自动备份未启用，当前没有可验证的 RPO 保障'
+  if (backup.health === 'failed') return `自动备份连续失败 ${backup.consecutive_failures} 次，请立即检查备份管理`
+  if (backup.health === 'stale') return `最近成功备份距今 ${backup.rpo_age_hours} 小时，已超过 26 小时阈值`
+  return '自动备份已启用，但尚无成功记录'
+})
 
 const componentRows = computed(() =>
   Object.entries(overview.value?.deploy?.components || {}).map(([name, version]) => ({ name, version })),
@@ -254,6 +271,7 @@ onMounted(async () => {
   margin-top: 2px;
 }
 .mt-3 { margin-top: 12px; }
+.mb-3 { margin-bottom: 12px; }
 .card-title { font-weight: 600; font-size: 14px; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .info-card { height: 100%; }

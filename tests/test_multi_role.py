@@ -2,7 +2,7 @@
 """V24 多角色：role_codes 创建/更新/回显、权限并集、审核岗位（用户级 grant）、提交审核通知"""
 import pytest
 
-from models import (db, User, Department, Notification, Role,
+from models import (db, User, Department, Notification, Role, RolePermission, SystemSetting,
                     Ticket, Customer, Inspection)
 
 
@@ -83,6 +83,42 @@ class TestMultiRoleModel:
             db.session.add(u)
             db.session.commit()
             assert u.role_codes_list() == ['operator']
+
+    def test_unknown_role_fails_closed(self, app):
+        with app.app_context():
+            from utils.permission import get_user_permissions
+            u = User.create_with_password(
+                username='unknown_role_user', password='x', roles=['not_exists'])
+            db.session.add(u)
+            db.session.commit()
+            assert get_user_permissions(u) == []
+
+    def test_external_role_version_change_invalidates_local_cache(self, app):
+        with app.app_context():
+            import utils.permission as permission
+            viewer = User.query.filter_by(username='viewer').first()
+            assert 'device:view' in permission.get_user_permissions(viewer)
+            role = Role.query.filter_by(code='viewer').first()
+            RolePermission.query.filter_by(
+                role_id=role.id, permission_code='device:view').delete()
+            version = SystemSetting.query.get('rbac_cache_version')
+            version.value = 'simulated-other-worker-version'
+            db.session.commit()
+
+            permission._role_version_checked_at = 0
+            assert 'device:view' not in permission.get_user_permissions(viewer)
+
+    def test_disabled_admin_role_does_not_keep_admin_shortcut(self, app):
+        with app.app_context():
+            import utils.permission as permission
+            admin = User.query.filter_by(username='admin').first()
+            role = Role.query.filter_by(code='admin').first()
+            role.is_active = False
+            permission.bump_role_cache_version()
+            db.session.commit()
+            permission._role_version_checked_at = 0
+            assert admin.is_admin is False
+            assert permission.get_user_permissions(admin) == []
 
 
 class TestMultiRoleApi:

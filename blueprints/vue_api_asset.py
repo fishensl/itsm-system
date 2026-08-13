@@ -994,7 +994,7 @@ def api_firmware_delete(fw_id):
 # ==================== 设备密码导出审核流（V24） ====================
 @vue_api_bp.route('/api/v2/devices/export-password-request', methods=['POST'])
 @login_required
-@require_permission('device:view')
+@require_permission('device:reveal')
 def api_device_export_password_request():
     """提交设备密码导出申请（原因必填 + 审计 + 通知全部 admin）"""
     from models import DeviceExportRequest
@@ -1004,6 +1004,14 @@ def api_device_export_password_request():
     if not reason:
         return fail('请填写申请原因（必填）', 400)
     filters = data.get('filters') or {}
+    customer_id = filters.get('customer_id')
+    if customer_id not in (None, ''):
+        try:
+            customer_id = int(customer_id)
+        except (TypeError, ValueError):
+            return fail('customer_id 必须为整数', 400)
+        from utils.customer_scope import require_customer_access
+        require_customer_access(current_user, customer_id)
     try:
         codes = resolve_device_columns(filters.get('preset'), filters.get('columns'))
     except ValueError as e:
@@ -1015,7 +1023,7 @@ def api_device_export_password_request():
         user_id=current_user.id,
         reason=reason[:500],
         filters_json=dumps_json({'search': (filters.get('search') or '').strip(),
-                                 'customer_id': filters.get('customer_id'),
+                                 'customer_id': customer_id,
                                  'preset': filters.get('preset') or '',
                                  'columns': codes}),
         status='pending',
@@ -1066,10 +1074,9 @@ def api_device_export_password_requests():
 
 @vue_api_bp.route('/api/v2/devices/export-password-reviews', methods=['GET'])
 @login_required
+@require_permission('device:export_review')
 def api_device_export_password_reviews():
-    """待审核导出申请列表（admin）"""
-    if not current_user.is_admin:
-        return fail('需要管理员权限', 403)
+    """待审核导出申请列表（专用审核权限）"""
     from models import DeviceExportRequest
     rows = DeviceExportRequest.query.options(
         joinedload(DeviceExportRequest.user_rel)) \
@@ -1086,10 +1093,9 @@ def api_device_export_password_reviews():
 
 @vue_api_bp.route('/api/v2/devices/export-password-reviews/<int:req_id>', methods=['POST'])
 @login_required
+@require_permission('device:export_review')
 def api_device_export_password_review(req_id):
     """审核导出申请：approve（预生成加密包）/ reject（驳回原因必填）"""
-    if not current_user.is_admin:
-        return fail('需要管理员权限', 403)
     import secrets
     from datetime import datetime
     from blueprints.vue_export import (save_export_file, DEVICE_EXPORT_COLUMNS, device_export_rows,
@@ -1129,6 +1135,8 @@ def api_device_export_password_review(req_id):
     codes = [str(c) for c in (filters.get('columns') or [])] or [
         c for c, _ in DEVICE_EXPORT_COLUMNS]
     q = _D.query.options(_sil(_D.rack_installs).joinedload(_RI.rack_rel))
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _D, req.user_rel)
     search = (filters.get('search') or '').strip()
     if search:
         q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
@@ -1136,7 +1144,8 @@ def api_device_export_password_review(req_id):
     if filters.get('customer_id'):
         q = q.filter(_D.customer_id == int(filters['customer_id']))
     devices = q.order_by(_D.id.desc()).all()
-    customer_map = {c.id: c.name for c in _C.query.all()}
+    customer_ids = {d.customer_id for d in devices if d.customer_id is not None}
+    customer_map = {c.id: c.name for c in _C.query.filter(_C.id.in_(customer_ids)).all()}
     headers = [dict(DEVICE_EXPORT_COLUMNS)[c] for c in codes]
     rows = device_export_rows(devices, codes, customer_map,
                               build_rack_map(devices), build_pwd_map(devices))

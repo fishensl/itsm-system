@@ -49,6 +49,7 @@ class TestMatchTemplatesApi:
             c = Customer(name='匹配客户')
             db.session.add(c)
             db.session.flush()
+            User.query.filter_by(username='op').first().customers = [c]
             db.session.add(Device(customer_id=c.id, device_name='FW-1',
                                   device_type='防火墙', is_in_use=True))
             tpl = InspectionDeviceTemplate(
@@ -141,7 +142,10 @@ class TestDeviceImportBatch:
 
     def test_batch_import(self, op_client, app):
         with app.app_context():
-            db.session.add(Customer(name='导入客户'))
+            customer = Customer(name='导入客户')
+            db.session.add(customer)
+            db.session.flush()
+            User.query.filter_by(username='op').first().customers = [customer]
             db.session.commit()
         xlsx = self._make_xlsx([
             ['导入客户', 'SW-A', '交换机', '10.0.0.1', '是'],

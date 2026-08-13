@@ -16,6 +16,7 @@ EVENT_INSPECTION_REVIEW_PENDING = 'inspection_review_pending'  # 巡检报告待
 EVENT_CONTRACT_EXPIRING = 'contract_expiring'      # 客户合同到期提醒（关联工程师+销售+admin）
 EVENT_CONTRACT_REVIEW = 'contract_review'          # 合同例外申请待审（部门主管+admin）
 EVENT_SECURITY = 'security_event'                  # 身份与敏感操作安全事件（admin）
+EVENT_BACKUP_FAILURE = 'backup_failure'            # 自动备份失败（admin）
 
 EVENT_LABELS = {
     EVENT_TICKET_NEW: '工单新建',
@@ -28,6 +29,7 @@ EVENT_LABELS = {
     EVENT_CONTRACT_EXPIRING: '客户合同到期提醒',
     EVENT_CONTRACT_REVIEW: '合同例外申请',
     EVENT_SECURITY: '安全事件告警',
+    EVENT_BACKUP_FAILURE: '自动备份失败',
 }
 
 # 默认规则（启动幂等种子）：event_type → 接收角色/用户
@@ -42,6 +44,7 @@ DEFAULT_RULES = {
     EVENT_CONTRACT_EXPIRING: {'roles': ['sales']},
     EVENT_CONTRACT_REVIEW: {'roles': []},
     EVENT_SECURITY: {'roles': ['admin']},
+    EVENT_BACKUP_FAILURE: {'roles': ['admin']},
 }
 
 

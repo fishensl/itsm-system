@@ -66,6 +66,41 @@ class TestBackupApi:
     def test_backup_config_requires_admin(self, op_client):
         assert op_client.get('/api/system/backup/config').status_code == 403
 
+    def test_backup_result_status_is_persisted_and_exposed(self, app, admin_client):
+        with app.app_context():
+            from utils.backup_config import record_backup_result, save_backup_config
+            save_backup_config({'backup_enabled': '1'})
+            failed = record_backup_result(False, 'pg_dump failed\nconnection closed', 3.2)
+            assert failed['health'] == 'failed'
+            assert failed['consecutive_failures'] == 1
+            assert '\n' not in failed['last_error']
+            succeeded = record_backup_result(True, duration_seconds=4.5)
+            assert succeeded['health'] == 'ok'
+            assert succeeded['consecutive_failures'] == 0
+            assert succeeded['last_success_at'].endswith('Z')
+        stats = admin_client.get('/api/system/backup/stats').get_json()['data']
+        assert stats['backup']['health'] == 'ok'
+        overview = admin_client.get('/api/system/overview').get_json()['data']
+        assert overview['backup']['rpo_age_hours'] is not None
+
+    def test_scheduler_failure_records_state_and_alerts_admins(self, app, monkeypatch):
+        import subprocess
+        import utils.notifications as notifications
+        import utils.scheduler as scheduler
+
+        alerts = []
+        monkeypatch.setattr(subprocess, 'run', lambda *args, **kwargs:
+                            subprocess.CompletedProcess(args[0], 2, '', 'pg_dump failed'))
+        monkeypatch.setattr(notifications, 'notify_backup_failure', alerts.append)
+        with app.app_context():
+            from utils.backup_config import get_backup_status, save_backup_config
+            save_backup_config({'backup_enabled': '1'})
+            assert scheduler._backup_job() == 0
+            status = get_backup_status()
+            assert status['health'] == 'failed'
+            assert status['consecutive_failures'] == 1
+            assert alerts and '连续失败 1 次' in alerts[0]
+
     def test_import_creates_pre_backup(self, tmp_path):
         """导入前自动备份当前数据到 BACKUP_DIR/pre_import_<ts>.zip（响应携带文件名）"""
         import io
@@ -86,6 +121,8 @@ class TestBackupApi:
             from models import User
             from models.base import db as _db
             _db.create_all()
+            from utils.seed_permissions import seed_all
+            seed_all()
             _db.session.add(User.create_with_password(
                 username='admin', password='test123456', realname='管理员', role='admin'))
             _db.session.commit()

@@ -110,7 +110,7 @@ async function doReview() {
 
 onMounted(() => {
   load()
-  fetchEntityMeta('device_export_request')
+  fetchEntityMeta('device_export_review')
     .then((result) => { metadata.value = result })
     .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })

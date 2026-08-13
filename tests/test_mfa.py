@@ -29,7 +29,7 @@ def test_mfa_setup_confirm_and_status(op_client, app):
 
 
 def test_operation_code_token_and_default_off_guard(op_client, app):
-    from models import Device, SystemSetting, User, db
+    from models import Customer, Device, SystemSetting, User, db
     from utils.crypto import encrypt_password
 
     setup = op_client.post('/api/auth/mfa/setup', json={'purpose': 'operation'}).get_json()['data']
@@ -38,8 +38,13 @@ def test_operation_code_token_and_default_off_guard(op_client, app):
                           json={'purpose': 'operation', 'code': code}).status_code == 200
 
     with app.app_context():
-        device = Device(device_name='操作码设备', password_encrypted=encrypt_password('secret'))
+        customer = Customer(name='操作码客户')
+        db.session.add(customer)
+        db.session.flush()
+        device = Device(customer_id=customer.id, device_name='操作码设备',
+                        password_encrypted=encrypt_password('secret'))
         db.session.add(device)
+        User.query.filter_by(username='op').first().customers = [customer]
         db.session.commit()
         device_id = device.id
 

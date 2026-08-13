@@ -61,10 +61,10 @@
     <el-dialog v-model="previewVisible" title="预览将生成的任务" width="640px">
       <div v-if="previewMsg" class="preview-msg">{{ previewMsg }}</div>
       <el-table v-if="previewTasks.length" :data="previewTasks" size="small" border max-height="420">
-        <el-table-column prop="title" :label="label('inspection_task', 'title', '任务标题')" min-width="200" />
-        <el-table-column prop="planned_start" :label="label('inspection_task', 'planned_start', '计划开始')" width="110" />
-        <el-table-column prop="planned_end" :label="label('inspection_task', 'planned_end', '计划结束')" width="110" />
-        <el-table-column prop="assigned_to" :label="label('inspection_task', 'assigned_to', '负责人')" width="100">
+        <el-table-column prop="title" :label="label('contract_inspection_task', 'title', '任务标题')" min-width="200" />
+        <el-table-column prop="planned_start" :label="label('contract_inspection_task', 'planned_start', '计划开始')" width="110" />
+        <el-table-column prop="planned_end" :label="label('contract_inspection_task', 'planned_end', '计划结束')" width="110" />
+        <el-table-column prop="assigned_to" :label="label('contract_inspection_task', 'assigned_to', '负责人')" width="100">
           <template #default="{ row }">{{ row.assigned_to_name || row.assigned_to || '-' }}</template>
         </el-table-column>
       </el-table>
@@ -73,14 +73,14 @@
     <!-- 已生成任务弹窗 -->
     <el-dialog v-model="tasksVisible" title="已生成的巡检任务" width="640px">
       <el-table v-if="generatedTasks.length" :data="generatedTasks" size="small" border max-height="420">
-        <el-table-column prop="title" :label="label('inspection_task', 'title', '任务标题')" min-width="220" />
-        <el-table-column prop="status" :label="label('inspection_task', 'status', '状态')" width="100">
+        <el-table-column prop="title" :label="label('contract_inspection_task', 'title', '任务标题')" min-width="220" />
+        <el-table-column prop="status" :label="label('contract_inspection_task', 'status', '状态')" width="100">
           <template #default="{ row }">
             <el-tag size="small">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="planned_start" :label="label('inspection_task', 'planned_start', '计划开始')" width="110" />
-        <el-table-column prop="planned_end" :label="label('inspection_task', 'planned_end', '计划结束')" width="110" />
+        <el-table-column prop="planned_start" :label="label('contract_inspection_task', 'planned_start', '计划开始')" width="110" />
+        <el-table-column prop="planned_end" :label="label('contract_inspection_task', 'planned_end', '计划结束')" width="110" />
       </el-table>
       <el-empty v-else description="暂无生成记录" :image-size="50" />
     </el-dialog>
@@ -164,7 +164,7 @@ async function onShowTasks(row: ContractTaskItem) {
 
 onMounted(() => {
   load()
-  fetchEntityMetas(['contract', 'inspection_task'])
+  fetchEntityMetas(['contract', 'contract_inspection_task'])
     .then((metas) => Object.assign(metadata, metas))
 })
 </script>

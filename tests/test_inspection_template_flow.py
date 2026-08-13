@@ -5,7 +5,7 @@ import json
 import pytest
 
 from models import (db, Customer, Device, InspectionDeviceTemplate,
-                    InspectionTaskTemplate, task_device_template_link)
+                    InspectionTaskTemplate, User, task_device_template_link)
 
 
 @pytest.fixture()
@@ -14,6 +14,7 @@ def seed(app):
         c = Customer(name='巡检模板客户')
         db.session.add(c)
         db.session.flush()
+        User.query.filter_by(username='op').first().customers = [c]
         d1 = Device(customer_id=c.id, device_name='SW-01', device_type='交换机',
                     ip_address='10.0.0.1', is_in_use=True)
         d2 = Device(customer_id=c.id, device_name='FW-01', device_type='防火墙',

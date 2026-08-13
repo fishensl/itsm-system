@@ -729,6 +729,12 @@ ENTITY_SCHEMAS = {
             'list': tuple(item.key for item in DEVICE_EXPORT_REQUEST_FIELDS),
             'detail': tuple(item.key for item in DEVICE_EXPORT_REQUEST_FIELDS),
         }),
+    'device_export_review': EntitySchema(
+        'device_export_review', '设备密码导出审核', 'device:export_review',
+        DEVICE_EXPORT_REQUEST_FIELDS, {
+            'list': tuple(item.key for item in DEVICE_EXPORT_REQUEST_FIELDS),
+            'detail': tuple(item.key for item in DEVICE_EXPORT_REQUEST_FIELDS),
+        }),
     'config_backup': EntitySchema('config_backup', '设备配置备份', 'device:view',
                                   CONFIG_BACKUP_FIELDS, {
         'list': tuple(item.key for item in CONFIG_BACKUP_FIELDS),
@@ -777,6 +783,18 @@ ENTITY_SCHEMAS = {
         'list': tuple(item.key for item in REVIEW_CHECKLIST_FIELDS),
         'form': ('name', 'enabled'),
     }),
+    'review_checklist_config': EntitySchema(
+        'review_checklist_config', '巡检审核清单配置', 'permission:edit',
+        REVIEW_CHECKLIST_FIELDS, {
+            'list': tuple(item.key for item in REVIEW_CHECKLIST_FIELDS),
+            'form': ('name', 'enabled'),
+        }),
+    'contract_inspection_task': EntitySchema(
+        'contract_inspection_task', '合同巡检任务', 'contract_auto:manage',
+        INSPECTION_TASK_FIELDS, {
+            'list': tuple(item.key for item in INSPECTION_TASK_FIELDS),
+            'detail': tuple(item.key for item in INSPECTION_TASK_FIELDS),
+        }),
     'report': EntitySchema('report', '报告', 'report:view', REPORT_FIELDS, {
         'list': tuple(item.key for item in REPORT_FIELDS),
         'detail': tuple(item.key for item in REPORT_FIELDS),

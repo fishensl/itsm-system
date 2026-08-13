@@ -7,6 +7,8 @@ V14: get_user_permissions 改为读 DB + 进程级缓存。
 """
 from functools import wraps
 from datetime import datetime
+import time
+import uuid
 from flask import flash, redirect, url_for, request, jsonify
 from flask_login import current_user
 from sqlalchemy.orm import joinedload
@@ -14,6 +16,41 @@ from sqlalchemy.orm import joinedload
 
 # 进程级角色权限缓存：role_code -> frozenset(permission_code)
 _role_cache: dict = {}
+_role_cache_version = None
+_role_version_checked_at = 0.0
+_ROLE_CACHE_VERSION_KEY = 'rbac_cache_version'
+_ROLE_VERSION_CHECK_INTERVAL = 2.0
+
+
+def _sync_role_cache_version(force: bool = False) -> None:
+    """轮询数据库版本号，使多 worker 的角色缓存最多数秒内失效。"""
+    global _role_cache_version, _role_version_checked_at
+    now = time.monotonic()
+    if not force and now - _role_version_checked_at < _ROLE_VERSION_CHECK_INTERVAL:
+        return
+    _role_version_checked_at = now
+    from models import SystemSetting
+    row = SystemSetting.query.get(_ROLE_CACHE_VERSION_KEY)
+    version = row.value if row else ''
+    if _role_cache_version != version:
+        _role_cache.clear()
+        _role_cache_version = version
+
+
+def bump_role_cache_version() -> str:
+    """在 RBAC 写事务中更新共享版本号；调用方负责 commit/rollback。"""
+    global _role_cache_version, _role_version_checked_at
+    from models import SystemSetting, db
+    version = uuid.uuid4().hex
+    row = SystemSetting.query.get(_ROLE_CACHE_VERSION_KEY)
+    if row:
+        row.value = version
+    else:
+        db.session.add(SystemSetting(key=_ROLE_CACHE_VERSION_KEY, value=version))
+    _role_cache.clear()
+    _role_cache_version = version
+    _role_version_checked_at = time.monotonic()
+    return version
 
 
 def invalidate_role(role_code: str) -> None:
@@ -40,6 +77,7 @@ PERMISSION_MAP = {
     'device:view': '设备管理-查看', 'device:add': '设备管理-新增',
     'device:edit': '设备管理-编辑', 'device:delete': '设备管理-删除',
     'device:reveal': '设备管理-查看明文密码',
+    'device:export_review': '设备管理-密码导出审核',
     'topology:view': '拓扑图-查看', 'topology:add': '拓扑图-新增',
     'topology:edit': '拓扑图-编辑', 'topology:delete': '拓扑图-删除',
     'inspection:view': '巡检管理-查看', 'inspection:add': '巡检管理-新增',
@@ -186,16 +224,14 @@ def get_user_permissions(user):
 
     codes = user.role_codes_list() if hasattr(user, 'role_codes_list') else [getattr(user, 'role', 'viewer') or 'viewer']
 
-    # 1) admin 短路：任一角色含 admin 即返回 PERMISSION_MAP 全部 key
-    if 'admin' in codes:
-        return list(PERMISSION_MAP.keys())
+    _sync_role_cache_version()
 
-    # 2) 多角色权限并集（各角色带缓存）
+    # 1) 多角色权限并集（各角色带缓存；admin 也必须是数据库中的活跃角色）
     base = set()
     for role_code in codes:
         base |= set(_get_cached_role_perms(role_code))
 
-    # 3) 用户级 grant/deny 覆盖（每次查，不缓存 —— 用户级操作少）
+    # 2) 用户级 grant/deny 覆盖（每次查，不缓存 —— 用户级操作少）
     if hasattr(user, 'extra_permissions') and user.extra_permissions:
         now = datetime.utcnow()
         for up in user.extra_permissions:
@@ -221,19 +257,19 @@ def _get_cached_role_perms(role_code: str) -> frozenset:
             .filter_by(code=role_code, is_active=True)
             .first())
     if not role:
-        # 角色不存在/未激活：fallback 到 viewer
-        if role_code != 'viewer':
-            return _get_cached_role_perms('viewer')
-        # viewer 也没有（极端情况）→ 返回空集
+        # 未知或停用角色必须 fail-closed，不能隐式获得 viewer 权限。
         result = frozenset()
     else:
         # 排除被停用的权限码
         from models import Permission
         active_codes = {p.code for p in Permission.query.filter_by(is_active=True).all()}
-        result = frozenset(
-            rp.permission_code for rp in role.role_perms
-            if rp.permission_code in active_codes
-        )
+        if role.code == 'admin':
+            result = frozenset(active_codes & set(PERMISSION_MAP))
+        else:
+            result = frozenset(
+                rp.permission_code for rp in role.role_perms
+                if rp.permission_code in active_codes
+            )
     _role_cache[role_code] = result
     return result
 

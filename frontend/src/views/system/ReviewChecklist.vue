@@ -96,7 +96,7 @@ onMounted(() => {
   fetchReviewChecklist()
     .then((r) => { items.value = r.items })
     .catch(() => { /* toast */ })
-  fetchEntityMeta('review_checklist')
+  fetchEntityMeta('review_checklist_config')
     .then((result) => { metadata.value = result })
     .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })

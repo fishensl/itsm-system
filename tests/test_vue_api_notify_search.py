@@ -15,6 +15,7 @@ def seed(app):
         db.session.add(Ticket(number='WO-SEARCH-1', title='搜索工单', customer_id=c.id))
         db.session.add(KnowledgeBase(title='搜索知识条目', category='故障案例'))
         op = User.query.filter_by(username='op').first()
+        op.customers = [c]
         db.session.add(Notification(user_id=op.id, category='ticket', title='有新工单',
                                     content='测试工单', link='/app/tickets/1', is_read=False))
         db.session.add(Notification(user_id=op.id, category='system', title='已读通知',

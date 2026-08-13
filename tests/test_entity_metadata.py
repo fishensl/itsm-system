@@ -82,6 +82,24 @@ def test_metadata_api_rejects_unknown_entity(admin_client):
     assert response.get_json()['code'] == 1
 
 
+def test_specialized_page_metadata_permissions_align(admin_client, sales_client, viewer_client):
+    """同一业务实体用于不同页面时，用别名 schema 对齐页面/API 权限。"""
+    admin_entities = admin_client.get(
+        '/api/meta/entities?entities=device_export_review,review_checklist_config'
+    ).get_json()['data']['entities']
+    assert set(admin_entities) == {'device_export_review', 'review_checklist_config'}
+
+    sales_entities = sales_client.get(
+        '/api/meta/entities?entities=contract_inspection_task'
+    ).get_json()['data']['entities']
+    assert set(sales_entities) == {'contract_inspection_task'}
+
+    viewer_entities = viewer_client.get(
+        '/api/meta/entities?entities=device_export_review,review_checklist_config,contract_inspection_task'
+    ).get_json()['data']['entities']
+    assert viewer_entities == {}
+
+
 def test_payload_contract_contains_fields_that_exports_already_expose(app):
     """Regression guard for the original list/detail/export field drift."""
     from blueprints.vue_api import _ticket_payload

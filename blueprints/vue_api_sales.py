@@ -148,6 +148,10 @@ def api_spare_part_export():
         os.remove(tmp_path)
     except OSError:
         pass
+    from blueprints.vue_api_sys import audit_log
+    from utils.export_audit import export_audit_detail
+    audit_log('spare:export', 'spare_part', None,
+              export_audit_detail(data, len(rows), codes))
     return ok({'filename': download_name, 'content': b64})
 
 
