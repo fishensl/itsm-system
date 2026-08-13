@@ -608,6 +608,32 @@ NOTIFY_RULE_FIELDS = (
     F('is_enabled', '启用', data_type='boolean', width=80),
 )
 
+REGION_FIELDS = (
+    F('name', '地区名称', min_width=180, required=True, sortable=True),
+    F('parent_id', '所属地市', data_type='number', width=110),
+    F('sort_order', '排序', data_type='number', width=80, sortable=True),
+)
+
+DEVICE_CHECK_TEMPLATE_FIELDS = (
+    F('name', '模板名称', min_width=180, required=True, sortable=True),
+    F('device_category', '设备类别', width=110, filterable=True),
+    F('device_sub_type', '细分类别', min_width=120, filterable=True),
+    F('items', '检查项', data_type='list', min_width=180),
+    F('total_sub_items', '检查点', data_type='number', width=90),
+    F('is_active', '状态', data_type='boolean', width=80,
+      value_map={'true': '启用', 'false': '停用'}),
+    F('remark', '备注', min_width=160),
+)
+
+NOTIFY_CHANNEL_FIELDS = (
+    F('channel_type', '渠道类型', width=100, filterable=True),
+    F('name', '应用名称', min_width=140, required=True),
+    F('is_enabled', '启用', data_type='boolean', width=80),
+    F('sort_order', '排序', data_type='number', width=80),
+    # 密钥永不进入 metadata；API 只暴露是否已配置。
+    F('has_secret', '凭据已配置', data_type='boolean', width=100),
+)
+
 REVIEW_CHECKLIST_FIELDS = (
     F('sort_order', '顺序', data_type='number', width=70),
     F('name', '检查项名称', min_width=220, required=True),
@@ -778,6 +804,24 @@ ENTITY_SCHEMAS = {
         'detail': tuple(item.key for item in NOTIFY_RULE_FIELDS),
         'form': ('roles', 'users', 'is_enabled'),
     }),
+    'region': EntitySchema('region', '地区', 'region:view', REGION_FIELDS, {
+        'list': tuple(item.key for item in REGION_FIELDS),
+        'detail': tuple(item.key for item in REGION_FIELDS),
+        'form': tuple(item.key for item in REGION_FIELDS),
+    }),
+    'device_check_template': EntitySchema(
+        'device_check_template', '设备检查模板', 'inspection:view',
+        DEVICE_CHECK_TEMPLATE_FIELDS, {
+            'list': ('name', 'device_category', 'device_sub_type', 'total_sub_items', 'is_active'),
+            'detail': tuple(item.key for item in DEVICE_CHECK_TEMPLATE_FIELDS),
+            'form': ('name', 'device_category', 'device_sub_type', 'items', 'is_active', 'remark'),
+        }),
+    'notify_channel': EntitySchema(
+        'notify_channel', '通知渠道', 'notify:view', NOTIFY_CHANNEL_FIELDS, {
+            'list': tuple(item.key for item in NOTIFY_CHANNEL_FIELDS),
+            'detail': tuple(item.key for item in NOTIFY_CHANNEL_FIELDS),
+            'form': ('name', 'is_enabled'),
+        }),
     'review_checklist': EntitySchema('review_checklist', '巡检审核清单', 'inspection:view',
                                     REVIEW_CHECKLIST_FIELDS, {
         'list': tuple(item.key for item in REVIEW_CHECKLIST_FIELDS),

@@ -99,37 +99,14 @@
               </div>
 
               <div class="install-table-wrap">
-                <el-table :data="detail.installs" size="small" border stripe>
-                  <el-table-column :label="`${installLabel('start_u', '起始U位')} / ${installLabel('occupy_u', '占用U数')}`" width="120" align="center">
-                    <template #default="{ row }">{{ row.start_u }}-{{ row.start_u + row.occupy_u - 1 }}U</template>
-                  </el-table-column>
-                  <el-table-column :label="installLabel('name', '设备名称')" min-width="140" prop="name" show-overflow-tooltip />
-                  <el-table-column :label="`${installLabel('brand', '品牌')} / ${installLabel('model', '型号')}`" min-width="140">
-                    <template #default="{ row }">
-                      {{ [row.brand, row.model].filter(Boolean).join(' ') || '-' }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="installLabel('ip', 'IP')" min-width="110" prop="ip" show-overflow-tooltip />
-                  <el-table-column :label="installLabel('kind', '来源')" width="70" align="center">
-                    <template #default="{ row }">
-                      <el-tag size="small" :type="row.kind === '托管' ? 'primary' : 'warning'">
-                        {{ row.kind }}
-                      </el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="installLabel('rated_w', '功耗(W)')" width="80" align="right" prop="rated_w" />
-                  <el-table-column label="操作" width="110" fixed="right">
-                    <template #default="{ row }">
-                      <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary" link
-                        @click="openAdjust(row)">调整</el-button>
-                      <el-button v-if="user.hasPerm('device:delete')" size="small" type="danger" link
-                        @click="onUninstall(row)">下架</el-button>
-                    </template>
-                  </el-table-column>
-                  <template #empty>
-                    <el-empty description="暂无上架设备" :image-size="50" />
-                  </template>
-                </el-table>
+                <DataTable
+                  :columns="installColumns"
+                  :fetch-data="fetchInstallPage"
+                  :query="{ rack_id: detail.id, revision: installRevision }"
+                  row-key="id"
+                  empty-text="暂无上架设备"
+                  :column-settings="{ storageKey: 'cols_rack_installs' }"
+                />
               </div>
             </div>
           </div>
@@ -256,6 +233,7 @@ import {
   type RackDetail, type RackInstall, type RackDevice, type RackDicts,
 } from '@/api/rack'
 import { entityFieldLabel, fetchEntityMetas, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -268,6 +246,34 @@ function rackLabel(key: string, fallback: string, profile = 'detail') {
 
 function installLabel(key: string, fallback: string, profile = 'list') {
   return entityFieldLabel(metas.value.rack_install, key, fallback, profile)
+}
+
+const installRevision = ref(0)
+const installColumns = computed<DataColumn[]>(() => [
+  { key: 'u_range', label: `${installLabel('start_u', '起始U位')} / ${installLabel('occupy_u', '占用U数')}`,
+    width: 120, align: 'center', render: (row) =>
+      `${row.start_u}-${Number(row.start_u) + Number(row.occupy_u) - 1}U` },
+  { key: 'name', label: installLabel('name', '设备名称'), minWidth: 140, asTitle: true },
+  { key: 'brand_model', label: `${installLabel('brand', '品牌')} / ${installLabel('model', '型号')}`,
+    minWidth: 140, render: (row) => [row.brand, row.model].filter(Boolean).join(' ') || '-' },
+  { key: 'ip', label: installLabel('ip', 'IP'), minWidth: 110 },
+  { key: 'kind', label: installLabel('kind', '来源'), width: 70, type: 'tag', asTag: true,
+    tagMap: { 托管: 'primary', 手动: 'warning' } },
+  { key: 'rated_w', label: installLabel('rated_w', '功耗(W)'), width: 80, align: 'right' },
+  { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right', actions: [
+    { label: '调整', type: 'primary', link: true, perm: 'device:edit',
+      onClick: (row) => openAdjust(row as unknown as RackInstall) },
+    { label: '下架', type: 'danger', link: true, perm: 'device:delete',
+      onClick: (row) => onUninstall(row as unknown as RackInstall) },
+  ] },
+])
+
+async function fetchInstallPage(params: Record<string, unknown>) {
+  const rows = detail.value?.installs || []
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: rows.slice(start, start + page_size), total: rows.length, page, page_size }
 }
 
 // ==================== 地市 → 客户 → 机柜 树 ====================
@@ -325,6 +331,7 @@ const detail = ref<RackDetail | null>(null)
 async function selectRack(id: number) {
   try {
     detail.value = await fetchRack(id)
+    installRevision.value += 1
     currentNodeKey.value = `rack-${id}`
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -420,7 +427,10 @@ async function saveInstall() {
     }
     ui.toast('保存成功', 'success')
     installVisible.value = false
-    if (detail.value) detail.value = await fetchRack(detail.value.id)
+    if (detail.value) {
+      detail.value = await fetchRack(detail.value.id)
+      installRevision.value += 1
+    }
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -436,7 +446,10 @@ async function onUninstall(inst: RackInstall) {
   try {
     await deleteInstall(inst.id)
     ui.toast('已下架', 'success')
-    if (detail.value) detail.value = await fetchRack(detail.value.id)
+    if (detail.value) {
+      detail.value = await fetchRack(detail.value.id)
+      installRevision.value += 1
+    }
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -492,6 +505,7 @@ async function saveRack() {
     rackFormVisible.value = false
     if (detail.value && detail.value.id === rackForm.id) {
       detail.value = await fetchRack(detail.value.id)
+      installRevision.value += 1
     }
     loadTree()
   } catch (e) {

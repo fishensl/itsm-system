@@ -71,7 +71,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useUiStore } from '@/stores/ui'
 import {
   DEVICE_EXPORT_COLUMNS, DEVICE_PRESETS,
   INSPECTION_EXPORT_COLUMNS, TICKET_EXPORT_COLUMNS, FAULT_EXPORT_COLUMNS,
@@ -94,6 +94,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'submit', payload: Record<string, unknown>): void
 }>()
+const ui = useUiStore()
 
 const activeMeta = ref<EntityMeta>()
 const devicePresets = computed(() => activeMeta.value?.exportPresets?.length
@@ -231,7 +232,7 @@ watch(
 function doSubmit() {
   if (props.mode === 'bundle') {
     if (!items.value.length) {
-      ElMessage.warning('请至少勾选一个导出项目')
+      ui.toast('请至少勾选一个导出项目', 'warning')
       return
     }
     emit('submit', {
@@ -243,11 +244,11 @@ function doSubmit() {
     return
   }
   if (!selectedCols.value.length) {
-    ElMessage.warning('请至少勾选一列')
+    ui.toast('请至少勾选一列', 'warning')
     return
   }
   if (hasPasswordColumn.value && !reason.value.trim()) {
-    ElMessage.warning('勾选「登录密码」时申请原因必填')
+    ui.toast('勾选「登录密码」时申请原因必填', 'warning')
     return
   }
   const payload: Record<string, unknown> = {

@@ -94,10 +94,11 @@
       <div class="sidebar-footer">
         <div
           class="sidebar-link"
-          @click="toggleTheme"
+          :title="`主题：${ui.themeLabel}`"
+          @click="ui.cycleTheme"
         >
-          <el-icon><MoonNight v-if="theme === 'light'" /><Sunny v-else /></el-icon>
-          <span v-show="!ui.sidebarCollapsed">{{ theme === 'light' ? '深色模式' : '浅色模式' }}</span>
+          <el-icon><MoonNight v-if="ui.effectiveTheme === 'light'" /><Sunny v-else /></el-icon>
+          <span v-show="!ui.sidebarCollapsed">主题：{{ ui.themeLabel }}</span>
         </div>
         <div
           class="sidebar-link"
@@ -278,7 +279,6 @@ watch(() => route.fullPath, () => {
 })
 // 展开分组：从 sessionStorage 恢复，刷新后保持用户操作状态
 const openGroups = ref<Set<string>>(new Set(loadOpenGroups()))
-const theme = ref<'light' | 'dark'>(localStorage.getItem('appTheme') === 'dark' ? 'dark' : 'light')
 
 const avatarText = computed(() => {
   const name = user.user?.realname || user.user?.username || 'U'
@@ -299,16 +299,6 @@ const toggleGroup = (key: string) => {
   else next.add(key)
   openGroups.value = next
   saveOpenGroups([...next])
-}
-
-const applyTheme = (t: 'light' | 'dark') => {
-  document.documentElement.classList.toggle('dark', t === 'dark')
-}
-
-const toggleTheme = () => {
-  theme.value = theme.value === 'light' ? 'dark' : 'light'
-  localStorage.setItem('appTheme', theme.value)
-  applyTheme(theme.value)
 }
 
 const handleLogout = async () => {
@@ -375,7 +365,6 @@ const activeGroupKey = computed(() => {
 })
 
 onMounted(() => {
-  applyTheme(theme.value)
   if (mustChangePassword.value) openPwdDialog()
   // 首次进入：自动展开当前路由所在分组（防直接访问子页面时全折叠）
   const key = activeGroupKey.value

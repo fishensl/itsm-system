@@ -48,15 +48,15 @@
     <el-dialog v-model="formVisible" :title="form.id ? '编辑地区' : (form.parent_id ? '新增区县' : '新增地市')"
       width="420px" destroy-on-close>
       <el-form ref="formRef" :model="form" label-width="90px">
-        <el-form-item label="地区名称" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
+        <el-form-item :label="fieldLabel('name', '地区名称', 'form')" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
           <el-input v-model="form.name" placeholder="名称" />
         </el-form-item>
-        <el-form-item v-if="form.id" label="所属地市">
+        <el-form-item v-if="form.id" :label="fieldLabel('parent_id', '所属地市', 'form')">
           <el-select v-model="form.parent_id" clearable placeholder="无（作为地市）" style="width: 100%">
             <el-option v-for="c in cities.filter((x) => x.id !== form.id)" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="form.id" label="排序">
+        <el-form-item v-if="form.id" :label="fieldLabel('sort_order', '排序', 'form')">
           <el-input-number v-model="form.sort_order" :min="0" />
         </el-form-item>
       </el-form>
@@ -75,9 +75,13 @@ import { Plus, OfficeBuilding, Location, ArrowRight } from '@element-plus/icons-
 import { fetchRegions, createRegion, updateRegion, deleteRegion, type RegionItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
+const metadata = ref<EntityMeta>()
+const fieldLabel = (key: string, fallback: string, profile = 'detail') =>
+  entityFieldLabel(metadata.value, key, fallback, profile)
 const cities = ref<RegionItem[]>([])
 const loading = ref(false)
 const formVisible = ref(false)
@@ -152,7 +156,10 @@ async function onDelete(row: RegionItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  fetchEntityMeta('region').then((result) => { metadata.value = result })
+  load()
+})
 </script>
 
 <style scoped>

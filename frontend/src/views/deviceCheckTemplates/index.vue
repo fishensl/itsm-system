@@ -37,14 +37,14 @@
               <!-- 卡片内展开详情 -->
               <div v-if="expandedId === t.id" class="tpl-detail">
                 <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="设备类别">{{ t.device_category || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="细分类别">{{ t.device_sub_type || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="状态">
+                  <el-descriptions-item :label="fieldLabel('device_category', '设备类别')">{{ t.device_category || '-' }}</el-descriptions-item>
+                  <el-descriptions-item :label="fieldLabel('device_sub_type', '细分类别')">{{ t.device_sub_type || '-' }}</el-descriptions-item>
+                  <el-descriptions-item :label="fieldLabel('is_active', '状态')">
                     <el-tag size="small" :type="t.is_active ? 'success' : 'info'">
                       {{ t.is_active ? '启用' : '停用' }}
                     </el-tag>
                   </el-descriptions-item>
-                  <el-descriptions-item label="检查点">{{ t.total_sub_items }}</el-descriptions-item>
+                  <el-descriptions-item :label="fieldLabel('total_sub_items', '检查点')">{{ t.total_sub_items }}</el-descriptions-item>
                 </el-descriptions>
                 <el-divider content-position="left">检查项</el-divider>
                 <div v-for="(it, i) in t.items" :key="i" class="item-block">
@@ -73,28 +73,28 @@
     <!-- 新增/编辑 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑设备检查模板' : '新增设备检查模板'" width="760px" destroy-on-close>
       <el-form ref="formRef" :model="form" label-width="110px">
-        <el-form-item label="模板名称" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
+        <el-form-item :label="fieldLabel('name', '模板名称', 'form')" prop="name" :rules="[{ required: true, message: '请输入名称', trigger: 'blur' }]">
           <el-input v-model="form.name" placeholder="如：华为 S5735 巡检检查项" />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="设备类别">
+            <el-form-item :label="fieldLabel('device_category', '设备类别', 'form')">
               <el-select v-model="form.device_category" style="width: 100%">
                 <el-option v-for="c in data?.category_order || []" :key="c" :label="c" :value="c" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="细分类别">
+            <el-form-item :label="fieldLabel('device_sub_type', '细分类别', 'form')">
               <el-input v-model="form.device_sub_type" placeholder="如：核心交换机（可选）" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="状态">
+        <el-form-item :label="fieldLabel('is_active', '状态', 'form')">
           <el-switch v-model="form.is_active" active-text="启用" />
         </el-form-item>
 
-        <el-form-item label="检查项">
+        <el-form-item :label="fieldLabel('items', '检查项', 'form')">
           <div class="items-editor">
             <div v-for="(it, i) in (form.items as CheckItem[])" :key="i" class="item-row">
               <div class="item-row-head">
@@ -107,7 +107,7 @@
             <el-button size="small" plain :icon="Plus" @click="addItem">添加检查项</el-button>
           </div>
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item :label="fieldLabel('remark', '备注', 'form')">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
@@ -129,9 +129,13 @@ import {
 } from '@/api/templates'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 
 const user = useUserStore()
 const ui = useUiStore()
+const metadata = ref<EntityMeta>()
+const fieldLabel = (key: string, fallback: string, profile = 'detail') =>
+  entityFieldLabel(metadata.value, key, fallback, profile)
 const data = ref<DeviceCheckTemplateListData | null>(null)
 const loading = ref(false)
 const formVisible = ref(false)
@@ -226,7 +230,10 @@ async function onDelete(row: DeviceCheckTemplateItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  fetchEntityMeta('device_check_template').then((result) => { metadata.value = result })
+  load()
+})
 </script>
 
 <style scoped>

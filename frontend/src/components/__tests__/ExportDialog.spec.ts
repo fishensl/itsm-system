@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
+import { createPinia } from 'pinia'
 import ExportDialog from '../ExportDialog.vue'
 
 function mountDialog() {
   return mount(ExportDialog, {
     props: { modelValue: true, module: 'device', title: '导出设备' },
     global: {
-      plugins: [ElementPlus],
+      plugins: [createPinia(), ElementPlus],
       stubs: {
         teleport: true,
         ElSelect: true, ElOption: true, ElDatePicker: true, ElAlert: true, ElInput: true,

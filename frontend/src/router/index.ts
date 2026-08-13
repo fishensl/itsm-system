@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useUiStore } from '@/stores/ui'
 
 // 扩展路由 meta 类型
 declare module 'vue-router' {
@@ -56,13 +57,13 @@ const routes: RouteRecordRaw[] = [
         path: 'regions',
         name: 'regions',
         component: () => import('@/views/regions/index.vue'),
-        meta: { title: '地区管理', perm: 'customer:manage' },
+        meta: { title: '地区管理', perm: 'region:view' },
       },
       {
         path: 'customer-categories',
         name: 'customer-categories',
         component: () => import('@/views/customerCategories/index.vue'),
-        meta: { title: '单位类别', perm: 'customer:manage' },
+        meta: { title: '单位类别', perm: 'category:view' },
       },
       {
         path: 'devices',
@@ -276,8 +277,12 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
-  // 未匹配 → 工作台（SPA 内无 404 页面时兜底）
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/errors/NotFound.vue'),
+    meta: { title: '页面未找到' },
+  },
 ]
 
 const router = createRouter({
@@ -301,9 +306,7 @@ router.beforeEach(async (to) => {
   // 页面级权限校验：无权限 → 403 提示（不再静默踢回工作台）
   const perm = to.meta.perm as string | undefined
   if (perm && !userStore.hasPerm(perm)) {
-    import('element-plus').then(({ ElMessage }) => {
-      ElMessage.warning('无访问权限')
-    })
+    useUiStore().toast('无访问权限', 'warning')
     return { path: '/403' }
   }
   return true

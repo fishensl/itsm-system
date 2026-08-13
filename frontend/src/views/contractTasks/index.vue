@@ -8,7 +8,7 @@
       <div class="toolbar">
         <el-select v-model="selectedContract" placeholder="手动触发：选择合同" filterable clearable style="width: 280px">
           <el-option
-            v-for="c in data?.all_contracts || []"
+            v-for="c in allContracts"
             :key="c.id"
             :label="`${c.title}（${c.customer_name}）`"
             :value="c.id"
@@ -28,33 +28,13 @@
     </el-card>
 
     <el-card shadow="never" class="mt-3">
-      <el-table v-loading="loading" :data="data?.contracts || []" border row-key="id" size="default">
-        <el-table-column prop="title" :label="label('contract', 'title', '合同标题')" min-width="220" />
-        <el-table-column prop="customer_name" :label="label('contract', 'customer_name', '客户')" min-width="120" />
-        <el-table-column prop="inspection_frequency" :label="label('contract', 'inspection_frequency', '巡检频率')" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" type="warning">{{ row.inspection_frequency }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="auto_generate_tasks" :label="label('contract', 'auto_generate_tasks', '自动巡检')" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.auto_generate_tasks ? 'success' : 'info'">
-              {{ row.auto_generate_tasks ? '开启' : '关闭' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="end_date" :label="label('contract', 'end_date', '结束日期')" width="110">
-          <template #default="{ row }">{{ row.end_date || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="onPreview(row)">预览</el-button>
-            <el-button size="small" link type="primary" @click="onShowTasks(row)">已生成任务</el-button>
-            <el-button size="small" link type="primary" :loading="genSet.has(row.id)" @click="onGenerate(row)">生成</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!loading && !data?.contracts?.length" description="暂无已配置巡检频率的合同" :image-size="60" />
+      <DataTable
+        :columns="columns"
+        :fetch-data="fetchPage"
+        row-key="id"
+        empty-text="暂无已配置巡检频率的合同"
+        :column-settings="{ storageKey: 'cols_contract_tasks' }"
+      />
     </el-card>
 
     <!-- 预览弹窗 -->
@@ -88,17 +68,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import {
   fetchContractTasks, generateContractTasks, previewContractTasks, fetchGeneratedTasks,
-  type ContractTaskListData, type ContractTaskItem,
+  type ContractTaskItem,
 } from '@/api/contractTasks'
 import { useUiStore } from '@/stores/ui'
 import { entityFieldLabel, fetchEntityMetas, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const ui = useUiStore()
-const data = ref<ContractTaskListData | null>(null)
-const loading = ref(false)
+const allContracts = ref<Array<{
+  id: number
+  title: string
+  customer_name: string
+  inspection_frequency: string
+}>>([])
 const generating = ref(false)
 const genSet = ref(new Set<number>())
 const genSetMut = {
@@ -117,12 +102,38 @@ const metadata = reactive<Record<string, EntityMeta>>({})
 const label = (entity: string, key: string, fallback: string) =>
   entityFieldLabel(metadata[entity], key, fallback)
 
-function load() {
-  loading.value = true
-  fetchContractTasks()
-    .then((d) => { data.value = d })
-    .catch(() => { /* toast */ })
-    .finally(() => { loading.value = false })
+const columns = computed<DataColumn[]>(() => {
+  const result: DataColumn[] = [
+  { key: 'title', label: label('contract', 'title', '合同标题'), minWidth: 220, asTitle: true },
+  { key: 'customer_name', label: label('contract', 'customer_name', '客户'), minWidth: 120 },
+  { key: 'inspection_frequency', label: label('contract', 'inspection_frequency', '巡检频率'),
+    width: 100, type: 'tag', tagMap: {} },
+  { key: 'auto_generate_tasks', label: label('contract', 'auto_generate_tasks', '自动巡检'),
+    width: 90, type: 'tag', valueMap: { true: '开启', false: '关闭' },
+    tagMap: { true: 'success', false: 'info' } },
+  { key: 'end_date', label: label('contract', 'end_date', '结束日期'), width: 110, type: 'date' },
+  { key: 'actions', label: '操作', width: 220, type: 'action', fixed: 'right', actions: [
+    { label: '预览', type: 'primary', link: true,
+      onClick: (row) => onPreview(row as unknown as ContractTaskItem) },
+    { label: '已生成任务', type: 'primary', link: true,
+      onClick: (row) => onShowTasks(row as unknown as ContractTaskItem) },
+    { label: '生成', type: 'primary', link: true,
+      disabled: (row) => genSet.value.has(Number(row.id)),
+      loading: (row) => genSet.value.has(Number(row.id)),
+      onClick: (row) => onGenerate(row as unknown as ContractTaskItem) },
+  ] },
+  ]
+  return result
+})
+
+async function fetchPage(params: Record<string, unknown>) {
+  const result = await fetchContractTasks()
+  allContracts.value = result.all_contracts
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: result.contracts.slice(start, start + page_size), total: result.contracts.length,
+    page, page_size }
 }
 
 async function onGenerate(row?: ContractTaskItem) {
@@ -163,7 +174,6 @@ async function onShowTasks(row: ContractTaskItem) {
 }
 
 onMounted(() => {
-  load()
   fetchEntityMetas(['contract', 'contract_inspection_task'])
     .then((metas) => Object.assign(metadata, metas))
 })

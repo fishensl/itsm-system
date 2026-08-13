@@ -13,55 +13,60 @@
         审核人打开巡检审核弹窗时逐项核对（合格 / 需修改 / 不适用），勾选结果随每轮审核留痕；
         退回时「需修改」项自动生成修改要求，工程师据此修改重传。
       </div>
-      <el-table :data="items" size="small" border stripe>
-        <el-table-column :label="label('sort_order', '顺序')" width="70" align="center">
-          <template #default="{ $index }">{{ $index + 1 }}</template>
-        </el-table-column>
-        <el-table-column :label="label('name', '检查项名称')" min-width="220">
-          <template #default="{ row }">
-            <el-input v-model="row.name" size="small" placeholder="如：核心设备配置备份" />
-          </template>
-        </el-table-column>
-        <el-table-column :label="label('enabled', '启用')" width="90" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.enabled" />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="160" align="center">
-          <template #default="{ $index }">
-            <el-button size="small" link :disabled="$index === 0" :icon="ArrowUp" @click="move($index, -1)" />
-            <el-button size="small" link :disabled="$index === items.length - 1" :icon="ArrowDown"
-              @click="move($index, 1)" />
-            <el-button size="small" link type="danger" :icon="Delete" @click="removeItem($index)" />
-          </template>
-        </el-table-column>
-      </el-table>
+      <DataTable
+        ref="tableRef"
+        :columns="columns"
+        :fetch-data="fetchPage"
+        row-key="_key"
+        empty-text="暂无审核检查项"
+        :column-settings="{ storageKey: 'cols_review_checklist' }"
+      >
+        <template #cell-sort_order="{ row }">{{ itemPosition(row) }}</template>
+        <template #cell-name="{ row }">
+          <el-input v-model="row.name" size="small" placeholder="如：核心设备配置备份" />
+        </template>
+        <template #cell-enabled="{ row }">
+          <el-switch v-model="row.enabled" />
+        </template>
+      </DataTable>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Plus, Check, Delete, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
+import { Plus, Check } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
 import { fetchReviewChecklist, updateReviewChecklist, type ReviewChecklistItem } from '@/api/inspections'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const ui = useUiStore()
-const items = ref<ReviewChecklistItem[]>([])
+type EditableChecklistItem = ReviewChecklistItem & { _key: number }
+
+const items = ref<EditableChecklistItem[]>([])
 const metadata = ref<EntityMeta>()
 const saving = ref(false)
+const tableRef = ref()
+let loaded = false
+let nextKey = 0
 
 function label(key: string, fallback: string) {
   return entityFieldLabel(metadata.value, key, fallback, 'list')
 }
 
+function itemPosition(row: Record<string, unknown>) {
+  return items.value.indexOf(row as unknown as EditableChecklistItem) + 1
+}
+
 function addItem() {
-  items.value.push({ name: '', enabled: true })
+  items.value.push({ name: '', enabled: true, _key: ++nextKey })
+  tableRef.value?.refresh()
 }
 
 function removeItem(i: number) {
   items.value.splice(i, 1)
+  tableRef.value?.refresh()
 }
 
 function move(i: number, dir: number) {
@@ -70,6 +75,40 @@ function move(i: number, dir: number) {
   const tmp = items.value[i]
   items.value[i] = items.value[j]
   items.value[j] = tmp
+  tableRef.value?.refresh()
+}
+
+const columns = computed<DataColumn[]>(() => [
+  { key: 'sort_order', label: label('sort_order', '顺序'), width: 70, align: 'center' },
+  { key: 'name', label: label('name', '检查项名称'), minWidth: 220, asTitle: true,
+    ellipsis: false },
+  { key: 'enabled', label: label('enabled', '启用'), width: 90, align: 'center' },
+  { key: 'actions', label: '操作', width: 180, type: 'action', fixed: 'right', actions: [
+    { icon: 'ArrowUp', type: 'primary', link: true,
+      disabled: (row) => items.value.indexOf(row as unknown as EditableChecklistItem) === 0,
+      onClick: (row) => move(items.value.indexOf(row as unknown as EditableChecklistItem), -1) },
+    { icon: 'ArrowDown', type: 'primary', link: true,
+      disabled: (row) => items.value.indexOf(row as unknown as EditableChecklistItem) === items.value.length - 1,
+      onClick: (row) => move(items.value.indexOf(row as unknown as EditableChecklistItem), 1) },
+    { icon: 'Delete', type: 'danger', link: true,
+      onClick: (row) => removeItem(items.value.indexOf(row as unknown as EditableChecklistItem)) },
+  ] },
+])
+
+async function fetchPage(params: Record<string, unknown>) {
+  if (!loaded) {
+    const [result, meta] = await Promise.all([
+      fetchReviewChecklist(), fetchEntityMeta('review_checklist_config'),
+    ])
+    metadata.value = meta
+    items.value = result.items.map((item) => ({ ...item, _key: ++nextKey }))
+    loaded = true
+  }
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: items.value.slice(start, start + page_size), total: items.value.length,
+    page, page_size }
 }
 
 async function save() {
@@ -83,8 +122,9 @@ async function save() {
   saving.value = true
   try {
     await updateReviewChecklist(cleaned)
-    items.value = cleaned
+    items.value = cleaned.map((item) => ({ ...item, _key: ++nextKey }))
     ui.toast('已保存', 'success')
+    tableRef.value?.refresh()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -92,14 +132,6 @@ async function save() {
   }
 }
 
-onMounted(() => {
-  fetchReviewChecklist()
-    .then((r) => { items.value = r.items })
-    .catch(() => { /* toast */ })
-  fetchEntityMeta('review_checklist_config')
-    .then((result) => { metadata.value = result })
-    .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
-})
 </script>
 
 <style scoped>

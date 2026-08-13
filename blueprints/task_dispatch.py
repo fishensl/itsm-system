@@ -11,17 +11,20 @@
 """
 from flask import Blueprint, redirect, url_for, request
 from flask_login import login_required
+from utils.compat import deprecated_endpoint
 
 dispatch_bp = Blueprint('task_dispatch', __name__)
 
 
 @dispatch_bp.route('/')
+@deprecated_endpoint('/app/task-schedule')
 @login_required
 def dispatch_list():
     return redirect(url_for('task_schedule.list_view', **request.args), code=301)
 
 
 @dispatch_bp.route('/assign/<int:task_id>', methods=['POST'])
+@deprecated_endpoint('/task-schedule/<id>/assign-form')
 @login_required
 def dispatch_assign(task_id):
     return redirect(url_for('task_schedule.assign_form', task_id=task_id), code=307)
@@ -29,6 +32,7 @@ def dispatch_assign(task_id):
 
 @dispatch_bp.route('/accept/<int:task_id>', methods=['POST'])
 @dispatch_bp.route('/start/<int:task_id>', methods=['POST'])
+@deprecated_endpoint('/task-schedule/<id>/status-form')
 @login_required
 def dispatch_accept_start(task_id):
     return redirect(url_for('task_schedule.change_status_form',
@@ -36,6 +40,7 @@ def dispatch_accept_start(task_id):
 
 
 @dispatch_bp.route('/complete/<int:task_id>', methods=['POST'])
+@deprecated_endpoint('/task-schedule/<id>/status-form')
 @login_required
 def dispatch_complete(task_id):
     return redirect(url_for('task_schedule.change_status_form',

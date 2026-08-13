@@ -100,6 +100,22 @@ def test_specialized_page_metadata_permissions_align(admin_client, sales_client,
     assert viewer_entities == {}
 
 
+def test_new_field_registry_entities_are_permission_scoped_and_secret_safe(
+        admin_client, viewer_client):
+    viewer_entities = viewer_client.get(
+        '/api/meta/entities?entities=region,device_check_template,notify_channel'
+    ).get_json()['data']['entities']
+    assert set(viewer_entities) == {'region', 'device_check_template'}
+
+    notify_channel = admin_client.get(
+        '/api/meta/entities?entities=notify_channel'
+    ).get_json()['data']['entities']['notify_channel']
+    fields = {item['key'] for item in notify_channel['profiles']['detail']}
+    assert 'has_secret' in fields
+    assert 'secret' not in fields
+    assert 'config' not in fields
+
+
 def test_payload_contract_contains_fields_that_exports_already_expose(app):
     """Regression guard for the original list/detail/export field drift."""
     from blueprints.vue_api import _ticket_payload
@@ -152,3 +168,14 @@ def test_persistent_business_tables_use_metadata_registry():
             missing.append(relative.as_posix())
 
     assert not missing, f'业务表格未接入字段注册表：{missing}'
+
+
+def test_customer_tree_page_uses_customer_metadata_profiles():
+    """客户页是树而非表格，也必须让列表、详情和表单标签共享注册表。"""
+    source = (ROOT / 'frontend' / 'src' / 'views' / 'customers' / 'index.vue').read_text(
+        encoding='utf-8')
+
+    assert "fetchEntityMeta('customer')" in source
+    assert "fieldLabel('level', '客户等级', 'list')" in source
+    assert "fieldLabel('contact_person', '联系人')" in source
+    assert "fieldLabel('name', '客户名称', 'form')" in source

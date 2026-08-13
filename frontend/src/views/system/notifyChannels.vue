@@ -16,7 +16,7 @@
           </template>
 
           <el-form label-width="92px" size="small">
-            <el-form-item label="应用名称">
+            <el-form-item :label="fieldLabel('name', '应用名称', 'form')">
               <el-input v-model="ch.name" placeholder="渠道显示名" />
             </el-form-item>
             <template v-if="ch.channel_type === 'wecom'">
@@ -83,12 +83,16 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useUiStore } from '@/stores/ui'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 import {
   fetchNotifyChannels, saveNotifyChannel, testNotifyChannel,
   type NotifyChannelItem,
 } from '@/api/system'
 
 const ui = useUiStore()
+const metadata = ref<EntityMeta>()
+const fieldLabel = (key: string, fallback: string, profile = 'detail') =>
+  entityFieldLabel(metadata.value, key, fallback, profile)
 const channels = ref<NotifyChannelItem[]>([])
 const secretInputs = reactive<Record<string, string>>({})
 const testAccounts = reactive<Record<string, string>>({})
@@ -108,8 +112,12 @@ function channelTestHint(t: string) { return HINTS[t] || '接收测试的渠道�
 
 onMounted(async () => {
   try {
-    const res = await fetchNotifyChannels()
+    const [res, entityMetadata] = await Promise.all([
+      fetchNotifyChannels(),
+      fetchEntityMeta('notify_channel'),
+    ])
     channels.value = res.channels
+    metadata.value = entityMetadata
   } catch { /* toast by interceptor */ }
 })
 

@@ -10,39 +10,14 @@
     </div>
 
     <el-card shadow="never">
-      <el-table v-loading="loading" :data="data?.templates || []" border row-key="id">
-        <el-table-column prop="name" :label="label('name', '模板名称')" min-width="180" />
-        <el-table-column prop="category" :label="label('category', '类别')" width="100">
-          <template #default="{ row }"><el-tag size="small">{{ row.category || '-' }}</el-tag></template>
-        </el-table-column>
-        <el-table-column prop="inspection_type" :label="label('inspection_type', '巡检类型')" width="120" />
-        <el-table-column prop="frequency" :label="label('frequency', '推荐频率')" width="90">
-          <template #default="{ row }">{{ row.frequency || '-' }}</template>
-        </el-table-column>
-        <el-table-column :label="label('customer_tier', '适用客户级别')" width="110">
-          <template #default="{ row }">{{ row.customer_tier === 'all' ? '全部' : (row.customer_tier || '-') }}</template>
-        </el-table-column>
-        <el-table-column :label="label('device_template_ids', '关联设备模板')" min-width="160">
-          <template #default="{ row }">
-            <el-tag v-for="dt in deviceTemplateNames(row.device_template_ids)" :key="dt.id" size="small"
-              class="dt-tag">{{ dt.name }}</el-tag>
-            <span v-if="!row.device_template_ids?.length" class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="is_active" :label="label('is_active', '状态')" width="80">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? '启用' : '停用' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="user.hasPerm('inspection:edit')" label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="user.hasPerm('inspection:delete')" size="small" link type="danger"
-              @click="onDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!loading && !data?.templates?.length" description="暂无任务模板" :image-size="60" />
+      <DataTable
+        ref="tableRef"
+        :columns="columns"
+        :fetch-data="fetchPage"
+        row-key="id"
+        empty-text="暂无任务模板"
+        :column-settings="{ storageKey: 'cols_task_templates' }"
+      />
     </el-card>
 
     <!-- 新增/编辑 -->
@@ -166,7 +141,7 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import {
   fetchTaskTemplates, createTaskTemplate, updateTaskTemplate, deleteTaskTemplate, matchDeviceTemplates,
@@ -175,12 +150,13 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
 const data = ref<TaskTemplateListData | null>(null)
 const metadata = ref<EntityMeta>()
-const loading = ref(false)
+const tableRef = ref()
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
@@ -207,19 +183,49 @@ function label(key: string, fallback: string, profile: 'list' | 'form' = 'list')
   return entityFieldLabel(metadata.value, key, fallback, profile)
 }
 
-function load() {
-  loading.value = true
-  fetchTaskTemplates()
-    .then((d) => { data.value = d })
-    .catch(() => { /* toast */ })
-    .finally(() => { loading.value = false })
-}
-
 function deviceTemplateNames(ids: number[]) {
   const map = new Map((data.value?.device_templates || []).map((d) => [d.id, d]))
   return (ids || [])
     .map((id) => map.get(id))
     .filter((d): d is DeviceTemplateRef => !!d)
+}
+
+const columns = computed<DataColumn[]>(() => {
+  const result: DataColumn[] = [
+  { key: 'name', label: label('name', '模板名称'), minWidth: 180, asTitle: true },
+  { key: 'category', label: label('category', '类别'), width: 100, type: 'tag' },
+  { key: 'inspection_type', label: label('inspection_type', '巡检类型'), width: 120 },
+  { key: 'frequency', label: label('frequency', '推荐频率'), width: 90 },
+  { key: 'customer_tier', label: label('customer_tier', '适用客户级别'), width: 110,
+    valueMap: { all: '全部' } },
+  { key: 'device_template_ids', label: label('device_template_ids', '关联设备模板'),
+    minWidth: 160, type: 'custom',
+    render: (row) => deviceTemplateNames(row.device_template_ids as number[])
+      .map((item) => item.name).join('、') || '-' },
+  { key: 'is_active', label: label('is_active', '状态'), width: 80, type: 'tag', asTag: true,
+    valueMap: { true: '启用', false: '停用' }, tagMap: { true: 'success', false: 'info' } },
+  { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right', actions: [
+    { label: '编辑', type: 'primary', link: true, perm: 'inspection:edit',
+      onClick: (row) => openEdit(row as unknown as TaskTemplateItem) },
+    { label: '删除', type: 'danger', link: true, perm: 'inspection:delete',
+      onClick: (row) => onDelete(row as unknown as TaskTemplateItem) },
+  ] },
+  ]
+  return result
+})
+
+async function fetchPage(params: Record<string, unknown>) {
+  const result = await fetchTaskTemplates()
+  data.value = result
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: result.templates.slice(start, start + page_size), total: result.templates.length,
+    page, page_size }
+}
+
+function load() {
+  tableRef.value?.refresh()
 }
 
 function openCreate() {
@@ -316,7 +322,6 @@ async function onDelete(row: TaskTemplateItem) {
 }
 
 onMounted(() => {
-  load()
   fetchEntityMeta('task_template')
     .then((result) => { metadata.value = result })
     .catch(() => { /* 兼容滚动发布期间的旧后端 */ })

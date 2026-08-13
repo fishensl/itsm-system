@@ -5,8 +5,21 @@ from flask_login import login_required
 from sqlalchemy.orm import joinedload, selectinload
 from models import (Rack, RackInstall, Device, db)
 from utils.permission import require_permission
+from utils.compat import mark_deprecated
 
 rack_bp = Blueprint('rack', __name__)
+
+
+@rack_bp.after_request
+def _mark_v1_rack_api(response):
+    """v1 仅保留观测期兼容；Vue 和新调用方统一使用 v2 契约。"""
+    if not request.path.startswith('/api/rack/'):
+        return response
+    if request.path == '/api/rack/devices/all':
+        successor = '/api/v2/rack/devices'
+    else:
+        successor = request.path.replace('/api/rack/', '/api/v2/rack/', 1)
+    return mark_deprecated(response, successor)
 
 
 # ============================ 机柜 API ============================

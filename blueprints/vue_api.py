@@ -15,6 +15,7 @@ from models import db, User
 from utils.permission import get_user_permissions, has_permission, require_permission
 from utils.operation_token import require_op_token
 from utils.sidebar_config import get_user_sidebar_groups
+from utils.constants import TASK_STATUS_TAG
 from app import csrf, limiter
 
 vue_api_bp = Blueprint('vue_api', __name__)
@@ -1471,9 +1472,6 @@ def api_global_search():
 
 
 # ==================== 任务看板（巡检任务） ====================
-_TASK_STATUS_TAG = {'待执行': 'danger', '执行中': 'warning', '已完成': 'success', '已取消': 'info'}
-
-
 _FAR_EPOCH = 4102444800  # 2100-01-01 哨兵：无时间项的待办沉底（升序排序时排最后）
 
 
@@ -1575,7 +1573,7 @@ def api_task_board():
     # 汇总
     return ok({
         'groups': groups,
-        'status_tag': _TASK_STATUS_TAG,
+        'status_tag': TASK_STATUS_TAG,
         'total': len(tasks),
         'pending': len(groups['待执行']),
         'running': len(groups['执行中']),

@@ -38,7 +38,7 @@
       <div class="filter-row">
         <el-input v-model="query.search" placeholder="搜索名称 / 联系人 / 电话" clearable class="filter-search"
           @keyup.enter="reload" @clear="reload" />
-        <el-select v-model="query.level" placeholder="等级" clearable class="filter-item" @change="reload">
+        <el-select v-model="query.level" :placeholder="fieldLabel('level', '客户等级', 'list')" clearable class="filter-item" @change="reload">
           <el-option v-for="l in levels" :key="l" :label="CUSTOMER_LEVEL_LABELS[l] || l" :value="l" />
         </el-select>
         <el-select v-model="query.category_id" placeholder="单位类别" clearable class="filter-item" @change="reload">
@@ -96,51 +96,51 @@
                         style="width: 200px" placeholder="地市 → 区县" />
                       <span class="hero-sep">│</span>
                       <span class="hero-stats">
-                        <span class="stat">设备 <b>{{ detail.device_count ?? 0 }}</b></span>
-                        <span class="stat">巡检 <b>{{ detail.inspection_count ?? 0 }}</b></span>
-                        <span class="stat">工单 <b>{{ detail.ticket_count ?? 0 }}</b></span>
+                        <span class="stat">{{ fieldLabel('device_count', '设备数量') }} <b>{{ detail.device_count ?? 0 }}</b></span>
+                        <span class="stat">{{ fieldLabel('inspection_count', '巡检数量') }} <b>{{ detail.inspection_count ?? 0 }}</b></span>
+                        <span class="stat">{{ fieldLabel('ticket_count', '工单数量') }} <b>{{ detail.ticket_count ?? 0 }}</b></span>
                       </span>
                     </div>
                     <div class="hero-row2">
-                      <span class="hero-tag">合同
+                      <span class="hero-tag">{{ fieldLabel('contract_status', '合同状态') }}
                         <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
                           {{ detail.contract_status === '未设置合同' ? '未设置' : detail.contract_status }}
                         </el-tag>
                       </span>
-                      <span class="hero-tag">起止：
+                      <span class="hero-tag">{{ fieldLabel('contract_start_date', '合同开始日期') }}：
                         <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
                           size="small" style="width: 118px" placeholder="开始" />
                         ~
                         <el-date-picker v-model="form.contract_end_date" type="date" value-format="YYYY-MM-DD"
                           size="small" style="width: 118px" placeholder="结束" />
                       </span>
-                      <span class="hero-tag">驻场：<el-checkbox v-model="form.has_onsite" size="small" /></span>
-                      <span class="hero-tag">演练：<el-checkbox v-model="form.has_drill" size="small" /></span>
+                      <span class="hero-tag">{{ fieldLabel('has_onsite', '有无驻场', 'form') }}：<el-checkbox v-model="form.has_onsite" size="small" /></span>
+                      <span class="hero-tag">{{ fieldLabel('has_drill', '有无攻防演练', 'form') }}：<el-checkbox v-model="form.has_drill" size="small" /></span>
                     </div>
                   </div>
 
                   <div class="detail-grid3">
                     <div class="grid-col">
-                      <div class="detail-cell"><span class="cell-label">联系人</span><el-input v-model="form.contact_person" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">电话</span><el-input v-model="form.phone" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">邮箱</span><el-input v-model="form.email" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">单位类别</span>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('contact_person', '联系人', 'form') }}</span><el-input v-model="form.contact_person" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('phone', '电话', 'form') }}</span><el-input v-model="form.phone" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('email', '邮箱', 'form') }}</span><el-input v-model="form.email" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('category_name', '单位类别', 'form') }}</span>
                         <el-select v-model="form.category_id" size="small" clearable class="cell-input" placeholder="选择单位类别">
                           <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
                         </el-select>
                       </div>
                     </div>
                     <div class="grid-col">
-                      <div class="detail-cell"><span class="cell-label">地址</span><el-input v-model="form.address" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">办公室门牌号</span><el-input v-model="form.office_room" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">地图定位</span><el-input v-model="form.map_location" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">来源</span><el-input v-model="form.source" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('address', '地址', 'form') }}</span><el-input v-model="form.address" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('office_room', '办公室门牌号', 'form') }}</span><el-input v-model="form.office_room" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('map_location', '地图定位', 'form') }}</span><el-input v-model="form.map_location" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('source', '来源', 'form') }}</span><el-input v-model="form.source" size="small" class="cell-input" /></div>
                     </div>
                     <div class="grid-col">
-                      <div class="detail-cell"><span class="cell-label">驻场联系人</span><el-input v-model="form.onsite_contact" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">驻场电话</span><el-input v-model="form.onsite_phone" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">驻场办公室</span><el-input v-model="form.onsite_office" size="small" class="cell-input" /></div>
-                      <div class="detail-cell"><span class="cell-label">备注</span><el-input v-model="form.remark" type="textarea" :rows="1" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('onsite_contact', '驻场联系人', 'form') }}</span><el-input v-model="form.onsite_contact" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('onsite_phone', '驻场联系方式', 'form') }}</span><el-input v-model="form.onsite_phone" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('onsite_office', '驻场办公室', 'form') }}</span><el-input v-model="form.onsite_office" size="small" class="cell-input" /></div>
+                      <div class="detail-cell"><span class="cell-label">{{ fieldLabel('remark', '备注', 'form') }}</span><el-input v-model="form.remark" type="textarea" :rows="1" size="small" class="cell-input" /></div>
                     </div>
                   </div>
 
@@ -162,41 +162,41 @@
                     <span class="hero-region">{{ [detail.city, detail.region_name].filter(Boolean).join(' ') || '-' }}</span>
                     <span class="hero-sep">│</span>
                     <span class="hero-stats">
-                      <span class="stat">设备 <b>{{ detail.device_count ?? 0 }}</b></span>
-                      <span class="stat">巡检 <b>{{ detail.inspection_count ?? 0 }}</b></span>
-                      <span class="stat">工单 <b>{{ detail.ticket_count ?? 0 }}</b></span>
+                      <span class="stat">{{ fieldLabel('device_count', '设备数量') }} <b>{{ detail.device_count ?? 0 }}</b></span>
+                      <span class="stat">{{ fieldLabel('inspection_count', '巡检数量') }} <b>{{ detail.inspection_count ?? 0 }}</b></span>
+                      <span class="stat">{{ fieldLabel('ticket_count', '工单数量') }} <b>{{ detail.ticket_count ?? 0 }}</b></span>
                     </span>
                   </div>
                   <div class="hero-row2">
-                    <span class="hero-tag">合同
+                    <span class="hero-tag">{{ fieldLabel('contract_status', '合同状态') }}
                       <el-tag size="small" :type="CONTRACT_STATUS_TAG[detail.contract_status] || 'info'">
                         {{ detail.contract_status === '未设置合同' ? '未设置' : detail.contract_status }}
                       </el-tag>
                     </span>
-                    <span class="hero-tag">起止：{{ detail.contract_start_date || '-' }} ~ {{ detail.contract_end_date || '-' }}</span>
-                    <span class="hero-tag">驻场：<el-tag size="small" :type="detail.has_onsite ? 'success' : 'info'">{{ detail.has_onsite ? '有' : '无' }}</el-tag></span>
-                    <span class="hero-tag">演练：<el-tag size="small" :type="detail.has_drill ? 'warning' : 'info'">{{ detail.has_drill ? '有' : '无' }}</el-tag></span>
+                    <span class="hero-tag">{{ fieldLabel('contract_start_date', '合同开始日期') }}：{{ detail.contract_start_date || '-' }} ~ {{ detail.contract_end_date || '-' }}</span>
+                    <span class="hero-tag">{{ fieldLabel('has_onsite', '有无驻场') }}：<el-tag size="small" :type="detail.has_onsite ? 'success' : 'info'">{{ detail.has_onsite ? '有' : '无' }}</el-tag></span>
+                    <span class="hero-tag">{{ fieldLabel('has_drill', '有无攻防演练') }}：<el-tag size="small" :type="detail.has_drill ? 'warning' : 'info'">{{ detail.has_drill ? '有' : '无' }}</el-tag></span>
                   </div>
                 </div>
 
                 <div class="detail-grid3">
                   <div class="grid-col">
-                    <div class="detail-cell"><span class="cell-label">联系人</span><span class="cell-value">{{ detail.contact_person || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">电话</span><span class="cell-value">{{ detail.phone || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">邮箱</span><span class="cell-value">{{ detail.email || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">单位类别</span><span class="cell-value">{{ detail.category_name || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('contact_person', '联系人') }}</span><span class="cell-value">{{ detail.contact_person || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('phone', '电话') }}</span><span class="cell-value">{{ detail.phone || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('email', '邮箱') }}</span><span class="cell-value">{{ detail.email || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('category_name', '单位类别') }}</span><span class="cell-value">{{ detail.category_name || '-' }}</span></div>
                   </div>
                   <div class="grid-col">
-                    <div class="detail-cell"><span class="cell-label">地址</span><span class="cell-value">{{ detail.address || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">办公室门牌号</span><span class="cell-value">{{ detail.office_room || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">地图定位</span><span class="cell-value">{{ detail.map_location || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">来源</span><span class="cell-value">{{ detail.source || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('address', '地址') }}</span><span class="cell-value">{{ detail.address || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('office_room', '办公室门牌号') }}</span><span class="cell-value">{{ detail.office_room || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('map_location', '地图定位') }}</span><span class="cell-value">{{ detail.map_location || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('source', '来源') }}</span><span class="cell-value">{{ detail.source || '-' }}</span></div>
                   </div>
                   <div class="grid-col">
-                    <div class="detail-cell"><span class="cell-label">驻场联系人</span><span class="cell-value">{{ detail.onsite_contact || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">驻场电话</span><span class="cell-value">{{ detail.onsite_phone || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">驻场办公室</span><span class="cell-value">{{ detail.onsite_office || '-' }}</span></div>
-                    <div class="detail-cell"><span class="cell-label">备注</span><span class="cell-value">{{ detail.remark || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('onsite_contact', '驻场联系人') }}</span><span class="cell-value">{{ detail.onsite_contact || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('onsite_phone', '驻场联系方式') }}</span><span class="cell-value">{{ detail.onsite_phone || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('onsite_office', '驻场办公室') }}</span><span class="cell-value">{{ detail.onsite_office || '-' }}</span></div>
+                    <div class="detail-cell"><span class="cell-label">{{ fieldLabel('remark', '备注') }}</span><span class="cell-value">{{ detail.remark || '-' }}</span></div>
                   </div>
                 </div>
                 </template>
@@ -213,101 +213,101 @@
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="110px" size="default">
         <el-row :gutter="16">
           <el-col :xs="24" :sm="12">
-            <el-form-item label="客户名称" prop="name">
+            <el-form-item :label="fieldLabel('name', '客户名称', 'form')" prop="name">
               <el-input v-model="form.name" placeholder="必填" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="等级">
+            <el-form-item :label="fieldLabel('level', '客户等级', 'form')">
               <el-select v-model="form.level" class="w-full">
                 <el-option v-for="lv in levelOptions" :key="lv.value" :label="lv.label" :value="lv.value" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="联系人">
+            <el-form-item :label="fieldLabel('contact_person', '联系人', 'form')">
               <el-input v-model="form.contact_person" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="电话">
+            <el-form-item :label="fieldLabel('phone', '电话', 'form')">
               <el-input v-model="form.phone" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="邮箱">
+            <el-form-item :label="fieldLabel('email', '邮箱', 'form')">
               <el-input v-model="form.email" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="单位类别">
+            <el-form-item :label="fieldLabel('category_name', '单位类别', 'form')">
               <el-select v-model="form.category_id" clearable class="w-full" placeholder="选择单位类别">
                 <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :xs="24">
-            <el-form-item label="所属地区">
+            <el-form-item :label="fieldLabel('region_name', '所属地区', 'form')">
               <el-cascader v-model="form.regionPath" :options="regionOptions" clearable class="w-full"
                 placeholder="地市 → 区县" />
             </el-form-item>
           </el-col>
           <el-col :xs="24">
-            <el-form-item label="地址">
+            <el-form-item :label="fieldLabel('address', '地址', 'form')">
               <el-input v-model="form.address" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="合同开始日期">
+            <el-form-item :label="fieldLabel('contract_start_date', '合同开始日期', 'form')">
               <el-date-picker v-model="form.contract_start_date" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="如 2026-01-01" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="合同结束日期">
+            <el-form-item :label="fieldLabel('contract_end_date', '合同结束日期', 'form')">
               <el-date-picker v-model="form.contract_end_date" type="date" value-format="YYYY-MM-DD"
                 class="w-full" placeholder="如 2026-12-31" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="办公室门牌号">
+            <el-form-item :label="fieldLabel('office_room', '办公室门牌号', 'form')">
               <el-input v-model="form.office_room" placeholder="如 A栋 3F-301" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item label="地图定位">
+            <el-form-item :label="fieldLabel('map_location', '地图定位', 'form')">
               <el-input v-model="form.map_location" placeholder="经纬度或地图链接（外网工单可查看）" />
             </el-form-item>
           </el-col>
           <el-col :xs="24">
-            <el-form-item label="驻场信息">
+            <el-form-item :label="fieldLabel('has_onsite', '有无驻场', 'form')">
               <el-checkbox v-model="form.has_onsite">有驻场</el-checkbox>
             </el-form-item>
           </el-col>
           <template v-if="form.has_onsite">
             <el-col :xs="24" :sm="12">
-              <el-form-item label="驻场联系人">
+              <el-form-item :label="fieldLabel('onsite_contact', '驻场联系人', 'form')">
                 <el-input v-model="form.onsite_contact" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item label="驻场电话">
+              <el-form-item :label="fieldLabel('onsite_phone', '驻场联系方式', 'form')">
                 <el-input v-model="form.onsite_phone" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item label="驻场办公室">
+              <el-form-item :label="fieldLabel('onsite_office', '驻场办公室', 'form')">
                 <el-input v-model="form.onsite_office" />
               </el-form-item>
             </el-col>
           </template>
           <el-col :xs="24">
-            <el-form-item label="攻防演练">
+            <el-form-item :label="fieldLabel('has_drill', '有无攻防演练', 'form')">
               <el-checkbox v-model="form.has_drill">有攻防演练</el-checkbox>
             </el-form-item>
           </el-col>
           <el-col :xs="24">
-            <el-form-item label="备注">
+            <el-form-item :label="fieldLabel('remark', '备注', 'form')">
               <el-input v-model="form.remark" type="textarea" :rows="2" />
             </el-form-item>
           </el-col>
@@ -329,6 +329,7 @@ import { Plus, Search, Download, Upload, UploadFilled, Location } from '@element
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
+import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { handleExportResult } from '@/utils/export'
@@ -342,6 +343,11 @@ import {
 const route = useRoute()
 const user = useUserStore()
 const ui = useUiStore()
+const metadata = ref<EntityMeta>()
+
+function fieldLabel(key: string, fallback: string, profile = 'detail') {
+  return entityFieldLabel(metadata.value, key, fallback, profile)
+}
 
 // ==================== 导入 / 导出 ====================
 const importVisible = ref(false)
@@ -624,6 +630,7 @@ async function onDelete(c: Customer) {
 function reload() { loadTree() }
 
 onMounted(() => {
+  fetchEntityMeta('customer').then((result) => { metadata.value = result })
   fetchCustomerDicts().then((d) => (dicts.value = d))
   loadTree()
 })

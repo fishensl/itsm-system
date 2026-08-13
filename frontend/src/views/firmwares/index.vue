@@ -38,26 +38,18 @@
 
         <div v-for="t in g.types" :key="t.firmware_type" class="fw-type">
           <div class="fw-type-title">{{ t.firmware_type }}</div>
-          <el-table :data="t.items" size="small" border row-key="id">
-            <el-table-column prop="version" :label="label('version', '版本号')" width="140">
-              <template #default="{ row }">
-                <span class="fw-version">{{ row.version }}</span>
-                <el-tag v-if="row.is_latest" size="small" type="success" class="ml-2">最新</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="release_date" :label="label('release_date', '发布日期')" width="110">
-              <template #default="{ row }">{{ row.release_date || '-' }}</template>
-            </el-table-column>
-            <el-table-column prop="file_size_mb" :label="label('file_size_mb', '文件大小(MB)')" width="110" />
-            <el-table-column prop="changelog" :label="label('changelog', '更新说明')" min-width="180" show-overflow-tooltip />
-            <el-table-column label="操作" width="140" fixed="right">
-              <template #default="{ row }">
-                <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-                <el-button v-if="user.hasPerm('device:delete')" size="small" link type="danger"
-                  @click="onDelete(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <DataTable
+            :columns="firmwareColumns"
+            :fetch-data="(params) => staticPage(t.items, params)"
+            row-key="id"
+            empty-text="暂无固件版本"
+            :column-settings="{ storageKey: 'cols_firmwares' }"
+          >
+            <template #cell-version="{ row }">
+              <span class="fw-version">{{ row.version }}</span>
+              <el-tag v-if="row.is_latest" size="small" type="success" class="ml-2">最新</el-tag>
+            </template>
+          </DataTable>
         </div>
 
         <!-- 在用设备对比 -->
@@ -156,7 +148,7 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus, Search } from '@element-plus/icons-vue'
 import {
   fetchFirmwares, createFirmware, updateFirmware, deleteFirmware,
@@ -165,6 +157,7 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { entityFieldLabel, fetchEntityMetas, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -187,6 +180,27 @@ function label(key: string, fallback: string, profile = 'list') {
 
 function deviceLabel(key: string, fallback: string) {
   return entityFieldLabel(metas.value.device, key, fallback, 'list')
+}
+
+const firmwareColumns = computed<DataColumn[]>(() => [
+  { key: 'version', label: label('version', '版本号'), width: 140, asTitle: true,
+    ellipsis: false },
+  { key: 'release_date', label: label('release_date', '发布日期'), width: 110, type: 'date' },
+  { key: 'file_size_mb', label: label('file_size_mb', '文件大小(MB)'), width: 110 },
+  { key: 'changelog', label: label('changelog', '更新说明'), minWidth: 180 },
+  { key: 'actions', label: '操作', width: 140, type: 'action', fixed: 'right', actions: [
+    { label: '编辑', type: 'primary', link: true, perm: 'device:edit',
+      onClick: (row) => openEdit(row as unknown as FirmwareItem) },
+    { label: '删除', type: 'danger', link: true, perm: 'device:delete',
+      onClick: (row) => onDelete(row as unknown as FirmwareItem) },
+  ] },
+])
+
+async function staticPage(rows: FirmwareItem[], params: Record<string, unknown>) {
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: rows.slice(start, start + page_size), total: rows.length, page, page_size }
 }
 
 function reload() {

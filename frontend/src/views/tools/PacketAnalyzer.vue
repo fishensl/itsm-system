@@ -55,7 +55,24 @@
           <el-button size="small" type="primary" plain @click="applyFilter">查找</el-button>
           <span class="count">{{ filtered.length }} / {{ records.length }}</span>
         </div>
-        <el-table :data="filtered" size="small" border max-height="360" highlight-current-row
+        <div v-if="isMobile" class="packet-cards">
+          <button v-for="row in filtered" :key="row.idx" type="button" class="packet-card"
+            @click="onSelect(row)">
+            <span class="packet-card-head">
+              <b>#{{ row.idx + 1 }}</b>
+              <span>{{ row.relTs.toFixed(3) }}s</span>
+              <el-tag size="small" :type="protoType(row.l4 || row.l3)">{{ row.l4 || row.l3 }}</el-tag>
+              <span>{{ row.length }}B</span>
+            </span>
+            <span class="packet-endpoints mono">
+              {{ row.src.ip || row.src.mac || '-' }}<template v-if="row.src.port">:{{ row.src.port }}</template>
+              →
+              {{ row.dst.ip || row.dst.mac || '-' }}<template v-if="row.dst.port">:{{ row.dst.port }}</template>
+            </span>
+            <span class="packet-info">{{ row.info || '-' }}</span>
+          </button>
+        </div>
+        <el-table v-else :data="filtered" size="small" border max-height="360" highlight-current-row
           @current-change="onSelect">
           <el-table-column label="#" width="56">
             <template #default="{ row }">{{ row.idx + 1 }}</template>
@@ -96,7 +113,19 @@
 
     <!-- 会话 -->
     <div v-if="view === 'sessions' && records.length" class="pkt-sessions">
-      <el-table :data="sessions" size="small" border max-height="360">
+      <div v-if="isMobile" class="packet-cards">
+        <div v-for="row in sessions" :key="`${row.l4}-${row.ip1}-${row.port1}-${row.ip2}-${row.port2}`"
+          class="packet-card">
+          <span class="packet-card-head">
+            <el-tag size="small">{{ row.l4 }}</el-tag>
+            <span>{{ row.frames }} 包</span>
+            <span>{{ row.bytes }} 字节</span>
+          </span>
+          <span class="packet-endpoints mono">{{ row.ip1 }}:{{ row.port1 }} → {{ row.ip2 }}:{{ row.port2 }}</span>
+          <el-tag v-if="row.appProto" size="small" type="warning">{{ row.appProto }}</el-tag>
+        </div>
+      </div>
+      <el-table v-else :data="sessions" size="small" border max-height="360">
         <el-table-column prop="l4" label="协议" width="70" />
         <el-table-column label="会话" min-width="280">
           <template #default="{ row }">
@@ -112,7 +141,7 @@
     </div>
 
     <!-- 详情 -->
-    <el-drawer v-model="detailVisible" title="数据包详情" size="560px">
+    <el-drawer v-model="detailVisible" title="数据包详情" :size="isMobile ? '100%' : '560px'">
       <template v-if="selected">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="编号">#{{ selected.idx + 1 }}</el-descriptions-item>
@@ -136,6 +165,7 @@
 import { ref, computed } from 'vue'
 import { Search, Right } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
+import { useMobile } from '@/utils/useMobile'
 import {
   parseHexBytes, parseB64Bytes, parsePcapAllFrames, parsePcapngAllFrames,
   buildRecord, buildSessions, buildStats,
@@ -143,6 +173,7 @@ import {
 } from '@/utils/packetParser'
 
 const ui = useUiStore()
+const { isMobile } = useMobile()
 const mode = ref<'file' | 'paste'>('paste')
 const fmt = ref('hex')
 const pasteData = ref('')
@@ -325,5 +356,24 @@ function loadSample() {
   font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.6;
   background: var(--el-fill-color-light); padding: 10px; border-radius: 6px;
   overflow-x: auto; margin: 0;
+}
+.packet-cards { display: grid; gap: 8px; }
+.packet-card {
+  display: grid; gap: 6px; width: 100%; padding: 10px; text-align: left;
+  color: var(--itsm-text); background: var(--itsm-card-bg);
+  border: 1px solid var(--itsm-border); border-radius: var(--itsm-radius-md);
+}
+button.packet-card { cursor: pointer; }
+button.packet-card:active { border-color: var(--el-color-primary); }
+.packet-card-head { display: flex; align-items: center; gap: 8px; color: var(--itsm-text-muted); }
+.packet-endpoints { overflow-wrap: anywhere; }
+.packet-info { color: var(--itsm-text-muted); font-size: var(--itsm-font-xs); }
+@media (max-width: 767px) {
+  .pkt-main { display: block; }
+  .pkt-navs { display: flex; gap: 6px; margin-bottom: 8px; overflow-x: auto; }
+  .nav-title { display: none; }
+  .pkt-nav { white-space: nowrap; }
+  .pkt-filter :deep(.el-input) { width: calc(50% - 3px) !important; }
+  .count { width: 100%; margin-left: 0; }
 }
 </style>

@@ -3,10 +3,12 @@
 from flask import (request, redirect, url_for)
 from flask_login import login_required
 from blueprints.ops import ops_bp
+from utils.compat import deprecated_endpoint
 
 
 # ============================ 巡检任务（V18: 已并入 task_schedule，仅保留 URL 301 兼容） ============================
 @ops_bp.route('/inspection-tasks')
+@deprecated_endpoint('/app/task-schedule')
 @login_required
 def inspection_task_list():
     """老列表 → 任务安排列表视图"""
@@ -14,6 +16,7 @@ def inspection_task_list():
 
 
 @ops_bp.route('/inspection-tasks/<int:id>')
+@deprecated_endpoint('/app/task-schedule')
 @login_required
 def inspection_task_detail(id):
     """老详情 → task_schedule.task_detail"""
@@ -22,6 +25,7 @@ def inspection_task_detail(id):
 
 # ============================ 巡检任务（V18: 兼容 POST 重定向） ============================
 @ops_bp.route('/inspection-tasks/add', methods=['POST'])
+@deprecated_endpoint('/task-schedule/quick-add')
 @login_required
 def inspection_task_add():
     """老 add → quick_add（307 保留方法 + body）"""
@@ -40,6 +44,7 @@ def _parse_date(s):
 
 
 @ops_bp.route('/inspection-tasks/edit/<int:id>', methods=['POST'])
+@deprecated_endpoint('/task-schedule/<id>/status-form')
 @login_required
 def inspection_task_edit(id):
     """老 edit：仅支持改状态字段（其余字段已迁到任务安排详情页）"""
@@ -53,9 +58,9 @@ def inspection_task_edit(id):
 
 
 @ops_bp.route('/inspection-tasks/delete/<int:id>', methods=['POST'])
+@deprecated_endpoint('/task-schedule/<id>/delete')
 @login_required
 def inspection_task_delete(id):
     """老 delete → task_schedule.delete_task"""
     return redirect(url_for('task_schedule.delete_task', task_id=id), code=307)
-
 

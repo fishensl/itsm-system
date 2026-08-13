@@ -6,26 +6,14 @@
       </el-button>
     </div>
 
-    <el-table v-loading="loading" :data="items" border size="small" row-key="id">
-      <el-table-column prop="name" :label="label('name', '名称')" min-width="200" />
-      <el-table-column v-if="showType" prop="field_type" :label="label('field_type', '字段类型')" width="120">
-        <template #default="{ row }">
-          <el-tag size="small" :type="row.field_type === 'date' ? 'warning' : 'info'">
-            {{ FIELD_TYPE_LABELS[row.field_type] || FIELD_TYPE_LABELS.text }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="sort_order" :label="label('sort_order', '排序')" width="80" />
-      <el-table-column v-if="user.hasPerm('device:edit')" label="操作" width="150" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="user.hasPerm('device:delete')" size="small" link type="danger" @click="onDelete(row)">
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-empty v-if="!loading && !items.length" description="暂无数据" :image-size="50" />
+    <DataTable
+      ref="tableRef"
+      :columns="columns"
+      :fetch-data="fetchPage"
+      row-key="id"
+      empty-text="暂无数据"
+      :column-settings="{ storageKey: `cols_device_dict_${resource}` }"
+    />
 
     <el-dialog v-model="formVisible" :title="form.id ? '编辑' : '新增'" width="420px" destroy-on-close>
       <el-form ref="formRef" :model="form" label-width="80px">
@@ -52,7 +40,7 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import {
   fetchDeviceDict, createDeviceDict, updateDeviceDict, deleteDeviceDict, type DictItem,
@@ -60,6 +48,7 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const props = defineProps<{ resource: 'types' | 'brands' | 'network-types' | 'custom-fields'; showType: boolean }>()
 
@@ -76,9 +65,8 @@ const FIELD_TYPE_LABELS = FIELD_TYPE_OPTIONS
 
 const user = useUserStore()
 const ui = useUiStore()
-const items = ref<DictItem[]>([])
 const metadata = ref<EntityMeta>()
-const loading = ref(false)
+const tableRef = ref()
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
@@ -88,12 +76,39 @@ function label(key: string, fallback: string, profile = 'list') {
   return entityFieldLabel(metadata.value, key, fallback, profile)
 }
 
+const columns = computed<DataColumn[]>(() => {
+  const result: DataColumn[] = [
+    { key: 'name', label: label('name', '名称'), minWidth: 200, asTitle: true },
+  ]
+  if (props.showType) {
+    result.push({
+      key: 'field_type', label: label('field_type', '字段类型'), width: 120,
+      type: 'tag', valueMap: FIELD_TYPE_LABELS,
+      tagMap: { date: 'warning' },
+    })
+  }
+  result.push(
+    { key: 'sort_order', label: label('sort_order', '排序'), width: 80 },
+    { key: 'actions', label: '操作', width: 150, type: 'action', fixed: 'right', actions: [
+      { label: '编辑', type: 'primary', link: true, perm: 'device:edit',
+        onClick: (row) => openEdit(row as unknown as DictItem) },
+      { label: '删除', type: 'danger', link: true, perm: 'device:delete',
+        onClick: (row) => onDelete(row as unknown as DictItem) },
+    ] },
+  )
+  return result
+})
+
+async function fetchPage(params: Record<string, unknown>) {
+  const list = await fetchDeviceDict(props.resource)
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: list.slice(start, start + page_size), total: list.length, page, page_size }
+}
+
 function load() {
-  loading.value = true
-  fetchDeviceDict(props.resource)
-    .then((d) => { items.value = d })
-    .catch(() => { /* toast */ })
-    .finally(() => { loading.value = false })
+  tableRef.value?.refresh()
 }
 
 function openCreate() {
@@ -142,7 +157,6 @@ async function onDelete(row: DictItem) {
 }
 
 onMounted(() => {
-  load()
   fetchEntityMeta('device_dictionary')
     .then((result) => { metadata.value = result })
     .catch(() => { /* 兼容滚动发布期间的旧后端 */ })

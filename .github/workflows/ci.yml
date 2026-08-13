@@ -41,6 +41,9 @@ jobs:
       - name: Ruff (pyflakes)
         run: ruff check .
 
+      - name: Frontend status catalog is current
+        run: python scripts/generate_frontend_status.py --check
+
       - name: Pytest
         run: pytest
 

@@ -162,13 +162,6 @@ export function repairDeviceCounts() {
   })
 }
 
-export function fetchUiVersion() {
-  return request<{ version: 'vue' | 'ssr'; vue_migrated_count: number }>({
-    url: '/api/system/ui-version',
-    method: 'GET',
-  })
-}
-
 export interface DepartmentItem {
   id: number
   name: string

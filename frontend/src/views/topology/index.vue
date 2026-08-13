@@ -33,9 +33,14 @@
             <span class="grp-title">{{ g.customer }}</span>
             <el-tag size="small" type="info" class="grp-badge">{{ g.rows.length }}</el-tag>
           </template>
-          <el-table :data="g.rows" size="small" border stripe>
-            <el-table-column :label="label('name', '名称')" min-width="260">
-              <template #default="{ row }">
+          <DataTable
+            :columns="columns"
+            :fetch-data="(params) => groupPage(g.rows, params)"
+            row-key="id"
+            empty-text="暂无可显示行"
+            :column-settings="{ storageKey: 'cols_topology' }"
+          >
+            <template #cell-name="{ row }">
                 <div class="topo-name-row">
                   <b class="topo-name">{{ row.name }}</b>
                   <span class="topo-icons">
@@ -54,29 +59,8 @@
                     </template>
                   </span>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column :label="label('description', '描述')" min-width="160">
-              <template #default="{ row }">{{ row.description || '-' }}</template>
-            </el-table-column>
-            <el-table-column :label="label('upload_by', '上传人')" width="100">
-              <template #default="{ row }">{{ row.upload_by || '-' }}</template>
-            </el-table-column>
-            <el-table-column :label="label('created_at', '上传时间')" width="140">
-              <template #default="{ row }">{{ row.created_at || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="130" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="user.hasPerm('topology:edit')" size="small" type="warning" link
-                  @click="openEdit(row)">编辑</el-button>
-                <el-button v-if="user.hasPerm('topology:delete')" size="small" type="danger" link
-                  @click="onDeleteGroup(row)">删除</el-button>
-              </template>
-            </el-table-column>
-            <template #empty>
-              <el-empty description="暂无可显示行" :image-size="50" />
             </template>
-          </el-table>
+          </DataTable>
         </el-collapse-item>
       </el-collapse>
       <el-empty v-if="!loading && !groups.length" description="暂无拓扑图" :image-size="70" />
@@ -172,7 +156,7 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, onMounted, type Component } from 'vue'
+import { ref, reactive, onMounted, computed, type Component } from 'vue'
 import { Search, EditPen, Plus, Fold, Picture, Document, Files } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -182,6 +166,7 @@ import {
   type TopologyItem, type TopologyFile, type TopologyDicts, type TopologyTemplate,
 } from '@/api/topology'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -211,6 +196,26 @@ const metadata = ref<EntityMeta>()
 
 function label(key: string, fallback: string, profile = 'list') {
   return entityFieldLabel(metadata.value, key, fallback, profile)
+}
+
+const columns = computed<DataColumn[]>(() => [
+  { key: 'name', label: label('name', '名称'), minWidth: 260, asTitle: true, ellipsis: false },
+  { key: 'description', label: label('description', '描述'), minWidth: 160 },
+  { key: 'upload_by', label: label('upload_by', '上传人'), width: 100 },
+  { key: 'created_at', label: label('created_at', '上传时间'), width: 140 },
+  { key: 'actions', label: '操作', width: 130, type: 'action', fixed: 'right', actions: [
+    { label: '编辑', type: 'warning', link: true, perm: 'topology:edit',
+      onClick: (row) => openEdit(row as unknown as TopologyItem) },
+    { label: '删除', type: 'danger', link: true, perm: 'topology:delete',
+      onClick: (row) => onDeleteGroup(row as unknown as TopologyItem) },
+  ] },
+])
+
+async function groupPage(rows: TopologyItem[], params: Record<string, unknown>) {
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: rows.slice(start, start + page_size), total: rows.length, page, page_size }
 }
 
 async function loadAll() {
@@ -277,7 +282,7 @@ function importEdit(f: TopologyFile) {
   window.open(`/topologies/editor/0?import=${f.id}`, '_blank')
 }
 
-function fileActions(row: TopologyItem, f: TopologyFile): FileAction[] {
+function fileActions(_row: Record<string, unknown>, f: TopologyFile): FileAction[] {
   const acts: FileAction[] = []
   if (f.source === 'draw') {
     acts.push({ key: 'edit', icon: EditPen, cls: 'fi-edit',

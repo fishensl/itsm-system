@@ -5,6 +5,7 @@ from flask import request, jsonify, redirect
 from flask_login import login_required, current_user
 from models import db, Opportunity, UserDashboardPreference
 from utils.decorators import api_view
+from utils.compat import deprecated_endpoint
 
 
 # ---------- 首页 ----------
@@ -16,6 +17,7 @@ def index():
 # ==================== 商机阶段统计 ====================
 @login_required
 @api_view
+@deprecated_endpoint('/api/dashboard/overview')
 def api_dashboard_opp_stages():
     """商机阶段统计（销售工作台用）"""
     from sqlalchemy import func
@@ -65,6 +67,7 @@ def get_dashboard_cards(user):
             pass
     return ROLE_DEFAULT_CARDS.get(user.role, ['ticket', 'device', 'customer'])
 
+@deprecated_endpoint('/app/')
 @login_required
 @api_view
 def api_dashboard_preferences():
@@ -77,6 +80,7 @@ def api_dashboard_preferences():
         'pool': {k: v for k, v in DASHBOARD_CARD_POOL.items()},
     })
 
+@deprecated_endpoint('/app/')
 @login_required
 def api_dashboard_preferences_save():
     data = request.get_json(silent=True) or {}
@@ -91,6 +95,7 @@ def api_dashboard_preferences_save():
     db.session.commit()
     return jsonify({'success': True, 'cards': valid})
 
+@deprecated_endpoint('/app/')
 @login_required
 def api_dashboard_preferences_reset():
     pref = UserDashboardPreference.query.filter_by(user_id=current_user.id).first()

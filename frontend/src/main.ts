@@ -17,6 +17,7 @@ import './styles/index.css'
 const app = createApp(App)
 
 app.use(createPinia())
+useUiStore().initTheme()
 app.use(router)
 
 // 仅注册动态字符串图标（侧栏/仪表盘/DataTable action 用 <component :is> 解析）

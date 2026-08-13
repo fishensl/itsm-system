@@ -11,20 +11,14 @@
       <template #header>
         <span class="card-title">待审核申请（设备密码导出）</span>
       </template>
-      <el-table v-if="items.length" :data="items" size="small" border>
-        <el-table-column prop="created_at" :label="label('created_at', '申请时间')" width="150" />
-        <el-table-column :label="label('realname', '申请人')" width="140">
-          <template #default="{ row }">{{ row.realname || row.username }}</template>
-        </el-table-column>
-        <el-table-column prop="reason" :label="label('reason', '申请原因')" min-width="240" show-overflow-tooltip />
-        <el-table-column label="操作" width="220">
-          <template #default="{ row }">
-            <el-button size="small" type="success" link @click="openReview(row, 'approve')">通过</el-button>
-            <el-button size="small" type="danger" link @click="openReview(row, 'reject')">驳回</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-else description="暂无待审核申请" :image-size="60" />
+      <DataTable
+        ref="tableRef"
+        :columns="columns"
+        :fetch-data="fetchPage"
+        row-key="id"
+        empty-text="暂无待审核申请"
+        :column-settings="{ storageKey: 'cols_export_reviews' }"
+      />
     </el-card>
 
     <!-- 审核弹窗 -->
@@ -54,14 +48,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUiStore } from '@/stores/ui'
 import { fetchExportReviews, reviewExportRequest, type ExportReviewItem } from '@/api/system'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
+import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 
 const ui = useUiStore()
-const items = ref<ExportReviewItem[]>([])
+const tableRef = ref()
 const metadata = ref<EntityMeta>()
 const reviewVisible = ref(false)
 const reviewAction = ref<'approve' | 'reject'>('approve')
@@ -73,13 +68,30 @@ function label(key: string, fallback: string) {
   return entityFieldLabel(metadata.value, key, fallback, 'detail')
 }
 
-async function load() {
-  try {
-    const d = await fetchExportReviews()
-    items.value = d.items
-  } catch (e) {
-    ui.toast((e as Error).message, 'error')
-  }
+const columns = computed<DataColumn[]>(() => [
+  { key: 'created_at', label: label('created_at', '申请时间'), width: 150 },
+  { key: 'realname', label: label('realname', '申请人'), width: 140, asTitle: true,
+    render: (row) => String(row.realname || row.username || '-') },
+  { key: 'reason', label: label('reason', '申请原因'), minWidth: 240 },
+  { key: 'actions', label: '操作', width: 180, type: 'action', fixed: 'right', actions: [
+    { label: '通过', type: 'success', link: true,
+      onClick: (row) => openReview(row as unknown as ExportReviewItem, 'approve') },
+    { label: '驳回', type: 'danger', link: true,
+      onClick: (row) => openReview(row as unknown as ExportReviewItem, 'reject') },
+  ] },
+])
+
+async function fetchPage(params: Record<string, unknown>) {
+  const data = await fetchExportReviews()
+  const page = Number(params.page) || 1
+  const page_size = Number(params.page_size) || 20
+  const start = (page - 1) * page_size
+  return { items: data.items.slice(start, start + page_size), total: data.items.length,
+    page, page_size }
+}
+
+function load() {
+  tableRef.value?.refresh()
 }
 
 function openReview(row: ExportReviewItem, action: 'approve' | 'reject') {
@@ -109,7 +121,6 @@ async function doReview() {
 }
 
 onMounted(() => {
-  load()
   fetchEntityMeta('device_export_review')
     .then((result) => { metadata.value = result })
     .catch(() => { /* 兼容滚动发布期间的旧后端 */ })

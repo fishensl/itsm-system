@@ -8,7 +8,17 @@ from utils.permission import require_permission
 from utils.decorators import api_view
 from utils.access_control import client_ip
 from utils.operation_token import require_op_token
+from utils.compat import mark_deprecated
 from blueprints.asset import asset_bp
+
+
+@asset_bp.after_request
+def _mark_legacy_device_password_api(response):
+    path = request.path
+    if path.startswith('/api/devices/') and (
+            path.endswith('/reveal-password') or path.endswith('/password-history')):
+        return mark_deprecated(response, path.replace('/api/devices/', '/api/v2/devices/', 1))
+    return response
 
 
 @asset_bp.route('/api/devices/<int:id>/reveal-password', methods=['POST'])

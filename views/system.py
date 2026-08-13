@@ -7,6 +7,7 @@ from flask import (request, redirect, url_for,
 from flask_login import (login_required, current_user)
 from models import db, UserDashboardPreference
 from utils.permission import require_permission, admin_required
+from utils.compat import deprecated_endpoint
 
 
 # ==================== 简化的 admin 路由（暂留 app.py 后续蓝图化）====================
@@ -91,6 +92,7 @@ def drawio_diag():
     return jsonify({'success': True, 'clibs': clibs, 'stencil_urls': stencil_urls})
 
 
+@deprecated_endpoint('/api/system/ui-version')
 @login_required
 @admin_required
 def system_ui_version():
@@ -121,6 +123,7 @@ def system_sidebar():
     return redirect('/app/system/sidebar')
 
 
+@deprecated_endpoint('/api/system/sidebar/reset')
 @login_required
 def api_sidebar_reset():
     """重置为默认"""

@@ -3,10 +3,9 @@
 
 复用 blueprints.vue_api 的 vue_api_bp 蓝图对象与 ok/fail 契约。
 
-机柜端点统一走 /api/v2/rack/* 前缀：blueprints/rack（SSR）先注册且模板
-templates/rack/index.html 仍在使用 /api/rack/cabinets 等原路径（返回裸 JSON，
-非 ok/fail 契约），同 rule 会被 SSR 遮蔽——与 vue_api.py 中
-/api/v2/devices/<id>/reveal-password 的处理一致。
+机柜端点统一走 /api/v2/rack/* 前缀。blueprints/rack 仅保留兼容期 v1
+裸 JSON 契约，并通过弃用响应头和结构化访问日志观测旧调用方；Vue 前端只消费
+本文件的 v2 契约。确认生产连续 30 天无 v1 调用后再删除兼容蓝图。
 """
 import ipaddress
 import os

@@ -29,7 +29,8 @@
           :align="col.align || 'left'"
           :show-overflow-tooltip="col.ellipsis !== false"
         >
-          <template #default="{ row }">
+          <template #default="{ row, $index }">
+            <slot :name="`cell-${col.key}`" :row="row" :index="$index" :column="col">
             <!-- 状态徽章 -->
             <el-tag v-if="col.type === 'tag'" size="small" :type="tagType(row, col)">
               {{ displayValue(row, col) ?? '-' }}
@@ -50,6 +51,7 @@
                 :plain="act.plain"
                 :link="act.link"
                 :disabled="act.disabled?.(row)"
+                :loading="act.loading?.(row)"
                 @click="act.onClick(row)"
               >
                 <el-icon v-if="act.icon"><component :is="act.icon" /></el-icon>
@@ -62,6 +64,7 @@
             <span v-else-if="col.type === 'date'">{{ displayValue(row, col) ?? '-' }}</span>
             <!-- 文本（支持高亮） -->
             <span v-else :class="col.cellClass?.(row)">{{ displayValue(row, col) ?? '-' }}</span>
+            </slot>
           </template>
         </el-table-column>
         <template #empty>
@@ -90,22 +93,30 @@
         <div v-for="row in items" :key="row[rowKey]" class="mobile-card" @click="onRowClick(row)">
           <div class="card-main">
             <div class="card-title-row">
-              <span v-if="titleCol" class="card-title">{{ row[titleCol.key] ?? '-' }}</span>
+              <span v-if="titleCol" class="card-title">
+                <slot :name="`cell-${titleCol.key}`" :row="row" :index="items.indexOf(row)" :column="titleCol">
+                  {{ displayValue(row, titleCol) ?? '-' }}
+                </slot>
+              </span>
               <el-tag
                 v-if="tagCol"
                 size="small"
                 :type="tagType(row, tagCol)"
                 class="card-tag"
               >
-                {{ displayValue(row, tagCol) ?? '-' }}
+                <slot :name="`cell-${tagCol.key}`" :row="row" :index="items.indexOf(row)" :column="tagCol">
+                  {{ displayValue(row, tagCol) ?? '-' }}
+                </slot>
               </el-tag>
             </div>
             <div class="card-fields">
               <span v-for="col in bodyCols" :key="col.key" class="card-field">
                 <span class="card-field-label">{{ col.label }}：</span>
                 <span class="card-field-value">
-                  <CustomCell v-if="col.type === 'custom'" :render="() => col.render?.(row)" />
-                  <template v-else>{{ displayValue(row, col) ?? '-' }}</template>
+                  <slot :name="`cell-${col.key}`" :row="row" :index="items.indexOf(row)" :column="col">
+                    <CustomCell v-if="col.type === 'custom'" :render="() => col.render?.(row)" />
+                    <template v-else>{{ displayValue(row, col) ?? '-' }}</template>
+                  </slot>
                 </span>
               </span>
             </div>
@@ -118,6 +129,7 @@
               :type="act.type || 'primary'"
               :plain="act.plain"
               :disabled="act.disabled?.(row)"
+              :loading="act.loading?.(row)"
               @click="act.onClick(row)"
             >
               <el-icon v-if="act.icon"><component :is="act.icon" /></el-icon>
@@ -173,7 +185,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, defineComponent, type VNode } from 'vue'
-import { Setting, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import type { PageResult } from '@/types'
 import { toRouterPath } from '@/utils/sidebarNav'
 
@@ -197,6 +209,7 @@ export interface DataAction<T = Record<string, any>> {
   perm?: string
   visible?: (row: T) => boolean
   disabled?: (row: T) => boolean
+  loading?: (row: T) => boolean
   onClick: (row: T) => void
 }
 
@@ -468,7 +481,7 @@ function visibleActions(row: Record<string, any>, col: DataColumn) {
   return (col.actions || []).filter((a) => {
     if (a.perm && !hasPerm(a.perm)) return false
     if (a.visible && !a.visible(row)) return false
-    return !a.disabled?.(row)
+    return true
   })
 }
 

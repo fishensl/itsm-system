@@ -20,6 +20,13 @@ TICKET_STATUSES = frozenset({
     TICKET_PROCESSING, TICKET_SUSPENDED, TICKET_SUBMITTED, TICKET_CHECKED,
     TICKET_CLOSED, TICKET_CONTRACT_REVIEW,
 })
+TICKET_STATUS_TAG = {
+    TICKET_PENDING_ASSIGN: 'danger', TICKET_ASSIGNED: 'warning',
+    TICKET_ACCEPTED: 'warning', TICKET_PROCESSING: 'primary',
+    TICKET_SUSPENDED: 'warning', TICKET_SUBMITTED: 'warning',
+    TICKET_CHECKED: 'success', TICKET_CLOSED: 'info',
+    TICKET_CONTRACT_REVIEW: 'danger',
+}
 
 # ==================== 巡检任务状态 ====================
 TASK_PENDING = '待执行'
@@ -42,6 +49,10 @@ TASK_TRANSITIONS = {
     TASK_CANCELLED: set(),
     TASK_CONTRACT_REVIEW: {TASK_PENDING, TASK_CANCELLED},  # 审核通过→待执行 / 拒绝→已取消
 }
+TASK_STATUS_TAG = {
+    TASK_PENDING: 'warning', TASK_RUNNING: 'primary', TASK_REVIEWING: 'warning',
+    TASK_DONE: 'success', TASK_CANCELLED: 'info', TASK_CONTRACT_REVIEW: 'danger',
+}
 
 # ==================== 巡检记录审核状态 ====================
 REVIEW_DRAFT = ''           # 草稿（未提交）
@@ -49,9 +60,19 @@ REVIEW_PENDING = '待审核'
 REVIEW_APPROVED = '已通过'
 REVIEW_REJECTED = '已退回'
 REVIEW_STATUSES = frozenset({REVIEW_DRAFT, REVIEW_PENDING, REVIEW_APPROVED, REVIEW_REJECTED})
+REVIEW_STATUS_TAG = {
+    REVIEW_DRAFT: 'info', REVIEW_PENDING: 'warning', REVIEW_APPROVED: 'success',
+    REVIEW_REJECTED: 'danger',
+}
 
 # ==================== 巡检记录总体状态 ====================
-OVERALL_STATUSES = frozenset({'正常', '警告', '异常'})
+OVERALL_NORMAL = '正常'
+OVERALL_WARNING = '警告'
+OVERALL_ERROR = '异常'
+OVERALL_STATUSES = frozenset({OVERALL_NORMAL, OVERALL_WARNING, OVERALL_ERROR})
+OVERALL_STATUS_TAG = {
+    OVERALL_NORMAL: 'success', OVERALL_WARNING: 'warning', OVERALL_ERROR: 'danger',
+}
 
 # ==================== 商机阶段 ====================
 OPP_STAGE_INITIAL = '初步接触'
@@ -62,6 +83,11 @@ OPP_STAGE_WON = '成交'
 OPP_STAGE_LOST = '失败'
 OPP_STAGES = (OPP_STAGE_INITIAL, OPP_STAGE_REQUIREMENT, OPP_STAGE_PROPOSAL,
               OPP_STAGE_NEGOTIATION, OPP_STAGE_WON, OPP_STAGE_LOST)
+OPP_STAGE_TAG = {
+    OPP_STAGE_INITIAL: 'info', OPP_STAGE_REQUIREMENT: 'info',
+    OPP_STAGE_PROPOSAL: 'primary', OPP_STAGE_NEGOTIATION: 'warning',
+    OPP_STAGE_WON: 'success', OPP_STAGE_LOST: 'danger',
+}
 # 商机阶段转换表（S6：顺序推进，终态不可回退；业务附加校验见 sales_service）
 OPP_TRANSITIONS = {
     OPP_STAGE_INITIAL: {OPP_STAGE_REQUIREMENT, OPP_STAGE_WON, OPP_STAGE_LOST},
@@ -73,7 +99,17 @@ OPP_TRANSITIONS = {
 }
 
 # ==================== 报价单状态 ====================
-QUOTATION_STATUSES = frozenset({'草稿', '已发送', '已接受', '已拒绝'})
+QUOTATION_DRAFT = '草稿'
+QUOTATION_SENT = '已发送'
+QUOTATION_ACCEPTED = '已接受'
+QUOTATION_REJECTED = '已拒绝'
+QUOTATION_STATUSES = frozenset({
+    QUOTATION_DRAFT, QUOTATION_SENT, QUOTATION_ACCEPTED, QUOTATION_REJECTED,
+})
+QUOTATION_STATUS_TAG = {
+    QUOTATION_DRAFT: 'info', QUOTATION_SENT: 'primary',
+    QUOTATION_ACCEPTED: 'success', QUOTATION_REJECTED: 'danger',
+}
 # 报价单转换表（S6：草稿→已发送→{已接受,已拒绝}；终态不可回退）
 QUOTATION_TRANSITIONS = {
     '草稿': {'已发送', '已接受', '已拒绝'},
@@ -91,6 +127,10 @@ CONTRACT_TERMINATED = '已终止'
 CONTRACT_STATUSES = frozenset({
     CONTRACT_DRAFT, CONTRACT_SIGNED, CONTRACT_ACTIVE, CONTRACT_DONE, CONTRACT_TERMINATED,
 })
+CONTRACT_STATUS_TAG = {
+    CONTRACT_DRAFT: 'info', CONTRACT_SIGNED: 'primary', CONTRACT_ACTIVE: 'success',
+    CONTRACT_DONE: 'info', CONTRACT_TERMINATED: 'danger',
+}
 # 合同状态转换表（S6：草签→已签→执行中→{已完成,已终止}；终态不可回退）
 CONTRACT_TRANSITIONS = {
     CONTRACT_DRAFT: {CONTRACT_SIGNED, CONTRACT_ACTIVE, CONTRACT_TERMINATED},
@@ -106,6 +146,74 @@ PROJECT_ACTIVE = '进行中'
 PROJECT_DONE = '已完成'
 PROJECT_PAUSED = '已暂停'
 PROJECT_STATUSES = frozenset({PROJECT_NOT_STARTED, PROJECT_ACTIVE, PROJECT_DONE, PROJECT_PAUSED})
+PROJECT_STATUS_TAG = {
+    PROJECT_NOT_STARTED: 'info', PROJECT_ACTIVE: 'primary', PROJECT_DONE: 'success',
+    PROJECT_PAUSED: 'warning',
+}
+
+
+# 前端状态构建产物由 scripts/generate_frontend_status.py 从此目录生成。
+# values 的键是稳定的 TypeScript 常量键；tags 是同一业务真源中的语义色。
+STATUS_CATALOG = {
+    'TICKET_STATUS': {
+        'values': {
+            'PENDING_ASSIGN': TICKET_PENDING_ASSIGN, 'ASSIGNED': TICKET_ASSIGNED,
+            'ACCEPTED': TICKET_ACCEPTED, 'PROCESSING': TICKET_PROCESSING,
+            'SUSPENDED': TICKET_SUSPENDED, 'SUBMITTED': TICKET_SUBMITTED,
+            'CHECKED': TICKET_CHECKED, 'CLOSED': TICKET_CLOSED,
+            'CONTRACT_REVIEW': TICKET_CONTRACT_REVIEW,
+        },
+        'tags': TICKET_STATUS_TAG,
+    },
+    'TASK_STATUS': {
+        'values': {
+            'PENDING': TASK_PENDING, 'RUNNING': TASK_RUNNING, 'REVIEWING': TASK_REVIEWING,
+            'DONE': TASK_DONE, 'CANCELLED': TASK_CANCELLED,
+            'CONTRACT_REVIEW': TASK_CONTRACT_REVIEW,
+        },
+        'tags': TASK_STATUS_TAG,
+    },
+    'REVIEW_STATUS': {
+        'values': {
+            'DRAFT': REVIEW_DRAFT, 'PENDING': REVIEW_PENDING, 'APPROVED': REVIEW_APPROVED,
+            'REJECTED': REVIEW_REJECTED,
+        },
+        'tags': REVIEW_STATUS_TAG,
+    },
+    'OVERALL_STATUS': {
+        'values': {'NORMAL': OVERALL_NORMAL, 'WARNING': OVERALL_WARNING, 'ERROR': OVERALL_ERROR},
+        'tags': OVERALL_STATUS_TAG,
+    },
+    'OPP_STAGE': {
+        'values': {
+            'INITIAL': OPP_STAGE_INITIAL, 'REQUIREMENT': OPP_STAGE_REQUIREMENT,
+            'PROPOSAL': OPP_STAGE_PROPOSAL, 'NEGOTIATION': OPP_STAGE_NEGOTIATION,
+            'WON': OPP_STAGE_WON, 'LOST': OPP_STAGE_LOST,
+        },
+        'tags': OPP_STAGE_TAG,
+    },
+    'QUOTATION_STATUS': {
+        'values': {
+            'DRAFT': QUOTATION_DRAFT, 'SENT': QUOTATION_SENT,
+            'ACCEPTED': QUOTATION_ACCEPTED, 'REJECTED': QUOTATION_REJECTED,
+        },
+        'tags': QUOTATION_STATUS_TAG,
+    },
+    'CONTRACT_STATUS': {
+        'values': {
+            'DRAFT': CONTRACT_DRAFT, 'SIGNED': CONTRACT_SIGNED, 'ACTIVE': CONTRACT_ACTIVE,
+            'DONE': CONTRACT_DONE, 'TERMINATED': CONTRACT_TERMINATED,
+        },
+        'tags': CONTRACT_STATUS_TAG,
+    },
+    'PROJECT_STATUS': {
+        'values': {
+            'NOT_STARTED': PROJECT_NOT_STARTED, 'ACTIVE': PROJECT_ACTIVE,
+            'DONE': PROJECT_DONE, 'PAUSED': PROJECT_PAUSED,
+        },
+        'tags': PROJECT_STATUS_TAG,
+    },
+}
 
 # ==================== 采集任务状态 ====================
 COLLECT_PENDING = 'pending'
