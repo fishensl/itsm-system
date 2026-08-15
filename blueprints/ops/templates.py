@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """巡检模板 / 设备检查模板 / 任务模板只读 API（SSR CRUD 已由 Vue SPA /api/* 接管）"""
-import json
 from flask import jsonify
 from flask_login import login_required, current_user
 from models import (InspectionTemplate, InspectionDeviceTemplate, Device)
 from utils.permission import require_permission
+from utils.json_fields import parse_json
 from blueprints.ops import ops_bp
 
 
@@ -15,9 +15,8 @@ def api_inspection_templates():
     """供编辑弹窗和巡检表单引用：返回所有巡检模板的完整 V11 字段。"""
     out = []
     for t in InspectionTemplate.query.order_by(InspectionTemplate.id.desc()).all():
-        try:
-            items = json.loads(t.items_json or '[]')
-        except Exception:
+        items = parse_json(t.items_json, default=[], field_name='inspection_template.items_json')
+        if not isinstance(items, list):
             items = []
         out.append({
             'id': t.id,

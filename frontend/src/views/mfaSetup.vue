@@ -268,7 +268,7 @@ onMounted(() => {
 .step-row { display: flex; align-items: flex-start; gap: 10px; line-height: 1.6; }
 .step-no {
   display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px;
-  width: 24px; height: 24px; color: #fff; font-size: 12px; font-weight: 700;
+  width: 24px; height: 24px; color: var(--itsm-text-inverse); font-size: 12px; font-weight: 700;
   background: var(--el-color-primary); border-radius: 50%;
 }
 .step-content { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; }

@@ -100,6 +100,54 @@ def test_specialized_page_metadata_permissions_align(admin_client, sales_client,
     assert viewer_entities == {}
 
 
+def test_page_route_and_metadata_permissions_share_one_matrix():
+    """页面入口权限必须足以读取该页面请求的全部 metadata。"""
+    route_entities = {
+        'customers': ('customer',),
+        'regions': ('region',),
+        'customer-categories': ('customer_category',),
+        'devices': (
+            'device', 'device_related_ticket', 'device_related_inspection',
+            'device_export_request', 'config_backup', 'password_history',
+        ),
+        'device-dicts': ('device_dictionary',),
+        'device-firmwares': ('firmware', 'device'),
+        'tickets': ('ticket',),
+        'inspections': ('inspection',),
+        'inspectors': ('inspector',),
+        'task-templates': ('task_template',),
+        'device-check-templates': ('device_check_template',),
+        'knowledge': ('knowledge',),
+        'faults': ('fault',),
+        'spare': ('spare', 'spare_stock', 'purchase_order', 'sales_order', 'spare_borrow'),
+        'sales': ('opportunity', 'quotation', 'contract', 'project'),
+        'contract-tasks': ('contract_auto_contract', 'contract_inspection_task'),
+        'rack': ('rack', 'rack_install'),
+        'topologies': ('topology',),
+        'sys-users': ('user',),
+        'sys-audit': ('audit_log',),
+        'sys-export-reviews': ('device_export_review',),
+        'permissions': ('role',),
+        'sys-review-checklist': ('review_checklist_config',),
+        'sys-notify-channels': ('notify_channel',),
+        'sys-notify-rules': ('notify_rule',),
+    }
+    source = (ROOT / 'frontend' / 'src' / 'router' / 'index.ts').read_text(encoding='utf-8')
+    for route_name, entities in route_entities.items():
+        match = re.search(
+            rf"name: '{re.escape(route_name)}'.*?meta: \{{[^}}]*perm: '([^']+)'",
+            source,
+            re.S,
+        )
+        assert match, f'路由 {route_name} 缺少显式权限'
+        route_permission = match.group(1)
+        assert {ENTITY_SCHEMAS[name].view_permission for name in entities} == {route_permission}, (
+            route_name,
+            route_permission,
+            entities,
+        )
+
+
 def test_new_field_registry_entities_are_permission_scoped_and_secret_safe(
         admin_client, viewer_client):
     viewer_entities = viewer_client.get(

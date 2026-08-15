@@ -133,13 +133,13 @@ def notify_review_timeout():
     """
     from datetime import datetime, timedelta
     from models import SubmissionVersion, User
-    from utils.constants import REVIEW_TIMEOUT_DAYS
+    from utils.constants import REVIEW_PENDING, REVIEW_TIMEOUT_DAYS
 
     try:
         cutoff = datetime.utcnow() - timedelta(days=REVIEW_TIMEOUT_DAYS)
         # 取最早一条待审核版本时间（version 表有 created_at），聚合按 entity 去重
         rows = (SubmissionVersion.query
-                .filter(SubmissionVersion.review_status == '待审核',
+                .filter(SubmissionVersion.review_status == REVIEW_PENDING,
                         SubmissionVersion.created_at.isnot(None),
                         SubmissionVersion.created_at < cutoff)
                 .order_by(SubmissionVersion.id)

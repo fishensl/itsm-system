@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """首页仪表盘 + 工作台偏好 API（SSR 首页渲染已剥离，GET / 一律 302 → /app/）"""
-import json
 from flask import request, jsonify, redirect
 from flask_login import login_required, current_user
 from models import db, Opportunity, UserDashboardPreference
 from utils.decorators import api_view
 from utils.compat import deprecated_endpoint
+from utils.json_fields import dumps_json, parse_json
 
 
 # ---------- 首页 ----------
@@ -59,12 +59,13 @@ def get_dashboard_cards(user):
     """获取用户生效的卡片列表（偏好或角色默认）"""
     pref = UserDashboardPreference.query.filter_by(user_id=user.id).first()
     if pref and pref.cards_json:
-        try:
-            cards = json.loads(pref.cards_json)
-            if isinstance(cards, list) and len(cards) > 0:
-                return cards
-        except (json.JSONDecodeError, TypeError):
-            pass
+        cards = parse_json(
+            pref.cards_json,
+            default=[],
+            field_name='user_dashboard_preference.cards_json',
+        )
+        if isinstance(cards, list) and cards:
+            return cards
     return ROLE_DEFAULT_CARDS.get(user.role, ['ticket', 'device', 'customer'])
 
 @deprecated_endpoint('/app/')
@@ -91,7 +92,7 @@ def api_dashboard_preferences_save():
     if not pref:
         pref = UserDashboardPreference(user_id=current_user.id)
         db.session.add(pref)
-    pref.cards_json = json.dumps(valid)
+    pref.cards_json = dumps_json(valid)
     db.session.commit()
     return jsonify({'success': True, 'cards': valid})
 

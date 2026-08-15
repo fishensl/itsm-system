@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload
 from models import (Inspection, Customer, Device,
                     InspectionDeviceTemplate, InspectionTaskTemplate)
+from utils.constants import REVIEW_DRAFT_LABEL
 from utils.permission import require_permission
 from blueprints.ops import ops_bp
 
@@ -135,7 +136,7 @@ def inspection_reports_zip():
         rows.append([
             i.title, cust, i.inspector_name or i.inspector or '',
             i.inspection_date.isoformat() if i.inspection_date else '',
-            i.overall_status or '', i.review_status or '草稿',
+            i.overall_status or '', i.review_status or REVIEW_DRAFT_LABEL,
             '有' if i.submitted_report else '无',
             '有' if i.report_file else '无',
             i.review_comment or '', i.conclusion or '',
@@ -182,7 +183,7 @@ def _inspection_export_rows(args):
         rows.append([
             i.title, cust, i.inspector_name or i.inspector or '',
             i.inspection_date.isoformat() if i.inspection_date else '',
-            i.overall_status or '', i.review_status or '草稿',
+            i.overall_status or '', i.review_status or REVIEW_DRAFT_LABEL,
             '有' if i.submitted_report else '无',
             '有' if i.report_file else '无',
             i.review_comment or '', i.conclusion or '',

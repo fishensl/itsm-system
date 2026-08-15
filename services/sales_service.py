@@ -3,6 +3,7 @@
 from datetime import datetime
 from models import db, Opportunity, Quotation, Contract, Project
 from utils import constants as _const
+from utils.json_fields import dumps_json
 from .base import ServiceError, transaction
 
 
@@ -66,7 +67,7 @@ def create_opportunity(data, current_user_name):
     o = Opportunity(
         title=title,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
-        stage=_check_status(data.get('stage', '初步接触'), OPP_STAGES, '商机阶段'),
+        stage=_check_status(data.get('stage', _const.OPP_STAGE_INITIAL), OPP_STAGES, '商机阶段'),
         expected_amount=float(data.get('expected_amount') or 0),
         owner=data.get('owner') or current_user_name,
         expected_close_date=_parse_date(data.get('expected_close_date')),
@@ -107,7 +108,11 @@ def create_quotation(data, current_user_name):
         opportunity_id=int(data['opportunity_id']) if data.get('opportunity_id') else None,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         total_amount=float(data.get('total_amount') or 0),
-        status=_check_status(data.get('status', '草稿'), _const.QUOTATION_STATUSES, '报价单状态'),
+        status=_check_status(
+            data.get('status', _const.QUOTATION_DRAFT),
+            _const.QUOTATION_STATUSES,
+            '报价单状态',
+        ),
         valid_until=_parse_date(data.get('valid_until')) if data.get('valid_until') else None,
         items_json=_serialize_items(data.get('items') or data.get('items_json')),
     )
@@ -137,7 +142,6 @@ def update_quotation(quot_id, data):
 
 def _serialize_items(raw):
     """报价明细行序列化：接受 [{name, quantity, unit_price}] 或 JSON 字符串；返回 JSON 字符串"""
-    import json as _json
     if not raw:
         return ''
     if isinstance(raw, str):
@@ -150,7 +154,7 @@ def _serialize_items(raw):
                 'quantity': float(item.get('quantity') or 0),
                 'unit_price': float(item.get('unit_price') or 0),
             })
-    return _json.dumps(rows, ensure_ascii=False) if rows else ''
+    return dumps_json(rows) if rows else ''
 
 
 @transaction
@@ -170,7 +174,11 @@ def create_contract(data, current_user_name):
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         opportunity_id=int(data['opportunity_id']) if data.get('opportunity_id') else None,
         amount=float(data.get('amount') or 0),
-        status=_check_status(data.get('status', '执行中'), _const.CONTRACT_STATUSES, '合同状态'),
+        status=_check_status(
+            data.get('status', _const.CONTRACT_ACTIVE),
+            _const.CONTRACT_STATUSES,
+            '合同状态',
+        ),
         start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
         end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
         # 自动巡检配置（此前表单无字段、service 不持久化，属死逻辑——已补齐）
@@ -263,7 +271,11 @@ def create_project(data, current_user_name):
         contract_id=int(data['contract_id']) if data.get('contract_id') else None,
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         manager=data.get('manager') or current_user_name,
-        status=_check_status(data.get('status', '进行中'), _const.PROJECT_STATUSES, '项目状态'),
+        status=_check_status(
+            data.get('status', _const.PROJECT_ACTIVE),
+            _const.PROJECT_STATUSES,
+            '项目状态',
+        ),
         start_date=_parse_date(data.get('start_date')) if data.get('start_date') else None,
         end_date=_parse_date(data.get('end_date')) if data.get('end_date') else None,
         progress=int(data.get('progress') or 0),

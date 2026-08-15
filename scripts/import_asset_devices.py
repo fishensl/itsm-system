@@ -29,6 +29,7 @@ import openpyxl  # noqa: E402
 
 from app import create_app  # noqa: E402
 from models import db, Customer, Device, Region  # noqa: E402
+from utils.json_fields import dumps_json  # noqa: E402
 
 CUSTOMER_NAME = '鄱阳湖水文水资源监测中心'
 GROUP_PATTERN = re.compile(r'机房机柜\d+(背面)?')
@@ -134,7 +135,6 @@ def parse_asset_excel(path):
         location = f'{group}·{_c("位置")}' if group else _c('位置')
         interface_raw = _c('接口类型及数量')
         interfaces = [p.strip() for p in re.split(r'[，,、;；\n/]', interface_raw) if p.strip()]
-        import json
         rows.append({
             'device_name': name,
             'device_type': infer_device_type(name),
@@ -143,7 +143,7 @@ def parse_asset_excel(path):
             'serial_number': _c('序列号'),
             'ip_address': _c('IP地址'),
             'location': location,
-            'interface': json.dumps(interfaces, ensure_ascii=False) if interfaces else None,
+            'interface': dumps_json(interfaces) if interfaces else None,
             'license_start': _to_date(_c('建设时间')),
             'license_expiry': _to_date(_c('授权到期时间')),
             'os_version': _c('系统版本'),

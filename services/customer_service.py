@@ -4,9 +4,9 @@
 把客户相关的业务规则从路由层分离出来。
 路由层只负责参数接收、权限检查、模板渲染。
 """
-import json
 from datetime import date, datetime
 from models import db, Customer, Region
+from utils.json_fields import dumps_json, parse_json
 from .base import ServiceError, transaction
 
 
@@ -29,10 +29,11 @@ def parse_extra_fields(customer):
     """
     if not customer or not customer.extra_fields:
         return []
-    try:
-        data = json.loads(customer.extra_fields)
-    except (ValueError, TypeError):
-        return []
+    data = parse_json(
+        customer.extra_fields,
+        default=[],
+        field_name='customer.extra_fields',
+    )
     if isinstance(data, list):
         return [{'name': d.get('name', ''), 'value': d.get('value', '')}
                 for d in data if isinstance(d, dict) and d.get('name')]
@@ -48,7 +49,7 @@ def serialize_extra_fields(names, values):
         name = (name or '').strip()
         if name:
             pairs.append({'name': name, 'value': (value or '').strip()})
-    return json.dumps(pairs, ensure_ascii=False) if pairs else ''
+    return dumps_json(pairs) if pairs else ''
 
 
 def _calculate_tier(device_count, has_onsite, has_drill):

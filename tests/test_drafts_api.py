@@ -42,6 +42,17 @@ class TestDraftLifecycle:
         r = op_client.get('/api/drafts/load?form_type=fault')
         assert r.get_json()['success'] is True
 
+    def test_malformed_or_non_object_form_data_is_normalized(self, op_client):
+        op_client.post('/api/drafts/save', json={
+            'form_type': 'ticket', 'related_id': 8, 'form_data_json': '{broken'})
+        broken = op_client.get('/api/drafts/load?form_type=ticket&related_id=8')
+        assert json.loads(broken.get_json()['form_data_json']) == {}
+
+        op_client.post('/api/drafts/save', json={
+            'form_type': 'ticket', 'related_id': 8, 'form_data_json': ['not', 'an', 'object']})
+        wrong_shape = op_client.get('/api/drafts/load?form_type=ticket&related_id=8')
+        assert json.loads(wrong_shape.get_json()['form_data_json']) == {}
+
     def test_draft_isolated_per_user(self, op_client, viewer_client):
         op_client.post('/api/drafts/save', json={
             'form_type': 'ticket', 'related_id': 1, 'form_data_json': {'mine': True}})

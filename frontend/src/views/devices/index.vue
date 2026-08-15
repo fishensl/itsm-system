@@ -142,7 +142,7 @@
       >
         <template #leaf="{ node }">
           <div class="tree-block cust-leaf" @click="enterTable(node)">
-            <el-icon color="#2563eb"><OfficeBuilding /></el-icon>
+            <el-icon color="var(--itsm-primary)"><OfficeBuilding /></el-icon>
             <span class="tree-name">{{ node.name }}</span>
             <el-tag size="small" type="info">设备 {{ node.device_count ?? 0 }}</el-tag>
             <span class="row-actions" @click.stop>
@@ -292,27 +292,27 @@
       <div v-loading="relatedLoading" class="related-list">
         <template v-if="relatedTickets.length || relatedInspections.length">
           <el-table :data="relatedTickets" size="small" border stripe max-height="200">
-            <el-table-column :label="`${fieldLabel('ticket', 'number', '工单号')} / ${fieldLabel('ticket', 'title', '标题')}`" min-width="200">
+            <el-table-column :label="`${fieldLabel('device_related_ticket', 'number', '工单号')} / ${fieldLabel('device_related_ticket', 'title', '标题')}`" min-width="200">
               <template #default="{ row }">
                 <router-link :to="toRouterPath(`/app/tickets/${row.id}`)" class="row-link">
                   {{ row.number }} · {{ row.title }}
                 </router-link>
               </template>
             </el-table-column>
-            <el-table-column prop="status" :label="fieldLabel('ticket', 'status', '状态')" width="90" />
-            <el-table-column prop="created_at" :label="fieldLabel('ticket', 'created_at', '创建时间')" width="100" />
+            <el-table-column prop="status" :label="fieldLabel('device_related_ticket', 'status', '状态')" width="90" />
+            <el-table-column prop="created_at" :label="fieldLabel('device_related_ticket', 'created_at', '创建时间')" width="100" />
           </el-table>
           <el-table :data="relatedInspections" size="small" border stripe max-height="200" class="mt-2">
-            <el-table-column :label="fieldLabel('inspection', 'title', '标题')" min-width="200">
+            <el-table-column :label="fieldLabel('device_related_inspection', 'title', '标题')" min-width="200">
               <template #default="{ row }">
                 <router-link :to="toRouterPath(`/app/inspections/${row.id}`)" class="row-link">
                   {{ row.title }}<span v-if="row.task_title" class="text-muted">（{{ row.task_title }}）</span>
                 </router-link>
               </template>
             </el-table-column>
-            <el-table-column prop="overall_status" :label="fieldLabel('inspection', 'overall_status', '总体状态')" width="90" />
-            <el-table-column prop="review_status" :label="fieldLabel('inspection', 'review_status', '审核状态')" width="90" />
-            <el-table-column prop="inspection_date" :label="fieldLabel('inspection', 'inspection_date', '巡检日期')" width="100" />
+            <el-table-column prop="overall_status" :label="fieldLabel('device_related_inspection', 'overall_status', '总体状态')" width="90" />
+            <el-table-column prop="review_status" :label="fieldLabel('device_related_inspection', 'review_status', '审核状态')" width="90" />
+            <el-table-column prop="inspection_date" :label="fieldLabel('device_related_inspection', 'inspection_date', '巡检日期')" width="100" />
           </el-table>
         </template>
         <el-empty v-else-if="!relatedLoading" description="暂无关联工单/巡检" :image-size="40" />
@@ -724,7 +724,8 @@ const columns = computed<DataColumn[]>(() => {
 
 onMounted(() => {
   fetchEntityMetas([
-    'device', 'ticket', 'inspection', 'device_export_request', 'config_backup',
+    'device', 'device_related_ticket', 'device_related_inspection',
+    'device_export_request', 'config_backup',
     'password_history',
   ])
     .then((metadata) => {
@@ -1303,19 +1304,19 @@ fetchDeviceDicts().then((d) => {
   white-space: nowrap;
 }
 .license-success {
-  color: #67c23a;
-  border-color: #67c23a;
-  background: #67c23a15;
+  color: var(--itsm-success);
+  border-color: var(--itsm-success);
+  background: var(--itsm-success-soft);
 }
 .license-warning {
-  color: #e6a23c;
-  border-color: #e6a23c;
-  background: #e6a23c15;
+  color: var(--itsm-warning);
+  border-color: var(--itsm-warning);
+  background: var(--itsm-warning-soft);
 }
 .license-danger {
-  color: #f56c6c;
-  border-color: #f56c6c;
-  background: #f56c6c15;
+  color: var(--itsm-danger);
+  border-color: var(--itsm-danger);
+  background: var(--itsm-danger-soft);
 }
 .cust-leaf {
   display: flex; align-items: center; gap: 8px; padding: 9px 12px;
@@ -1326,11 +1327,11 @@ fetchDeviceDicts().then((d) => {
 .cust-leaf .tree-name { font-weight: 600; flex-shrink: 0; }
 .scope-tag { font-weight: 500; }
 .cell-danger {
-  color: #f56c6c;
+  color: var(--itsm-danger);
   font-weight: 600;
 }
 .cell-warn {
-  color: #e6a23c;
+  color: var(--itsm-warning);
 }
 .backup-list { margin-bottom: 8px; }
 .backup-toolbar {
@@ -1364,7 +1365,7 @@ fetchDeviceDicts().then((d) => {
   min-width: 0;
 }
 .diff-equal { color: var(--itsm-text-muted); }
-.diff-delete { background: #f56c6c22; color: #f56c6c; }
-.diff-insert { background: #67c23a22; color: #67c23a; }
-.diff-replace { background: #e6a23c22; color: #e6a23c; }
+.diff-delete { background: var(--itsm-danger-soft); color: var(--itsm-danger); }
+.diff-insert { background: var(--itsm-success-soft); color: var(--itsm-success); }
+.diff-replace { background: var(--itsm-warning-soft); color: var(--itsm-warning); }
 </style>

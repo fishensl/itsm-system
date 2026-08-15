@@ -5,7 +5,6 @@
      → 管理员审核（意见挂版本）→ 通过=任务已完成 / 退回=任务回执行中可再传
 任务↔记录 1:1：同一任务复用同一记录，每次上传追加新版本。
 """
-import json
 import os
 from datetime import datetime
 from flask import current_app
@@ -15,6 +14,7 @@ from .submission_version_service import add_version, review_version, latest_pend
 from .task_schedule_service import apply_task_status
 from utils.constants import (REVIEW_PENDING, REVIEW_APPROVED, REVIEW_REJECTED,
                              TASK_PENDING, TASK_REVIEWING, TASK_RUNNING, TASK_DONE)
+from utils.json_fields import parse_json
 
 
 def _resolve_inspector(data, current_user_name):
@@ -57,7 +57,7 @@ def inspection_completeness(i):
         missing.append('现场报告')
     if not i.report_file:
         missing.append('正式报告')
-    if i.review_status != '已通过':
+    if i.review_status != REVIEW_APPROVED:
         missing.append('审核通过')
     return not missing, missing
 
@@ -544,11 +544,12 @@ def _generate_report_for_inspection(inspection):
     customer_name = cust.name if cust else '未知客户'
 
     # 解析 sections_json
-    sections = {}
-    try:
-        if inspection.sections_json:
-            sections = json.loads(inspection.sections_json) or {}
-    except Exception:
+    sections = parse_json(
+        inspection.sections_json,
+        default={},
+        field_name='inspection.sections_json',
+    )
+    if not isinstance(sections, dict):
         sections = {}
 
     # 调用生成器，它会保存到 reports/<filename>.docx 并返回完整路径

@@ -12,8 +12,8 @@
 默认顺序（最新要求）：
   工作台 → 运维管理 → 资产管理 → 客户管理 → 知识库 → 常用工具 → 备件管理 → 销售管理 → 系统管理
 """
-import json
 from models import db, UserDashboardPreference
+from utils.json_fields import dumps_json, parse_json
 
 
 # 完整侧栏分组（默认含 9 个）
@@ -219,10 +219,12 @@ def get_user_sidebar_groups(user):
     pref = UserDashboardPreference.query.filter_by(user_id=user.id).first()
     user_layout = None
     if pref and pref.sidebar_json:
-        try:
-            user_layout = json.loads(pref.sidebar_json)
-        except (json.JSONDecodeError, TypeError):
-            pass
+        parsed = parse_json(
+            pref.sidebar_json,
+            default={},
+            field_name='user_dashboard_preference.sidebar_json',
+        )
+        user_layout = parsed if isinstance(parsed, dict) else None
 
     # 默认顺序 + 默认全启用
     if not user_layout:
@@ -278,6 +280,6 @@ def save_user_sidebar(user, groups_data):
     if not pref:
         pref = UserDashboardPreference(user_id=user.id)
         db.session.add(pref)
-    pref.sidebar_json = json.dumps(payload, ensure_ascii=False)
+    pref.sidebar_json = dumps_json(payload)
     db.session.commit()
     return True

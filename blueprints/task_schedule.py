@@ -18,6 +18,15 @@ from flask_login import login_required, current_user
 from sqlalchemy import or_
 
 from models import db, InspectionTask, User
+from utils.constants import (
+    REVIEW_PENDING,
+    TASK_CANCELLED,
+    TASK_CONTRACT_REVIEW,
+    TASK_DONE,
+    TASK_PENDING,
+    TASK_REVIEWING,
+    TASK_RUNNING,
+)
 from utils.permission import require_permission, has_permission, is_supervisor
 
 
@@ -39,26 +48,26 @@ def local_now():
 # ============================================================
 
 STATUS_FROM_EXCEL = {
-    '未开始': '待执行',
-    '待执行': '待执行',
-    '进行中': '执行中',
-    '执行中': '执行中',
-    '已完成': '已完成',
-    '完成':   '已完成',
-    '已取消': '已取消',
-    '取消':   '已取消',
+    '未开始': TASK_PENDING,
+    TASK_PENDING: TASK_PENDING,
+    '进行中': TASK_RUNNING,
+    TASK_RUNNING: TASK_RUNNING,
+    TASK_DONE: TASK_DONE,
+    '完成': TASK_DONE,
+    TASK_CANCELLED: TASK_CANCELLED,
+    '取消': TASK_CANCELLED,
 }
 
-ALL_STATUSES = ['待执行', '执行中', '待审核', '已完成', '已取消']
-ACTIVE_STATUSES = ['待执行', '执行中', '待审核', '已完成']  # 看板默认展示前四种
+ALL_STATUSES = [TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE, TASK_CANCELLED]
+ACTIVE_STATUSES = [TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE]
 
 # V17: 状态颜色统一 — 待执行红(提醒)/执行中橙(进行中)/待审核蓝(审核中)/已完成绿/已取消灰
 STATUS_COLOR = {
-    '待执行': 'danger',
-    '执行中': 'warning',
-    '待审核': 'info',
-    '已完成': 'success',
-    '已取消': 'secondary',
+    TASK_PENDING: 'danger',
+    TASK_RUNNING: 'warning',
+    TASK_REVIEWING: 'info',
+    TASK_DONE: 'success',
+    TASK_CANCELLED: 'secondary',
 }
 
 # 从 Excel 任务描述里抠出客户名前缀的正则：
@@ -142,7 +151,7 @@ def is_overdue(task, today=None):
     """计划截止过了今天且未完成 = 逾期"""
     if not task.planned_end:
         return False
-    if task.status in ('已完成', '已取消'):
+    if task.status in (TASK_DONE, TASK_CANCELLED):
         return False
     today = today or date.today()
     return task.planned_end < today
@@ -225,7 +234,7 @@ def _apply_filters(query, args):
         today = date.today()
         query = query.filter(
             InspectionTask.planned_end < today,
-            ~InspectionTask.status.in_(('已完成', '已取消')),
+            ~InspectionTask.status.in_((TASK_DONE, TASK_CANCELLED)),
         )
     # V17: 主管隐式只看本部门任务（有 task:dispatch 跨部门派发权限的不受限）
     if (is_supervisor(current_user)
@@ -269,15 +278,15 @@ def _kpi_counts(tasks):
     """根据已筛选的任务列表算 KPI（前端拿来直接展示）"""
     today = date.today()
     total = len(tasks)
-    todo = sum(1 for t in tasks if t.status == '待执行')
-    doing = sum(1 for t in tasks if t.status == '执行中')
-    done = sum(1 for t in tasks if t.status == '已完成')
+    todo = sum(1 for t in tasks if t.status == TASK_PENDING)
+    doing = sum(1 for t in tasks if t.status == TASK_RUNNING)
+    done = sum(1 for t in tasks if t.status == TASK_DONE)
     overdue = sum(1 for t in tasks if is_overdue(t, today))
     # 预估工作量合计（人天）— 未设置的当 0，便于"任务量"口径更准确
     effort_total = sum(t.estimated_effort or 0 for t in tasks)
-    effort_done = sum(t.estimated_effort or 0 for t in tasks if t.status == '已完成')
+    effort_done = sum(t.estimated_effort or 0 for t in tasks if t.status == TASK_DONE)
     # 实际工作量合计（仅已完成任务有实际值）
-    actual_effort_done = sum(t.actual_effort or 0 for t in tasks if t.status == '已完成')
+    actual_effort_done = sum(t.actual_effort or 0 for t in tasks if t.status == TASK_DONE)
     return {
         'total': total, 'todo': todo, 'doing': doing, 'done': done, 'overdue': overdue,
         'effort_total': effort_total, 'effort_done': effort_done,
@@ -323,7 +332,7 @@ def import_template():
     from utils.excel_export import export_xlsx, send_temp_export
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
-        '2026-04-01', '2026-06-30', '已完成', '张三', '2026-06-15', '1', '1.5'
+        '2026-04-01', '2026-06-30', TASK_DONE, '张三', '2026-06-15', '1', '1.5'
     ]]
     tmp_path, download_name = export_xlsx(
         EXCEL_HEADERS, rows,
@@ -381,12 +390,12 @@ def _apply_status(task, new_status, now=None, allow_reopen=False):
         raise ValueError(err)
     now = now or local_now()
     task.status = new_status
-    if new_status == '执行中' and not task.actual_start:
+    if new_status == TASK_RUNNING and not task.actual_start:
         task.actual_start = now
-    if new_status == '已完成' and not task.actual_end:
+    if new_status == TASK_DONE and not task.actual_end:
         task.actual_end = now
     # 重开（终态→执行中）：清空完成时间戳，重新计时
-    if new_status == '执行中' and task.actual_end:
+    if new_status == TASK_RUNNING and task.actual_end:
         task.actual_end = None
 
 
@@ -628,7 +637,6 @@ def quick_add():
         return redirect(request.referrer or url_for('task_schedule.index'))
 
     # V28: 客户合同过期门禁 → 合同审批态
-    from utils.constants import TASK_CONTRACT_REVIEW, TASK_PENDING
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
     status = TASK_PENDING
@@ -655,7 +663,7 @@ def quick_add():
         source='手动',
         template_category='巡检',
         created_by=(current_user.realname or current_user.username),
-        contract_exception_status='待审核' if status == TASK_CONTRACT_REVIEW else '',
+        contract_exception_status=REVIEW_PENDING if status == TASK_CONTRACT_REVIEW else '',
         contract_exception_reason=exception_reason,
         contract_exception_by=(current_user.realname or current_user.username),
         contract_exception_at=datetime.utcnow() if status == TASK_CONTRACT_REVIEW else None,
@@ -745,7 +753,10 @@ def batch_status():
     tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
     now = local_now()
     # 重开（已完成/已取消 → 执行中）为纠正性操作，仅限管理员/部门主管
-    reopens = [t for t in tasks if t.status in ('已完成', '已取消') and new_status == '执行中']
+    reopens = [
+        t for t in tasks
+        if t.status in (TASK_DONE, TASK_CANCELLED) and new_status == TASK_RUNNING
+    ]
     if reopens:
         is_admin = getattr(current_user, 'is_admin', False)
         if not is_admin and not is_supervisor(current_user):

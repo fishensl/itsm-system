@@ -91,7 +91,7 @@ function badge(node: TreeNode): number {
   return props.badgeKey ? (Number(node[props.badgeKey]) || 0) : 0
 }
 
-const groupColor = '#2563eb'
+const groupColor = 'var(--itsm-primary)'
 
 watch(
   () => [props.nodes, props.defaultExpanded],

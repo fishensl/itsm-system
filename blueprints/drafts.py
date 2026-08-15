@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from models import db, FormDraft
 from datetime import datetime
-import json
+from utils.json_fields import dumps_json, parse_json
 
 draft_bp = Blueprint('drafts', __name__)
 
@@ -21,6 +21,13 @@ def _norm_related_id(raw):
         return None
 
 
+def _serialize_form_data(raw):
+    """草稿只接受 JSON 对象；字符串输入先解析再归一化写回。"""
+    value = parse_json(raw, default={}, field_name='form_draft.form_data_json') \
+        if isinstance(raw, str) else raw
+    return dumps_json(value if isinstance(value, dict) else {})
+
+
 @draft_bp.route('/save', methods=['POST'])
 @login_required
 def draft_save():
@@ -29,6 +36,7 @@ def draft_save():
     form_type = data.get('form_type', '')
     related_id = _norm_related_id(data.get('related_id'))
     form_data = data.get('form_data_json', '{}')
+    form_data_json = _serialize_form_data(form_data)
 
     if not form_type:
         return jsonify({'success': False, 'error': 'form_type required'}), 400
@@ -41,14 +49,14 @@ def draft_save():
     ).first()
 
     if existing:
-        existing.form_data_json = form_data if isinstance(form_data, str) else json.dumps(form_data, ensure_ascii=False)
+        existing.form_data_json = form_data_json
         existing.updated_at = datetime.utcnow()
     else:
         draft = FormDraft(
             user_id=current_user.id,
             form_type=form_type,
             related_id=related_id,
-            form_data_json=form_data if isinstance(form_data, str) else json.dumps(form_data, ensure_ascii=False),
+            form_data_json=form_data_json,
             updated_at=datetime.utcnow()
         )
         db.session.add(draft)

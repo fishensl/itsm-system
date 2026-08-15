@@ -660,6 +660,12 @@ ENTITY_SCHEMAS = {
         'list': TICKET_LIST, 'detail': TICKET_DETAIL, 'form': TICKET_FORM,
         'export_default': TICKET_EXPORT_DEFAULT, 'export_available': TICKET_EXPORT_AVAILABLE,
     }),
+    # 设备详情只要求 device:view；关联工单只展示标签，不应额外要求 ticket:view 元数据。
+    'device_related_ticket': EntitySchema(
+        'device_related_ticket', '设备关联工单', 'device:view', TICKET_FIELDS, {
+            'list': ('number', 'title', 'status', 'created_at'),
+            'detail': ('number', 'title', 'status', 'created_at'),
+        }),
     'fault': EntitySchema('fault', '故障', 'fault:view', FAULT_FIELDS, {
         'list': FAULT_LIST, 'detail': FAULT_DETAIL, 'form': FAULT_FORM,
         'export_default': FAULT_EXPORT_DEFAULT, 'export_available': FAULT_EXPORT_AVAILABLE,
@@ -669,6 +675,12 @@ ENTITY_SCHEMAS = {
         'export_default': INSPECTION_EXPORT_DEFAULT,
         'export_available': INSPECTION_EXPORT_DEFAULT,
     }),
+    # 设备详情只要求 device:view；关联巡检只展示标签，不应额外要求 inspection:view 元数据。
+    'device_related_inspection': EntitySchema(
+        'device_related_inspection', '设备关联巡检', 'device:view', INSPECTION_FIELDS, {
+            'list': ('title', 'overall_status', 'review_status', 'inspection_date'),
+            'detail': ('title', 'overall_status', 'review_status', 'inspection_date'),
+        }),
     'spare': EntitySchema('spare', '备件', 'spare:view', SPARE_FIELDS, {
         'list': SPARE_LIST, 'detail': SPARE_DETAIL, 'form': SPARE_FORM,
         'export_default': SPARE_EXPORT_DEFAULT, 'export_available': SPARE_EXPORT_DEFAULT,
@@ -838,6 +850,11 @@ ENTITY_SCHEMAS = {
         INSPECTION_TASK_FIELDS, {
             'list': tuple(item.key for item in INSPECTION_TASK_FIELDS),
             'detail': tuple(item.key for item in INSPECTION_TASK_FIELDS),
+        }),
+    'contract_auto_contract': EntitySchema(
+        'contract_auto_contract', '合同自动巡检合同', 'contract_auto:manage', CONTRACT_FIELDS, {
+            'list': CONTRACT_LIST,
+            'detail': tuple(item.key for item in CONTRACT_FIELDS),
         }),
     'report': EntitySchema('report', '报告', 'report:view', REPORT_FIELDS, {
         'list': tuple(item.key for item in REPORT_FIELDS),

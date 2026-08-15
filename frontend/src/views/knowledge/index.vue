@@ -115,7 +115,7 @@
           </el-upload>
           <div v-if="form.id && existingAtts.length" class="att-list form-att-list">
             <div v-for="a in existingAtts" :key="a.id" class="att-item">
-              <el-icon :size="16" color="#909399"><Document /></el-icon>
+              <el-icon :size="16" color="var(--itsm-text-muted)"><Document /></el-icon>
               <span class="att-name">{{ a.file_name }}</span>
               <span class="att-meta">{{ fmtSize(a.file_size) }}</span>
               <el-button size="small" link type="danger" :icon="Delete" @click="onRemoveExisting(a)">
@@ -421,7 +421,7 @@ onMounted(() => {
 .att-inline { display: flex; flex-direction: column; gap: 2px; }
 .att-inline-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .att-inline-name {
-  cursor: pointer; color: var(--itsm-primary, #2563eb); font-size: 12px;
+  cursor: pointer; color: var(--itsm-primary); font-size: 12px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
 }
 .att-inline-name:hover { text-decoration: underline; }
@@ -429,6 +429,6 @@ onMounted(() => {
   cursor: pointer; font-size: 11px; color: var(--itsm-text-muted);
   flex-shrink: 0; padding: 0 2px;
 }
-.att-inline-op:hover { color: var(--itsm-primary, #2563eb); }
-.att-inline-del:hover { color: #f56c6c; }
+.att-inline-op:hover { color: var(--itsm-primary); }
+.att-inline-del:hover { color: var(--itsm-danger); }
 </style>

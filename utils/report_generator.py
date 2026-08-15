@@ -6,7 +6,7 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
-from flask import current_app
+from utils.json_fields import parse_json
 
 
 def _chinese_uppercase_date(d):
@@ -172,18 +172,18 @@ def _section_enabled(sections, key):
 
 def generate_inspection_report_v4(inspection, customer_name, device_results=None, sections=None):
     """按固定9章结构生成巡检报告（V4复合巡检）。参见模块文档了解完整参数说明。"""
-    import json
-
     if sections is None:
         sections = {}
     if device_results is None:
         device_results = []
     if not device_results and inspection:
-        try:
-            fv = json.loads(inspection.field_values_json) if isinstance(inspection.field_values_json, str) else (inspection.field_values_json or {})
+        fv = parse_json(
+            inspection.field_values_json,
+            default={},
+            field_name='inspection.field_values_json',
+        )
+        if isinstance(fv, dict):
             device_results = _build_device_results_from_values(inspection, fv)
-        except:
-            pass
 
     doc = Document()
     date_cn = _chinese_uppercase_date(
@@ -252,10 +252,12 @@ def generate_inspection_report_v4(inspection, customer_name, device_results=None
         doc.add_paragraph('本次巡检未发现安全隐患。')
 
     _add_sub_heading(doc, '1.4', '隐患详情及影响')
-    try:
-        sr = json.loads(inspection.skip_reasons_json) if isinstance(inspection.skip_reasons_json, str) else (inspection.skip_reasons_json or {})
-    except Exception as _e:
-        current_app.logger.warning('解析 skip_reasons_json 失败：%s', repr(_e))
+    sr = parse_json(
+        inspection.skip_reasons_json,
+        default={},
+        field_name='inspection.skip_reasons_json',
+    )
+    if not isinstance(sr, dict):
         sr = {}
     issue_idx = 1
     for dev_key, dev_sr in sr.items():

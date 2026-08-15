@@ -15,6 +15,8 @@ from sqlalchemy.orm import joinedload
 
 from blueprints.vue_api import vue_api_bp, ok, fail
 from models import db
+from utils import constants as _const
+from utils.json_fields import dumps_json, parse_json
 from utils.permission import require_permission
 
 
@@ -985,14 +987,19 @@ def api_inspector_delete(insp_id):
 
 # ==================== 任务模板 ====================
 def _task_template_payload(t):
-    import json
-    try:
-        sections = json.loads(t.sections_json or '{}')
-    except Exception:
+    sections = parse_json(
+        t.sections_json,
+        default={},
+        field_name='inspection_task_template.sections_json',
+    )
+    if not isinstance(sections, dict):
         sections = {}
-    try:
-        required = json.loads(t.required_assets_json or '{}')
-    except Exception:
+    required = parse_json(
+        t.required_assets_json,
+        default={},
+        field_name='inspection_task_template.required_assets_json',
+    )
+    if not isinstance(required, dict):
         required = {}
     return {
         'id': t.id,
@@ -1038,8 +1045,7 @@ def api_task_template_add():
     name = (data.get('name') or '').strip()
     if not name:
         return fail('名称不能为空')
-    import json
-    sections_json = json.dumps({'sections': data.get('sections') or []}, ensure_ascii=False)
+    sections_json = dumps_json({'sections': data.get('sections') or []})
     t = InspectionTaskTemplate(
         name=name,
         category=(data.get('category') or '日常巡检').strip(),
@@ -1047,7 +1053,7 @@ def api_task_template_add():
         frequency=(data.get('frequency') or '').strip(),
         customer_tier=(data.get('customer_tier') or 'all').strip(),
         sections_json=sections_json,
-        required_assets_json=json.dumps(data.get('required_assets') or {}, ensure_ascii=False),
+        required_assets_json=dumps_json(data.get('required_assets') or {}),
         is_active=True,
         remark=(data.get('remark') or '').strip(),
     )
@@ -1072,10 +1078,9 @@ def api_task_template_update(tid):
     t.inspection_type = (data.get('inspection_type') or t.inspection_type).strip()
     t.frequency = (data.get('frequency') or '').strip()
     t.customer_tier = (data.get('customer_tier') or 'all').strip()
-    import json
-    t.sections_json = json.dumps({'sections': data.get('sections') or []}, ensure_ascii=False)
+    t.sections_json = dumps_json({'sections': data.get('sections') or []})
     if 'required_assets' in data:
-        t.required_assets_json = json.dumps(data.get('required_assets') or {}, ensure_ascii=False)
+        t.required_assets_json = dumps_json(data.get('required_assets') or {})
     t.is_active = bool(data.get('is_active', t.is_active))
     t.remark = (data.get('remark') or '').strip()
     _save_task_template_devices_vue(t, data.get('device_template_ids') or [])
@@ -1157,10 +1162,12 @@ DEVICE_CATEGORY_ORDER = ['服务器', '网络设备', '安全设备', '环控设
 
 
 def _device_template_payload(t):
-    import json
-    try:
-        items = json.loads(t.items_json or '[]')
-    except Exception:
+    items = parse_json(
+        t.items_json,
+        default=[],
+        field_name='inspection_device_template.items_json',
+    )
+    if not isinstance(items, list):
         items = []
     return {
         'id': t.id,
@@ -1192,7 +1199,6 @@ def api_device_check_template_list():
 @require_permission('inspection:edit')
 def api_device_check_template_add():
     from models import InspectionDeviceTemplate
-    import json
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
     if not name:
@@ -1204,7 +1210,7 @@ def api_device_check_template_add():
         name=name,
         device_category=(data.get('device_category') or '网络设备').strip(),
         device_sub_type=(data.get('device_sub_type') or '').strip(),
-        items_json=json.dumps(items, ensure_ascii=False),
+        items_json=dumps_json(items),
         is_active=bool(data.get('is_active', True)),
         remark=(data.get('remark') or '').strip(),
     )
@@ -1218,7 +1224,6 @@ def api_device_check_template_add():
 @require_permission('inspection:edit')
 def api_device_check_template_update(tid):
     from models import InspectionDeviceTemplate
-    import json
     t = InspectionDeviceTemplate.query.get_or_404(tid)
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
@@ -1230,7 +1235,7 @@ def api_device_check_template_update(tid):
     t.name = name
     t.device_category = (data.get('device_category') or t.device_category).strip()
     t.device_sub_type = (data.get('device_sub_type') or '').strip()
-    t.items_json = json.dumps(items, ensure_ascii=False)
+    t.items_json = dumps_json(items)
     t.is_active = bool(data.get('is_active', t.is_active))
     t.remark = (data.get('remark') or '').strip()
     db.session.commit()
@@ -1264,10 +1269,9 @@ def api_task_schedule_board():
 
     # 看板排序：逾期最前 → 执行中 → 待执行 → 已完成 → 已取消；同级按截止时间升序，最后 id 降序
     from datetime import date as _date
-    from utils.constants import TASK_SORT_PRIORITY
     tasks = sorted(tasks, key=lambda t: (
         0 if is_overdue(t, today) else 1,
-        TASK_SORT_PRIORITY.get(t.status, 9),
+        _const.TASK_SORT_PRIORITY.get(t.status, 9),
         t.planned_end or _date.max,
         -t.id,
     ))
@@ -1307,11 +1311,13 @@ def api_task_schedule_board():
 
     kpi = {
         'total': len(items),
-        'pending': sum(1 for t in items if t['status'] == '待执行'),
-        'running': sum(1 for t in items if t['status'] == '执行中'),
-        'reviewing': sum(1 for t in items if t['status'] == '待审核'),
-        'done': sum(1 for t in items if t['status'] == '已完成'),
-        'contract_review': sum(1 for t in items if t['status'] == '合同审批'),
+        'pending': sum(1 for t in items if t['status'] == _const.TASK_PENDING),
+        'running': sum(1 for t in items if t['status'] == _const.TASK_RUNNING),
+        'reviewing': sum(1 for t in items if t['status'] == _const.TASK_REVIEWING),
+        'done': sum(1 for t in items if t['status'] == _const.TASK_DONE),
+        'contract_review': sum(
+            1 for t in items if t['status'] == _const.TASK_CONTRACT_REVIEW
+        ),
         'overdue': sum(1 for t in items if t['overdue']),
         'est_effort': round(sum(t['estimated_effort'] or 0 for t in items), 2),
         'act_effort': round(sum(t['actual_effort'] or 0 for t in items), 2),
@@ -1325,7 +1331,13 @@ def api_task_schedule_board():
         data = {'engineer_groups': groups, 'engineers': engineers, 'view': 'engineer'}
     else:
         groups = {st: [t for t in items if t['status'] == st]
-                  for st in ('合同审批', '待执行', '执行中', '待审核', '已完成')}
+                  for st in (
+                      _const.TASK_CONTRACT_REVIEW,
+                      _const.TASK_PENDING,
+                      _const.TASK_RUNNING,
+                      _const.TASK_REVIEWING,
+                      _const.TASK_DONE,
+                  )}
         data = {'status_groups': groups, 'engineers': engineers, 'view': 'status'}
     data['tasks'] = items
     data['kpi'] = kpi
@@ -1350,16 +1362,15 @@ def api_task_schedule_quick_add():
     planned_start = _date.fromisoformat(data['planned_start']) if data.get('planned_start') else None
     planned_end = _date.fromisoformat(data['planned_end']) if data.get('planned_end') else None
     # V28: 客户合同过期门禁 → 合同审批态（需部门主管审核放行）
-    from utils.constants import TASK_CONTRACT_REVIEW, TASK_PENDING
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
-    status = TASK_PENDING
+    status = _const.TASK_PENDING
     exception_reason = (data.get('contract_exception_reason') or '').strip()
     cust = _C.query.get(int(customer_id)) if customer_id else None
     if cust is not None and _ce(cust):
         if not exception_reason:
             return fail('该客户合同已过期，请填写合同例外原因后提交（需部门主管审核）')
-        status = TASK_CONTRACT_REVIEW
+        status = _const.TASK_CONTRACT_REVIEW
     t = _IT(
         title=title,
         task_type=(data.get('task_type') or '计划').strip() or '计划',
@@ -1376,14 +1387,18 @@ def api_task_schedule_quick_add():
         template_category=(data.get('template_category') or '巡检').strip() or '巡检',
         remark=(data.get('remark') or '').strip(),
         created_by=(current_user.realname or current_user.username),
-        contract_exception_status='待审核' if status == TASK_CONTRACT_REVIEW else '',
+        contract_exception_status=(
+            _const.REVIEW_PENDING if status == _const.TASK_CONTRACT_REVIEW else ''
+        ),
         contract_exception_reason=exception_reason,
         contract_exception_by=(current_user.realname or current_user.username),
-        contract_exception_at=local_now() if status == TASK_CONTRACT_REVIEW else None,
+        contract_exception_at=(
+            local_now() if status == _const.TASK_CONTRACT_REVIEW else None
+        ),
     )
     db.session.add(t)
     db.session.commit()
-    if status == TASK_CONTRACT_REVIEW:
+    if status == _const.TASK_CONTRACT_REVIEW:
         try:
             from utils.notifications import notify_contract_review_request
             notify_contract_review_request(
@@ -1529,7 +1544,7 @@ def api_task_schedule_batch():
     tasks = _IT.query.filter(_IT.id.in_(ids)).all()
     if action == 'status':
         from services.task_schedule_service import apply_task_status
-        if value not in ('待执行', '执行中', '待审核', '已完成', '已取消'):
+        if value not in (_const.TASK_STATUSES - {_const.TASK_CONTRACT_REVIEW}):
             return fail('非法的状态', 400)
         for t in tasks:
             try:
@@ -1562,7 +1577,7 @@ def api_task_schedule_import_template():
     import base64
     from utils.excel_export import export_xlsx
     from blueprints.task_schedule import EXCEL_HEADERS
-    rows = [['示例客户A', '示例客户A2026年二季度巡检', '中', '2026-04-01', '2026-06-30', '已完成',
+    rows = [['示例客户A', '示例客户A2026年二季度巡检', '中', '2026-04-01', '2026-06-30', _const.TASK_DONE,
              '张三', '2026-06-15', '1', '1.5']]
     tmp_path, download_name = export_xlsx(EXCEL_HEADERS, rows, filename='任务安排导入模板.xlsx',
                                           sheet_name='成员分工安排表')

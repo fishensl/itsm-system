@@ -6,10 +6,10 @@
 - create_device(data): 旧式（接收 customer_name 字符串，内部查找）
 """
 import re
-import json
 from datetime import datetime
 from models import db, Device, Customer, SparePart, SpareStock
 from utils.crypto import encrypt_password
+from utils.json_fields import dumps_json
 from .base import ServiceError, transaction
 
 
@@ -57,7 +57,7 @@ def create_device_from_form(form):
         serial_number=form.get('serial_number', ''),
         login_method=form.get('login_method', ''),
         location=form.get('location', ''),
-        interface=json.dumps(interfaces, ensure_ascii=False) if interfaces else None,
+        interface=dumps_json(interfaces) if interfaces else None,
         os_version=form.get('os_version', ''),
         rule_version=form.get('rule_version', ''),
         network_type=form.get('network_type', ''),
@@ -119,7 +119,7 @@ def update_device_from_form(device_id, form):
     d.login_method = form.get('login_method', '')
     d.location = form.get('location', '')
     interfaces = [v.strip() for v in form.getlist('interface') if v.strip()] if hasattr(form, 'getlist') else []
-    d.interface = json.dumps(interfaces, ensure_ascii=False) if interfaces else None
+    d.interface = dumps_json(interfaces) if interfaces else None
     d.os_version = form.get('os_version', '')
     d.rule_version = form.get('rule_version', '')
     d.network_type = form.get('network_type', '')
@@ -262,4 +262,3 @@ def _parse_date(s):
         return datetime.strptime(s.strip(), '%Y-%m-%d').date()
     except (ValueError, TypeError):
         return None
-

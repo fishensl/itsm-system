@@ -12,6 +12,7 @@
 from flask import Blueprint, redirect, url_for, request
 from flask_login import login_required
 from utils.compat import deprecated_endpoint
+from utils.constants import TASK_DONE, TASK_RUNNING
 
 dispatch_bp = Blueprint('task_dispatch', __name__)
 
@@ -36,7 +37,7 @@ def dispatch_assign(task_id):
 @login_required
 def dispatch_accept_start(task_id):
     return redirect(url_for('task_schedule.change_status_form',
-                            task_id=task_id, status='执行中'), code=307)
+                            task_id=task_id, status=TASK_RUNNING), code=307)
 
 
 @dispatch_bp.route('/complete/<int:task_id>', methods=['POST'])
@@ -44,4 +45,4 @@ def dispatch_accept_start(task_id):
 @login_required
 def dispatch_complete(task_id):
     return redirect(url_for('task_schedule.change_status_form',
-                            task_id=task_id, status='已完成'), code=307)
+                            task_id=task_id, status=TASK_DONE), code=307)

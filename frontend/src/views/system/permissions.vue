@@ -51,7 +51,7 @@
                     <td v-for="r in activeRoles" :key="r.code" class="role-col"
                       :class="{ admin: r.code === 'admin' }">
                       <template v-if="r.code === 'admin'">
-                        <el-icon color="#67c23a"><CircleCheck /></el-icon>
+                        <el-icon color="var(--itsm-success)"><CircleCheck /></el-icon>
                       </template>
                       <el-checkbox
                         v-else

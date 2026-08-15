@@ -2,8 +2,19 @@
 """Ticket 工单业务服务（V21：提交版本化审核闭环）"""
 from datetime import datetime, timedelta
 from models import db, Ticket, TicketLog, User
-from utils.constants import (TICKET_STATUSES, REVIEW_PENDING, TICKET_PENDING_ASSIGN,
-                             TICKET_SUSPENDED, TICKET_PROCESSING, TICKET_CONTRACT_REVIEW)
+from utils.constants import (
+    REVIEW_PENDING,
+    TICKET_ASSIGNED,
+    TICKET_CHECKED,
+    TICKET_CLOSED,
+    TICKET_CONTRACT_REVIEW,
+    TICKET_PENDING_ASSIGN,
+    TICKET_PROCESSING,
+    TICKET_STATUSES,
+    TICKET_SUBMITTED,
+    TICKET_SUSPENDED,
+    TICKET_TRANSITIONS,
+)
 from .base import ServiceError, transaction
 from .submission_version_service import add_version, review_version, latest_pending_version
 from .fault_category_service import resolve_fault_category_path
@@ -21,20 +32,6 @@ def _leaf_fault_type_id(l1, l2, l3):
 # 状态集合单一真源在 utils/constants.py（此处保留别名兼容旧引用）
 TICKET_STATES = TICKET_STATUSES
 
-# 状态机：定义允许的状态转换
-TICKET_TRANSITIONS = {
-    '待派单': {'已派单', '已关闭'},
-    '已派单': {'处理中', '已接单', '待派单', '已关闭'},  # 接单即进入处理中
-    '已接单': {'处理中', '已派单', '已关闭'},            # 兼容历史数据
-    '处理中': {'待审核', '已关闭', '已挂起'},
-    '已挂起': {'处理中', '待审核'},                     # 恢复处理；不可处置则提交审核关闭
-    '待审核': {'已验收', '处理中'},  # 审核不通过回退处理中
-    '已验收': {'已关闭', '处理中'},  # 客户验收通过关闭，退回则回处理中
-    '已关闭': {'处理中'},            # 重开（纠正性操作，调用端需管理员/主管 + 审计）
-    '合同审批': {'待派单', '已关闭'},  # 合同例外审核通过→待派单 / 拒绝→已关闭
-}
-
-
 def ticket_completeness(t):
     """工单资料完整性检查：返回 (complete, missing_fields)"""
     missing = []
@@ -48,7 +45,7 @@ def ticket_completeness(t):
         missing.append('处理报告')
     if not t.audit_status:
         missing.append('审核')
-    if t.status not in ('已验收', '已关闭') and not t.accept_status:
+    if t.status not in (TICKET_CHECKED, TICKET_CLOSED) and not t.accept_status:
         missing.append('验收')
     return not missing, missing
 
@@ -120,7 +117,7 @@ def create_ticket(data, current_user_name):
         created_by=current_user_name,
         status=initial_status,
         sla_deadline=datetime.utcnow() + timedelta(hours=sla_hours),
-        contract_exception_status='待审核' if initial_status == TICKET_CONTRACT_REVIEW else '',
+        contract_exception_status=REVIEW_PENDING if initial_status == TICKET_CONTRACT_REVIEW else '',
         contract_exception_reason=contract_reason,
         contract_exception_by=current_user_name,
         contract_exception_at=datetime.utcnow() if initial_status == TICKET_CONTRACT_REVIEW else None,
@@ -200,7 +197,7 @@ def assign_ticket(ticket_id, assignee, current_user_name, remark=''):
     t.assigned_to = assignee
     t.assigned_by = current_user_name
     t.assigned_at = datetime.utcnow()
-    _transition(t, '已派单', current_user_name, f'派给 {assignee}')
+    _transition(t, TICKET_ASSIGNED, current_user_name, f'派给 {assignee}')
     return t
 
 
@@ -210,7 +207,7 @@ def accept_ticket(ticket_id, current_user_name, remark=''):
     t = Ticket.query.get_or_404(ticket_id)
     t.accepted_at = datetime.utcnow()
     t.started_at = datetime.utcnow()
-    _transition(t, '处理中', current_user_name, remark or '已接单，开始处理')
+    _transition(t, TICKET_PROCESSING, current_user_name, remark or '已接单，开始处理')
     return t
 
 
@@ -224,7 +221,7 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
     note 为工程师提交备注（不便写入报告的实际说明）。
     """
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status not in ('处理中', '已挂起'):
+    if t.status not in (TICKET_PROCESSING, TICKET_SUSPENDED):
         raise ServiceError(f'工单当前状态 "{t.status}" 不能提交审核（仅处理中/已挂起可提交）')
     if diagnosis is not None:
         t.diagnosis = diagnosis
@@ -240,7 +237,7 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
         review_status=REVIEW_PENDING,
     )
     t.completed_at = datetime.utcnow()
-    _transition(t, '待审核', current_user_name, remark)
+    _transition(t, TICKET_SUBMITTED, current_user_name, remark)
     return t
 
 
@@ -252,9 +249,9 @@ def audit_ticket(ticket_id, approved, current_user_name, remark='', requirements
     Ticket.audit_* 保留最新一轮快捷值（兼容老逻辑）。
     """
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status != '待审核':
+    if t.status != TICKET_SUBMITTED:
         raise ServiceError(f'工单当前状态 "{t.status}" 不能审核（仅待审核可审核）')
-    target = '已验收' if approved else '处理中'
+    target = TICKET_CHECKED if approved else TICKET_PROCESSING
     t.audit_status = '通过' if approved else '拒绝'
     t.audit_by = current_user_name
     t.audit_at = datetime.utcnow()
@@ -274,7 +271,7 @@ def audit_ticket(ticket_id, approved, current_user_name, remark='', requirements
 def accept_check_ticket(ticket_id, current_user_name, remark='', approved=True):
     """客户验收：通过则关闭工单，退回则回处理中"""
     t = Ticket.query.get_or_404(ticket_id)
-    target = '已关闭' if approved else '处理中'
+    target = TICKET_CLOSED if approved else TICKET_PROCESSING
     t.accept_status = '通过' if approved else '退回'
     t.accept_by = current_user_name
     t.accept_at = datetime.utcnow()
@@ -291,7 +288,7 @@ def unassign_ticket(ticket_id, current_user_name, remark=''):
     t.assigned_to = ''
     t.assigned_by = ''
     t.assigned_at = None
-    _transition(t, '待派单', current_user_name, remark or '撤回重派')
+    _transition(t, TICKET_PENDING_ASSIGN, current_user_name, remark or '撤回重派')
     return t
 
 
@@ -299,7 +296,7 @@ def unassign_ticket(ticket_id, current_user_name, remark=''):
 def close_ticket(ticket_id, current_user_name, remark=''):
     """关闭工单"""
     t = Ticket.query.get_or_404(ticket_id)
-    _transition(t, '已关闭', current_user_name, remark or '关闭工单')
+    _transition(t, TICKET_CLOSED, current_user_name, remark or '关闭工单')
     return t
 
 
@@ -310,9 +307,9 @@ def reopen_ticket(ticket_id, current_user_name, remark=''):
     已关闭 → 处理中：清空关闭时间与审核标记，重新进入处理流程。
     """
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status != '已关闭':
+    if t.status != TICKET_CLOSED:
         raise ServiceError(f'仅已关闭工单可重开（当前状态 "{t.status}"）')
-    _transition(t, '处理中', current_user_name, remark or '重开工单')
+    _transition(t, TICKET_PROCESSING, current_user_name, remark or '重开工单')
     return t
 
 
@@ -325,7 +322,7 @@ def suspend_ticket(ticket_id, current_user_name, reason=''):
     处理中 → 已挂起；记挂起段；SLA 顺延在恢复时统一计算。
     """
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status != '处理中':
+    if t.status != TICKET_PROCESSING:
         raise ServiceError(f'工单当前状态 "{t.status}" 不能挂起（仅处理中可挂起）')
     reason = (reason or '').strip()
     if not reason:
@@ -392,7 +389,7 @@ def contract_review_ticket(ticket_id, approved, reviewer_name, comment=''):
     t = Ticket.query.get_or_404(ticket_id)
     if t.status != TICKET_CONTRACT_REVIEW:
         raise ServiceError(f'工单当前状态 "{t.status}" 不能进行合同例外审核')
-    target = TICKET_PENDING_ASSIGN if approved else '已关闭'
+    target = TICKET_PENDING_ASSIGN if approved else TICKET_CLOSED
     t.contract_exception_status = '通过' if approved else '拒绝'
     if comment:
         t.contract_exception_reason = t.contract_exception_reason + f'\n审核意见：{comment}'

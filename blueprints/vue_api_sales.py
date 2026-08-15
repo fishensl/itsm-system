@@ -18,9 +18,25 @@ from utils import constants as _const
 from blueprints.vue_api import vue_api_bp, ok, fail, _FormAdapter  # noqa: F401  (统一契约)
 
 OPP_STAGES = list(_const.OPP_STAGES)
-QUOTATION_STATUSES = ['草稿', '已发送', '已接受', '已拒绝']
-CONTRACT_STATUSES = ['草签', '已签', '执行中', '已完成', '已终止']
-PROJECT_STATUSES = ['未启动', '进行中', '已完成', '已暂停']
+QUOTATION_STATUSES = [
+    _const.QUOTATION_DRAFT,
+    _const.QUOTATION_SENT,
+    _const.QUOTATION_ACCEPTED,
+    _const.QUOTATION_REJECTED,
+]
+CONTRACT_STATUSES = [
+    _const.CONTRACT_DRAFT,
+    _const.CONTRACT_SIGNED,
+    _const.CONTRACT_ACTIVE,
+    _const.CONTRACT_DONE,
+    _const.CONTRACT_TERMINATED,
+]
+PROJECT_STATUSES = [
+    _const.PROJECT_NOT_STARTED,
+    _const.PROJECT_ACTIVE,
+    _const.PROJECT_DONE,
+    _const.PROJECT_PAUSED,
+]
 CONTRACT_FREQUENCIES = ['每月', '每季度', '每半年', '每年']
 
 
@@ -628,7 +644,7 @@ def _opportunity_payload(o, customer_map=None):
         'customer_id': o.customer_id,
         'customer_name': (customer_map or {}).get(o.customer_id, ''),
         'title': o.title,
-        'stage': o.stage or '初步接触',
+        'stage': o.stage or _const.OPP_STAGE_INITIAL,
         'expected_amount': o.expected_amount or 0,
         'expected_close_date': _fmt_date(o.expected_close_date),
         'owner': o.owner or '',
@@ -723,7 +739,7 @@ def _quotation_payload(q, customer_map=None, opp_map=None):
         'customer_name': (customer_map or {}).get(q.customer_id, ''),
         'total_amount': q.total_amount or 0,
         'valid_until': _fmt_date(q.valid_until),
-        'status': q.status or '草稿',
+        'status': q.status or _const.QUOTATION_DRAFT,
         'items': parse_json(q.items_json, [], 'quotation.items_json'),
         'created_at': _fmt_dt(q.created_at),
     }
@@ -819,7 +835,7 @@ def _contract_payload(c, customer_map=None, template_map=None):
         'customer_name': (customer_map or {}).get(c.customer_id, ''),
         'opportunity_id': c.opportunity_id,
         'amount': c.amount or 0,
-        'status': c.status or '执行中',
+        'status': c.status or _const.CONTRACT_ACTIVE,
         'start_date': _fmt_date(c.start_date),
         'end_date': _fmt_date(c.end_date),
         'inspection_frequency': c.inspection_frequency or '',
@@ -911,7 +927,7 @@ def _project_payload(p, customer_map=None, contract_map=None):
         'customer_id': p.customer_id,
         'customer_name': (customer_map or {}).get(p.customer_id, ''),
         'manager': p.manager or '',
-        'status': p.status or '未启动',
+        'status': p.status or _const.PROJECT_NOT_STARTED,
         'start_date': _fmt_date(p.start_date),
         'end_date': _fmt_date(p.end_date),
         'progress': p.progress or 0,

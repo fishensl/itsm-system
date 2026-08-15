@@ -2,6 +2,7 @@
 """工单 / 故障模型"""
 from datetime import datetime
 from models.base import db
+from utils.constants import TICKET_PENDING_ASSIGN
 
 
 # ============================
@@ -30,7 +31,7 @@ class Ticket(db.Model):
     number = db.Column(db.String(32), nullable=False, unique=True, index=True)  # WO-20260610-001
     source_type = db.Column(db.String(32), default='手动创建')     # 客户报修/巡检发现/手动创建/定期维护
     priority = db.Column(db.String(16), default='中', index=True)
-    status = db.Column(db.String(32), default='待派单', index=True)            # 待派单/待接单/处理中/待审核/待验收/已完成/已关闭
+    status = db.Column(db.String(32), default=TICKET_PENDING_ASSIGN, index=True)
     title = db.Column(db.String(256), nullable=False)
     description = db.Column(db.Text, default='')
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True, index=True)
@@ -182,5 +183,4 @@ class Fault(db.Model):
     normalized_tags = db.Column(db.String(256), default='')
 
     customer_rel = db.relationship('Customer', backref='faults')
-
 

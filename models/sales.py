@@ -2,6 +2,12 @@
 """销售管线模型（商机/报价/合同/项目）"""
 from datetime import datetime
 from models.base import db
+from utils.constants import (
+    CONTRACT_ACTIVE,
+    OPP_STAGE_INITIAL,
+    PROJECT_NOT_STARTED,
+    QUOTATION_DRAFT,
+)
 
 
 # ============================
@@ -14,7 +20,7 @@ class Opportunity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
     title = db.Column(db.String(256), nullable=False)
-    stage = db.Column(db.String(32), default='初步接触')  # 初步接触/需求确认/方案报价/商务谈判/成交/失败
+    stage = db.Column(db.String(32), default=OPP_STAGE_INITIAL)
     expected_amount = db.Column(db.Float, default=0.0)
     expected_close_date = db.Column(db.Date, nullable=True)
     owner = db.Column(db.String(64), default='')
@@ -34,7 +40,7 @@ class Quotation(db.Model):
     items_json = db.Column(db.Text, default='[]')
     total_amount = db.Column(db.Float, default=0.0)
     valid_until = db.Column(db.Date, nullable=True)
-    status = db.Column(db.String(16), default='草稿')  # 草稿/已发送/已接受/已拒绝
+    status = db.Column(db.String(16), default=QUOTATION_DRAFT)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     opportunity_rel = db.relationship('Opportunity', backref='quotations')
@@ -52,7 +58,7 @@ class Contract(db.Model):
     amount = db.Column(db.Float, default=0.0)
     start_date = db.Column(db.Date, nullable=True)
     end_date = db.Column(db.Date, nullable=True)
-    status = db.Column(db.String(32), default='执行中')  # 草签/已签/执行中/已完成/已终止
+    status = db.Column(db.String(32), default=CONTRACT_ACTIVE)
     file_path = db.Column(db.String(256), default='')
     content_json = db.Column(db.Text, default='{}')
     # v3 新增：巡检自动生成配置
@@ -81,12 +87,11 @@ class Project(db.Model):
     manager = db.Column(db.String(64), default='')
     start_date = db.Column(db.Date, nullable=True)
     end_date = db.Column(db.Date, nullable=True)
-    status = db.Column(db.String(32), default='未启动')  # 未启动/进行中/已完成/已暂停
+    status = db.Column(db.String(32), default=PROJECT_NOT_STARTED)
     progress = db.Column(db.Integer, default=0)
     budget = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     contract_rel = db.relationship('Contract', backref='projects')
     customer_rel = db.relationship('Customer', backref='projects')
-
 

@@ -18,6 +18,7 @@ from flask import current_app
 
 from models import db, Customer, InspectionTask
 from utils.auto_task_generator import _get_frequency_delta, _add_months
+from utils.constants import TASK_PENDING
 
 
 SOURCE_TAG = '客户频率自动'
@@ -67,7 +68,7 @@ def _generate_for_customer_in_session(c, today, year_start, year_end, existing):
             db.session.add(InspectionTask(
                 title=f'{c.name}{cursor.year}年{_period_label(cursor, months)}巡检',
                 task_type='计划',
-                status='待执行',
+                status=TASK_PENDING,
                 customer_id=c.id,
                 planned_start=cursor,
                 planned_end=task_end,

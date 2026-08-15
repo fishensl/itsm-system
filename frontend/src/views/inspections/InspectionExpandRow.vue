@@ -48,11 +48,11 @@
 
       <el-divider content-position="left">操作</el-divider>
       <div class="action-bar">
-        <template v-if="detail.review_status === '草稿'">
+        <template v-if="detail.review_status === REVIEW_STATUS.DRAFT || detail.review_status === '草稿'">
           <el-button v-if="user.hasPerm('inspection:edit')" size="small" type="primary"
             @click="emit('submit')">提交审核</el-button>
         </template>
-        <template v-else-if="detail.review_status === '待审核'">
+        <template v-else-if="detail.review_status === REVIEW_STATUS.PENDING">
           <el-button v-if="user.hasPerm('inspection:review')" size="small" type="success"
             @click="emit('review', true)">审核通过</el-button>
           <el-button v-if="user.hasPerm('inspection:review')" size="small" type="danger"
@@ -78,6 +78,7 @@ import {
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type SubmissionVersion,
 } from '@/api/inspections'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
+import { REVIEW_STATUS } from '@/utils/status'
 
 const { isMobile } = useMobile()
 // 移动端降为 2 列，避免每项过窄

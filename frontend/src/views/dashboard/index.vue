@@ -45,7 +45,7 @@
           </template>
           <div class="quick-grid">
             <div v-for="q in data?.quick_entries || []" :key="q.url" class="quick-item" @click="go(q.url)">
-              <el-icon :size="19" color="#2563eb"><component :is="q.icon" /></el-icon>
+              <el-icon :size="19" color="var(--itsm-primary)"><component :is="q.icon" /></el-icon>
               <div class="quick-title">{{ q.title }}</div>
               <div class="quick-sub">{{ q.sub }}</div>
             </div>
@@ -231,7 +231,7 @@ const go = (url: string) => {
 }
 .metric-clickable:hover {
   border-color: var(--itsm-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--itsm-shadow-sm);
   transform: translateY(-1px);
 }
 .metric-arrow {
@@ -321,12 +321,12 @@ const go = (url: string) => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
-  color: #fff;
+  color: var(--itsm-text-inverse);
 }
-.task-type-danger { background: #f56c6c; }
-.task-type-primary { background: #409eff; }
-.task-type-warning { background: #e6a23c; }
-.task-type-success { background: #67c23a; }
+.task-type-danger { background: var(--itsm-danger); }
+.task-type-primary { background: var(--itsm-primary); }
+.task-type-warning { background: var(--itsm-warning); }
+.task-type-success { background: var(--itsm-success); }
 .task-title {
   font-weight: 500;
   white-space: nowrap;

@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 from flask import current_app
 from models import db, Contract, InspectionTask, InspectionTemplate
+from utils.constants import CONTRACT_ACTIVE, CONTRACT_SIGNED, TASK_PENDING
 
 
 def _get_frequency_delta(frequency):
@@ -47,7 +48,7 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
         Contract.inspection_frequency != '',
         Contract.inspection_frequency.isnot(None),
         Contract.auto_generate_tasks == True,
-        Contract.status.in_(['执行中', '已签']),
+        Contract.status.in_([CONTRACT_ACTIVE, CONTRACT_SIGNED]),
     )
     if contract_id:
         query = query.filter(Contract.id == contract_id)
@@ -130,7 +131,7 @@ def generate_contract_tasks(contract_id=None, to_date=None, dry_run=False):
                     task = InspectionTask(
                         title=task_title,
                         task_type='计划',
-                        status='待执行',
+                        status=TASK_PENDING,
                         customer_id=contract.customer_id,
                         # 新链路写 task_template_id；未迁移的旧合同回退 legacy template_id
                         task_template_id=new_template_id,

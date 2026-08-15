@@ -357,6 +357,7 @@ import { fetchEntityMetas, mergeFieldMeta, type EntityFieldMeta } from '@/api/me
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { BOOL_LABELS } from '@/utils/labels'
+import { CONTRACT_STATUS, OPP_STAGE, PROJECT_STATUS, QUOTATION_STATUS } from '@/utils/status'
 import {
   fetchOpportunities, createOpportunity, updateOpportunity, deleteOpportunity,
   fetchQuotations, createQuotation, updateQuotation, deleteQuotation,
@@ -434,7 +435,7 @@ const oppForm = reactive<OppFormModel>(blankOppForm())
 
 function blankOppForm(): OppFormModel {
   return {
-    id: undefined, title: '', customer_id: null, stage: '初步接触', expected_amount: 0,
+    id: undefined, title: '', customer_id: null, stage: OPP_STAGE.INITIAL, expected_amount: 0,
     expected_close_date: '', owner: '', remark: '',
   }
 }
@@ -448,7 +449,7 @@ function openOppCreate() {
 
 function openOppEdit(o: Opportunity) {
   Object.assign(oppForm, blankOppForm(), {
-    id: o.id, title: o.title, customer_id: o.customer_id, stage: o.stage || '初步接触',
+    id: o.id, title: o.title, customer_id: o.customer_id, stage: o.stage || OPP_STAGE.INITIAL,
     expected_amount: o.expected_amount, expected_close_date: o.expected_close_date,
     owner: o.owner, remark: o.remark,
   })
@@ -523,7 +524,7 @@ const quotForm = reactive<QuotFormModel>(blankQuotForm())
 function blankQuotForm(): QuotFormModel {
   return {
     id: undefined, number: '', opportunity_id: null, customer_id: null,
-    total_amount: 0, valid_until: '', status: '草稿', items: [],
+    total_amount: 0, valid_until: '', status: QUOTATION_STATUS.DRAFT, items: [],
   }
 }
 
@@ -550,7 +551,8 @@ function openQuotCreate() {
 function openQuotEdit(q: Quotation) {
   Object.assign(quotForm, blankQuotForm(), {
     id: q.id, number: q.number, opportunity_id: q.opportunity_id, customer_id: q.customer_id,
-    total_amount: q.total_amount, valid_until: q.valid_until, status: q.status || '草稿',
+    total_amount: q.total_amount, valid_until: q.valid_until,
+    status: q.status || QUOTATION_STATUS.DRAFT,
     items: (q.items || []).map((it) => ({
       name: it.name || '', quantity: Number(it.quantity || 0), unit_price: Number(it.unit_price || 0),
     })),
@@ -635,7 +637,7 @@ const contractForm = reactive<ContractFormModel>(blankContractForm())
 function blankContractForm(): ContractFormModel {
   return {
     id: undefined, number: '', title: '', customer_id: null, amount: 0,
-    status: '执行中', start_date: '', end_date: '', inspection_frequency: '',
+    status: CONTRACT_STATUS.ACTIVE, start_date: '', end_date: '', inspection_frequency: '',
     task_template_id: null, auto_generate_tasks: false,
   }
 }
@@ -650,7 +652,7 @@ function openContractCreate() {
 function openContractEdit(c: ContractItem) {
   Object.assign(contractForm, blankContractForm(), {
     id: c.id, number: c.number, title: c.title, customer_id: c.customer_id,
-    amount: c.amount, status: c.status || '执行中', start_date: c.start_date,
+    amount: c.amount, status: c.status || CONTRACT_STATUS.ACTIVE, start_date: c.start_date,
     end_date: c.end_date, inspection_frequency: c.inspection_frequency,
     task_template_id: c.task_template_id, auto_generate_tasks: c.auto_generate_tasks,
   })
@@ -726,7 +728,7 @@ const projectForm = reactive<ProjectFormModel>(blankProjectForm())
 function blankProjectForm(): ProjectFormModel {
   return {
     id: undefined, name: '', contract_id: null, customer_id: null, manager: '',
-    status: '未启动', start_date: '', end_date: '', progress: 0, budget: 0,
+    status: PROJECT_STATUS.NOT_STARTED, start_date: '', end_date: '', progress: 0, budget: 0,
   }
 }
 
@@ -740,7 +742,7 @@ function openProjectCreate() {
 function openProjectEdit(p: ProjectItem) {
   Object.assign(projectForm, blankProjectForm(), {
     id: p.id, name: p.name, contract_id: p.contract_id, customer_id: p.customer_id,
-    manager: p.manager, status: p.status || '未启动', start_date: p.start_date,
+    manager: p.manager, status: p.status || PROJECT_STATUS.NOT_STARTED, start_date: p.start_date,
     end_date: p.end_date, progress: p.progress, budget: p.budget,
   })
   projectFormVisible.value = true

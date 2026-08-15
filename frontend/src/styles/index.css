@@ -1,6 +1,20 @@
 /* Vue 单轨全局视觉规范与设计变量。 */
 :root {
   --itsm-primary: #2563eb;
+  --itsm-primary-soft: #dbeafe;
+  --itsm-success: #16a34a;
+  --itsm-success-soft: #dcfce7;
+  --itsm-warning: #d97706;
+  --itsm-warning-soft: #fef3c7;
+  --itsm-danger: #dc2626;
+  --itsm-danger-soft: #fee2e2;
+  --itsm-info: #64748b;
+  --itsm-info-soft: #f1f5f9;
+  --itsm-text-inverse: #ffffff;
+  --itsm-overlay: rgba(15, 23, 42, 0.48);
+  --itsm-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --itsm-shadow-md: 0 10px 30px rgba(15, 23, 42, 0.12);
+  --itsm-brand-backdrop: linear-gradient(135deg, rgba(37, 99, 235, 0.13), rgba(124, 58, 237, 0.13));
   --itsm-sidebar-width: 232px;
   --itsm-sidebar-collapsed: 64px;
   --itsm-bg: #f5f7fa;
@@ -21,14 +35,45 @@
   --itsm-radius-md: 8px;
   --itsm-radius-lg: 12px;
   --itsm-control-height: 32px;
+
+  /* Element Plus 只消费同一组语义 token，避免组件与业务视图各自维护主题色。 */
+  --el-color-primary: var(--itsm-primary);
+  --el-color-success: var(--itsm-success);
+  --el-color-warning: var(--itsm-warning);
+  --el-color-danger: var(--itsm-danger);
+  --el-color-info: var(--itsm-info);
+  --el-bg-color: var(--itsm-card-bg);
+  --el-bg-color-overlay: var(--itsm-card-bg);
+  --el-text-color-primary: var(--itsm-text);
+  --el-text-color-regular: var(--itsm-text-muted);
+  --el-border-color: var(--itsm-border);
+  --el-border-color-light: var(--itsm-border);
+  --el-fill-color-blank: var(--itsm-card-bg);
+  color-scheme: light;
 }
 
 html.dark {
+  --itsm-primary: #60a5fa;
+  --itsm-primary-soft: #172554;
+  --itsm-success: #4ade80;
+  --itsm-success-soft: #14532d;
+  --itsm-warning: #fbbf24;
+  --itsm-warning-soft: #713f12;
+  --itsm-danger: #f87171;
+  --itsm-danger-soft: #7f1d1d;
+  --itsm-info: #94a3b8;
+  --itsm-info-soft: #1e293b;
   --itsm-bg: #111827;
   --itsm-card-bg: #1f2937;
   --itsm-text: #e5e7eb;
   --itsm-text-muted: #9ca3af;
+  --itsm-text-inverse: #ffffff;
   --itsm-border: #374151;
+  --itsm-overlay: rgba(0, 0, 0, 0.64);
+  --itsm-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.32);
+  --itsm-shadow-md: 0 10px 30px rgba(0, 0, 0, 0.42);
+  --itsm-brand-backdrop: linear-gradient(135deg, rgba(96, 165, 250, 0.18), rgba(167, 139, 250, 0.16));
+  color-scheme: dark;
 }
 
 html,
@@ -93,12 +138,31 @@ body,
   font-weight: 600;
 }
 
+/* 所有固定宽度 Dialog 都受视口约束；桌面保留声明宽度，窄屏自动降级。 */
+.el-dialog {
+  max-width: calc(100vw - 32px);
+}
+
+.el-dialog__footer > div,
+.el-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--itsm-space-2);
+}
+
+@media (min-width: 769px) and (max-width: 1023px) {
+  .el-dialog {
+    max-width: calc(100vw - 48px);
+  }
+}
+
 /* 移动端底部导航占位 */
 .bottom-nav-spacer {
   display: none;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .page-container {
     padding: 12px;
     padding-bottom: calc(64px + env(safe-area-inset-bottom));
@@ -114,8 +178,16 @@ body,
     width: calc(100vw - 20px) !important;
   }
   .el-dialog__body {
-    max-height: 70vh;
+    max-height: calc(100dvh - 168px);
     overflow-y: auto;
+  }
+  .el-dialog__footer > div,
+  .el-dialog__footer {
+    width: 100%;
+  }
+  .el-dialog__footer .el-button {
+    flex: 1 1 112px;
+    margin-left: 0;
   }
   /* 行内展开详情在窄屏降为单列，避免每项 <100px */
   .el-descriptions__body .el-descriptions__table {

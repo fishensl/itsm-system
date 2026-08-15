@@ -15,7 +15,7 @@
       <div class="sidebar-header">
         <el-icon
           :size="22"
-          color="#2563eb"
+          color="var(--itsm-primary)"
         >
           <Monitor />
         </el-icon>
@@ -501,7 +501,7 @@ watch(mustChangePassword, (required) => {
 }
 .user-avatar {
   background: var(--itsm-primary);
-  color: #fff;
+  color: var(--itsm-text-inverse);
   font-size: 13px;
 }
 .content {
@@ -513,7 +513,7 @@ watch(mustChangePassword, (required) => {
 .sidebar-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--itsm-overlay);
   z-index: 900;
 }
 

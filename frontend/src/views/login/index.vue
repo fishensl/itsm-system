@@ -4,7 +4,7 @@
       <div class="login-brand">
         <el-icon
           :size="40"
-          color="#2563eb"
+          color="var(--itsm-primary)"
         >
           <Monitor />
         </el-icon>
@@ -143,7 +143,7 @@ async function submitMfa() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #2563eb22, #7c3aed22);
+  background: var(--itsm-brand-backdrop);
   padding: 16px;
 }
 .login-card {
@@ -153,7 +153,7 @@ async function submitMfa() {
   border: 1px solid var(--itsm-border);
   border-radius: 12px;
   padding: 32px 28px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--itsm-shadow-md);
 }
 .login-brand {
   text-align: center;

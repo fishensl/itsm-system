@@ -3,7 +3,7 @@
 集中维护用户管理界面的"资质证书"复选项与解析/序列化辅助函数。
 4 大类共 12 个选项，前端按分组渲染 checkbox，后端用白名单过滤非法值。
 """
-import json
+from utils.json_fields import dumps_json, parse_json
 
 
 CERT_CATEGORIES = [
@@ -35,7 +35,7 @@ def parse_cert_form(values):
 def cert_to_json(lst):
     """list -> JSON 字符串，存数据库。"""
     try:
-        return json.dumps(lst or [], ensure_ascii=False)
+        return dumps_json(lst or [])
     except (TypeError, ValueError):
         return '[]'
 
@@ -49,12 +49,9 @@ def cert_from_json(s):
         return []
     # 标准 JSON
     if s.startswith('['):
-        try:
-            data = json.loads(s)
-            if isinstance(data, list):
-                return [str(x) for x in data if x]
-        except (json.JSONDecodeError, TypeError):
-            pass
+        data = parse_json(s, default=[], field_name='user.certifications')
+        if isinstance(data, list):
+            return [str(x) for x in data if x]
     # 老格式兜底：逗号/斜杠/中文逗号分隔
     parts = []
     for raw in s.replace('，', ',').replace('/', ',').replace('、', ',').split(','):

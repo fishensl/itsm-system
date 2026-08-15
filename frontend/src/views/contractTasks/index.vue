@@ -104,14 +104,14 @@ const label = (entity: string, key: string, fallback: string) =>
 
 const columns = computed<DataColumn[]>(() => {
   const result: DataColumn[] = [
-  { key: 'title', label: label('contract', 'title', '合同标题'), minWidth: 220, asTitle: true },
-  { key: 'customer_name', label: label('contract', 'customer_name', '客户'), minWidth: 120 },
-  { key: 'inspection_frequency', label: label('contract', 'inspection_frequency', '巡检频率'),
+  { key: 'title', label: label('contract_auto_contract', 'title', '合同标题'), minWidth: 220, asTitle: true },
+  { key: 'customer_name', label: label('contract_auto_contract', 'customer_name', '客户'), minWidth: 120 },
+  { key: 'inspection_frequency', label: label('contract_auto_contract', 'inspection_frequency', '巡检频率'),
     width: 100, type: 'tag', tagMap: {} },
-  { key: 'auto_generate_tasks', label: label('contract', 'auto_generate_tasks', '自动巡检'),
+  { key: 'auto_generate_tasks', label: label('contract_auto_contract', 'auto_generate_tasks', '自动巡检'),
     width: 90, type: 'tag', valueMap: { true: '开启', false: '关闭' },
     tagMap: { true: 'success', false: 'info' } },
-  { key: 'end_date', label: label('contract', 'end_date', '结束日期'), width: 110, type: 'date' },
+  { key: 'end_date', label: label('contract_auto_contract', 'end_date', '结束日期'), width: 110, type: 'date' },
   { key: 'actions', label: '操作', width: 220, type: 'action', fixed: 'right', actions: [
     { label: '预览', type: 'primary', link: true,
       onClick: (row) => onPreview(row as unknown as ContractTaskItem) },
@@ -174,7 +174,7 @@ async function onShowTasks(row: ContractTaskItem) {
 }
 
 onMounted(() => {
-  fetchEntityMetas(['contract', 'contract_inspection_task'])
+  fetchEntityMetas(['contract_auto_contract', 'contract_inspection_task'])
     .then((metas) => Object.assign(metadata, metas))
 })
 </script>

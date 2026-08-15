@@ -11,7 +11,7 @@ from models import Customer, Contract
 from utils.constants import (
     CUSTOMER_CONTRACT_ACTIVE, CUSTOMER_CONTRACT_EXPIRING,
     CUSTOMER_CONTRACT_EXPIRED, CUSTOMER_CONTRACT_NONE,
-    CUSTOMER_CONTRACT_REMIND_DAYS,
+    CUSTOMER_CONTRACT_REMIND_DAYS, CONTRACT_ACTIVE, CONTRACT_SIGNED,
 )
 
 
@@ -58,7 +58,7 @@ def sync_from_contract(contract=None, customer_id=None):
         cust = customers[0]
         active = (Contract.query
                   .filter(Contract.customer_id == cust.id,
-                          Contract.status.in_(['执行中', '已签']),
+                          Contract.status.in_([CONTRACT_ACTIVE, CONTRACT_SIGNED]),
                           Contract.end_date.isnot(None))
                   .all())
         if not active:

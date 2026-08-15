@@ -5,11 +5,12 @@
 审核 = review_version() 把审核结果/意见写回对应版本。
 全部版本永久保留，单条记录即可复查完整提交与审核历史。
 """
-import json
 import os
 from datetime import datetime
 
 from models import db, SubmissionVersion, SubmissionAsset
+from utils.constants import REVIEW_APPROVED, REVIEW_PENDING, REVIEW_REJECTED
+from utils.json_fields import dumps_json
 
 
 def add_asset(version_id, asset_type, file_path='', file_name='', device_id=None,
@@ -31,7 +32,7 @@ def add_asset(version_id, asset_type, file_path='', file_name='', device_id=None
 
 
 def add_version(entity_type, entity_id, report_file='', content=None,
-                submitted_by_user_id=None, review_status='待审核'):
+                submitted_by_user_id=None, review_status=REVIEW_PENDING):
     """追加一个提交版本（version_no 自动 +1）。返回 SubmissionVersion 实例。"""
     entity_type = entity_type if entity_type in ('inspection', 'ticket') else 'inspection'
     latest = SubmissionVersion.query \
@@ -43,7 +44,7 @@ def add_version(entity_type, entity_id, report_file='', content=None,
         entity_id=entity_id,
         version_no=version_no,
         report_file=report_file or '',
-        content_json=json.dumps(content or {}, ensure_ascii=False),
+        content_json=dumps_json(content or {}),
         submitted_by=submitted_by_user_id,
         submitted_at=datetime.utcnow(),
         review_status=review_status or '',
@@ -55,7 +56,6 @@ def add_version(entity_type, entity_id, report_file='', content=None,
 
 def review_version(version_id, approved, reviewer_user_id=None, comment='', requirements='', checklist=None):
     """审核指定版本：写回审核结果/审核人/时间/意见/修改要求/检查项勾选。返回该版本实例。"""
-    from utils.constants import REVIEW_APPROVED, REVIEW_REJECTED
     v = SubmissionVersion.query.get_or_404(version_id)
     v.review_status = REVIEW_APPROVED if approved else REVIEW_REJECTED
     v.reviewed_by = reviewer_user_id
@@ -65,7 +65,7 @@ def review_version(version_id, approved, reviewer_user_id=None, comment='', requ
     if requirements:
         v.revision_requirements = requirements
     if checklist is not None:
-        v.review_checklist_json = json.dumps(checklist or {}, ensure_ascii=False)
+        v.review_checklist_json = dumps_json(checklist or {})
     return v
 
 
@@ -117,7 +117,7 @@ def _asset_payload(a):
 def latest_pending_version(entity_type, entity_id):
     """返回当前待审核的最新版本（无则 None）。"""
     return SubmissionVersion.query \
-        .filter_by(entity_type=entity_type, entity_id=entity_id, review_status='待审核') \
+        .filter_by(entity_type=entity_type, entity_id=entity_id, review_status=REVIEW_PENDING) \
         .order_by(SubmissionVersion.version_no.desc()).first()
 
 
@@ -174,7 +174,7 @@ def _version_payload(v):
     reviewer = v.reviewer_rel
     storage_name = (v.report_file or '').split('/')[-1] or ''
     customer_name, title = version_context(v.entity_type, v.entity_id)
-    approved = v.review_status == '已通过'
+    approved = v.review_status == REVIEW_APPROVED
     return {
         'id': v.id,
         'version_no': v.version_no,

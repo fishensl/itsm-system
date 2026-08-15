@@ -232,7 +232,11 @@ const canContractReview = computed(() => {
 /** 处置进展可写：处理中/已挂起/待审核状态，工程师/主管/管理员 */
 const canAddProgress = computed(() => {
   if (!detail.value) return false
-  return ['处理中', '已挂起', '待审核'].includes(detail.value.status) &&
+  return ([
+    TICKET_STATUS.PROCESSING,
+    TICKET_STATUS.SUSPENDED,
+    TICKET_STATUS.SUBMITTED,
+  ] as string[]).includes(detail.value.status) &&
     (user.hasPerm('ticket:edit') || user.hasPerm('ticket:review'))
 })
 

@@ -579,14 +579,14 @@ onMounted(() => {
 .rack-visual { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .rack-frame { width: 280px; flex-shrink: 0; border: 1px solid var(--itsm-border);
   border-radius: 8px; padding: 8px; }
-.rack-frame-header { color: #fff; text-align: center; font-size: 13px; padding: 4px 0;
+.rack-frame-header { color: var(--itsm-text-inverse); text-align: center; font-size: 13px; padding: 4px 0;
   border-radius: 4px 4px 0 0; }
 .rack-u { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
 .u-row { height: 20px; font-size: 12px; padding: 0 4px; display: flex; align-items: center;
   border-left: 3px solid var(--itsm-border); cursor: default; border-radius: 2px; }
 .u-row.empty { background: var(--el-fill-color-light); color: var(--itsm-text-muted); cursor: pointer; }
 .u-row.empty:hover { border-left-color: var(--el-color-primary); }
-.u-row.installed { color: #fff; cursor: pointer; }
+.u-row.installed { color: var(--itsm-text-inverse); cursor: pointer; }
 .u-row.installed:hover { filter: brightness(0.9); }
 .u-row .u-label { width: 34px; flex-shrink: 0; opacity: 0.75; font-family: var(--font-mono, monospace); }
 .u-row .u-content { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

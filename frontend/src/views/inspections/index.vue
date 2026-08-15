@@ -238,6 +238,7 @@ import {
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
+import { OVERALL_STATUS, REVIEW_STATUS, TASK_STATUS } from '@/utils/status'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -382,7 +383,8 @@ async function runAiAnalyze() {
   }
 }
 
-const pendingVersion = computed(() => versions.value.find((v) => v.review_status === '待审核'))
+const pendingVersion = computed(() =>
+  versions.value.find((v) => v.review_status === REVIEW_STATUS.PENDING))
 const pendingVersionUrl = computed(() =>
   pendingVersion.value?.report_file ? versionReportUrl('inspection', pendingVersion.value.id) : '')
 const formalReportName = computed(() => detail.value?.report_file_name || '')
@@ -475,7 +477,7 @@ const formRef = ref()
 const reportUploadRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', task_id: null, task_title: '', customer_id: null, inspection_date: '',
-  inspector_user_id: null, overall_status: '正常', conclusion: '', reportFile: null,
+  inspector_user_id: null, overall_status: OVERALL_STATUS.NORMAL, conclusion: '', reportFile: null,
 })
 const formRules = {
   title: [{ required: true, message: '请输入巡检标题', trigger: 'blur' }],
@@ -484,12 +486,12 @@ const formRules = {
 
 const selectableTasks = computed(() =>
   (dicts.value?.tasks || []).filter((t) =>
-    t.status !== '已完成' && t.status !== '已取消' && !t.has_record),
+    t.status !== TASK_STATUS.DONE && t.status !== TASK_STATUS.CANCELLED && !t.has_record),
 )
 
 function blankForm() {
   return { id: null, title: '', task_id: null, task_title: '', customer_id: null,
-    inspection_date: '', inspector_user_id: null, overall_status: '正常', conclusion: '',
+    inspection_date: '', inspector_user_id: null, overall_status: OVERALL_STATUS.NORMAL, conclusion: '',
     reportFile: null }
 }
 

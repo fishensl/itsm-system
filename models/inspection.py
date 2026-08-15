@@ -2,6 +2,8 @@
 """巡检域模型（模板/任务/记录/巡检员）"""
 from datetime import datetime
 from models.base import db
+from utils.constants import TASK_PENDING
+from utils.json_fields import parse_json
 
 
 # ============================
@@ -63,10 +65,12 @@ class InspectionDeviceTemplate(db.Model):
     def get_normalized_items(self):
         """返回标准化后的检查项列表：每个项目都保证含一个非空 sub_items 数组。
         旧格式（顶层 field_type）的项目会被自动包装为单元素 sub_items。"""
-        import json as _json
-        try:
-            items = _json.loads(self.items_json or '[]') or []
-        except Exception:
+        items = parse_json(
+            self.items_json,
+            default=[],
+            field_name='inspection_device_template.items_json',
+        )
+        if not isinstance(items, list):
             return []
         out = []
         for it in items:
@@ -213,7 +217,7 @@ class InspectionTask(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(128), nullable=False)
     task_type = db.Column(db.String(16), default='计划')    # 计划/突发
-    status = db.Column(db.String(32), default='待执行', index=True)      # 待执行/执行中/已完成/已取消
+    status = db.Column(db.String(32), default=TASK_PENDING, index=True)  # 取值见 utils.constants
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
     template_id = db.Column(db.Integer, db.ForeignKey('inspection_templates.id'), nullable=True)
     # V11: 关联新任务模板（推荐使用，旧 template_id 保留只读做兼容）
@@ -289,5 +293,3 @@ class Inspection(db.Model):
     task_rel = db.relationship('InspectionTask', backref='records')
     reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by], backref='reviewed_inspections')
     inspector_user_rel = db.relationship('User', foreign_keys=[inspector_user_id])
-
-

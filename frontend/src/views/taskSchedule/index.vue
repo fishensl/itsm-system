@@ -829,7 +829,7 @@ onMounted(reload)
 }
 .kpi-clickable:hover {
   border-color: var(--itsm-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--itsm-shadow-sm);
   transform: translateY(-1px);
 }
 .kpi-card.danger .kpi-value { color: var(--el-color-danger); }
@@ -876,7 +876,7 @@ onMounted(reload)
 .task-card:hover { border-color: var(--itsm-primary); }
 .task-card.overdue { border-color: var(--el-color-danger); }
 .task-card.selected { background: var(--el-color-primary-light-9); }
-.task-card.expanded { border-color: var(--itsm-primary); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); }
+.task-card.expanded { border-color: var(--itsm-primary); box-shadow: var(--itsm-shadow-sm); }
 /* 第一行：checkbox 流内紧凑，左边不留空白 */
 .task-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .task-check { margin: 0; }
@@ -894,7 +894,8 @@ onMounted(reload)
 }
 .task-badges { display: flex; gap: 4px; flex-shrink: 0; }
 .tag-badge {
-  font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 3px; color: #fff;
+  font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 3px;
+  color: var(--itsm-text-inverse);
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }

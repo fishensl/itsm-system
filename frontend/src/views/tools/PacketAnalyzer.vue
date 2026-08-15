@@ -345,7 +345,7 @@ function loadSample() {
   color: var(--itsm-text);
 }
 .pkt-nav:hover { background: var(--el-fill-color-light); }
-.pkt-nav.active { background: var(--itsm-primary); color: #fff; }
+.pkt-nav.active { background: var(--itsm-primary); color: var(--itsm-text-inverse); }
 .pkt-list { flex: 1; min-width: 0; }
 .pkt-filter { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .count { font-size: 12px; color: var(--itsm-text-muted); margin-left: auto; }

@@ -14,8 +14,9 @@ import os
 from models import db, User
 from utils.permission import get_user_permissions, has_permission, require_permission
 from utils.operation_token import require_op_token
+from utils.json_fields import dumps_json, parse_json
 from utils.sidebar_config import get_user_sidebar_groups
-from utils.constants import TASK_STATUS_TAG
+from utils import constants as _const
 from app import csrf, limiter
 
 vue_api_bp = Blueprint('vue_api', __name__)
@@ -332,7 +333,7 @@ def api_dashboard_overview():
     if role in ('admin', 'operator') or has_permission('task:schedule'):
         my_tickets = Ticket.query.filter(
             Ticket.assigned_to.in_([me_realname, me.username]),
-            ~Ticket.status.in_(['已验收', '已关闭'])
+            ~Ticket.status.in_([_const.TICKET_CHECKED, _const.TICKET_CLOSED])
         ).order_by(Ticket.created_at.desc()).limit(8).all()
         for t in my_tickets:
             my_tasks.append({
@@ -348,7 +349,11 @@ def api_dashboard_overview():
         # 有派发权看全部（含未指派）；主管看本部门；工程师只看自己的
         my_insp = _apply_task_scope(
             InspectionTask.query.filter(
-                InspectionTask.status.in_(['待执行', '执行中', '待审核'])),
+                InspectionTask.status.in_([
+                    _const.TASK_PENDING,
+                    _const.TASK_RUNNING,
+                    _const.TASK_REVIEWING,
+                ])),
             current_user,
         )[0].order_by(InspectionTask.id.desc()).limit(5).all()
         for t in my_insp:
@@ -375,7 +380,7 @@ def api_dashboard_overview():
     elif role == 'sales':
         my_opps = Opportunity.query.filter(
             Opportunity.owner.in_([me_realname, me.username]),
-            ~Opportunity.stage.in_(['成交', '失败'])
+            ~Opportunity.stage.in_([_const.OPP_STAGE_WON, _const.OPP_STAGE_LOST])
         ).order_by(Opportunity.expected_close_date.asc().nullslast()).limit(8).all()
         for o in my_opps:
             my_tasks.append({
@@ -385,7 +390,7 @@ def api_dashboard_overview():
                 'url': '/app/sales?tab=opps',
                 'time': o.expected_close_date.strftime('%Y-%m-%d') if o.expected_close_date else '-',
             })
-        my_contracts = Contract.query.filter(Contract.status == '执行中') \
+        my_contracts = Contract.query.filter(Contract.status == _const.CONTRACT_ACTIVE) \
             .order_by(Contract.end_date.asc().nullslast()).limit(5).all()
         for c in my_contracts:
             my_tasks.append({
@@ -549,13 +554,9 @@ class _FormAdapter:
 
 
 def _device_payload(d, customer_map=None, rack_map=None, pwd_map=None):
-    import json as _json
-    iface = []
-    if d.interface:
-        try:
-            iface = _json.loads(d.interface) if isinstance(d.interface, str) else d.interface
-        except Exception:
-            iface = [d.interface]
+    iface = parse_json(d.interface, default=[], field_name='device.interface')
+    if not isinstance(iface, list):
+        iface = []
     rack = (rack_map or {}).get(d.id)
     pwd = (pwd_map or {}).get(d.id)
     return {
@@ -1022,7 +1023,8 @@ def api_device_related(device_id):
     if task_ids:
         rows = _IC.query.filter(_IC.task_id.in_(task_ids)).order_by(_IC.id.desc()).limit(50).all()
         inspections = [{'id': i.id, 'title': i.title, 'task_title': i.task_rel.title if i.task_rel else '',
-                        'overall_status': i.overall_status or '', 'review_status': i.review_status or '草稿',
+                        'overall_status': i.overall_status or '',
+                        'review_status': i.review_status or _const.REVIEW_DRAFT_LABEL,
                         'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else ''}
                        for i in rows]
     return ok({'tickets': tickets, 'inspections': inspections})
@@ -1514,7 +1516,11 @@ def _apply_task_scope(query, user):
 def _task_payload(t, customer_map=None):
     from datetime import date
     today = date.today()
-    overdue = (t.status in ('待执行', '执行中') and t.planned_end and t.planned_end < today)
+    overdue = (
+        t.status in (_const.TASK_PENDING, _const.TASK_RUNNING)
+        and t.planned_end
+        and t.planned_end < today
+    )
     return {
         'id': t.id,
         'title': t.title,
@@ -1558,7 +1564,7 @@ def api_task_board():
     if assignee_id:
         q = q.filter(_IT.assigned_to_user_id == assignee_id)
     if not show_cancelled:
-        q = q.filter(_IT.status != '已取消')
+        q = q.filter(_IT.status != _const.TASK_CANCELLED)
 
     # 角色自动匹配：非派发权用户强制收窄数据范围（显式筛选仅起进一步收窄作用）
     q, scope = _apply_task_scope(q, current_user)
@@ -1567,18 +1573,23 @@ def api_task_board():
 
     customer_map = {c.id: c.name for c in _C.query.all()}
     groups = {}
-    for st in ('待执行', '执行中', '待审核', '已完成'):
+    for st in (
+        _const.TASK_PENDING,
+        _const.TASK_RUNNING,
+        _const.TASK_REVIEWING,
+        _const.TASK_DONE,
+    ):
         groups[st] = [_task_payload(t, customer_map) for t in tasks if t.status == st]
 
     # 汇总
     return ok({
         'groups': groups,
-        'status_tag': TASK_STATUS_TAG,
+        'status_tag': _const.TASK_STATUS_TAG,
         'total': len(tasks),
-        'pending': len(groups['待执行']),
-        'running': len(groups['执行中']),
-        'reviewing': len(groups['待审核']),
-        'done': len(groups['已完成']),
+        'pending': len(groups[_const.TASK_PENDING]),
+        'running': len(groups[_const.TASK_RUNNING]),
+        'reviewing': len(groups[_const.TASK_REVIEWING]),
+        'done': len(groups[_const.TASK_DONE]),
         'scope': scope,
         'scope_label': {'all': '全部任务', 'dept': '部门任务', 'mine': '我的任务'}[scope],
     })
@@ -1598,7 +1609,10 @@ def api_task_board_status(task_id):
     data = request.get_json(silent=True) or {}
     status = data.get('status', '')
     t = _IT.query.get_or_404(task_id)
-    is_reopen = t.status in ('已完成', '已取消') and status == '执行中'
+    is_reopen = (
+        t.status in (_const.TASK_DONE, _const.TASK_CANCELLED)
+        and status == _const.TASK_RUNNING
+    )
     if is_reopen:
         is_admin = getattr(current_user, 'is_admin', False)
         if not is_admin and not is_supervisor(current_user):
@@ -1700,7 +1714,7 @@ def _ticket_payload(t, customer_map=None):
             report_name = report_display_name(
                 'ticket', customer_name, t.title or '',
                 (t.report_file or '').split('/')[-1],
-                latest.version_no, latest.review_status == '已通过')
+                latest.version_no, latest.review_status == _const.REVIEW_APPROVED)
         else:
             report_name = (t.report_file or '').split('/')[-1]
     return {
@@ -1745,7 +1759,7 @@ def _ticket_payload(t, customer_map=None):
         'missing_fields': missing,
         # S6 SLA：未关闭且已过截止时间 → 标记超时（列表红标提醒）
         'sla_deadline': t.sla_deadline.strftime('%Y-%m-%d %H:%M') if t.sla_deadline else '',
-        'sla_overdue': bool(t.sla_deadline and t.status != '已关闭'
+        'sla_overdue': bool(t.sla_deadline and t.status != _const.TICKET_CLOSED
                             and t.sla_deadline < datetime.utcnow()),
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
         'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
@@ -1961,7 +1975,11 @@ def api_ticket_archive_as_case(ticket_id):
     """归档为知识库案例（仅已关闭/已验收/已完成；内容由诊断/方案/描述拼装）"""
     from models import Ticket as _T, KnowledgeBase as _KB
     t = _T.query.get_or_404(ticket_id)
-    if t.status not in ('已关闭', '已验收', '已完成'):
+    if t.status not in (
+        _const.TICKET_CLOSED,
+        _const.TICKET_CHECKED,
+        _const.TICKET_LEGACY_DONE,
+    ):
         return fail(f'仅已关闭/已验收/已完成工单可归档（当前状态：{t.status}）', 400)
     content_parts = []
     if t.diagnosis:
@@ -2210,7 +2228,16 @@ def api_ticket_dicts():
     # 三级分类树（与故障管理页一致：选一级→二级→三级级联）
     fault_types = _fault_category_tree()
     # S6: 移除「已接单」——不可达死状态（accept 直接转处理中），仅作历史数据兼容保留在状态机表
-    statuses = ['待派单', '已派单', '处理中', '已挂起', '待审核', '已验收', '已关闭', '合同审批']
+    statuses = [
+        _const.TICKET_PENDING_ASSIGN,
+        _const.TICKET_ASSIGNED,
+        _const.TICKET_PROCESSING,
+        _const.TICKET_SUSPENDED,
+        _const.TICKET_SUBMITTED,
+        _const.TICKET_CHECKED,
+        _const.TICKET_CLOSED,
+        _const.TICKET_CONTRACT_REVIEW,
+    ]
     priorities = ['紧急', '高', '中', '低']
     from utils.permission import SEVERITY_LEVELS
     devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
@@ -2234,7 +2261,6 @@ def api_device_dicts():
 # ==================== 客户管理 ====================
 def _serialize_extra_fields(raw):
     """JSON 数组 [{name,value},...] → JSON 字符串（空则 ''），与 services 的 serialize_extra_fields 对齐"""
-    import json as _json
     if not raw:
         return ''
     if isinstance(raw, str):
@@ -2244,7 +2270,7 @@ def _serialize_extra_fields(raw):
         if isinstance(item, dict) and str(item.get('name') or '').strip():
             pairs.append({'name': str(item.get('name')).strip(),
                           'value': str(item.get('value') or '').strip()})
-    return _json.dumps(pairs, ensure_ascii=False) if pairs else ''
+    return dumps_json(pairs) if pairs else ''
 
 
 def _customer_payload(c, region_map=None, category_map=None):
@@ -2675,7 +2701,7 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
             submitted_name = report_display_name(
                 'inspection', customer_name, task_title,
                 (i.submitted_report or '').split('/')[-1],
-                latest.version_no, latest.review_status == '已通过')
+                latest.version_no, latest.review_status == _const.REVIEW_APPROVED)
         else:
             submitted_name = (i.submitted_report or '').split('/')[-1]
     payload = {
@@ -2687,7 +2713,7 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
         'task_title': task_title,
         'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
         'overall_status': i.overall_status or '',
-        'review_status': i.review_status or '草稿',
+        'review_status': i.review_status or _const.REVIEW_DRAFT_LABEL,
         'inspector_name': i.inspector_name or i.inspector or '',
         'inspector_user_id': i.inspector_user_id,
         'report_file': bool(i.report_file),
@@ -2737,7 +2763,9 @@ def api_inspection_list():
     if status:
         q = q.filter(_I.overall_status == status)
     if review_status:
-        q = q.filter(_I.review_status == ('' if review_status == '草稿' else review_status))
+        q = q.filter(_I.review_status == (
+            _const.REVIEW_DRAFT if review_status == _const.REVIEW_DRAFT_LABEL else review_status
+        ))
     if customer_id:
         q = q.filter(_I.customer_id == customer_id)
     if task_id:
@@ -2926,7 +2954,6 @@ def api_review_checklist_get():
 @require_permission('permission:edit')
 def api_review_checklist_put():
     """管理员保存检查项清单（[{name, enabled}]，name 非空）"""
-    import json
     from models import SystemSetting
     data = request.get_json(silent=True) or {}
     items = data.get('items') or []
@@ -2943,7 +2970,7 @@ def api_review_checklist_put():
     if not row:
         row = SystemSetting(key=REVIEW_CHECKLIST_SETTING_KEY, value='')
         db.session.add(row)
-    row.value = json.dumps(cleaned, ensure_ascii=False)
+    row.value = dumps_json(cleaned)
     db.session.commit()
     return ok({'items': cleaned})
 
@@ -3013,7 +3040,7 @@ def api_inspection_review(inspection_id):
         try:
             from models import Inspection as _IG
             i = _IG.query.get(inspection_id)
-            if i and i.review_status == '已通过' and not i.report_file:
+            if i and i.review_status == _const.REVIEW_APPROVED and not i.report_file:
                 from blueprints.vue_api_sys import audit_log
                 from utils.notifications import _admin_user_ids, notify
                 audit_log('inspection:report_failed', 'inspection', inspection_id,
@@ -3329,7 +3356,8 @@ def api_inspection_report_download(version_id):
     customer_name, title = version_context('inspection', v.entity_id)
     storage_name = (v.report_file or '').split('/')[-1] or ''
     download_name = report_display_name('inspection', customer_name, title,
-                                        storage_name, v.version_no, v.review_status == '已通过')
+                                        storage_name, v.version_no,
+                                        v.review_status == _const.REVIEW_APPROVED)
     return _send_report_file(v.report_file, download_name=download_name)
 
 
@@ -3346,7 +3374,8 @@ def api_ticket_report_download(version_id):
     customer_name, title = version_context('ticket', v.entity_id)
     storage_name = (v.report_file or '').split('/')[-1] or ''
     download_name = report_display_name('ticket', customer_name, title,
-                                        storage_name, v.version_no, v.review_status == '已通过')
+                                        storage_name, v.version_no,
+                                        v.review_status == _const.REVIEW_APPROVED)
     return _send_report_file(v.report_file, download_name=download_name)
 
 
@@ -3385,8 +3414,17 @@ def api_inspection_dicts():
             'assignee_id': t.assigned_to_user_id,
             'has_record': bool(t.records),
         })
-    overall_statuses = ['正常', '警告', '异常']  # 显式展示顺序（常量 OVERALL_STATUSES 校验）
-    review_statuses = ['草稿', '待审核', '已通过', '已退回']
+    overall_statuses = [
+        _const.OVERALL_NORMAL,
+        _const.OVERALL_WARNING,
+        _const.OVERALL_ERROR,
+    ]
+    review_statuses = [
+        _const.REVIEW_DRAFT_LABEL,
+        _const.REVIEW_PENDING,
+        _const.REVIEW_APPROVED,
+        _const.REVIEW_REJECTED,
+    ]
     return ok({'customers': customers, 'inspectors': inspectors, 'tasks': tasks,
                'overall_statuses': overall_statuses, 'review_statuses': review_statuses})
 

@@ -16,7 +16,7 @@
             <el-icon class="collapse-arrow" :class="{ expanded: isCityExpanded(city.id) }">
               <ArrowRight />
             </el-icon>
-            <el-icon color="#2563eb"><OfficeBuilding /></el-icon>
+            <el-icon color="var(--itsm-primary)"><OfficeBuilding /></el-icon>
             <span class="city-name">{{ city.name }}</span>
             <el-tag v-if="city.children?.length" size="small" type="info">{{ city.children.length }} 区县</el-tag>
             <span class="row-actions" @click.stop>

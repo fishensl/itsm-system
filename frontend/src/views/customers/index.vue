@@ -59,7 +59,7 @@
         <template #leaf="{ node }">
           <div class="cust-leaf-wrap">
             <div class="tree-block cust-leaf" @click="toggleDetail(node as Customer)">
-              <el-icon color="#2563eb"><Location /></el-icon>
+              <el-icon color="var(--itsm-primary)"><Location /></el-icon>
               <span class="tree-name">{{ node.name }}</span>
               <span v-if="node.district" class="tree-district">{{ node.district }}</span>
               <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[node.level] || 'info'" class="ml-2">
