@@ -2,14 +2,14 @@
 
 > 审计基线：2026-08-13，`master`，`ece64de1e0c28484b8a3da45fcbf5eb29031e87b`
 > 审计范围：流程闭环、功能完善、UI 统一、字段统一、数据安全、备份恢复
-> 实施更新：2026-08-13 已完成本报告约定的 P0 代码止血、P1 备份/恢复/发布加固，并继续实施无需产品规则的 P2 字段/UI 收敛与 P3 兼容端点观测基础（提交 `8c0c4cf`）。本报告中的问题统计和健康度仍保留审计基线口径，不反向改写历史风险数量。未连接或变更生产环境，Git 历史改写、生产主密钥轮换、隔离恢复演练仍需分别确认。
+> 实施更新：2026-08-15 已完成本报告约定的 P0 代码止血、P1 备份/恢复/发布加固，以及无需产品规则的 P2 字段/UI/契约收敛与 P3 兼容端点观测基础（提交 `8c0c4cf`、`c54dfd9`）。本报告中的问题统计和健康度仍保留审计基线口径，不反向改写历史风险数量。未连接或变更生产环境，Git 历史改写、生产主密钥轮换、隔离恢复演练和浏览器视觉验收仍需分别确认。
 
 ## 1. 总览
 
 ### 1.1 审计方法与边界
 
 - 以当前工作区源码、路由注册顺序、模型、服务层、Vue 调用、测试和部署脚本为依据，逐项复核已有审计结论；不把旧报告中的结论直接视为当前事实。
-- 审计基线核对 229 个 Python 文件、45 个 Vue 视图、36 个迁移文件、64 个测试文件，当时可收集 840 个 pytest 用例；整改持续增加回归后当前收集数为 903。
+- 审计基线核对 229 个 Python 文件、45 个 Vue 视图、36 个迁移文件、64 个测试文件，当时可收集 840 个 pytest 用例；整改持续增加回归后当前收集数为 914。
 - 本次未连接生产数据库、生产主机、systemd、定时任务或真实通知渠道。因此“生产实际是否启用备份、文件权限、当前密钥是否已轮换”等只能列为上线核验项，不能由代码仓库推断为已完成。
 - 严重程度口径：高＝可导致越权、敏感数据泄露、主流程不可用或恢复失败；中＝重要功能不闭环、跨层不一致或存在明显运维风险；低＝一致性、体验、可维护性和长期成本问题。
 
@@ -34,7 +34,7 @@
 - Vue SPA 已是唯一业务 UI，GlobalSearch、NotificationBell、移动端底栏、DataTable 移动卡片和列设置均已落地（`frontend/src/layouts/MainLayout.vue:169-200`；`frontend/src/components/DataTable.vue:1-157`）。
 - 安全基础并非空白：设备/AI/通知密钥已加密，设备明文查看有权限、操作动态码、限流和审计；CSRF 默认开启，前端非 GET 自动携带令牌（`utils/crypto.py:25-109`；`frontend/src/utils/request.ts:18-25`；`blueprints/vue_api.py:1081-1124`）。
 - 备份侧已有 PG 自定义格式 dump、Web 加密备份包、一次性下载、导入前快照和可配置调度器，这些可作为 P1 加固基础，无需推倒重做（`scripts/backup.sh:27-47`；`blueprints/vue_api_sys.py:638-817`；`utils/scheduler.py:75-106`）。
-- CI 已覆盖 Python 3.10/3.12、pytest、Ruff、前端 lint/unit/build；本轮又增加迁移不可变门禁，当前 903 个测试可收集，测试资产较扎实（`.github/workflows/ci.yml`）。
+- CI 已覆盖 Python 3.10/3.12、pytest、Ruff、前端 lint/unit/build；迁移不可变、状态生成物、metadata 权限矩阵、JSON 边界和 UI 语义色均有门禁，当前 914 个测试全量通过（`.github/workflows/ci.yml`；`tests/test_entity_metadata.py`；`tests/test_json_boundaries.py`；`tests/test_ui_convergence.py`）。
 
 ### 1.4 当前状态标记
 
@@ -46,9 +46,9 @@
 | P0 代码止血 | **已修复** | 提交 `507c2fd`：设备详情契约、任务越权、CSRF、匿名上传、知识库 XSS、拓扑白名单、敏感审计、遗留明文导出、缺钥 fail-closed、初始管理员和合同例外审核闭环 |
 | P1 备份/恢复/发布代码 | **已修复（约定范围）** | 提交 `507c2fd`：备份失败硬退出、PG 完整性校验、配对轮转、导入 staging、不可变前端包、迁移门禁、health/ready、临时导出清理 |
 | 数据 scope、跨进程 RBAC、自动备份状态告警 | **代码已完成，scope 待启用** | `30a040e` 完成统一范围、RBAC 版本失效、导出审计、备份 RPO/失败告警；`c2a73bf` 增加默认关闭的 `ITSM_CUSTOMER_SCOPE_ENFORCE` 发布闸门，生产关联审计后再开启 |
-| P2/P3 Backlog | **确定性收敛项已实施，产品流程待 G4** | `8c0c4cf` 完成字段/UI 与兼容观测批次；备件审批、SLA、满意度、项目/知识审核等仍需产品确认，兼容端点删除仍需 G5 的 30 天生产数据 |
+| P2/P3 Backlog | **确定性收敛项已实施，产品流程待 G4** | `8c0c4cf`、`c54dfd9` 完成 DataTable、metadata、状态/JSON 边界、响应式/主题代码与兼容观测；备件审批、SLA、满意度、项目/知识审核等仍需产品确认，兼容端点删除仍需 G5 的 30 天生产数据 |
 
-### 1.5 本轮整改状态（提交 `507c2fd`、`30a040e`、`c2a73bf`、`8c0c4cf`）
+### 1.5 本轮整改状态（提交 `507c2fd`、`30a040e`、`c2a73bf`、`8c0c4cf`、`c54dfd9`）
 
 | 状态 | 审计项 | 说明 |
 |---|---|---|
@@ -60,8 +60,9 @@
 | **已修复** | BR-02～BR-08、BR-10～BR-17 | 备份/导入硬失败与原子激活、不可变前端 Release、同版本离线 manifest、失败停止、配对轮转、迁移锁/CI、ready、生产日志和校验和 |
 | **部分修复** | BR-09 | 已要求 dump/meta 配对、预检查与恢复后 ready；健康失败可自动恢复上一版前端并保留失败版本。代码/schema 自动同版本回退仍需发布单元继续收敛 |
 | **已修复** | UI-01、UI-03、UI-05、UI-06 | 9 个常规顶层列表迁入 DataTable，PacketAnalyzer 增加移动卡片；DataTable 视图由 12 增至 21；主题进入 Pinia 并支持系统/浅色/深色；新增 404；业务提示统一到 UI store |
-| **已修复** | FD-01、FD-02、FD-04 | 客户页消费 metadata；补地区、设备检查模板、通知渠道 schema 且不暴露 secret；后端 `constants.py` 生成只读 TS，CI 检测漂移 |
-| **部分修复** | FD-03、UI-02、UI-04、WP-17 | 地区/类别及专用实体权限已对齐，仍需完成全部权限矩阵；已有全局移动端 Dialog 降级但缺视觉回归；主题状态已收口但语义色扫描未完成；兼容端点已有弃用头/日志，删除等待 30 天零调用 |
+| **已修复** | FD-01～FD-06 | 客户与补充实体已消费 metadata；实体—路由权限矩阵覆盖所有当前页面；状态机、模型默认值、自动任务和 Vue 比较复用 constants 生成物；数据库 JSON Text 读写统一经公共边界并验证损坏/错误容器类型 |
+| **代码已完成，待视觉验收** | UI-02、UI-04 | Dialog 已具备桌面/平板/手机视口约束，浅色/深色语义 token 与 Element Plus 映射已补齐，Vue 硬编码语义色有静态门禁；仍需 375/768/1440px 浏览器截图与对比度人工验收 |
+| **部分修复** | WP-17 | 兼容端点已有弃用头/日志，删除仍等待 30 天生产零调用证据 |
 | **待确认** | DS-01 / G1、G2、G3 | 历史 blob 清理、生产密钥轮换、隔离恢复演练均未执行 |
 
 ## 2. 维度一：流程闭环
@@ -114,9 +115,9 @@
 | ID | 文件:行号 | 严重程度 | 问题描述 | 修复建议 |
 |---|---|---|---|---|
 | UI-01 | `frontend/src/views/contractTasks/index.vue:31`；`firmwares/index.vue:41`；`rack/index.vue:102`；`taskTemplates/index.vue:13`；`topology/index.vue:36`；`system/exportReviews.vue:14`；`system/notifyRules.vue:14`；`devices/DictTable.vue:9`；`system/ReviewChecklist.vue:16`；`tools/PacketAnalyzer.vue:58` | 中 | 审计时至少 10 个顶层/功能列表仍直接使用 `el-table`。**状态：已修复（`8c0c4cf`）**，9 个常规列表已迁入 DataTable，使用视图由 12 增至 21；PacketAnalyzer 保留高密度桌面表格但补移动卡片；详情弹窗内小表按语义保留。 | 后续新顶层列表继续强制使用 DataTable；对嵌套详情表和专业分析表按移动端验收决定，不追求形式上的 100%。 |
-| UI-02 | `frontend/src/views/inspections/index.vue:63`；`taskSchedule/index.vue:235,247`；`components/VersionTimeline.vue:113`；其余大量 `width="xxxpx"` 对话框 | 中 | 大量对话框使用 520–1080px 固定宽度，移动端依赖组件默认行为，表单、预览和审核弹窗容易横向溢出或操作区拥挤。 | 建立统一 `ResponsiveDialog`/CSS 规范：桌面 `max-width`，移动端 `width: calc(100vw - 24px)`；报告预览采用全屏模式；加入 375px/768px 视觉回归。 |
+| UI-02 | `frontend/src/styles/index.css:138-199`；`tests/test_ui_convergence.py` | 中 | 审计时固定宽度 Dialog 在窄屏容易溢出。**状态：代码已修复（`c54dfd9`）**，全局规则约束桌面/平板/手机宽度、动态视口正文高度和可换行操作区；尚未执行 375/768/1440px 浏览器截图验收。 | 上线前对报告预览、审核、复杂表单做三档视口人工/截图回归；发现例外时按组件语义补全屏模式，不恢复页面级硬编码。 |
 | UI-03 | `frontend/src/stores/ui.ts:15-58`；`frontend/src/main.ts:20`；`frontend/src/layouts/MainLayout.vue:94-101` | 低 | 审计时主题保存在 MainLayout 局部 ref。**状态：已修复（`8c0c4cf`）**，主题偏好、系统媒体查询和应用动作已进入 Pinia，挂载前初始化，支持系统/浅色/深色三态。 | 后续独立编辑器/登录布局直接复用 UI store，不再自建主题状态。 |
-| UI-04 | `frontend/src/styles/index.css:3-31`；`frontend/src/layouts/MainLayout.vue:501` | 低 | 深色模式只覆盖少量 `--itsm-*` token，仍有硬编码颜色；Element Plus 与业务色值可能在告警、卡片和 hover 状态上不一致。 | 建立语义 token（surface/text/border/success/warning/danger）并扫描硬编码色值；对 WCAG 对比度和禁用态做抽样验证。 |
+| UI-04 | `frontend/src/styles/index.css:2-76`；`tests/test_ui_convergence.py` | 低 | 审计时深色模式 token 不完整且 Vue 视图散落硬编码颜色。**状态：代码已修复（`c54dfd9`）**，已补 primary/success/warning/danger/info、soft、overlay、shadow 等明暗 token，映射 Element Plus，并以静态测试禁止 Vue 语义色回流；WCAG/禁用态仍待浏览器抽样。 | 上线前抽查登录、仪表盘、设备、巡检、任务、知识库在暗色下的文字、边框、告警和禁用态对比度。 |
 | UI-05 | `frontend/src/router/index.ts:279-285`；`frontend/src/views/errors/NotFound.vue:1-74` | 低 | 审计时未匹配路由直接回工作台。**状态：已修复（`8c0c4cf`）**，404 与 403 分开，提供返回、工作台、全局搜索和错误标识。 | 后续把错误标识接入前端错误采集；保留旧书签命中统计。 |
 | UI-06 | `frontend/src/router/index.ts:304-310`；`frontend/src/components/ExportDialog.vue:73-252`；`frontend/src/stores/ui.ts:63-69` | 低 | 审计时 Pinia toast、全局事件桥和 `ElMessage` 并存。**状态：已修复（`8c0c4cf`）**，路由和导出校验统一走 UI store；事件桥仅作为 axios 到 store 的适配器；MessageBox 只承担确认/详情交互。 | 新组件统一调用 UI store，禁止重新引入业务 `ElMessage`。 |
 
@@ -133,10 +134,10 @@
 |---|---|---|---|---|
 | FD-01 | `domain_metadata/entities.py:676-681`；`frontend/src/views/customers/index.vue:343-349,633` | 中 | 审计时客户页未调用 metadata。**状态：已修复（`8c0c4cf`）**，树列表、详情与表单标签统一读取 `customer` profile，保留后端旧版本回退文案。 | 后续把表单 required/options 也逐步由 profile 驱动，不只统一 label。 |
 | FD-02 | `domain_metadata/entities.py:608-635,807-825`；`frontend/src/views/regions/index.vue`；`deviceCheckTemplates/index.vue`；`system/notifyChannels.vue` | 中 | 审计时地区、设备检查模板、通知渠道未登记。**状态：已修复（`8c0c4cf`）**，三个 schema 及消费者已落地；通知渠道只暴露 `has_secret`，不登记 secret/config。 | 为新增实体继续执行“先登记 schema、再建页面”的门禁。 |
-| FD-03 | `domain_metadata/entities.py:650,697,714,726-731,775`；`frontend/src/router/index.ts:44-65,104-107,218-221,254-257` | 中 | metadata 的 `view_permission` 与页面/API 权限口径错位：客户 `customer:view` 对页面 `customer:manage`、单位类别 `category:view` 对 `customer:manage`、任务 `inspection:view` 对 `task:schedule`、导出审核 `device:view` 对 `user:view`、审核清单 `inspection:view` 对 `permission:edit`。可能出现页面可进但拿不到 meta，或反向暴露字段描述。 | 建立实体—路由—API 权限矩阵测试；页面入口使用“查看”权限，写按钮使用动作权限；导出审核和审核清单使用专用权限，避免借用 `user:view/permission:edit`。 |
+| FD-03 | `domain_metadata/entities.py:650-860`；`tests/test_entity_metadata.py:95-130` | 中 | 审计时 metadata 与页面/API 权限口径错位。**状态：已修复（`c54dfd9`）**，补齐设备关联工单/巡检和合同自动巡检的权限别名，并建立当前全部页面的实体—路由—metadata 权限矩阵测试。 | 新页面必须同步扩展矩阵；页面入口用查看权限，写按钮继续使用动作权限，避免通过复用不相干实体 schema 引入权限漂移。 |
 | FD-04 | `utils/constants.py:157-224`；`scripts/generate_frontend_status.py:1-55`；`frontend/src/utils/status.generated.ts`；`.github/workflows/ci.yml` | 中 | 审计时前后端分别维护状态/颜色。**状态：已修复（`8c0c4cf`）**，后端目录生成只读 TS，任务看板复用同一 tag map，CI 与 pytest 都会拒绝过期生成物。 | 状态增删只改 `constants.py` 后重新生成；前端手工文件只保留非状态机录入选项。 |
-| FD-05 | `blueprints/vue_api.py:328,344,381,1447,1491,1500`；`services/inspection_service.py:60,510`；`services/task_schedule_service.py:247-277`；`frontend/src/views/inspections/index.vue:385,487`；`tickets/index.vue:352`；`sales/index.vue:526-743` | 中 | 后端和前端仍有多处裸状态字符串，绕过 `utils/constants.py`/`status.ts`，状态改名或新增时难以完整发现。 | 先在 service 写边界消灭裸字符串，再处理路由序列化和前端比较；Ruff/ESLint 增加有限的业务状态字面量禁用规则。 |
-| FD-06 | `services/customer_service.py:33-51`；`services/device_service.py:60,122`；`services/inspection_service.py:550`；`blueprints/vue_api_ops.py:988-1076,1158-1229`；`utils/json_fields.py:1-36` | 中 | 多个 db.Text JSON 字段仍直接 `json.loads/dumps`，没有统一走 `parse_json/dumps_json`，损坏数据的默认值、日志和边界行为不一致。 | 逐字段迁移到工具层；为每个 JSON Text 字段明确默认类型；测试损坏 JSON、空串、旧格式和导入回放，禁止用字符串长度代表条目数。 |
+| FD-05 | `utils/constants.py:9-140`；`services/ticket_service.py`；`services/task_schedule_service.py`；`blueprints/vue_api.py`；`frontend/src/views/inspections/index.vue`；`frontend/src/views/sales/index.vue` | 中 | 审计时服务、路由、模型默认值、生成器和前端比较仍散落业务状态。**状态：已修复（`c54dfd9`）**，工单转换表进入常量真源，任务/工单/巡检/销售的写入、查询、默认值与 Vue 比较均引用 constants 或生成 TS；兼容输入别名和用户文案不作为状态写入。 | 状态增删仅修改 `utils/constants.py` 并更新生成物；继续以生成检查、转换表覆盖和代码评审阻止新裸写入。 |
+| FD-06 | `utils/json_fields.py:1-36`；`tests/test_json_boundaries.py`；`blueprints/drafts.py`；`utils/sidebar_config.py`；`utils/report_generator.py` | 中 | 审计时多个 db.Text JSON 字段直接解析，损坏数据和错误容器类型行为不一致。**状态：已修复（`c54dfd9`）**，客户/设备/巡检/模板/提交版本/草稿/仪表盘/侧栏/证书等数据库 JSON 边界统一走 `parse_json/dumps_json` 并校验 list/dict 类型；备份 manifest、加密信封、通知请求体等非数据库 JSON 保持专用协议实现。 | 新增 JSON Text 字段必须声明默认容器类型并补损坏、空串、旧格式测试；禁止用字符串长度代表条目数。 |
 
 ## 6. 维度五：数据安全
 
@@ -257,7 +258,7 @@ P0 完成定义：新增安全回归全部通过；匿名无法获取上传文�
 | customers 页接 metadata | **代码已完成（`8c0c4cf`）**：list/detail/form 标签已消费 schema | list/detail/form/export 标签与字段集合来自同一 profile | P2 |
 | `status.ts` 与后端 constants 单一真源 | **代码已完成（`8c0c4cf`）**：后端生成 TS，CI/pytest 检查漂移 | 后端生成 TS/JSON；CI 检测生成物过期 | P2/P3 |
 | 404 页面 | **代码已完成（`8c0c4cf`）**：404/403 已分开并提供返回/搜索 | 404/403 可区分，有返回、搜索和错误追踪信息 | P2 |
-| 暗色主题色值 | **部分完成（`8c0c4cf`）**：主题已入全局 store 并支持三态；语义 token 扫描和视觉回归未完成 | 全局 store、语义 token、对比度与关键页面截图回归 | P2 |
+| 暗色主题色值 | **代码已完成（`8c0c4cf`、`c54dfd9`）**：主题已入全局 store，明暗语义 token、Element Plus 映射和 Vue 硬编码色门禁已完成；浏览器视觉回归未完成 | 全局 store、语义 token、对比度与关键页面截图回归 | P2 |
 | 草稿前端接入或下线 | 后端+测试完整，前端零消费 | 三类复杂表单接入；否则迁移删除模型/权限/API | P2 |
 | 设备在线状态/采集任务决策 | `DeviceCollectTask` 孤儿 | 要么完整采集/心跳/重试，要么删除孤儿模型 | P2/P3 |
 | 故障状态机与工单反向同步 | 目前只单向 `fault.ticket_id` | 明确状态转换和同步边界，避免双主数据 | P2 |
@@ -300,11 +301,11 @@ P0 完成定义：新增安全回归全部通过；匿名无法获取上传文�
 
 ### 10.3 当前验证结果
 
-- `.venv/Scripts/python -m pytest tests/`：**903 项全量通过**，退出码 0，耗时 2237.68 秒（37:17）；告警均为既存弃用/兼容性告警，无测试失败。
+- `.venv/Scripts/python -m pytest tests/`：**914 项全量通过**，退出码 0，耗时 2269.13 秒（37:49）；告警均为既存弃用/兼容性告警，无测试失败。
 - `.venv/Scripts/python -m ruff check .`：**通过**，`All checks passed!`。
 - 前端 `npm run lint`：**通过**（27 条既有 warning、0 error）；`npm run test:unit`：**33 项通过**；`npm run build`：**通过**。
 - Git Bash `bash -n`：`backup.sh`、`update.sh`、`lib-release.sh` **全部通过**；发布恢复 3 条故障注入测试全部通过。
-- 当前共收集并通过 903 项测试；测试 PostgreSQL 改为每次运行使用随机目录，避免中断后的 `postmaster.pid` 污染后续运行。
+- 当前共收集并通过 914 项测试；测试 PostgreSQL 改为每次运行使用随机目录，避免中断后的 `postmaster.pid` 污染后续运行。
 - 尚未完成的发布门禁：隔离 PostgreSQL 的真实备份—恢复—解密—`readyz` 演练，以及生产主机/定时任务/权限核验。以上测试使用本地嵌入式 PostgreSQL，但不等同于生产恢复演练。
 
 ## 11. 需要单独确认的高风险操作
