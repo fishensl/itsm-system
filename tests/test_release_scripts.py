@@ -97,6 +97,8 @@ def test_release_script_requires_clean_matching_source():
     assert 'git ls-files --others --exclude-standard' in script
     assert 'RELEASE_COMMIT=$(git rev-parse HEAD)' in script
     assert 'MASTER_COMMIT=$(git rev-parse master)' in script
+    assert 'PY="${PYTHON:-}"' in script
+    assert '请设置 PYTHON=/path/to/python' in script
 
 
 def test_offline_update_does_not_require_zip_or_pypi():

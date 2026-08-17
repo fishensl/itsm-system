@@ -63,7 +63,25 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
-PY="python3"; command -v python3 >/dev/null 2>&1 || PY="python"
+PY="${PYTHON:-}"
+if [ -z "${PY}" ]; then
+    for candidate in \
+        "${APP_DIR}/.venv/Scripts/python.exe" \
+        "${APP_DIR}/.venv/bin/python" \
+        python3 python; do
+        if [[ "${candidate}" == */* ]]; then
+            [ -x "${candidate}" ] || continue
+        elif ! command -v "${candidate}" >/dev/null 2>&1; then
+            continue
+        fi
+        PY="${candidate}"
+        break
+    done
+fi
+if [ -z "${PY}" ]; then
+    echo "  [FATAL] 未找到 Python；请设置 PYTHON=/path/to/python 后重试" >&2
+    exit 1
+fi
 rm -f "${OUT_DIR}/vue-dist-manual.zip"
 "${PY}" - "${OUT_DIR}/vue-dist-manual.zip" <<'PY'
 import sys
