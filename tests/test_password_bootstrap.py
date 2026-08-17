@@ -19,7 +19,12 @@ def test_user_create_requires_explicit_strong_password(admin_client, app):
         assert user.must_change_password is True
 
 
-def test_temporary_password_user_is_restricted_until_change(op_client, app):
+def test_temporary_password_user_is_restricted_until_change(
+        op_client, app, tmp_path, monkeypatch):
+    dist = tmp_path / 'app'
+    dist.mkdir()
+    (dist / 'index.html').write_text('<div id="app"></div>', encoding='utf-8')
+    monkeypatch.setattr('blueprints.vue_api._app_dist_dir', lambda: str(dist))
     with app.app_context():
         user = User.query.filter_by(username='op').one()
         user.must_change_password = True
