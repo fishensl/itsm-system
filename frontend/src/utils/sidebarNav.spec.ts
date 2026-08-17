@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { sidebarTarget, isRouteActive, toRouterPath } from '@/utils/sidebarNav'
+import { loginRedirectTarget } from '@/utils/appRoute'
 
 describe('toRouterPath', () => {
   it('/app 前缀 → 内部路由路径（router-link 专用）', () => {
@@ -17,7 +18,23 @@ describe('toRouterPath', () => {
 
   it('非 /app 路径原样返回', () => {
     expect(toRouterPath('/customers/1')).toBe('/customers/1')
+    expect(toRouterPath('/application/help')).toBe('/application/help')
     expect(toRouterPath('#')).toBe('#')
+  })
+})
+
+describe('loginRedirectTarget', () => {
+  it('把浏览器完整 /app 地址转换为 Vue Router 内部路径', () => {
+    expect(loginRedirectTarget('/app/')).toBe('/')
+    expect(loginRedirectTarget('/app/tickets?scope=mine')).toBe('/tickets?scope=mine')
+    expect(loginRedirectTarget('/tickets')).toBe('/tickets')
+  })
+
+  it('拒绝站外地址和登录循环', () => {
+    expect(loginRedirectTarget('https://example.com')).toBe('/')
+    expect(loginRedirectTarget('//example.com')).toBe('/')
+    expect(loginRedirectTarget('/app/login?redirect=/tickets')).toBe('/')
+    expect(loginRedirectTarget(['/app/tickets'])).toBe('/')
   })
 })
 

@@ -47,6 +47,26 @@ install_service() {
         echo "       建议: cp ${app_dir}/.env.example ${envf}  # 如有模板"
     fi
 
+    # 独立备份 timer：避免 APScheduler 依附某个 Gunicorn worker 后静默失效。
+    local backup_service_src="${app_dir}/scripts/itsm-backup.service"
+    local backup_timer_src="${app_dir}/scripts/itsm-backup.timer"
+    if [ ! -f "${backup_service_src}" ] || [ ! -f "${backup_timer_src}" ]; then
+        echo "[FATAL] 缺少备份 systemd 单元模板" >&2
+        return 1
+    fi
+    cp "${backup_service_src}" /etc/systemd/system/itsm-backup.service
+    cp "${backup_timer_src}" /etc/systemd/system/itsm-backup.timer
+    if [ "${app_dir}" != "/opt/itsm" ]; then
+        sed -i "s|/opt/itsm|${app_dir}|g" /etc/systemd/system/itsm-backup.service
+    fi
+
+    # R1 上线前的临时兜底 timer 只用于恢复备份保障；正式 timer 安装后必须移除，
+    # 避免 03:30 与 03:40 重复执行两套备份。
+    systemctl disable --now itsm-backup-failsafe.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/itsm-backup-failsafe.service \
+        /etc/systemd/system/itsm-backup-failsafe.timer
+
     systemctl daemon-reload
+    systemctl enable --now itsm-backup.timer
     return 0
 }

@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""后台调度（APScheduler）：每日自动任务生成 + 逾期提醒
+"""后台调度（APScheduler）：每日自动任务生成 + 逾期提醒。
 
 - 合同自动巡检：每日补生成（按 last_generated_date 游标，幂等）
 - 客户巡检频率：每日回填本年度任务（幂等 upsert）
 - 逾期任务提醒：通知指派工程师
 - 防重启动：dev reloader 仅子进程；生产多 worker 用 instance/scheduler.lock PID 锁
+- 数据备份不再挂在 Gunicorn worker 内，改由 itsm-backup.timer 调用 run_scheduled_backup.py
 """
 import logging
 import os
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -126,6 +129,58 @@ def _backup_job():
     return 0
 
 
+def _parse_status_time(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo('UTC'))
+        return parsed
+    except (TypeError, ValueError):
+        return None
+
+
+def backup_is_due(config, status, now=None):
+    """判断 systemd timer 本轮是否应执行备份（上海时区，每次失败一小时后重试）。"""
+    if str(config.get('backup_enabled', '0')) != '1':
+        return False
+    local_tz = ZoneInfo('Asia/Shanghai')
+    now = now or datetime.now(local_tz)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=local_tz)
+    else:
+        now = now.astimezone(local_tz)
+    try:
+        hour, minute = (int(part) for part in str(config.get('backup_time', '03:00')).split(':', 1))
+        scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    except (TypeError, ValueError):
+        return False
+    if now < scheduled:
+        return False
+
+    last_success = _parse_status_time(status.get('last_success_at'))
+    if last_success and last_success.astimezone(local_tz).date() >= now.date():
+        return False
+    last_attempt = _parse_status_time(status.get('last_attempt_at'))
+    if last_attempt:
+        local_attempt = last_attempt.astimezone(local_tz)
+        if local_attempt >= scheduled and now - local_attempt < timedelta(hours=1):
+            return False
+    return True
+
+
+def run_scheduled_backup(now=None):
+    """供独立 systemd timer 调用。返回 0=无需执行/成功，1=应执行但失败。"""
+    from utils.backup_config import get_backup_config, get_backup_status
+    config = get_backup_config()
+    status = get_backup_status()
+    if not backup_is_due(config, status, now=now):
+        log.info('备份 timer 检查完成：当前无需执行')
+        return 0
+    return 0 if _backup_job() == 1 else 1
+
+
 def _acquire_lock():
     """PID 锁文件：返回持有锁时删除用路径，未抢到返回 None"""
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -163,13 +218,6 @@ def start_scheduler(app):
         return None
     s = BackgroundScheduler(timezone='Asia/Shanghai')
     s.add_job(_daily_job, CronTrigger(hour=8, minute=30), id='itsm-daily', replace_existing=True)
-    try:
-        from utils.backup_config import backup_time_trigger
-        bh, bm = backup_time_trigger()
-    except Exception:
-        bh, bm = 3, 0
-    s.add_job(_backup_job, CronTrigger(hour=bh, minute=bm),
-              id='itsm-backup', replace_existing=True)
     s.start()
     _scheduler = s
 
@@ -183,43 +231,10 @@ def start_scheduler(app):
     if lock_path:
         import atexit
         atexit.register(_release)
-    # 注意：CronTrigger 无 .hour/.minute 属性（APScheduler 用 fields），此处直接用已计算的 bh/bm
-    log.info('后台调度器已启动（每日 08:30：自动任务生成 + 逾期提醒；每日 %02d:%02d：自动备份）',
-             bh, bm)
+    log.info('后台业务调度器已启动（每日 08:30：自动任务生成 + 逾期提醒）；备份由 systemd timer 执行')
     return s
 
 
-def _trigger_hour_minute(job):
-    """从 CronTrigger 提取 hour/minute。
-
-    APScheduler 的 CronTrigger 无 .hour/.minute 属性；字段的取值在
-    expressions[0].first（如 hour='4' → first=4）。缺省/异常返回 (None, None)。
-    """
-    try:
-        fields = {f.name: f for f in job.trigger.fields}
-
-        def _first(name):
-            f = fields.get(name)
-            if f and getattr(f, 'expressions', None) and not getattr(f, 'is_default', True):
-                return f.expressions[0].first
-            return None
-        return _first('hour'), _first('minute')
-    except Exception:
-        return None, None
-
-
 def reschedule_backup():
-    """备份配置变更后重排备份任务（幂等；未启动调度器时忽略）"""
-    global _scheduler
-    if _scheduler is None:
-        return
-    try:
-        from utils.backup_config import backup_time_trigger
-        bh, bm = backup_time_trigger()
-        job = _scheduler.get_job('itsm-backup')
-        cur_h, cur_m = _trigger_hour_minute(job) if job else (None, None)
-        if job and (cur_h != bh or cur_m != bm):
-            job.reschedule(CronTrigger(hour=bh, minute=bm))
-            log.info('备份任务重排为每日 %02d:%02d', bh, bm)
-    except Exception:
-        log.exception('备份任务重排失败')
+    """systemd timer 每五分钟读取数据库配置，无需进程内重排。"""
+    return None

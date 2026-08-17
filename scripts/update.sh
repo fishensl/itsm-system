@@ -34,13 +34,29 @@ echo ""
 echo "[1/6] 备份数据库..."
 bash "${APP_DIR}/scripts/backup.sh" "${APP_DIR}"
 
-# ---- 2. 工作区必须干净 ----
+# ---- 2. 已跟踪工作区必须干净 ----
 echo "[2/6] 检查工作区..."
 cd "${APP_DIR}"
-if [ -n "$(git status --porcelain)" ]; then
-    echo "[FATAL] 工作区存在未提交修改，拒绝自动 stash/覆盖" >&2
-    git status --short
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "[FATAL] 工作区存在已跟踪文件修改，拒绝自动 stash/覆盖" >&2
+    git status --short --untracked-files=no
     exit 1
+fi
+# 未跟踪运行数据由 .gitignore 管理；若与新版本文件冲突，git pull 自身会安全拒绝。
+
+# 旧版本曾把 Fernet 历史密钥误纳入 Git。更新到“停止跟踪”提交时 Git 会删除
+# 该工作树文件，因此必须先在仓库外（backups/ 已被 Git 忽略）保存 root-only 副本。
+mapfile -t TRACKED_KEY_BACKUPS < <(git ls-files '.secret.key.bak.*')
+if [ "${#TRACKED_KEY_BACKUPS[@]}" -gt 0 ]; then
+    KEY_ARCHIVE_DIR="${APP_DIR}/backups/key-archive"
+    install -d -m 0700 "${KEY_ARCHIVE_DIR}"
+    for tracked_key in "${TRACKED_KEY_BACKUPS[@]}"; do
+        if [ -f "${APP_DIR}/${tracked_key}" ]; then
+            install -m 0600 "${APP_DIR}/${tracked_key}" \
+                "${KEY_ARCHIVE_DIR}/$(basename "${tracked_key}")"
+        fi
+    done
+    echo "  [OK] 已跟踪历史密钥已归档到 backups/key-archive（权限 600）"
 fi
 
 # ---- 公共：GitHub 多通道（git pull / vue-dist 下载共用） ----
@@ -229,11 +245,16 @@ echo "[5/6] 更新 Python 依赖..."
 if ! dpkg -s libcairo2 >/dev/null 2>&1; then
     apt-get install -y -qq libcairo2
 fi
-# unzip：Vue 构建产物解压依赖（部分最小化系统未预装）
-if ! dpkg -s unzip zip >/dev/null 2>&1; then
-    apt-get install -y -qq unzip zip
+# unzip：离线 Vue 构建产物的唯一系统解压依赖；不再为本地构建无条件安装 zip。
+if ! dpkg -s unzip >/dev/null 2>&1; then
+    apt-get install -y -qq unzip
 fi
-"${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
+if [ -n "${OFFLINE_EXPECTED_COMMIT:-}" ]; then
+    # 离线发布禁止访问 PyPI；本批依赖未变化时由已安装包直接满足。
+    "${VENV}/bin/pip" install --no-index -r "${APP_DIR}/requirements.txt" -q
+else
+    "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
+fi
 
 # ---- 5.5 drawio webapp（V20 在线拓扑，gitignore 不入库，缺失则补拉）----
 if [ ! -f "${APP_DIR}/static/vendor/drawio/index.html" ]; then

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Vue API：数据备份（统计/导出/导入）"""
 from models import db, Customer
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 class TestBackupApi:
@@ -100,6 +102,33 @@ class TestBackupApi:
             assert status['health'] == 'failed'
             assert status['consecutive_failures'] == 1
             assert alerts and '连续失败 1 次' in alerts[0]
+
+    def test_external_backup_timer_due_rules(self):
+        from utils.scheduler import backup_is_due
+
+        cfg = {'backup_enabled': '1', 'backup_time': '03:30'}
+        shanghai = ZoneInfo('Asia/Shanghai')
+        assert not backup_is_due(cfg, {}, datetime(2026, 8, 17, 3, 29, tzinfo=shanghai))
+        assert backup_is_due(cfg, {}, datetime(2026, 8, 17, 3, 30, tzinfo=shanghai))
+        assert not backup_is_due(
+            cfg,
+            {'last_success_at': '2026-08-16T20:00:00Z'},
+            datetime(2026, 8, 17, 4, 0, tzinfo=shanghai),
+        )
+        assert not backup_is_due(
+            cfg,
+            {'last_attempt_at': '2026-08-16T19:45:00Z'},
+            datetime(2026, 8, 17, 4, 0, tzinfo=shanghai),
+        )
+        assert backup_is_due(
+            cfg,
+            {'last_attempt_at': '2026-08-16T18:30:00Z'},
+            datetime(2026, 8, 17, 4, 0, tzinfo=shanghai),
+        )
+        assert not backup_is_due(
+            {'backup_enabled': '0', 'backup_time': '03:30'}, {},
+            datetime.now(timezone.utc),
+        )
 
     def test_import_creates_pre_backup(self, tmp_path):
         """导入前自动备份当前数据到 BACKUP_DIR/pre_import_<ts>.zip（响应携带文件名）"""

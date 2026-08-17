@@ -1,6 +1,7 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import type { ApiResponse } from '@/types'
 import { currentOperationToken, requestOperationToken } from '@/utils/operationToken'
+import { loginRedirectTarget } from '@/utils/appRoute'
 
 /** 读取 CSRF token：优先 cookie；保留 meta 回退以兼容旧部署缓存。 */
 function getCsrfToken(): string {
@@ -34,8 +35,12 @@ instance.interceptors.response.use(
       const { status, data } = error.response
       if (status === 401) {
         // 未登录：跳登录页（保留回跳地址）
-        const redirect = encodeURIComponent(window.location.pathname + window.location.search)
-        window.location.href = `/app/login?redirect=${redirect}`
+        if (window.location.pathname !== '/app/login') {
+          const redirect = encodeURIComponent(loginRedirectTarget(
+            window.location.pathname + window.location.search,
+          ))
+          window.location.href = `/app/login?redirect=${redirect}`
+        }
       } else if (status === 403) {
         window.dispatchEvent(new CustomEvent('itsm:toast', {
           detail: { message: data?.message || '权限不足', type: 'error' },

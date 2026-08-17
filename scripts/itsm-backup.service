@@ -1,0 +1,20 @@
+[Unit]
+Description=ITSM verified scheduled backup
+After=network.target postgresql.service
+ConditionPathExists=/opt/itsm/.env
+ConditionPathExists=/opt/itsm/scripts/run_scheduled_backup.py
+
+[Service]
+Type=oneshot
+User=itsm
+Group=itsm
+WorkingDirectory=/opt/itsm
+EnvironmentFile=/opt/itsm/.env
+ExecStart=/opt/itsm/venv/bin/python /opt/itsm/scripts/run_scheduled_backup.py
+TimeoutStartSec=35min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=no
+ReadWritePaths=/opt/itsm/instance /opt/itsm/backups
+UMask=0077

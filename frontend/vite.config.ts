@@ -28,6 +28,18 @@ const EP_SPECIAL_DIRS: Record<string, string> = {
   ElFormItem: 'form',
 }
 
+// 路由页面按需懒加载；开发环境若等到首次访问页面才发现这些深路径依赖，
+// Vite 会重新优化依赖并整页刷新。启动时一次性预打包项目实际使用的组件入口。
+const EP_PREBUNDLE_DIRS = [
+  'alert', 'avatar', 'badge', 'button', 'card', 'cascader', 'checkbox', 'col',
+  'collapse', 'color-picker', 'config-provider', 'date-picker', 'descriptions',
+  'dialog', 'divider', 'drawer', 'dropdown', 'empty', 'form', 'icon', 'image',
+  'input', 'input-number', 'link', 'message-box', 'pagination', 'popover',
+  'progress', 'radio', 'result', 'row', 'scrollbar', 'select', 'skeleton',
+  'switch', 'table', 'tabs', 'tag', 'timeline', 'time-select', 'tooltip', 'tree',
+  'tree-select', 'upload',
+]
+
 function deepElementPlusResolver() {
   return {
     type: 'component' as const,
@@ -67,6 +79,14 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
+  },
+  optimizeDeps: {
+    include: [
+      '@element-plus/icons-vue',
+      'element-plus/es/locale/lang/zh-cn',
+      ...EP_PREBUNDLE_DIRS.map((dir) => `element-plus/es/components/${dir}/index`),
+      ...EP_PREBUNDLE_DIRS.map((dir) => `element-plus/es/components/${dir}/style/css`),
+    ],
   },
   server: {
     port: 5173,

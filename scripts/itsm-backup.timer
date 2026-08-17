@@ -1,0 +1,12 @@
+[Unit]
+Description=Check ITSM backup schedule every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+AccuracySec=1min
+RandomizedDelaySec=30s
+Unit=itsm-backup.service
+
+[Install]
+WantedBy=timers.target

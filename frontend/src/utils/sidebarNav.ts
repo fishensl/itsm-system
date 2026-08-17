@@ -1,4 +1,7 @@
 import router from '@/router'
+import { toRouterPath } from '@/utils/appRoute'
+
+export { toRouterPath }
 
 /** 侧栏只允许 SPA 内跳转；旧路径由后端兼容映射，未知路径交给 Vue 兜底路由。 */
 export type SidebarTarget = { mode: 'spa'; path: string; query: string }
@@ -25,14 +28,6 @@ export function sidebarTarget(url: string): SidebarTarget {
  * SPA 路由注册在 /app/ 历史基座下且不含 /app 前缀，router-link 直接使用
  * /app/... 会匹配不到路由 → 被兜底路由重定向回首页（如知识库标题/详情跳转）。
  */
-export function toRouterPath(url: string): string {
-  if (!url.startsWith('/app')) return url
-  const qi = url.indexOf('?')
-  const base = qi >= 0 ? url.slice(0, qi) : url
-  const query = qi >= 0 ? url.slice(qi) : ''
-  return (base.replace(/^\/app/, '').replace(/\/+$/, '') || '/') + query
-}
-
 /** 拆分链接为 path + query 参数（无 query 返回 null） */
 function splitUrl(url: string): { path: string; params: URLSearchParams | null } {
   const qi = url.indexOf('?')

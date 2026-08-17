@@ -23,6 +23,7 @@ def _find_bash():
 
 BASH = _find_bash()
 LIB = Path(__file__).resolve().parents[1] / 'scripts' / 'lib-release.sh'
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_restore(current, previous, failed, *, inject=False):
@@ -88,3 +89,35 @@ def test_restore_failure_injection_rolls_current_back(tmp_path):
     assert (current / 'index.html').read_text(encoding='utf-8') == 'new'
     assert (previous / 'index.html').read_text(encoding='utf-8') == 'old'
     assert not failed.exists()
+
+
+def test_release_script_requires_clean_matching_source():
+    script = (ROOT / 'scripts' / 'make-release.sh').read_text(encoding='utf-8')
+    assert 'git diff --quiet' in script
+    assert 'git ls-files --others --exclude-standard' in script
+    assert 'RELEASE_COMMIT=$(git rev-parse HEAD)' in script
+    assert 'MASTER_COMMIT=$(git rev-parse master)' in script
+
+
+def test_offline_update_does_not_require_zip_or_pypi():
+    script = (ROOT / 'scripts' / 'update.sh').read_text(encoding='utf-8')
+    assert 'dpkg -s unzip zip' not in script
+    assert 'pip" install --no-index' in script
+    assert 'git status --porcelain --untracked-files=no' in script
+    assert "git ls-files '.secret.key.bak.*'" in script
+    assert 'backups/key-archive' in script
+
+
+def test_backup_timer_units_are_installed_and_hardened():
+    installer = (ROOT / 'scripts' / 'lib-install.sh').read_text(encoding='utf-8')
+    service = (ROOT / 'scripts' / 'itsm-backup.service').read_text(encoding='utf-8')
+    timer = (ROOT / 'scripts' / 'itsm-backup.timer').read_text(encoding='utf-8')
+    assert 'systemctl enable --now itsm-backup.timer' in installer
+    assert 'systemctl disable --now itsm-backup-failsafe.timer' in installer
+    assert 'User=itsm' in service
+    assert 'UMask=0077' in service
+    assert 'run_scheduled_backup.py' in service
+    assert 'OnCalendar=*:0/5' in timer
+    assert 'Persistent=true' in timer
+    web_service = (ROOT / 'scripts' / 'itsm.service').read_text(encoding='utf-8')
+    assert 'UMask=0077' in web_service

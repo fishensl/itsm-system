@@ -342,8 +342,10 @@ async function savePassword() {
     await changePassword(pwdForm.old_password, pwdForm.new_password)
     ui.toast('密码已修改，请重新登录', 'success')
     pwdVisible.value = false
-    await user.logout()
-    router.push('/login')
+    // 改密接口已在后端注销会话；此处仅清理本地状态，避免重复 logout 的 401
+    // 被全局拦截器误认为会话过期并写入带 /app 前缀的回跳地址。
+    user.clearSession()
+    await router.replace('/login')
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {

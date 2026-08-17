@@ -78,6 +78,7 @@ import { ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { loginRedirectTarget } from '@/utils/appRoute'
 
 const router = useRouter()
 const route = useRoute()
@@ -116,8 +117,7 @@ async function submit() {
       form.password = ''
       return
     }
-    const redirect = (route.query.redirect as string) || '/'
-    router.push(redirect)
+    await router.replace(loginRedirectTarget(route.query.redirect))
   } catch (e) {
     errorMsg.value = (e as Error).message || '登录失败'
   } finally {
@@ -131,7 +131,7 @@ async function submitMfa() {
   errorMsg.value = ''
   try {
     await userStore.verifyMfa(mfaCode.value.trim(), recovery.value)
-    await router.push((route.query.redirect as string) || '/')
+    await router.replace(loginRedirectTarget(route.query.redirect))
   } catch (e) { errorMsg.value = (e as Error).message || '验证失败' }
   finally { loading.value = false }
 }

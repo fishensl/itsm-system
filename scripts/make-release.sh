@@ -16,6 +16,22 @@ cd "${APP_DIR}"
 OUT_DIR="${APP_DIR}/backups"
 mkdir -p "${OUT_DIR}"
 
+# bundle 取 master，前端产物取当前工作树；二者必须严格来自同一、干净提交。
+# 推荐在 `git worktree add --detach <dir> master` 创建的干净发布工作树内执行。
+if ! git diff --quiet || ! git diff --cached --quiet || \
+   [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo "[FATAL] 发布工作树不干净，拒绝生成可能前后端错配的发布包" >&2
+    git status --short >&2
+    exit 1
+fi
+RELEASE_COMMIT=$(git rev-parse HEAD)
+MASTER_COMMIT=$(git rev-parse master)
+if [ "${RELEASE_COMMIT}" != "${MASTER_COMMIT}" ]; then
+    echo "[FATAL] 当前 HEAD 与 master 不一致，拒绝混合打包" >&2
+    echo "        HEAD=${RELEASE_COMMIT} master=${MASTER_COMMIT}" >&2
+    exit 1
+fi
+
 echo "============================================"
 echo "  ITSM 离线发布包生成  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"
@@ -39,6 +55,11 @@ fi
 
 if ! (cd "${APP_DIR}/frontend" && npm ci --no-audit --no-fund && npm run build); then
     echo "  [FATAL] 前端构建失败，拒绝打包旧 dist" >&2
+    exit 1
+fi
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "[FATAL] 前端构建修改了已跟踪源文件，请先提交生成结果后重新出包" >&2
+    git status --short >&2
     exit 1
 fi
 
@@ -65,7 +86,6 @@ sha256sum "${OUT_DIR}/vue-dist-manual.zip" | awk '{print $1}' > "${OUT_DIR}/vue-
 
 # ---- 3. 同版本 manifest：防止误把不同提交的 bundle 与前端包混用 ----
 echo "[3/3] 生成同版本发布 manifest ..."
-RELEASE_COMMIT=$(git rev-parse master)
 BUNDLE_SHA=$(tr -d '[:space:]' < "${OUT_DIR}/itsm-update.bundle.sha256")
 VUE_SHA=$(tr -d '[:space:]' < "${OUT_DIR}/vue-dist-manual.zip.sha256")
 {

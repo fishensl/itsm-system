@@ -64,16 +64,22 @@ export const useUserStore = defineStore('user', () => {
       : await authApi.fetchSidebarGroups()
   }
 
+  function clearSession() {
+    user.value = null
+    sidebarGroups.value = []
+    pendingMfa.value = null
+    loaded.value = false
+  }
+
   async function logout() {
     try {
       await authApi.logout()
     } catch {
       /* 忽略登出接口异常 */
     }
-    user.value = null
-    loaded.value = false
+    clearSession()
   }
 
   return { user, sidebarGroups, loaded, pendingMfa, isAuthenticated, permissions, hasPerm, isSupervisor,
-    init, login, verifyMfa, logout }
+    init, login, verifyMfa, clearSession, logout }
 })

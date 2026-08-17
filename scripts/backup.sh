@@ -2,12 +2,13 @@
 # ============================================================
 # ITSM 备份脚本 — 打包 DB + 密钥
 # 用法: sudo bash backup.sh [/path/to/app]
-# crontab: 0 3 * * * /home/itsm-system_20260614/scripts/backup.sh /home/itsm-system_20260614
+# 生产定时任务由 itsm-backup.timer 调用，时间与开关从 system_settings 读取。
 # 行为：按 .env 的 ITSM_DATABASE_URI 自动选择备份方式：
 #   - SQLite：tar 打包 instance/itsm.db + .secret.key + .env
 #   - PostgreSQL：pg_dump -Fc 自定义格式 + 打包 .secret.key + .env
 # ============================================================
 set -euo pipefail
+umask 077
 
 APP_DIR="${1:-/opt/itsm}"
 ENV_FILE="${APP_DIR}/.env"
@@ -40,6 +41,15 @@ fi
 
 mkdir -p "${BACKUP_DIR}"
 
+# Web 调度、systemd timer 与人工备份可能重叠；同一时刻只允许一套备份写入。
+LOCK_FILE="${APP_DIR}/instance/backup.lock"
+mkdir -p "${APP_DIR}/instance"
+exec 9>"${LOCK_FILE}"
+if command -v flock >/dev/null 2>&1 && ! flock -n 9; then
+    echo "[backup][FATAL] 已有备份任务运行中" >&2
+    exit 3
+fi
+
 if [ ! -f "${ENV_FILE}" ]; then
     echo "[backup][FATAL] 缺少 ${ENV_FILE}" >&2
     exit 2
@@ -50,11 +60,17 @@ shopt -s nullglob
 KEY_PATHS=("${APP_DIR}"/.secret.key*)
 for key_path in "${KEY_PATHS[@]}"; do
     [ -f "${key_path}" ] || continue
-    chmod 600 "${key_path}"
     key_mode=$(stat -c '%a' "${key_path}")
     if [ "${key_mode}" != "600" ]; then
-        echo "[backup][FATAL] ${key_path} 权限必须为 600，当前为 ${key_mode}" >&2
-        exit 2
+        chmod 600 "${key_path}" || {
+            echo "[backup][FATAL] 无法将 ${key_path} 权限修正为 600（当前 ${key_mode}）" >&2
+            exit 2
+        }
+        key_mode=$(stat -c '%a' "${key_path}")
+        if [ "${key_mode}" != "600" ]; then
+            echo "[backup][FATAL] ${key_path} 权限必须为 600，当前为 ${key_mode}" >&2
+            exit 2
+        fi
     fi
 done
 # 备份集合只携带当前活动密钥；历史 .bak 文件仅断言权限，不再次扩散。
