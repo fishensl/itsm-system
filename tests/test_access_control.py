@@ -103,8 +103,12 @@ class TestExternalAllowed:
         r = _get(admin_client, '/api/faults', '8.8.8.8')
         assert r.status_code == 200
 
-    def test_app_entry_allowed(self, client):
+    def test_app_entry_allowed(self, client, tmp_path, monkeypatch):
         """SPA 入口外网可达（未登录时 302 到 /app/login 或 200）"""
+        dist = tmp_path / 'app'
+        dist.mkdir()
+        (dist / 'index.html').write_text('<div id="app"></div>', encoding='utf-8')
+        monkeypatch.setattr('blueprints.vue_api._app_dist_dir', lambda: str(dist))
         r = _get(client, '/app/login', '8.8.8.8')
         assert r.status_code in (200, 301, 302)
 
