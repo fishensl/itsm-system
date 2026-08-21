@@ -17,6 +17,14 @@ def test_mfa_enforcement_is_off_by_default(client):
     assert response.get_json()['data']['user']['username'] == 'op'
 
 
+def test_application_uses_dedicated_session_cookie_name(client):
+    response = client.get('/app/login')
+    assert response.status_code in (200, 404)
+    assert client.application.config['SESSION_COOKIE_NAME'] == 'itsm_session'
+    assert client.get_cookie('itsm_session') is not None
+    assert client.get_cookie('session') is None
+
+
 def test_bound_mfa_always_requires_two_step_login(client, app):
     from models import User, db
     from utils.crypto import encrypt_password
@@ -29,6 +37,9 @@ def test_bound_mfa_always_requires_two_step_login(client, app):
     first = client.post('/api/auth/login', json={'username': 'op', 'password': 'test123456'})
     assert first.get_json()['data'] == {'mfa_required': True, 'bind_required': False}
     assert client.get('/api/auth/me').status_code == 401
+    # Cookie 不区分端口；同主机其他应用残留的默认 Flask ``session`` 不得覆盖
+    # 本系统专属 ``itsm_session`` 中的 MFA pending 状态。
+    client.set_cookie('session', 'foreign-application-cookie')
     invalid = client.post('/api/auth/mfa/verify', json={'code': '000000'})
     assert invalid.status_code == 400
     assert invalid.get_json()['message'] == '动态码或恢复码不正确'

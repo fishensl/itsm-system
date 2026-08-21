@@ -60,6 +60,11 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = FORCE_HTTPS
+    # Cookie 不区分端口。生产主机上若其他 Flask 应用也使用默认 ``session``，
+    # 浏览器会把同名 Cookie 发送给本系统，导致密码步骤写入的 MFA pending
+    # Session 在下一请求被覆盖。使用项目专属名称，无需用户手动清 Cookie。
+    SESSION_COOKIE_NAME = os.environ.get(
+        'ITSM_SESSION_COOKIE_NAME', 'itsm_session').strip() or 'itsm_session'
 
     # 分页
     ITEMS_PER_PAGE = 20

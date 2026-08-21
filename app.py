@@ -212,6 +212,7 @@ def create_app(test_config=None):
     app.config['SESSION_COOKIE_HTTPONLY'] = Config.SESSION_COOKIE_HTTPONLY
     app.config['SESSION_COOKIE_SAMESITE'] = Config.SESSION_COOKIE_SAMESITE
     app.config['SESSION_COOKIE_SECURE'] = Config.SESSION_COOKIE_SECURE
+    app.config['SESSION_COOKIE_NAME'] = Config.SESSION_COOKIE_NAME
     # CSRF：默认对所有 POST/PUT/PATCH/DELETE 启用
     app.config['WTF_CSRF_HEADERS'] = ['X-CSRFToken', 'X-CSRF-Token']
     app.config['WTF_CSRF_TIME_LIMIT'] = 60 * 60 * 4  # 4 小时
