@@ -7,9 +7,11 @@
 - 复用 services/ 业务层与 utils/permission 权限体系
 - 图标：后端 sidebar 用 bi-*（Bootstrap Icons），此处映射为 Element Plus 图标名
 """
-from flask import Blueprint, jsonify, request, current_app, send_from_directory, session
+from flask import Blueprint, jsonify, request, current_app, redirect, send_from_directory, session
 from flask_login import login_user, logout_user, login_required, current_user
+import hashlib
 import os
+from urllib.parse import urlencode
 
 from models import db, User
 from utils.permission import get_user_permissions, has_permission, require_permission
@@ -36,6 +38,15 @@ def _app_dist_dir():
     return _APP_DIST or None
 
 
+def _spa_build_id(dist):
+    """Return a content-derived version for the SPA entry document."""
+    try:
+        with open(os.path.join(dist, 'index.html'), 'rb') as stream:
+            return hashlib.sha256(stream.read()).hexdigest()[:12]
+    except OSError:
+        return ''
+
+
 @vue_api_bp.route('/app/', defaults={'path': ''})
 @vue_api_bp.route('/app/<path:path>')
 def vue_spa(path):
@@ -46,6 +57,14 @@ def vue_spa(path):
     full = os.path.normpath(os.path.join(dist, path))
     if path and os.path.isfile(full):
         return send_from_directory(dist, path)
+    # Old browser profiles may retain an index.html cached before no-store was enabled.
+    # Give every deployed entry document a content-derived URL so bookmarks and legacy
+    # login redirects converge on the current SPA without manual cache clearing.
+    build_id = _spa_build_id(dist)
+    if build_id and request.args.get('v') != build_id:
+        query = request.args.to_dict(flat=True)
+        query['v'] = build_id
+        return redirect(f'{request.path}?{urlencode(query)}', code=302)
     # history 路由回退：index.html 由 Vue Router 接管
     return send_from_directory(dist, 'index.html')
 

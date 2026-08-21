@@ -117,13 +117,13 @@ class TestVueDashboardApi:
 class TestVueSpaStatic:
     @pytest.mark.skipif(not _vue_dist_available(), reason='Vue 构建产物未部署（CI 不构建前端，static/app 为空）')
     def test_index_html(self, admin_client):
-        r = admin_client.get('/app/')
+        r = admin_client.get('/app/', follow_redirects=True)
         assert r.status_code == 200
         assert 'id="app"' in r.data.decode('utf-8', 'ignore')
 
     @pytest.mark.skipif(not _vue_dist_available(), reason='Vue 构建产物未部署（CI 不构建前端，static/app 为空）')
     def test_deep_route_fallback(self, admin_client):
         """history 路由回退 index.html"""
-        r = admin_client.get('/app/devices/123')
+        r = admin_client.get('/app/devices/123', follow_redirects=True)
         assert r.status_code == 200
         assert 'id="app"' in r.data.decode('utf-8', 'ignore')

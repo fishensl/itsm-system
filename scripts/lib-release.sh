@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 # 发布脚本共享函数。调用方应启用 set -euo pipefail。
 
+wait_for_readyz() {
+    local url="${1:-http://127.0.0.1:5000/readyz}"
+    local attempts="${2:-30}"
+    local delay="${3:-1}"
+    local attempt=1
+    while [ "${attempt}" -le "${attempts}" ]; do
+        if curl -fsS --connect-timeout 5 --max-time 20 "${url}" >/dev/null; then
+            return 0
+        fi
+        if [ "${attempt}" -lt "${attempts}" ]; then
+            sleep "${delay}"
+        fi
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
 restore_previous_frontend() {
     local current_dir="${1:-}" previous_dir="${2:-}" failed_dir="${3:-}"
     if [ -z "${current_dir}" ] || [ -z "${previous_dir}" ] || [ -z "${failed_dir}" ] || \

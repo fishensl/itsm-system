@@ -442,12 +442,12 @@ echo ""
 echo "[最后] 重启服务..."
 systemctl restart itsm
 systemctl --no-pager -l status itsm
-if ! curl -fsS --connect-timeout 5 --max-time 20 http://127.0.0.1:5000/readyz >/dev/null; then
+if ! wait_for_readyz; then
     echo "[ERROR] 服务重启后 readyz 未通过，尝试恢复上一版前端..." >&2
     FAILED_VUE_DIR="${VUE_DIST_DIR}.failed.${TIMESTAMP}"
     if restore_previous_frontend "${VUE_DIST_DIR}" "${VUE_DIST_DIR}.previous" "${FAILED_VUE_DIR}"; then
         systemctl restart itsm
-        if curl -fsS --connect-timeout 5 --max-time 20 http://127.0.0.1:5000/readyz >/dev/null; then
+        if wait_for_readyz; then
             echo "[ROLLBACK] 已恢复上一版前端；失败版本保留在 ${FAILED_VUE_DIR}" >&2
         else
             echo "[FATAL] 上一版前端已恢复，但 readyz 仍失败；请按本次配对备份回滚后端/数据库" >&2

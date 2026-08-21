@@ -48,6 +48,24 @@ def _write_frontend(path, marker):
     (path / 'index.html').write_text(marker, encoding='utf-8')
 
 
+def _run_wait_for_readyz(succeed_on, attempts=4):
+    if not BASH:
+        pytest.skip('当前环境无 bash')
+    env = dict(os.environ)
+    script = (
+        'set -uo pipefail; source "$1"; target="$2"; attempts="$3"; count=0; '
+        'curl() { count=$((count + 1)); [ "$count" -ge "$target" ]; }; '
+        'wait_for_readyz test "$attempts" 0; rc=$?; '
+        'printf "CALLS=%s\\n" "$count"; exit "$rc"'
+    )
+    result = subprocess.run(
+        [BASH, '-c', script, 'bash', LIB.as_posix(), str(succeed_on), str(attempts)],
+        env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', check=False,
+    )
+    calls = int(result.stdout.rsplit('CALLS=', 1)[1].strip())
+    return result, calls
+
+
 def test_restore_previous_frontend_success(tmp_path):
     current = tmp_path / 'app'
     previous = tmp_path / 'app.previous'
@@ -89,6 +107,18 @@ def test_restore_failure_injection_rolls_current_back(tmp_path):
     assert (current / 'index.html').read_text(encoding='utf-8') == 'new'
     assert (previous / 'index.html').read_text(encoding='utf-8') == 'old'
     assert not failed.exists()
+
+
+def test_wait_for_readyz_retries_until_service_is_ready():
+    result, calls = _run_wait_for_readyz(succeed_on=3, attempts=5)
+    assert result.returncode == 0, result.stderr
+    assert calls == 3
+
+
+def test_wait_for_readyz_fails_after_bounded_attempts():
+    result, calls = _run_wait_for_readyz(succeed_on=99, attempts=2)
+    assert result.returncode != 0
+    assert calls == 2
 
 
 def test_release_script_requires_clean_matching_source():
