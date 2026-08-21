@@ -3,6 +3,11 @@ import type { ApiResponse } from '@/types'
 import { currentOperationToken, requestOperationToken } from '@/utils/operationToken'
 import { loginRedirectTarget } from '@/utils/appRoute'
 
+export interface ItsmRequestConfig extends AxiosRequestConfig {
+  /** 登录/MFA 等认证流程自行展示 401，避免拦截器抢先整页跳转。 */
+  skipAuthRedirect?: boolean
+}
+
 /** 读取 CSRF token：优先 cookie；保留 meta 回退以兼容旧部署缓存。 */
 function getCsrfToken(): string {
   const meta = document.querySelector('meta[name="csrf-token"]')
@@ -33,7 +38,8 @@ instance.interceptors.response.use(
   (error: AxiosError<ApiResponse>) => {
     if (error.response) {
       const { status, data } = error.response
-      if (status === 401) {
+      const requestConfig = error.config as ItsmRequestConfig | undefined
+      if (status === 401 && !requestConfig?.skipAuthRedirect) {
         // 未登录：跳登录页（保留回跳地址）
         if (window.location.pathname !== '/app/login') {
           const redirect = encodeURIComponent(loginRedirectTarget(
@@ -56,13 +62,13 @@ instance.interceptors.response.use(
 )
 
 /** 统一请求封装：返回解包后的 data；业务错误抛 Error(message) */
-export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+export async function request<T>(config: ItsmRequestConfig): Promise<T> {
   let resp
   try {
     resp = await instance.request<ApiResponse<T>>(config)
   } catch (error) {
     const axiosError = error as AxiosError<ApiResponse<T>>
-    const retryConfig = config as AxiosRequestConfig & { _operationRetried?: boolean }
+    const retryConfig = config as ItsmRequestConfig & { _operationRetried?: boolean }
     if (axiosError.response?.status === 403 &&
         axiosError.response.data?.message === '需要操作动态码验证' &&
         !retryConfig._operationRetried) {

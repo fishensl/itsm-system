@@ -18,6 +18,7 @@ export function login(payload: LoginPayload) {
     url: '/api/auth/login',
     method: 'POST',
     data: payload,
+    skipAuthRedirect: true,
   })
 }
 
@@ -50,6 +51,7 @@ export function changePassword(oldPassword: string, newPassword: string) {
 export function verifyLoginMfa(code: string, recovery = false) {
   return request<{ user: CurrentUser }>({
     url: '/api/auth/mfa/verify', method: 'POST', data: { code, recovery },
+    skipAuthRedirect: true,
   })
 }
 

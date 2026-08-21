@@ -29,6 +29,10 @@ def test_bound_mfa_always_requires_two_step_login(client, app):
     first = client.post('/api/auth/login', json={'username': 'op', 'password': 'test123456'})
     assert first.get_json()['data'] == {'mfa_required': True, 'bind_required': False}
     assert client.get('/api/auth/me').status_code == 401
+    invalid = client.post('/api/auth/mfa/verify', json={'code': '000000'})
+    assert invalid.status_code == 400
+    assert invalid.get_json()['message'] == '动态码或恢复码不正确'
+    # Invalid input must keep the pending login alive so a correct code can be retried.
     second = client.post('/api/auth/mfa/verify', json={'code': pyotp.TOTP(secret).now()})
     assert second.status_code == 200
     assert client.get('/api/auth/me').status_code == 200

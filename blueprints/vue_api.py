@@ -152,24 +152,37 @@ def api_login_mfa_verify():
     user_id = session.get('pending_mfa_user_id')
     pending_at = session.get('pending_mfa_at')
     if not user_id or not pending_at or int(datetime.utcnow().timestamp()) - int(pending_at) > 300:
+        current_app.logger.warning(
+            'MFA 登录拒绝 reason=pending_missing_or_expired user_id=%s ip=%s',
+            user_id or '-', client_ip())
         session.clear()
         return fail('登录验证已过期，请重新输入密码', 401)
     if session.get('pending_mfa_ip') != client_ip():
+        current_app.logger.warning(
+            'MFA 登录拒绝 reason=source_changed user_id=%s pending_ip=%s current_ip=%s',
+            user_id, session.get('pending_mfa_ip') or '-', client_ip())
         session.clear()
         return fail('登录验证来源发生变化，请重新登录', 401)
     user = User.query.filter_by(id=int(user_id), is_active=True).first()
     if not user:
+        current_app.logger.warning(
+            'MFA 登录拒绝 reason=user_unavailable user_id=%s ip=%s', user_id, client_ip())
         session.clear()
         return fail('账号不可用', 401)
     data = request.get_json(silent=True) or {}
     if not verify_user_mfa(user, 'login', data.get('code', ''),
                            allow_recovery=bool(data.get('recovery'))):
         db.session.commit()
-        return fail('动态码或恢复码不正确', 401)
+        current_app.logger.warning(
+            'MFA 登录拒绝 reason=code_invalid user_id=%s recovery=%s ip=%s',
+            user.id, bool(data.get('recovery')), client_ip())
+        # pending session remains valid so the user can retry without re-entering the password.
+        return fail('动态码或恢复码不正确', 400)
     db.session.commit()
     session.clear()
     login_user(user)
     establish_session(user)
+    current_app.logger.info('用户 [%s] MFA 登录成功', user.username)
     return ok({'user': _user_payload(user)})
 
 
