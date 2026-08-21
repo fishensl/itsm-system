@@ -303,10 +303,14 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
     from sqlalchemy import or_
 
     if scope == 'department' and getattr(user, 'department_id', None):
-        dept_user_ids = [u.id for u in UModel.query.filter_by(
-            department_id=user.department_id, is_active=True).all()]
-        dept_user_names = [u.realname or u.username for u in UModel.query.filter_by(
-            department_id=user.department_id, is_active=True).all()]
+        from utils.department_scope import department_subtree_ids
+        department_ids = department_subtree_ids(user.department_id)
+        department_users = UModel.query.filter(
+            UModel.department_id.in_(department_ids),
+            UModel.is_active.is_(True),
+        ).all()
+        dept_user_ids = [u.id for u in department_users]
+        dept_user_names = [u.realname or u.username for u in department_users]
         conditions = []
         if hasattr(model, 'created_by'):
             conditions.append(model.created_by.in_(dept_user_names))

@@ -172,3 +172,40 @@ class TestDropdownScoping:
             db.session.commit()
         data = op_client.get('/api/customers').get_json()['data']
         assert {item['id'] for item in data['items']} == {seed['c1'], seed['c2']}
+
+    def test_parent_department_scope_includes_child_but_child_does_not_inherit_parent(
+            self, app, seed):
+        with app.app_context():
+            parent = Department(name='技术部')
+            db.session.add(parent)
+            db.session.flush()
+            child = Department(name='运维科', parent_id=parent.id)
+            sibling = Department(name='工程科', parent_id=parent.id)
+            db.session.add_all([child, sibling])
+            db.session.flush()
+
+            parent_user = User.create_with_password(
+                username='scope_parent', password='test123456', role='operator',
+                realname='技术部人员', department_id=parent.id)
+            child_user = User.create_with_password(
+                username='scope_child', password='test123456', role='operator',
+                realname='运维科人员', department_id=child.id)
+            sibling_user = User.create_with_password(
+                username='scope_sibling', password='test123456', role='operator',
+                realname='工程科人员', department_id=sibling.id)
+            db.session.add_all([parent_user, child_user, sibling_user])
+            db.session.flush()
+            parent_user.customers = [db.session.get(Customer, seed['c1'])]
+            child_user.customers = [db.session.get(Customer, seed['c2'])]
+            sibling_customer = Customer(name='兄弟部门客户')
+            sibling_user.customers = [sibling_customer]
+            db.session.commit()
+
+            parent_id = parent_user.id
+            child_id = child_user.id
+
+            from utils.customer_scope import _configured_customer_ids
+            assert _configured_customer_ids(db.session.get(User, parent_id)) == {
+                seed['c1'], seed['c2'], sibling_customer.id,
+            }
+            assert _configured_customer_ids(db.session.get(User, child_id)) == {seed['c2']}

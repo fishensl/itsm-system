@@ -56,3 +56,41 @@ class TestScopeFilter:
         r = admin_client.get('/api/tickets')
         titles = [i['title'] for i in r.get_json()['data']['items']]
         assert '管理员可见' in titles
+
+    def test_parent_department_scope_includes_child_ticket(self, app):
+        with app.app_context():
+            from services.ticket_service import create_ticket
+            parent = Department(name='父部门')
+            db.session.add(parent)
+            db.session.flush()
+            child = Department(name='子部门', parent_id=parent.id)
+            db.session.add(child)
+            db.session.flush()
+            parent_user = User.create_with_password(
+                username='scope_parent_ticket', password='x', role='operator',
+                realname='父部门工程师', department_id=parent.id)
+            child_user = User.create_with_password(
+                username='scope_child_ticket', password='x', role='operator',
+                realname='子部门工程师', department_id=child.id)
+            db.session.add_all([parent_user, child_user])
+            customer = Customer(name='子部门工单客户')
+            db.session.add(customer)
+            db.session.flush()
+            create_ticket(
+                {'title': '子部门创建工单', 'customer_id': customer.id},
+                '子部门工程师')
+            create_ticket(
+                {'title': '父部门创建工单', 'customer_id': customer.id},
+                '父部门工程师')
+            db.session.commit()
+
+        client = _login_user(app, 'scope_parent_ticket')
+        titles = [item['title'] for item in
+                  client.get('/api/tickets').get_json()['data']['items']]
+        assert '子部门创建工单' in titles
+
+        child_client = _login_user(app, 'scope_child_ticket')
+        child_titles = [item['title'] for item in
+                        child_client.get('/api/tickets').get_json()['data']['items']]
+        assert '子部门创建工单' in child_titles
+        assert '父部门创建工单' not in child_titles

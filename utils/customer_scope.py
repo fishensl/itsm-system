@@ -4,7 +4,7 @@
 权限码回答“能否进入功能”，本模块回答“进入后能看到哪些客户数据”：
 
 - admin 或 scope=all：全部客户；
-- scope=department：本人及同部门活跃用户在 customer_engineers 中关联的客户；
+- scope=department：本人部门及全部下级部门的活跃用户在 customer_engineers 中关联的客户；
 - scope=self（以及没有部门的 department 用户）：仅本人直接关联客户。
 
 受限用户没有客户关联时返回空集，绝不回退到全量数据。下拉候选只返回业务所需
@@ -35,9 +35,11 @@ def _configured_customer_ids(user):
 
     user_ids = [user.id]
     if get_user_scope(user) == 'department' and getattr(user, 'department_id', None):
+        from utils.department_scope import department_subtree_ids
+        department_ids = department_subtree_ids(user.department_id)
         user_ids = list(db.session.scalars(
             db.select(User.id).where(
-                User.department_id == user.department_id,
+                User.department_id.in_(department_ids),
                 User.is_active.is_(True),
             )
         ))
