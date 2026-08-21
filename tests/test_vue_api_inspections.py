@@ -664,7 +664,7 @@ class TestTaskSubmissionAssets:
             db.session.add(t)
             db.session.flush()
             d = Device(customer_id=seed['c'], device_name='核心交换机A', device_type='核心交换机',
-                       ip_address='10.0.0.1')
+                       ip_address='10.0.0.1', location='正面', power_supply='双电源')
             db.session.add(d)
             db.session.commit()
             return t.id, d.id
@@ -714,6 +714,9 @@ class TestTaskSubmissionAssets:
             # 资产导入
             assert Device.query.filter_by(customer_id=seed['c']).count() == 2
             assert Device.query.filter_by(device_name='新服务器B').first() is not None
+            existing_device = Device.query.get(did)
+            assert existing_device.location == '正面'
+            assert existing_device.power_supply == '双电源'
         # 版本列表 API 含资料明细
         r = op_client.get(f"/api/inspections/{i.id}/versions")
         vers = r.get_json()['data']

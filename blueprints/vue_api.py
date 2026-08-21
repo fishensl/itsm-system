@@ -607,6 +607,7 @@ def _device_payload(d, customer_map=None, rack_map=None, pwd_map=None):
         'has_password': bool(d.password_encrypted),
         'login_method': d.login_method or '',
         'location': d.location or '',
+        'power_supply': d.power_supply or '',
         'interface': iface,
         'os_version': d.os_version or '',
         'rule_version': d.rule_version or '',
@@ -817,7 +818,7 @@ def api_v2_device_export():
 def api_v2_device_import():
     """设备批量导入（multipart import_file；与 SSR 导入同字段映射）"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
-    from services.device_service import _parse_date
+    from services.device_service import _parse_date, normalize_device_choice
     from utils.crypto import encrypt_password as _ep
     from models import Device as _D, Customer as _C
     if 'import_file' not in request.files:
@@ -844,7 +845,8 @@ def api_v2_device_import():
             '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
             '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
             '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method',
-            '安装位置': 'location', '系统版本': 'os_version', '规则库版本': 'rule_version',
+            '安装位置': 'location', '电源配置': 'power_supply',
+            '系统版本': 'os_version', '规则库版本': 'rule_version',
             '备注': 'remark', '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
         }
         from utils.customer_scope import apply_customer_scope
@@ -883,6 +885,9 @@ def api_v2_device_import():
                     username=row_data.get('username', ''),
                     password_encrypted=_ep(plain_password) if plain_password else '',
                     login_method=row_data.get('login_method', ''),
+                    location=normalize_device_choice('location', row_data.get('location')),
+                    power_supply=normalize_device_choice(
+                        'power_supply', row_data.get('power_supply')),
                     os_version=row_data.get('os_version', ''), rule_version=row_data.get('rule_version', ''),
                     is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
                     is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
@@ -923,7 +928,7 @@ def api_v2_device_batch_update():
     机柜位置：{device_ids, rack_id, start_u, occupy_u} —— 迁移走旧上架记录后新建，
     机房位置/机柜号取目标机柜的 location/name；U 位范围与占用冲突校验（含批内互占），冲突整体回滚。
     """
-    from services.device_service import _parse_date
+    from services.device_service import _parse_date, normalize_device_choice
     from blueprints.vue_api_asset import _check_u_range, _check_u_conflict
     from models import Device as _D, Rack as _R, RackInstall as _RI
     data = request.get_json(silent=True) or {}
@@ -984,7 +989,8 @@ def api_v2_device_batch_update():
     # ---------- 普通字段批量修改 ----------
     field = (data.get('field') or '').strip()
     value = data.get('value')
-    TEXT_FIELDS = {'location', 'network_type', 'brand', 'model', 'device_type', 'remark'}
+    TEXT_FIELDS = {'location', 'power_supply', 'network_type', 'brand', 'model',
+                   'device_type', 'remark'}
     BOOL_FIELDS = {'is_in_use', 'is_maintenance'}
     DATE_FIELDS = {'license_start', 'license_expiry', 'cert_expiry_date'}
     if field == 'rack_location':
@@ -1010,6 +1016,8 @@ def api_v2_device_batch_update():
             parsed = bool(value) if isinstance(value, bool) else str(value).strip().lower() in ('1', 'true', 'on', '是')
         elif field in DATE_FIELDS:
             parsed = _parse_date(value) if value else None
+        elif field in {'location', 'power_supply'}:
+            parsed = normalize_device_choice(field, value)
         else:
             parsed = str(value or '').strip()
         for d in devices:
@@ -2282,12 +2290,19 @@ def api_ticket_dicts():
 @require_permission('device:view')
 def api_device_dicts():
     from models import Device as _Device, DeviceType as _DT
+    from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_POWER_SUPPLIES
     from utils.customer_scope import customer_dropdown_options
     brands = [r[0] for r in db.session.query(_Device.brand).distinct()
               .filter(_Device.brand != '').order_by(_Device.brand).all()]
     types = [{'name': t.name} for t in _DT.query.order_by(_DT.sort_order, _DT.id).all()]
     customers = customer_dropdown_options(current_user)
-    return ok({'brands': brands, 'device_types': types, 'customers': customers})
+    return ok({
+        'brands': brands,
+        'device_types': types,
+        'customers': customers,
+        'installation_positions': list(DEVICE_INSTALLATION_POSITIONS),
+        'power_supplies': list(DEVICE_POWER_SUPPLIES),
+    })
 
 
 # ==================== 客户管理 ====================

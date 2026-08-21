@@ -19,6 +19,7 @@ def seed(app):
         d1 = Device(customer_id=c1.id, device_name='SW-A', device_type='交换机',
                     brand='华为', ip_address='10.0.0.1', is_in_use=True,
                     network_type='内网', cert_expiry_date=date(2026, 12, 31),
+                    location='旧安装描述', power_supply='双电源',
                     password_encrypted=encrypt_password('Sec#1'))
         d2 = Device(customer_id=c2.id, device_name='FW-B', device_type='防火墙',
                     brand='深信服', ip_address='10.0.0.2', is_in_use=False)
@@ -49,6 +50,7 @@ class TestDeviceList:
         first = data['items'][0]
         assert 'network_type' in first and 'cert_expiry_date' in first
         assert {'rack_location', 'rack_name', 'rack_slot'} <= first.keys()
+        assert first['power_supply'] in ('', '双电源')
         assert {'pwd_changed_by', 'pwd_changed_at'} <= first.keys()
         assert first['rack_location'] == ''  # 未上架设备机柜列为空
 
@@ -84,6 +86,7 @@ class TestDeviceCrud:
             'brand': 'H3C', 'ip_address': '10.0.0.3', 'is_in_use': True,
             'interface': ['G0/0/1', 'G0/0/2'], 'password': 'Pwd#123',
             'network_type': 'DMZ', 'cert_expiry_date': '2027-06-30',
+            'location': '背面', 'power_supply': '单电源',
         })
         assert r.status_code == 200
         with app.app_context():
@@ -93,6 +96,8 @@ class TestDeviceCrud:
             assert 'G0/0/1' in d.interface
             assert d.password_encrypted
             assert d.network_type == 'DMZ'
+            assert d.location == '背面'
+            assert d.power_supply == '单电源'
             assert d.cert_expiry_date and d.cert_expiry_date.isoformat() == '2027-06-30'
 
     def test_create_duplicate_name(self, op_client, seed):
@@ -100,11 +105,34 @@ class TestDeviceCrud:
         assert r.status_code == 400
         assert r.get_json()['code'] == 1
 
+    @pytest.mark.parametrize(('field', 'value'), [
+        ('location', '左侧'),
+        ('power_supply', '三电源'),
+    ])
+    def test_create_rejects_invalid_device_choice(self, op_client, seed, field, value):
+        payload = {'device_name': f'INVALID-{field}', 'customer_id': seed['c1'], field: value}
+        r = op_client.post('/api/devices', json=payload)
+        assert r.status_code == 400
+        assert '仅支持' in r.get_json()['message']
+
+    def test_update_can_preserve_legacy_location_until_user_normalizes_it(
+            self, op_client, seed, app):
+        before = op_client.get(f"/api/devices/{seed['d1']}")
+        assert before.get_json()['data']['location'] == '旧安装描述'
+        r = op_client.put(f"/api/devices/{seed['d1']}", json={
+            'device_name': 'SW-A', 'customer_id': seed['c1'],
+            'location': '旧安装描述', 'is_in_use': True,
+        })
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            assert Device.query.get(seed['d1']).location == '旧安装描述'
+
     def test_update(self, op_client, seed, app):
         r = op_client.put(f"/api/devices/{seed['d1']}", json={
             'device_name': 'SW-A-EDITED', 'customer_id': seed['c2'],
             'device_type': '交换机', 'brand': '华为', 'is_in_use': True,
             'network_type': '外网', 'cert_expiry_date': '2028-01-01',
+            'location': '正面', 'power_supply': '双电源',
         })
         assert r.status_code == 200
         with app.app_context():
@@ -112,6 +140,8 @@ class TestDeviceCrud:
             assert d.device_name == 'SW-A-EDITED'
             assert d.customer_id == seed['c2']
             assert d.network_type == '外网'
+            assert d.location == '正面'
+            assert d.power_supply == '双电源'
             assert d.cert_expiry_date and d.cert_expiry_date.isoformat() == '2028-01-01'
             # 客户 device_count 同步
             c = Customer.query.get(seed['c2'])
@@ -139,14 +169,28 @@ class TestDeviceCrud:
 
 class TestDeviceBatchUpdate:
     def test_batch_update_field(self, op_client, seed, app):
-        """批量修改普通字段（安装位置）"""
+        """批量修改普通枚举字段（安装位置/电源配置）"""
         r = op_client.post('/api/v2/devices/batch-update', json={
-            'device_ids': [seed['d1'], seed['d2']], 'field': 'location', 'value': '机房A-1号柜'})
+            'device_ids': [seed['d1'], seed['d2']], 'field': 'location', 'value': '背面'})
         assert r.status_code == 200
         assert r.get_json()['data']['count'] == 2
+        r = op_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1'], seed['d2']], 'field': 'power_supply', 'value': '双电源'})
+        assert r.status_code == 200
         with app.app_context():
             for did in (seed['d1'], seed['d2']):
-                assert Device.query.get(did).location == '机房A-1号柜'
+                device = Device.query.get(did)
+                assert device.location == '背面'
+                assert device.power_supply == '双电源'
+
+    @pytest.mark.parametrize(('field', 'value'), [
+        ('location', '机房A-1号柜'),
+        ('power_supply', '三电源'),
+    ])
+    def test_batch_update_rejects_invalid_device_choice(self, op_client, seed, field, value):
+        r = op_client.post('/api/v2/devices/batch-update', json={
+            'device_ids': [seed['d1']], 'field': field, 'value': value})
+        assert r.status_code == 400
 
     def test_batch_update_bool_and_date(self, op_client, seed, app):
         """批量修改布尔与日期字段"""
@@ -274,7 +318,8 @@ class TestDeviceImportSync:
         import openpyxl
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(['所属客户', '设备名称', '设备类型', 'IP地址', '是否在用'])
+        ws.append(['所属客户', '设备名称', '设备类型', 'IP地址', '是否在用',
+                   '安装位置', '电源配置'])
         for row in rows:
             ws.append(row)
         bio = io.BytesIO()
@@ -301,6 +346,20 @@ class TestDeviceImportSync:
             c1 = Customer.query.get(seed['c1'])
             assert c1.device_count == 3  # SW-A + SW-D1 + SW-D2（全量口径，含不在用）
 
+    def test_import_persists_installation_and_power_choices(self, op_client, seed, app):
+        xlsx = self._make_xlsx([
+            ['设备API客户A', 'SW-POWER', '交换机', '10.0.0.6', '是', '背面', '双电源'],
+        ])
+        r = op_client.post('/api/v2/devices/import', data={
+            'import_file': (xlsx, 'devices.xlsx')},
+            content_type='multipart/form-data')
+        assert r.status_code == 200
+        assert r.get_json()['data']['created'] == 1
+        with app.app_context():
+            device = Device.query.filter_by(device_name='SW-POWER').one()
+            assert device.location == '背面'
+            assert device.power_supply == '双电源'
+
 
 class TestRevealPassword:
     def test_reveal_with_permission(self, op_client, seed):
@@ -325,6 +384,8 @@ class TestDeviceDicts:
         assert '华为' in data['brands']
         assert any(t['name'] == '交换机' for t in data['device_types'])
         assert len(data['customers']) >= 2
+        assert data['installation_positions'] == ['正面', '背面']
+        assert data['power_supplies'] == ['单电源', '双电源']
 
     def test_tree_three_levels(self, admin_client, seed, app):
         """设备树：市 → 客户 → 设备 三级；未关联客户设备独立成组

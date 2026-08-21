@@ -28,8 +28,9 @@ class Device(db.Model):
     login_method = db.Column(db.String(32), default='')
     username = db.Column(db.String(128), default='')
     password_encrypted = db.Column(db.Text, default='')
-    location = db.Column(db.String(128), default='')
+    location = db.Column(db.String(128), default='')       # 安装朝向：正面/背面
     rack_location = db.Column(db.String(128), default='')   # 设备自身机房位置（未上架设备可写入；已上架读机柜）
+    power_supply = db.Column(db.String(16), nullable=False, default='')  # 电源配置：单电源/双电源
     interface = db.Column(db.Text, default='')  # JSON 数组字符串；曾 String(128) 在 SQLite 宽松、PG 严格校验长度会截断/报错，故改 Text
     os_version = db.Column(db.String(128), default='')
     rule_version = db.Column(db.String(128), default='')
@@ -179,5 +180,3 @@ class Brand(db.Model):
     name = db.Column(db.String(64), unique=True, nullable=False)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-

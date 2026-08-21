@@ -30,32 +30,34 @@ async function clickPreset(w: ReturnType<typeof mountDialog>, idx: number) {
 describe('ExportDialog 设备预设自动勾选', () => {
   beforeEach(() => localStorage.clear())
 
-  it('首次打开默认勾选资产表 14 列（无密码列）', async () => {
+  it('首次打开默认勾选资产表 16 列（无密码列）', async () => {
     const w = mountDialog()
     await w.vm.$nextTick()
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(14)
+    expect(labels).toHaveLength(16)
     expect(labels).toContain('客户')
     expect(labels).toContain('机柜号')
+    expect(labels).toContain('机柜U位')
+    expect(labels).toContain('电源配置')
     expect(labels).not.toContain('登录密码')
   })
 
-  it('点击「设备密码表」自动勾选 18 列且含登录密码', async () => {
+  it('点击「设备密码表」自动勾选 20 列且含登录密码', async () => {
     const w = mountDialog()
     await w.vm.$nextTick()
     await clickPreset(w, 1)
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(18)
+    expect(labels).toHaveLength(20)
     expect(labels).toContain('登录密码')
     expect(labels).toContain('上次修改密码账号')
   })
 
-  it('点击「安全版本控制表」自动勾选 17 列', async () => {
+  it('点击「安全版本控制表」自动勾选 19 列', async () => {
     const w = mountDialog()
     await w.vm.$nextTick()
     await clickPreset(w, 2)
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(17)
+    expect(labels).toHaveLength(19)
     expect(labels).toContain('系统版本')
     expect(labels).toContain('授权截止')
     expect(labels).not.toContain('登录密码')
@@ -69,7 +71,7 @@ describe('ExportDialog 设备预设自动勾选', () => {
     await w.setProps({ modelValue: true })
     await w.vm.$nextTick()
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(18)
+    expect(labels).toHaveLength(20)
     expect(labels).toContain('登录密码')
   })
 })

@@ -10,11 +10,28 @@ from datetime import datetime
 from models import db, Device, Customer, SparePart, SpareStock
 from utils.crypto import encrypt_password
 from utils.json_fields import dumps_json
+from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_POWER_SUPPLIES
 from .base import ServiceError, transaction
 
 
 # 简单的 IPv4 校验（仅用于提示，不强制）
 IPV4_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+
+DEVICE_CHOICE_FIELDS = {
+    'location': ('安装位置', DEVICE_INSTALLATION_POSITIONS),
+    'power_supply': ('电源配置', DEVICE_POWER_SUPPLIES),
+}
+
+
+def normalize_device_choice(field, value, current_value=None):
+    """规范设备枚举字段；更新时允许原样保留尚未清洗的历史值。"""
+    text = str(value or '').strip()
+    label, choices = DEVICE_CHOICE_FIELDS[field]
+    if text and text not in choices:
+        if current_value is not None and text == str(current_value or '').strip():
+            return text
+        raise ServiceError(f'{label}仅支持：{"、".join(choices)}')
+    return text
 
 
 @transaction
@@ -23,7 +40,7 @@ def create_device_from_form(form):
 
     表单字段：device_name/customer_id/region_id/device_type/brand/model/
               ip_address/port/username/password/serial_number/login_method/
-              location/interface(多值)/os_version/rule_version/is_maintenance/
+              location/power_supply/interface(多值)/os_version/rule_version/is_maintenance/
               is_in_use/license_expiry/remark
     """
     name = (form.get('device_name') or '').strip()
@@ -56,8 +73,9 @@ def create_device_from_form(form):
         password_encrypted=encrypted,
         serial_number=form.get('serial_number', ''),
         login_method=form.get('login_method', ''),
-        location=form.get('location', ''),
+        location=normalize_device_choice('location', form.get('location')),
         interface=dumps_json(interfaces) if interfaces else None,
+        power_supply=normalize_device_choice('power_supply', form.get('power_supply')),
         os_version=form.get('os_version', ''),
         rule_version=form.get('rule_version', ''),
         network_type=form.get('network_type', ''),
@@ -117,9 +135,10 @@ def update_device_from_form(device_id, form):
         d.password_encrypted = encrypt_password(plain_password)
     d.serial_number = form.get('serial_number', '')
     d.login_method = form.get('login_method', '')
-    d.location = form.get('location', '')
+    d.location = normalize_device_choice('location', form.get('location'), d.location)
     interfaces = [v.strip() for v in form.getlist('interface') if v.strip()] if hasattr(form, 'getlist') else []
     d.interface = dumps_json(interfaces) if interfaces else None
+    d.power_supply = normalize_device_choice('power_supply', form.get('power_supply'))
     d.os_version = form.get('os_version', '')
     d.rule_version = form.get('rule_version', '')
     d.network_type = form.get('network_type', '')
@@ -224,6 +243,8 @@ def create_device(data):
         username=data.get('username', ''),
         password_encrypted=encrypted,
         login_method=data.get('login_method', ''),
+        location=normalize_device_choice('location', data.get('location')),
+        power_supply=normalize_device_choice('power_supply', data.get('power_supply')),
         os_version=data.get('os_version', ''),
         rule_version=data.get('rule_version', ''),
         is_maintenance=_to_bool(data.get('is_maintenance')),

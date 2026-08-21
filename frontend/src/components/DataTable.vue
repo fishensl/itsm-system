@@ -158,8 +158,15 @@
     </div>
 
     <!-- 列设置弹窗 -->
-    <el-dialog v-model="settingsVisible" :title="columnSettings?.title || '列设置'" width="420px" top="10vh"
+    <el-dialog v-model="settingsVisible" :title="columnSettings?.title || '列设置'" width="520px" top="10vh"
       destroy-on-close>
+      <div v-if="columnSettings?.presets?.length" class="column-preset-row">
+        <span class="column-preset-label">快速选择</span>
+        <el-button v-for="preset in columnSettings.presets" :key="preset.key" size="small" plain
+          @click="applyColumnPreset(preset)">
+          {{ preset.label }}
+        </el-button>
+      </div>
       <div class="col-setting-list">
         <div v-for="(c, idx) in settingCols" :key="c.key"
           :class="['col-setting-row', { 'col-setting-group': c.group }]">
@@ -240,6 +247,12 @@ export interface DataColumn<T = Record<string, any>> {
   group?: string
 }
 
+export interface DataColumnPreset {
+  key: string
+  label: string
+  columns: string[]
+}
+
 const props = withDefaults(
   defineProps<{
     columns: DataColumn[]
@@ -254,7 +267,7 @@ const props = withDefaults(
     /** 行内展开详情：开启后点击行切换展开，内容渲染在 #expand 插槽 */
     expandable?: boolean
     /** 列设置（可选启用）：storageKey 为 localStorage 键；不传则无列设置功能 */
-    columnSettings?: { storageKey: string; title?: string }
+    columnSettings?: { storageKey: string; title?: string; presets?: DataColumnPreset[] }
     /** 行多选（可选启用，默认关）：桌面表格显示 selection 列，选中变化 emit selection-change */
     selectable?: boolean
   }>(),
@@ -485,6 +498,15 @@ function visibleActions(row: Record<string, any>, col: DataColumn) {
   })
 }
 
+/** 应用业务预设：按预设顺序显示已存在列，敏感/不可展示字段由调用页提前替换或剔除。 */
+function applyColumnPreset(preset: DataColumnPreset) {
+  const body = props.columns.filter((c) => !isActionCol(c))
+  const known = new Set(body.map((c) => c.key))
+  colOrder.value = [...new Set(preset.columns)].filter((key) => known.has(key))
+  colAll.value = body.map((c) => c.key)
+  saveColSettings()
+}
+
 function fmtMoney(v: unknown) {
   const n = Number(v ?? 0)
   return n.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
@@ -571,7 +593,7 @@ onBeforeUnmount(() => {
   if (queryTimer) clearTimeout(queryTimer)
 })
 
-defineExpose({ refresh, load, openColumnSettings, toggleExpand })
+defineExpose({ refresh, load, openColumnSettings, toggleExpand, applyColumnPreset })
 
 // 权限判定（避免循环依赖：从全局 store 读取）
 import { useUserStore } from '@/stores/user'
@@ -588,6 +610,18 @@ const hasPerm = (code?: string) => useUserStore().hasPerm(code)
   gap: 4px;
   max-height: 55vh;
   overflow: auto;
+}
+.column-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.column-preset-label {
+  margin-right: 2px;
+  font-size: 13px;
+  color: var(--itsm-text-muted);
 }
 .col-setting-row {
   display: flex;

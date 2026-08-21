@@ -32,6 +32,35 @@ def test_sensitive_device_password_never_enters_list_or_detail():
     assert 'password' in _keys(schema, 'export_default')
 
 
+def test_device_location_power_and_export_profiles_share_one_contract():
+    schema = get_entity_schema('device')
+    location_block = ['rack_location', 'rack_name', 'location', 'rack_slot']
+
+    list_keys = _keys(schema, 'list')
+    start = list_keys.index('rack_location')
+    assert list_keys[start:start + 4] == location_block
+    assert list_keys[start + 4] == 'power_supply'
+
+    for profile in ('export_default', 'export_available'):
+        keys = _keys(schema, profile)
+        start = keys.index('rack_location')
+        assert keys[start:start + 4] == location_block
+        assert keys[start + 4] == 'power_supply'
+
+    for preset in schema.export_presets.values():
+        start = preset.index('rack_location')
+        assert list(preset[start:start + 4]) == location_block
+        assert preset[start + 4] == 'power_supply'
+
+    # 明文密码是唯一安全例外；列表以 has_password 替代，其余导出字段均有同名列表列。
+    export_fields = set(_keys(schema, 'export_available')) - {'password'}
+    assert export_fields <= set(list_keys)
+    assert 'has_password' in list_keys
+    assert [key for key in _keys(schema, 'export_available') if key != 'password'] == [
+        key for key in list_keys if key != 'has_password'
+    ]
+
+
 def test_existing_export_codes_are_derived_without_contract_breakage():
     from blueprints.vue_export import (DEVICE_EXPORT_COLUMNS, DEVICE_EXPORT_AVAILABLE_COLUMNS,
                                        TICKET_EXPORT_COLUMNS, TICKET_EXPORT_AVAILABLE_COLUMNS,

@@ -17,6 +17,7 @@ export interface Device {
   has_password: boolean
   login_method: string
   location: string
+  power_supply: string
   interface: string[]
   os_version: string
   rule_version: string
@@ -54,6 +55,7 @@ export interface DeviceForm {
   password: string
   login_method: string
   location: string
+  power_supply: string
   interface: string[]
   os_version: string
   rule_version: string

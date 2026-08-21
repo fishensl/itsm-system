@@ -15,7 +15,8 @@ _FIELD_MAPPING = {
     '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
     '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
     '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method',
-    '安装位置': 'location', '系统版本': 'os_version', '规则库版本': 'rule_version', '备注': 'remark',
+    '安装位置': 'location', '电源配置': 'power_supply',
+    '系统版本': 'os_version', '规则库版本': 'rule_version', '备注': 'remark',
     '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
 }
 
@@ -35,7 +36,7 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
     """
     from utils.upload import open_excel
     from utils.crypto import encrypt_password as _ep
-    from services.device_service import _parse_date
+    from services.device_service import _parse_date, normalize_device_choice
 
     customer = Customer.query.get(customer_id)
     if not customer:
@@ -92,6 +93,13 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
                 license_start=_parse_date(row_data.get('license_start')),
                 remark=row_data.get('remark', ''),
             )
+            if '安装位置' in col_map:
+                payload['location'] = normalize_device_choice(
+                    'location', row_data.get('location'), existing.get(device_name).location
+                    if existing.get(device_name) else None)
+            if '电源配置' in col_map:
+                payload['power_supply'] = normalize_device_choice(
+                    'power_supply', row_data.get('power_supply'))
             if plain_password:
                 payload['password_encrypted'] = _ep(plain_password)
         except Exception as e:  # noqa: BLE001

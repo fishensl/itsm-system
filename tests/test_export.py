@@ -21,7 +21,8 @@ def seed(app):
             port=22, username='admin', password_encrypted=encrypt_password('secret123'),
             login_method='SSH', os_version='V200R019', rule_version='V2.0',
             license_start=None, license_expiry=None, build_date=None,
-            is_maintenance=True, is_in_use=True, remark='备注一', location='机房A')
+            is_maintenance=True, is_in_use=True, remark='备注一', location='正面',
+            power_supply='双电源')
         d2 = Device(customer_id=c2.id, device_name='防火墙', device_type='安全设备',
                     brand='深信服', model='AF-1000', serial_number='SN002',
                     ip_address='10.0.0.2', is_in_use=False, remark='备注二')
@@ -63,7 +64,8 @@ class TestDevicePresets:
         from datetime import date
         r = op_client.post('/api/v2/devices/export', json={'preset': 'asset'})
         header, rows = _decode_xlsx(r)
-        assert header == ['客户', '机房位置', '机柜号', '安装位置', '名称', '类型', '品牌', '型号',
+        assert header == ['客户', '机房位置', '机柜号', '安装位置', '机柜U位', '电源配置',
+                          '名称', '类型', '品牌', '型号',
                           '序列号', 'IP', '建设时间', '是否维修', '是否在用', '备注']
         assert '登录密码' not in header
         assert len(rows) == 2
@@ -72,7 +74,9 @@ class TestDevicePresets:
         assert row1['客户'] == '导出客户A'
         assert row1['机房位置'] == '2F 机房 B 区'  # 机柜 Rack.location
         assert row1['机柜号'] == 'A-01'
-        assert row1['安装位置'] == '机房A'  # 设备「安装位置」字段 Device.location
+        assert row1['安装位置'] == '正面'
+        assert row1['机柜U位'] == 'U3'
+        assert row1['电源配置'] == '双电源'
         assert row1['是否维修'] == '是'
         # 未选客户 → 文件名 = {表格类型}_{日期}.xlsx
         assert r.get_json()['data']['filename'] == f'设备资产表_{date.today().isoformat()}.xlsx'
@@ -85,14 +89,16 @@ class TestDevicePresets:
         assert '审核流程' in r.get_json()['message']
         # 预设定义本身含密码列且顺序正确
         cols = DEVICE_PRESETS['password']
-        assert cols == ['customer', 'rack_location', 'rack_name', 'location', 'name', 'type',
+        assert cols == ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot',
+                        'power_supply', 'name', 'type',
                         'brand', 'model', 'sn', 'ip', 'port', 'login_method', 'username',
                         'password', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark']
 
     def test_preset_version_columns(self, op_client, seed):
         from blueprints.vue_export import DEVICE_PRESETS
         assert DEVICE_PRESETS['version'] == [
-            'customer', 'rack_location', 'rack_name', 'location', 'name', 'type', 'brand',
+            'customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
+            'name', 'type', 'brand',
             'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
             'license_expiry', 'is_in_use', 'remark']
 

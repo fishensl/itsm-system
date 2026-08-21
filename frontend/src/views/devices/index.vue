@@ -65,6 +65,8 @@
         <el-form-item label="修改项">
           <el-select v-model="batchForm.type" class="w-full">
             <el-option :label="fieldLabel('device', 'rack_location', '机房位置', 'form')" value="rack_location" />
+            <el-option :label="fieldLabel('device', 'location', '安装位置', 'form')" value="location" />
+            <el-option :label="fieldLabel('device', 'power_supply', '电源配置', 'form')" value="power_supply" />
             <el-option :label="fieldLabel('device', 'network_type', '网络类型', 'form')" value="network_type" />
             <el-option :label="fieldLabel('device', 'brand', '品牌', 'form')" value="brand" />
             <el-option :label="fieldLabel('device', 'model', '型号', 'form')" value="model" />
@@ -85,6 +87,11 @@
         </el-form-item>
         <el-form-item v-else-if="isDateBatchField" label="值">
           <el-date-picker v-model="batchForm.value" type="date" value-format="YYYY-MM-DD" class="w-full" />
+        </el-form-item>
+        <el-form-item v-else-if="batchChoiceOptions.length" label="值">
+          <el-select v-model="batchForm.value" clearable class="w-full">
+            <el-option v-for="option in batchChoiceOptions" :key="option" :label="option" :value="option" />
+          </el-select>
         </el-form-item>
         <el-form-item v-else label="值">
           <el-input v-model="batchForm.value" :type="batchForm.type === 'remark' ? 'textarea' : 'text'"
@@ -170,7 +177,7 @@
         :query="query"
         row-key="id"
         selectable
-        :column-settings="{ storageKey: 'device-table-columns' }"
+        :column-settings="{ storageKey: 'device-table-columns-v3', presets: deviceColumnPresets }"
         @row-click="openDetail"
         @selection-change="onSelectionChange"
       />
@@ -193,11 +200,11 @@
         </el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'os_version', '系统版本')">{{ detail.os_version || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'rule_version', '规则库版本')">{{ detail.rule_version || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'rack_location', '机房位置')">{{ detail.rack_location || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'rack_name', '机柜号')">{{ detail.rack_name || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'location', '安装位置')">{{ detail.location || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="`${fieldLabel('device', 'rack_location', '机房位置')} / ${fieldLabel('device', 'rack_name', '机柜号')}`">
-          <template v-if="detail.rack_name">{{ detail.rack_location || '-' }} / {{ detail.rack_name }}<span v-if="detail.rack_slot"> / {{ detail.rack_slot }}</span></template>
-          <span v-else>-</span>
-        </el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'rack_slot', '机柜U位')">{{ detail.rack_slot || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'power_supply', '电源配置')">{{ detail.power_supply || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'build_date', '建设时间')">{{ detail.build_date || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="`${fieldLabel('device', 'license_start', '授权开始')} / ${fieldLabel('device', 'license_expiry', '授权截止')}`">
           <span v-if="detailLicense.level" :class="['license-badge', `license-${detailLicense.level}`]">
@@ -441,7 +448,20 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'location', '安装位置', 'form')">
-              <el-input v-model="form.location" />
+              <el-select v-model="form.location" clearable class="w-full" placeholder="请选择正面或背面">
+                <el-option v-if="form.location && !installationPositions.includes(form.location)"
+                  :label="`${form.location}（历史值）`" :value="form.location" disabled />
+                <el-option v-for="option in installationPositions" :key="option"
+                  :label="option" :value="option" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="fieldLabel('device', 'power_supply', '电源配置', 'form')">
+              <el-select v-model="form.power_supply" clearable class="w-full" placeholder="请选择电源配置">
+                <el-option v-for="option in powerSupplies" :key="option"
+                  :label="option" :value="option" />
+              </el-select>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -508,11 +528,11 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted, h, type VNode } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
-import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import DataTable, { type DataColumn, type DataColumnPreset } from '@/components/DataTable.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { IN_USE_LABELS } from '@/utils/labels'
@@ -536,6 +556,7 @@ import {
   type EntityFieldMeta, type EntityMeta,
 } from '@/api/meta'
 import { copySensitiveText } from '@/utils/secureClipboard'
+import { DEVICE_PRESETS } from '@/utils/exportColumns'
 
 const route = useRoute()
 const user = useUserStore()
@@ -546,6 +567,8 @@ const query = reactive<Record<string, unknown>>({ search: '', brand: '', device_
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
+const installationPositions = ref<string[]>(['正面', '背面'])
+const powerSupplies = ref<string[]>(['单电源', '双电源'])
 const listFieldMeta = ref<EntityFieldMeta[]>([])
 const entityMetas = ref<Record<string, EntityMeta>>({})
 
@@ -599,6 +622,11 @@ const batchForm = reactive<{
 
 const isDateBatchField = computed(() =>
   ['license_start', 'license_expiry', 'cert_expiry_date'].includes(batchForm.type))
+const batchChoiceOptions = computed(() => {
+  if (batchForm.type === 'location') return installationPositions.value
+  if (batchForm.type === 'power_supply') return powerSupplies.value
+  return []
+})
 
 function onSelectionChange(rows: Record<string, unknown>[]) {
   selectedRows.value = rows
@@ -653,23 +681,9 @@ function licenseLevel(expiry: string | undefined, certExpiry: string | undefined
   return 'success'
 }
 
-function renderLicenseRange(r: Record<string, unknown>): string | VNode {
-  const start = r.license_start as string | undefined
-  const expiry = r.license_expiry as string | undefined
-  const cert = r.cert_expiry_date as string | undefined
-  const text = start && expiry ? `${start}至${expiry}`
-    : (start || expiry || (cert ? `证书${cert}` : ''))
-  if (!text) return '-'
-  const level = licenseLevel(expiry, cert)
-  if (!level) return text
-  return h('span', { class: ['license-badge', `license-${level}`] }, text)
-}
-
 const columns = computed<DataColumn[]>(() => {
-  // 与导出（vue_export.DEVICE_EXPORT_COLUMNS）字段全集对齐：全量进「列设置」，
-  // defaultVisible:false 的列默认隐藏（网络类型/建设时间/改密记录），可按需开启。
-  // 位置列统一为「机房位置/机柜号/安装位置」三列（与导出一致）。
-  // 授权区间合并为单列（license_range），颜色按授权/证书最近到期日区分，不单独显示授权开始/截止/证书到期/剩余天数。
+  // 列标签、顺序分组与导出字段均由 device 元数据合并；导出可选字段在列设置中都有对应项。
+  // 机房位置/机柜号/安装位置/机柜U位固定为相邻分组。
   // 说明：登录密码为敏感信息，明文不下发列表（查看走详情弹窗 device:reveal + 审计、导出走审核流）。
   const cols: DataColumn[] = [
     { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
@@ -678,8 +692,11 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'customer_name', label: '客户', minWidth: 100 },
     { key: 'rack_location', label: '机房位置', minWidth: 100, group: 'location', cellClass: () => 'cell-muted' },
     { key: 'rack_name', label: '机柜号', minWidth: 90, group: 'location', cellClass: () => 'cell-muted' },
-    { key: 'location', label: '安装位置', minWidth: 120, group: 'location',
+    { key: 'location', label: '安装位置', minWidth: 90, group: 'location',
       cellClass: () => 'cell-muted' },
+    { key: 'rack_slot', label: '机柜U位', minWidth: 90, group: 'location',
+      cellClass: () => 'cell-muted' },
+    { key: 'power_supply', label: '电源配置', minWidth: 90 },
     { key: 'brand', label: '品牌', minWidth: 100,
       cellClass: () => 'cell-muted' },
     { key: 'model', label: '型号', minWidth: 120,
@@ -691,12 +708,17 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'port', label: '端口', width: 70, cellClass: () => 'cell-muted' },
     { key: 'login_method', label: '登录方式', width: 90 },
     { key: 'username', label: '登录用户名', minWidth: 100, cellClass: () => 'cell-muted' },
+    { key: 'has_password', label: '已设置密码', width: 100, defaultVisible: false,
+      valueMap: { 'true': '是', 'false': '否' } },
+    { key: 'interface', label: '接口', minWidth: 140, defaultVisible: false,
+      type: 'custom', render: (r) => Array.isArray(r.interface) ? r.interface.join('、') : '' },
     { key: 'os_version', label: '系统版本', minWidth: 110 },
     { key: 'rule_version', label: '规则库版本', minWidth: 110 },
     { key: 'build_date', label: '建设时间', minWidth: 100, defaultVisible: false,
       cellClass: () => 'cell-muted' },
-    { key: 'license_range', label: '授权', minWidth: 190, type: 'custom',
-      render: (r) => renderLicenseRange(r) },
+    { key: 'license_start', label: '授权开始', minWidth: 100, type: 'date' },
+    { key: 'license_expiry', label: '授权截止', minWidth: 100, type: 'date' },
+    { key: 'cert_expiry_date', label: '证书到期日期', minWidth: 110, type: 'date' },
     { key: 'is_maintenance', label: '是否维修', width: 90, valueMap: { 'true': '是', 'false': '否' },
       cellClass: () => 'cell-muted' },
     { key: 'is_in_use', label: '状态', width: 80, type: 'tag', asTag: true,
@@ -706,6 +728,7 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'pwd_changed_at', label: '上次改密时间', minWidth: 100, defaultVisible: false,
       cellClass: () => 'cell-muted' },
     { key: 'remark', label: '备注', minWidth: 140, cellClass: () => 'cell-muted' },
+    { key: 'created_at', label: '创建时间', minWidth: 130, defaultVisible: false },
     { key: 'actions', label: '操作', width: 120, type: 'action', fixed: 'right',
       actions: [
         { label: '编辑', type: 'primary', link: true, perm: 'device:edit', icon: 'Edit',
@@ -720,6 +743,26 @@ const columns = computed<DataColumn[]>(() => {
     return unified.filter((c) => c.key !== 'customer_name')
   }
   return unified
+})
+
+const deviceColumnPresets = computed<DataColumnPreset[]>(() => {
+  const metadata = entityMetas.value.device
+  const presets = metadata?.exportPresets?.length ? metadata.exportPresets : DEVICE_PRESETS
+  const exportToField = new Map(
+    (metadata?.profiles.export_available || []).map((field) => [field.exportKey, field.key]),
+  )
+  const aliases: Record<string, string> = {
+    customer: 'customer_name', name: 'device_name', type: 'device_type',
+    sn: 'serial_number', ip: 'ip_address', password: 'has_password',
+  }
+  const available = new Set(columns.value.map((column) => column.key))
+  return presets.map((preset) => ({
+    key: preset.key,
+    label: preset.label,
+    columns: preset.columns
+      .map((code) => code === 'password' ? 'has_password' : (exportToField.get(code) || aliases[code] || code))
+      .filter((key) => available.has(key)),
+  }))
 })
 
 onMounted(() => {
@@ -1133,7 +1176,7 @@ function blankForm(): DeviceForm & { id?: number } {
   return {
     id: undefined, device_name: '', customer_id: null, device_type: '', brand: '', model: '',
     serial_number: '', network_type: '', ip_address: '', port: 22, username: '', password: '',
-    login_method: 'SSH', location: '', interface: [], os_version: '', rule_version: '',
+    login_method: 'SSH', location: '', power_supply: '', interface: [], os_version: '', rule_version: '',
     is_maintenance: false, is_in_use: true, license_expiry: '', license_start: '',
     build_date: '', cert_expiry_date: '', remark: '',
   }
@@ -1153,7 +1196,7 @@ async function openEdit(d: Device) {
     id: d.id, device_name: d.device_name, customer_id: d.customer_id, device_type: d.device_type,
     brand: d.brand, model: d.model, serial_number: d.serial_number, network_type: d.network_type,
     ip_address: d.ip_address, port: d.port, username: d.username, login_method: d.login_method,
-    location: d.location, interface: [...d.interface], os_version: d.os_version,
+    location: d.location, power_supply: d.power_supply || '', interface: [...d.interface], os_version: d.os_version,
     rule_version: d.rule_version, is_maintenance: d.is_maintenance, is_in_use: d.is_in_use,
     license_expiry: d.license_expiry, license_start: d.license_start, build_date: d.build_date,
     cert_expiry_date: d.cert_expiry_date, remark: d.remark,
@@ -1217,6 +1260,8 @@ fetchDeviceDicts().then((d) => {
   brands.value = d.brands
   deviceTypes.value = d.device_types
   customers.value = d.customers
+  if (d.installation_positions?.length) installationPositions.value = d.installation_positions
+  if (d.power_supplies?.length) powerSupplies.value = d.power_supplies
   // ?customer_id=X 直达表格模式（全局搜索/书签跳转）
   const cid = Number(route.query.customer_id)
   if (cid && !Number.isNaN(cid) && cid > 0) {
