@@ -228,7 +228,8 @@ class InspectionTask(db.Model):
     actual_end = db.Column(db.DateTime, nullable=True)
     # 预估工作量（单位：人天，允许 0.5 半天）。None=未设置，便于老数据兼容
     estimated_effort = db.Column(db.Float, nullable=True)
-    # 实际工作量（单位：人天）。任务执行中/完成后记录，用于与预估对比评估难度与效率
+    # 实际工作量（单位：人天）。由 actual_start→actual_end 的耗时按 8 小时/人天自动折算；
+    # 历史导入数据无完整时间边界时保留为兜底值。
     actual_effort = db.Column(db.Float, nullable=True)
     inspector_ids = db.Column(db.String(256), default='')     # 逗号分隔的巡检人员 ID 列表
     device_ids_json = db.Column(db.Text, default='[]')         # 设备ID列表

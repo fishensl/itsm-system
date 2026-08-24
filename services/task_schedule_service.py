@@ -16,6 +16,7 @@ from utils.constants import (
     TASK_CONTRACT_REVIEW,
     TASK_DONE,
     TASK_PENDING,
+    TASK_REVIEWING,
     TASK_RUNNING,
     TASK_STATUSES,
     TASK_TRANSITIONS,
@@ -27,6 +28,76 @@ _BEIJING = timezone(timedelta(hours=8))
 def local_now():
     """当前北京本地时间（naive）。"""
     return datetime.now(_BEIJING).replace(tzinfo=None)
+
+
+_ACTIVE_TIMING_STATUSES = frozenset({TASK_RUNNING, TASK_REVIEWING})
+_SECONDS_PER_PERSON_DAY = 8 * 60 * 60
+
+
+def task_actual_duration_seconds(task, now=None):
+    """Return elapsed wall-clock seconds from first execution to final approval.
+
+    Running/reviewing tasks are calculated up to ``now``. Completed tasks use
+    their frozen ``actual_end``. Tasks without a reliable start/end boundary
+    return ``None`` so historical manual effort can remain a fallback.
+    """
+    if not task.actual_start:
+        return None
+    end = task.actual_end
+    if not end and task.status in _ACTIVE_TIMING_STATUSES:
+        end = now or local_now()
+    if not end:
+        return None
+    return max(0, int((end - task.actual_start).total_seconds()))
+
+
+def format_task_duration(seconds):
+    """Format elapsed seconds as an exact, human-readable hour/minute value."""
+    if seconds is None:
+        return ''
+    if seconds < 60:
+        return '<1分钟'
+    total_minutes = int(seconds // 60)
+    hours, minutes = divmod(total_minutes, 60)
+    if hours and minutes:
+        return f'{hours}小时{minutes}分钟'
+    if hours:
+        return f'{hours}小时'
+    return f'{minutes}分钟'
+
+
+def task_actual_effort(task, now=None):
+    """Actual person-days derived from elapsed time (8 hours/person-day)."""
+    seconds = task_actual_duration_seconds(task, now=now)
+    if seconds is None:
+        return task.actual_effort
+    return round(seconds / _SECONDS_PER_PERSON_DAY, 2)
+
+
+def task_timing_payload(task, now=None):
+    """Serialize the common actual-start/end/duration contract."""
+    if not task:
+        return {
+            'actual_start': '', 'actual_end': '',
+            'actual_duration_hours': None, 'actual_duration_text': '',
+            'actual_effort': None,
+        }
+    seconds = task_actual_duration_seconds(task, now=now)
+    return {
+        'actual_start': (
+            task.actual_start.strftime('%Y-%m-%d %H:%M')
+            if task.actual_start else ''
+        ),
+        'actual_end': (
+            task.actual_end.strftime('%Y-%m-%d %H:%M')
+            if task.actual_end else ''
+        ),
+        'actual_duration_hours': (
+            round(seconds / 3600, 2) if seconds is not None else None
+        ),
+        'actual_duration_text': format_task_duration(seconds),
+        'actual_effort': task_actual_effort(task, now=now),
+    }
 
 
 STATUS_FROM_EXCEL = {
@@ -149,6 +220,13 @@ def import_task_excel(file_storage, user):
                     return None
                 return ws.cell(r, idx + 1).value
 
+            def cell_any(*names):
+                for name in names:
+                    value = cell(name)
+                    if value not in (None, ''):
+                        return value
+                return None
+
             title = str(cell('任务描述') or '').strip()
             if not title:
                 continue
@@ -181,11 +259,14 @@ def import_task_excel(file_storage, user):
             raw_priority = str(cell('优先级') or '').strip()
             priority = raw_priority if raw_priority in PRIORITY_VALUES else '中'
 
-            planned_start = parse_excel_date(cell('开始日期'))
-            planned_end = parse_excel_date(cell('完成日期'))
-            actual_end = parse_excel_datetime(cell('完成时间'))
-            effort = _parse_effort(cell('预估工作量'))
-            actual_effort = _parse_effort(cell('实际工作量'))
+            planned_start = parse_excel_date(cell_any('计划开始日期', '开始日期'))
+            planned_end = parse_excel_date(cell_any('计划完成日期', '完成日期'))
+            actual_start = parse_excel_datetime(cell_any('实际开始时间', '开始时间'))
+            actual_end = parse_excel_datetime(cell_any('实际完成时间', '完成时间'))
+            effort = _parse_effort(cell_any('预估人天', '预估工作量'))
+            actual_effort = _parse_effort(cell_any('实际人天', '实际工作量'))
+            if actual_start and actual_end and actual_end < actual_start:
+                raise ValueError(f'第{r}行：实际完成时间不能早于实际开始时间')
 
             existing = (InspectionTask.query
                         .filter_by(title=title, customer_id=customer.id)
@@ -196,18 +277,28 @@ def import_task_excel(file_storage, user):
                 existing.assigned_to_user_id = assignee.id
                 existing.planned_start = planned_start or existing.planned_start
                 existing.planned_end = planned_end or existing.planned_end
+                if actual_start:
+                    existing.actual_start = actual_start
+                if status in (TASK_RUNNING, TASK_REVIEWING) and not existing.actual_start:
+                    existing.actual_start = local_now()
                 if actual_end:
                     existing.actual_end = actual_end
                 if status == TASK_DONE and not existing.actual_end:
                     existing.actual_end = local_now()
                 if effort is not None:
                     existing.estimated_effort = effort
-                if actual_effort is not None:
+                if existing.actual_start and existing.actual_end:
+                    existing.actual_effort = task_actual_effort(existing)
+                elif actual_effort is not None:
                     existing.actual_effort = actual_effort
                 existing.dispatched_by = existing.dispatched_by or user.id
                 existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
                 updated += 1
             else:
+                if status in (TASK_RUNNING, TASK_REVIEWING) and not actual_start:
+                    actual_start = local_now()
+                if status == TASK_DONE and not actual_end:
+                    actual_end = local_now()
                 task = InspectionTask(
                     title=title,
                     task_type='计划',
@@ -216,6 +307,7 @@ def import_task_excel(file_storage, user):
                     customer_id=customer.id,
                     planned_start=planned_start,
                     planned_end=planned_end,
+                    actual_start=actual_start,
                     actual_end=actual_end,
                     estimated_effort=effort,
                     actual_effort=actual_effort,
@@ -226,6 +318,8 @@ def import_task_excel(file_storage, user):
                     template_category='巡检',
                     created_by=(user.realname or user.username),
                 )
+                if task.actual_start and task.actual_end:
+                    task.actual_effort = task_actual_effort(task)
                 db.session.add(task)
                 created += 1
 
@@ -238,14 +332,14 @@ def import_task_excel(file_storage, user):
         cleanup_temp_file(tmp)
 
 
-def check_task_transition(task, new_status, allow_reopen=False, allow_contract_review=False):
+def check_task_transition(task, new_status, allow_reopen=False,
+                          allow_contract_review=False, allow_review_complete=False):
     """任务状态机校验（SSR 看板 / Vue 看板共用）。
 
     - 合法转换见 utils.constants.TASK_TRANSITIONS；
-    - 兼容老流程：无关联巡检记录的手工任务允许直接完成/取消；
-    - 已有巡检记录的任务必须存在"已通过"记录才能置为已完成
-      （审核通过后才完成，对应"上传报告→审核闭环"）。
+    - 「已完成」只能由巡检记录审核通过产生，禁止手工跳过审核；
     - allow_reopen=True：已完成/已取消 → 执行中 的纠正性重开（调用端做权限+审计）。
+    - allow_review_complete=True：仅供巡检审核通过的受控入口结束任务。
     返回错误文案；None 表示允许。
     """
     if new_status not in TASK_STATUSES:
@@ -254,42 +348,61 @@ def check_task_transition(task, new_status, allow_reopen=False, allow_contract_r
         return None
     if task.status == TASK_CONTRACT_REVIEW and not allow_contract_review:
         return '合同审批任务只能通过合同例外审核接口流转'
+    if new_status == TASK_DONE and not allow_review_complete:
+        return '已完成状态只能由巡检记录审核通过后自动生成'
     allowed = TASK_TRANSITIONS.get(task.status, set())
     if new_status in allowed:
-        if new_status == TASK_DONE and task.records:
-            if not any(r.review_status == REVIEW_APPROVED for r in task.records):
-                return '该任务已有巡检记录，请先上传报告并通过审核后再完成任务'
+        if new_status == TASK_DONE and not any(
+                r.review_status == REVIEW_APPROVED for r in task.records):
+            return '任务必须提交巡检记录并审核通过后才能完成'
         return None
     # 重开：已完成/已取消的任务允许重新置为「执行中」（误标完成/取消的纠正出口）。
     # 该转换不在 TASK_TRANSITIONS 表内，仅 allow_reopen=True 的受控入口可达。
     if allow_reopen and task.status in (TASK_DONE, TASK_CANCELLED) and new_status == TASK_RUNNING:
         return None
-    # 兼容：无关联记录的手工任务允许直接完成/取消（老流程不阻断）
-    if new_status in (TASK_DONE, TASK_CANCELLED) and not task.records:
+    # 无记录任务仍允许取消，但不允许绕过记录审核直接完成。
+    if new_status == TASK_CANCELLED and not task.records:
         return None
     return '不允许从「%s」变更为「%s」' % (task.status, new_status)
 
 
-def apply_task_status(task, new_status, allow_reopen=False, allow_contract_review=False):
+def apply_task_status(task, new_status, allow_reopen=False,
+                      allow_contract_review=False, allow_review_complete=False,
+                      now=None):
     """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end。
 
     与 blueprints/task_schedule._apply_status 行为一致，供 Vue API 复用；
-    校验失败抛 ValueError。allow_reopen 语义见 check_task_transition。
+    校验失败抛 ValueError。各 allow_* 参数语义见 check_task_transition。
     """
     err = check_task_transition(
         task, new_status, allow_reopen=allow_reopen,
-        allow_contract_review=allow_contract_review)
+        allow_contract_review=allow_contract_review,
+        allow_review_complete=allow_review_complete)
     if err:
         raise ValueError(err)
-    now = local_now()
+    now = now or local_now()
+    previous_status = task.status
+    if new_status == TASK_RUNNING:
+        # 首次执行固定起点；纠正性重开保留原始起点，继续计算完整生命周期。
+        if not task.actual_start:
+            task.actual_start = now
+        if previous_status in (TASK_DONE, TASK_CANCELLED):
+            task.actual_end = None
+            task.actual_effort = None
     task.status = new_status
-    if new_status == TASK_RUNNING and not task.actual_start:
-        task.actual_start = now
-    if new_status == TASK_DONE and not task.actual_end:
-        task.actual_end = now
-    # 重开（终态→执行中）：清空完成时间戳，重新计时
-    if new_status == TASK_RUNNING and task.actual_end:
-        task.actual_end = None
+    if new_status == TASK_DONE:
+        # 历史异常数据可能没有起点，用最早任务记录创建时间兜底；新流程
+        # 始终已在进入执行中时记录 actual_start。
+        if not task.actual_start:
+            record_starts = [r.created_at for r in task.records if r.created_at]
+            # Inspection.created_at 历史上以 UTC naive 存储；任务实际时间采用
+            # 北京本地 naive，兜底时补 +08:00，避免旧数据平白多算 8 小时。
+            task.actual_start = (
+                min(record_starts) + timedelta(hours=8) if record_starts else now
+            )
+        if not task.actual_end:
+            task.actual_end = now
+        task.actual_effort = task_actual_effort(task, now=now)
     return task
 
 

@@ -39,6 +39,11 @@ export interface Inspection {
   customer_name: string
   task_id: number | null
   task_title: string
+  task_status: string
+  task_actual_start: string
+  task_actual_end: string
+  task_actual_duration: string
+  task_actual_effort: number | null
   inspection_date: string
   overall_status: string
   review_status: string

@@ -14,6 +14,10 @@ export interface TaskScheduleItem {
   planned_end: string
   estimated_effort: number | null
   actual_effort: number | null
+  actual_start: string
+  actual_end: string
+  actual_duration_hours: number | null
+  actual_duration_text: string
   overdue: boolean
   source: string
   remark: string

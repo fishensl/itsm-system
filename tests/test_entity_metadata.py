@@ -111,6 +111,18 @@ def test_existing_export_codes_are_derived_without_contract_breakage():
     assert dict(FAULT_EXPORT_COLUMNS)['fault_time'] == '故障时间'
 
 
+def test_inspection_task_timing_is_shared_by_list_detail_and_export():
+    schema = get_entity_schema('inspection')
+    timing = {
+        'task_actual_start', 'task_actual_end',
+        'task_actual_duration', 'task_actual_effort',
+    }
+    assert 'task_actual_duration' in _keys(schema, 'list')
+    assert timing <= set(_keys(schema, 'detail'))
+    assert timing <= set(_keys(schema, 'export_default'))
+    assert timing <= set(_keys(schema, 'export_available'))
+
+
 def test_api_returns_only_permitted_entity_schemas(admin_client, viewer_client, client):
     assert client.get('/api/meta/entities').status_code == 401
 

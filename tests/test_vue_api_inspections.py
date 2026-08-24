@@ -11,13 +11,16 @@ from models import db, Customer, Inspection, InspectionTask, User, SubmissionVer
 @pytest.fixture()
 def seed(app):
     with app.app_context():
+        from services.task_schedule_service import local_now
         c = Customer(name='巡检API客户')
         db.session.add(c)
         db.session.flush()
         op = User.query.filter_by(username='op').first()
         op.customers = [c]
         t1 = InspectionTask(title='核心机房月度巡检任务', customer_id=c.id,
-                            status='执行中', assigned_to_user_id=op.id)
+                            status='执行中', assigned_to_user_id=op.id,
+                            actual_start=(local_now()
+                                          - __import__('datetime').timedelta(hours=10)))
         t2 = InspectionTask(title='季度巡检任务', customer_id=c.id,
                             status='待审核', assigned_to_user_id=op.id)
         db.session.add_all([t1, t2])
@@ -324,7 +327,8 @@ class TestInspectionUploadReportFlow:
                            content_type='multipart/form-data')
         assert r.status_code == 200, r.get_json()
         with app.app_context():
-            assert db.session.get(InspectionTask, seed['t1']).status == '待审核'
+            task = db.session.get(InspectionTask, seed['t1'])
+            assert task.status == '待审核'
         r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
             'approved': True, 'remark': '审核通过'})
         assert r.status_code == 200, r.get_json()
@@ -335,6 +339,12 @@ class TestInspectionUploadReportFlow:
             t = db.session.get(InspectionTask, seed['t1'])
             assert t.status == '已完成'
             assert t.actual_end is not None
+            assert t.actual_effort == 1.25
+        detail = op_client.get(f"/api/inspections/{seed['i1']}").get_json()['data']
+        assert detail['task_actual_start']
+        assert detail['task_actual_end']
+        assert detail['task_actual_duration'] == '10小时'
+        assert detail['task_actual_effort'] == 1.25
 
     def test_review_reject_reverts_task(self, op_client, seed, app):
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",

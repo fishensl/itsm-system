@@ -329,10 +329,36 @@ def list_view():
 # 导入 / 模板下载
 # ============================================================
 
-EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间', '预估工作量', '实际工作量']
+EXCEL_HEADERS = [
+    '客户名称', '任务描述', '优先级', '计划开始日期', '计划完成日期',
+    '完成状态', '负责人', '实际开始时间', '实际完成时间', '实际耗时',
+    '预估人天', '实际人天',
+]
 TASK_STATUS_EXCEL_COLUMN_STYLES = {
     EXCEL_HEADERS.index('完成状态') + 1: TASK_STATUS_EXCEL_STYLES,
 }
+
+
+def task_export_row(task, now=None):
+    """Build one task export row from the shared timing calculation."""
+    from services.task_schedule_service import task_timing_payload
+
+    timing = task_timing_payload(task, now=now)
+    user = task.assignee_rel
+    return [
+        task.customer_rel.name if task.customer_rel else '',
+        task.title,
+        task.priority or '',
+        task.planned_start.isoformat() if task.planned_start else '',
+        task.planned_end.isoformat() if task.planned_end else '',
+        task.status,
+        (user.realname or user.username) if user else '',
+        timing['actual_start'],
+        timing['actual_end'],
+        timing['actual_duration_text'],
+        _fmt_effort(task.estimated_effort),
+        _fmt_effort(timing['actual_effort']),
+    ]
 
 # 优先级允许值（与 UI 保持一致；超出范围回退 '中'）
 PRIORITY_VALUES = {'低', '中', '高', '紧急'}
@@ -346,7 +372,8 @@ def import_template():
     from utils.excel_export import export_xlsx, send_temp_export
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
-        '2026-04-01', '2026-06-30', TASK_DONE, '张三', '2026-06-15', '1', '1.5'
+        '2026-04-01', '2026-06-30', TASK_DONE, '张三',
+        '2026-06-15 09:00', '2026-06-15 17:00', '8小时', '1', '1'
     ]]
     tmp_path, download_name = export_xlsx(
         EXCEL_HEADERS, rows,
@@ -399,19 +426,9 @@ def import_excel():
 def _apply_status(task, new_status, now=None, allow_reopen=False):
     """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end 时间戳。单条/批量复用。
     校验失败抛 ValueError（由调用方转 400/flash）。allow_reopen 语义见 check_task_transition。"""
-    from services.task_schedule_service import check_task_transition
-    err = check_task_transition(task, new_status, allow_reopen=allow_reopen)
-    if err:
-        raise ValueError(err)
-    now = now or local_now()
-    task.status = new_status
-    if new_status == TASK_RUNNING and not task.actual_start:
-        task.actual_start = now
-    if new_status == TASK_DONE and not task.actual_end:
-        task.actual_end = now
-    # 重开（终态→执行中）：清空完成时间戳，重新计时
-    if new_status == TASK_RUNNING and task.actual_end:
-        task.actual_end = None
+    from services.task_schedule_service import apply_task_status
+    return apply_task_status(
+        task, new_status, allow_reopen=allow_reopen, now=now)
 
 
 def _apply_assignee(task, user, now=None):
@@ -489,21 +506,12 @@ def change_status(task_id):
 @login_required
 @require_permission('task:schedule')
 def set_complete_time(task_id):
-    """AJAX 手动设置/修改/清除任务完成时间（actual_end）。空值=清除。"""
-    task = InspectionTask.query.get_or_404(task_id)
-    raw = (request.form.get('actual_end') or
-           (request.get_json(silent=True) or {}).get('actual_end') or '').strip()
-    if raw:
-        d = parse_excel_date(raw)
-        if not d:
-            return jsonify(success=False, error='日期格式不正确'), 400
-        # actual_end 是 DateTime 字段，parse_excel_date 返回 date，补 00:00 转 datetime
-        task.actual_end = datetime(d.year, d.month, d.day)
-    else:
-        task.actual_end = None
-    db.session.commit()
-    return jsonify(success=True,
-                   actual_end=task.actual_end.strftime('%Y-%m-%d') if task.actual_end else '')
+    """完成时间由巡检审核通过自动记录，兼容端点禁止手工覆盖。"""
+    InspectionTask.query.get_or_404(task_id)
+    return jsonify(
+        success=False,
+        error='实际完成时间由巡检记录审核通过自动生成，不能手工修改',
+    ), 400
 
 
 @task_schedule_bp.route('/<int:task_id>/title', methods=['POST'])
@@ -546,21 +554,12 @@ def set_effort(task_id):
 @login_required
 @require_permission('task:schedule')
 def set_actual_effort(task_id):
-    """AJAX 改实际工作量（人天）。空串=清除为 None。"""
-    task = InspectionTask.query.get_or_404(task_id)
-    raw = (request.form.get('actual_effort') or
-           (request.get_json(silent=True) or {}).get('actual_effort') or '').strip()
-    if not raw:
-        task.actual_effort = None
-    else:
-        effort = _parse_effort(raw)
-        if effort is None:
-            return jsonify(success=False, error='工作量格式不正确（应为数字，如 1 或 0.5）'), 400
-        task.actual_effort = effort
-    db.session.commit()
-    return jsonify(success=True,
-                   actual_effort=task.actual_effort,
-                   actual_effort_text=_fmt_effort(task.actual_effort))
+    """实际人天由状态时间自动折算，兼容端点禁止手工覆盖。"""
+    InspectionTask.query.get_or_404(task_id)
+    return jsonify(
+        success=False,
+        error='实际人天由执行开始至审核通过的实际耗时自动计算，不能手工修改',
+    ), 400
 
 
 @task_schedule_bp.route('/<int:task_id>/assign', methods=['POST'])
@@ -867,21 +866,8 @@ def export_excel():
     query = _apply_filters(_base_query(), eff_args)
     tasks = query.order_by(InspectionTask.planned_end.asc(), InspectionTask.id.desc()).all()
 
-    rows = []
-    for t in tasks:
-        user = t.assignee_rel
-        rows.append([
-            (t.customer_rel.name if t.customer_rel else ''),
-            t.title,
-            t.priority or '',
-            t.planned_start.isoformat() if t.planned_start else '',
-            t.planned_end.isoformat() if t.planned_end else '',
-            t.status,
-            (user.realname or user.username) if user else '',
-            t.actual_end.strftime('%Y-%m-%d') if t.actual_end else '',
-            _fmt_effort(t.estimated_effort),
-            _fmt_effort(t.actual_effort),
-        ])
+    now = local_now()
+    rows = [task_export_row(task, now=now) for task in tasks]
 
     tmp_path, download_name = export_xlsx(
         EXCEL_HEADERS, rows,

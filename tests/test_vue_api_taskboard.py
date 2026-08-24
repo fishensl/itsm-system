@@ -172,15 +172,19 @@ class TestTaskBoardRoleScope:
 
 
 class TestTaskStatusFlow:
-    def test_advance_status(self, op_client, seed, app):
+    def test_done_requires_approved_record(self, op_client, seed, app):
         r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '执行中'})
         assert r.status_code == 200
-        r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '已完成'})
+        r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '待审核'})
         assert r.status_code == 200
+        r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '已完成'})
+        assert r.status_code == 400
+        assert '审核通过' in r.get_json()['message']
         with app.app_context():
             t = InspectionTask.query.get(seed['t1'])
-            assert t.status == '已完成'
-            assert t.actual_end is not None
+            assert t.status == '待审核'
+            assert t.actual_start is not None
+            assert t.actual_end is None
 
     def test_illegal_status(self, op_client, seed):
         r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '不存在'})

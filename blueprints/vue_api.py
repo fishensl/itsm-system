@@ -1543,6 +1543,7 @@ def _apply_task_scope(query, user):
 
 def _task_payload(t, customer_map=None):
     from datetime import date
+    from services.task_schedule_service import task_timing_payload
     today = date.today()
     overdue = (
         t.status in (_const.TASK_PENDING, _const.TASK_RUNNING)
@@ -1562,7 +1563,7 @@ def _task_payload(t, customer_map=None):
         'assigned_to_name': t.assignee_rel.realname or t.assignee_rel.username
         if t.assignee_rel else '',
         'estimated_effort': t.estimated_effort,
-        'actual_effort': t.actual_effort,
+        **task_timing_payload(t),
         'overdue': overdue,
         'priority': t.priority or '中',
     }
@@ -2724,7 +2725,10 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
     from services.inspection_service import inspection_completeness
     from services.submission_version_service import report_display_name
     complete, missing = inspection_completeness(i)
-    task_title = (task_map or {}).get(i.task_id) or (i.task_rel.title if i.task_rel else '') or ''
+    task = (task_map or {}).get(i.task_id) or i.task_rel
+    task_title = task.title if task else ''
+    from services.task_schedule_service import task_timing_payload
+    task_timing = task_timing_payload(task)
     customer_name = (customer_map or {}).get(i.customer_id, '')
     # 现场报告名：按最新版本号拼接（定稿去序号），无版本回退存储名
     submitted_name = ''
@@ -2746,6 +2750,11 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
         'customer_name': customer_name,
         'task_id': i.task_id,
         'task_title': task_title,
+        'task_status': task.status if task else '',
+        'task_actual_start': task_timing['actual_start'],
+        'task_actual_end': task_timing['actual_end'],
+        'task_actual_duration': task_timing['actual_duration_text'],
+        'task_actual_effort': task_timing['actual_effort'],
         'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
         'overall_status': i.overall_status or '',
         'review_status': i.review_status or _const.REVIEW_DRAFT_LABEL,
@@ -2789,7 +2798,7 @@ def api_inspection_list():
     date_to = request.args.get('date_to') or ''
     incomplete_only = request.args.get('incomplete_only', type=int) == 1
 
-    q = _I.query.options(_jl(_I.customer_rel))
+    q = _I.query.options(_jl(_I.customer_rel), _jl(_I.task_rel))
     # S6 数据隔离：非 all 范围按用户收窄（inspection 无 assigned_to，按 created/inspector 过滤）
     from utils.permission import apply_scope_filter
     q = apply_scope_filter(q, _I, current_user)
@@ -2823,7 +2832,7 @@ def api_inspection_list():
     rows = rows_all[(page - 1) * page_size: page * page_size]
     customer_map = {c.id: c.name for c in _C.query.all()}
     task_ids = {i.task_id for i in rows if i.task_id}
-    task_map = {t.id: t.title for t in _IT.query.filter(_IT.id.in_(task_ids)).all()} if task_ids else {}
+    task_map = {t.id: t for t in _IT.query.filter(_IT.id.in_(task_ids)).all()} if task_ids else {}
     return ok({'items': [_inspection_payload(i, customer_map, task_map=task_map) for i in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
@@ -3624,17 +3633,29 @@ def api_v2_inspection_export():
         codes = resolve_columns(INSPECTION_EXPORT_COLUMNS, data.get('columns'))
     except ValueError as e:
         return fail(str(e), 400)
-    q = _I.query.options(_jl(_I.customer_rel))
+    q = _I.query.options(_jl(_I.customer_rel), _jl(_I.task_rel))
     if data.get('customer_id'):
         q = q.filter(_I.customer_id == int(data['customer_id']))
     q = _apply_date_range(q, _I.inspection_date, data)
     records = q.order_by(_I.inspection_date.desc(), _I.id.desc()).all()
     headers = [dict(INSPECTION_EXPORT_COLUMNS)[c] for c in codes]
+    from services.task_schedule_service import local_now as _task_now, task_timing_payload
+    timing_now = _task_now()
+    timing_map = {
+        r.id: task_timing_payload(r.task_rel, now=timing_now) for r in records
+    }
 
     def cell(r, code):
+        timing = timing_map[r.id]
         return {
             'title': r.title or '', 'customer': r.customer_rel.name if r.customer_rel else '',
             'inspector': r.inspector_name or r.inspector or '',
+            'task_title': r.task_rel.title if r.task_rel else '',
+            'task_status': r.task_rel.status if r.task_rel else '',
+            'task_actual_start': timing['actual_start'],
+            'task_actual_end': timing['actual_end'],
+            'task_actual_duration': timing['actual_duration_text'],
+            'task_actual_effort': timing['actual_effort'],
             'inspection_date': r.inspection_date.strftime('%Y-%m-%d') if r.inspection_date else '',
             'overall_status': r.overall_status or '',
             'review_status': r.review_status or '',
@@ -3677,7 +3698,7 @@ def api_v2_inspection_export_bundle():
         return fail(f'未知导出项目：{", ".join(sorted(unknown))}', 400)
     if not items:
         return fail('请至少勾选一个导出项目', 400)
-    q = _I.query.options(_jl(_I.customer_rel))
+    q = _I.query.options(_jl(_I.customer_rel), _jl(_I.task_rel))
     from utils.permission import apply_scope_filter
     q = apply_scope_filter(q, _I, current_user)
     if data.get('customer_id'):
@@ -3689,11 +3710,23 @@ def api_v2_inspection_export_bundle():
     customer_map = {c.id: c.name for c in _C.query.all()}
     codes = [c for c, _ in INSPECTION_EXPORT_COLUMNS]
     headers = [h for _, h in INSPECTION_EXPORT_COLUMNS]
+    from services.task_schedule_service import local_now as _task_now, task_timing_payload
+    timing_now = _task_now()
+    timing_map = {
+        r.id: task_timing_payload(r.task_rel, now=timing_now) for r in records
+    }
 
     def cell(r, code):
+        timing = timing_map[r.id]
         return {
             'title': r.title or '', 'customer': customer_map.get(r.customer_id, ''),
             'inspector': r.inspector_name or r.inspector or '',
+            'task_title': r.task_rel.title if r.task_rel else '',
+            'task_status': r.task_rel.status if r.task_rel else '',
+            'task_actual_start': timing['actual_start'],
+            'task_actual_end': timing['actual_end'],
+            'task_actual_duration': timing['actual_duration_text'],
+            'task_actual_effort': timing['actual_effort'],
             'inspection_date': r.inspection_date.strftime('%Y-%m-%d') if r.inspection_date else '',
             'overall_status': r.overall_status or '',
             'review_status': r.review_status or '',

@@ -172,18 +172,28 @@ INSPECTION_FIELDS = (
     F('submitted_report_name', '现场报告', data_type='file', group='report'),
     F('report_file_name', '正式报告', data_type='file', group='report'),
     F('task_title', '关联任务', min_width=160),
+    F('task_status', '任务状态', width=90, group='task_timing'),
+    F('task_actual_start', '任务实际开始', data_type='datetime', width=140,
+      group='task_timing'),
+    F('task_actual_end', '任务审核完成', data_type='datetime', width=140,
+      group='task_timing'),
+    F('task_actual_duration', '任务实际耗时', width=120, group='task_timing'),
+    F('task_actual_effort', '任务实际人天', data_type='number', width=110,
+      group='task_timing'),
     F('conclusion', '结论', min_width=180, group='report'),
     F('location', '位置', min_width=120),
     F('created_at', '创建时间', data_type='datetime', width=130, group='audit'),
 )
 INSPECTION_LIST = ('title', 'customer_name', 'inspection_date', 'inspector_name',
-                   'overall_status', 'review_status', 'complete', 'report_label')
+                   'overall_status', 'review_status', 'task_actual_duration',
+                   'complete', 'report_label')
 INSPECTION_DETAIL = tuple(item.key for item in INSPECTION_FIELDS)
 INSPECTION_FORM = ('title', 'customer_name', 'inspection_date', 'inspector_name',
                    'overall_status', 'conclusion', 'location')
 INSPECTION_EXPORT_DEFAULT = ('title', 'customer_name', 'inspector_name', 'inspection_date',
-                             'overall_status', 'review_status', 'conclusion', 'location',
-                             'created_at')
+                             'overall_status', 'review_status', 'task_title', 'task_status',
+                             'task_actual_start', 'task_actual_end', 'task_actual_duration',
+                             'task_actual_effort', 'conclusion', 'location', 'created_at')
 
 
 SPARE_FIELDS = (
@@ -502,8 +512,11 @@ INSPECTION_TASK_FIELDS = (
     F('assigned_to_name', '负责人', width=100),
     F('planned_start', '计划开始', data_type='date', width=110),
     F('planned_end', '计划结束', data_type='date', width=110),
+    F('actual_start', '实际开始', data_type='datetime', width=140),
+    F('actual_end', '审核完成', data_type='datetime', width=140),
+    F('actual_duration_text', '实际耗时', width=120),
     F('estimated_effort', '预计工时', data_type='number', width=90),
-    F('actual_effort', '实际工时', data_type='number', width=90),
+    F('actual_effort', '实际人天', data_type='number', width=90),
     F('source', '来源', width=100),
     F('remark', '备注', min_width=160),
 )

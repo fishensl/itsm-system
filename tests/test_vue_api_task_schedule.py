@@ -1,8 +1,22 @@
 # -*- coding: utf-8 -*-
 """Vue API：任务安排（看板/KPI/单任务/批量/导入导出）"""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from models import db, Customer, InspectionTask, Inspector, User
+
+
+def test_task_timing_payload_uses_execution_to_approval_window():
+    from services.task_schedule_service import task_timing_payload
+
+    task = InspectionTask(
+        title='计时任务', status='已完成',
+        actual_start=datetime(2026, 8, 24, 9, 0),
+        actual_end=datetime(2026, 8, 24, 19, 30),
+    )
+    timing = task_timing_payload(task)
+    assert timing['actual_duration_hours'] == 10.5
+    assert timing['actual_duration_text'] == '10小时30分钟'
+    assert timing['actual_effort'] == 1.31
 
 
 def _seed(app):
@@ -20,6 +34,7 @@ def _seed(app):
                                       planned_end=date.today() - timedelta(days=1)))
         db.session.add(InspectionTask(title='2026年三季度巡检', customer_id=c.id, status='执行中',
                                       assigned_to_user_id=op.id,
+                                      actual_start=datetime.now() - timedelta(hours=2),
                                       planned_start=date.today(), planned_end=date.today() + timedelta(days=30)))
         db.session.commit()
         return c.id, op.id
@@ -36,7 +51,11 @@ class TestTaskScheduleApi:
         assert d['kpi']['total'] == 2
         assert len(d['engineer_groups'][str(op_id)]) == 2
         assert d['kpi']['overdue'] == 1
+        assert d['kpi']['act_effort'] == 0.25
         assert len(d['engineers']) == 1
+        running = next(t for t in d['tasks'] if t['status'] == '执行中')
+        assert running['actual_duration_text'] == '2小时'
+        assert running['actual_effort'] == 0.25
 
     def test_explicit_all_period_does_not_fall_back_to_current_quarter(
             self, admin_client, app):
@@ -200,13 +219,18 @@ class TestTaskScheduleApi:
         })
         assert r.get_json()['code'] == 0
         tid = r.get_json()['data']['id']
-        r = admin_client.put(f'/api/task-schedule/{tid}', json={'status': '已完成', 'actual_effort': 1})
+        r = admin_client.put(f'/api/task-schedule/{tid}', json={'status': '执行中'})
         assert r.get_json()['code'] == 0
+        manual = admin_client.put(
+            f'/api/task-schedule/{tid}', json={'actual_effort': 1})
+        assert manual.status_code == 400
+        assert '自动计算' in manual.get_json()['message']
         with app.app_context():
             t = db.session.get(InspectionTask, tid)
-            assert t.status == '已完成'
-            assert t.actual_effort == 1
-            assert t.actual_end is not None
+            assert t.status == '执行中'
+            assert t.actual_start is not None
+            assert t.actual_effort is None
+            assert t.actual_end is None
         r = admin_client.delete(f'/api/task-schedule/{tid}')
         assert r.get_json()['code'] == 0
         with app.app_context():
@@ -280,6 +304,11 @@ class TestTaskScheduleApi:
 
         _seed(app)
         today = date.today().isoformat()
+        with app.app_context():
+            from services.task_schedule_service import local_now
+            task = InspectionTask.query.filter_by(title='2026年三季度巡检').one()
+            task.actual_start = local_now() - timedelta(hours=2)
+            db.session.commit()
         response = admin_client.get(
             f'/api/task-schedule/export?period=&start_from={today}&start_to={today}')
         assert response.status_code == 200, response.get_json()
@@ -291,11 +320,16 @@ class TestTaskScheduleApi:
         sheet = workbook.active
         rows = list(sheet.iter_rows(values_only=True))
         assert rows[0] == tuple([
-            '客户名称', '任务描述', '优先级', '开始日期', '完成日期',
-            '完成状态', '负责人', '完成时间', '预估工作量', '实际工作量',
+            '客户名称', '任务描述', '优先级', '计划开始日期', '计划完成日期',
+            '完成状态', '负责人', '实际开始时间', '实际完成时间', '实际耗时',
+            '预估人天', '实际人天',
         ])
         assert len(rows) == 2
         assert rows[1][1] == '2026年三季度巡检'
+        assert rows[1][7]
+        assert rows[1][8] is None
+        assert rows[1][9] == '2小时'
+        assert rows[1][11] == '0.25'
         status_cell = sheet.cell(row=2, column=6)
         assert status_cell.value == '执行中'
         assert status_cell.fill.fgColor.rgb.endswith('D9ECFF')

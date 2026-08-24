@@ -71,7 +71,7 @@
       <span>已选 {{ selectedIds.length }} 项</span>
       <el-select v-model="batchStatus" placeholder="批量改状态" size="small" style="width: 140px"
         @change="runBatch('status', batchStatus)">
-        <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+        <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
       </el-select>
       <el-select v-model="batchAssignee" placeholder="批量指派" clearable filterable size="small" style="width: 160px"
         @change="runBatch('assign', batchAssignee)">
@@ -117,13 +117,20 @@
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
                   :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
                   :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
-                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
+                    :key="s" :label="s" :value="s" :disabled="s === TASK_STATUS.DONE" />
                 </el-select>
               </template>
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+              <span v-if="t.actual_duration_text" class="task-duration">实际 {{ t.actual_duration_text }}</span>
               <span class="task-range">{{ rangeText(t) }}</span>
             </div>
             <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
+            <div v-if="expandedId === t.id && t.actual_start" class="task-timing">
+              <span>开始：{{ t.actual_start }}</span>
+              <span>审核完成：{{ t.actual_end || '进行中' }}</span>
+              <span>实际：{{ t.actual_duration_text || '-' }} / {{ t.actual_effort ?? 0 }} 人天</span>
+            </div>
             <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
               <span>例外原因：{{ t.contract_exception_reason || '-' }}</span>
             </div>
@@ -182,13 +189,20 @@
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
                   :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
                   :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
-                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
+                    :key="s" :label="s" :value="s" :disabled="s === TASK_STATUS.DONE" />
                 </el-select>
               </template>
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
+              <span v-if="t.actual_duration_text" class="task-duration">实际 {{ t.actual_duration_text }}</span>
               <span class="task-range">{{ rangeText(t) }}</span>
             </div>
             <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
+            <div v-if="expandedId === t.id && t.actual_start" class="task-timing">
+              <span>开始：{{ t.actual_start }}</span>
+              <span>审核完成：{{ t.actual_end || '进行中' }}</span>
+              <span>实际：{{ t.actual_duration_text || '-' }} / {{ t.actual_effort ?? 0 }} 人天</span>
+            </div>
             <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
               <span>例外原因：{{ t.contract_exception_reason || '-' }}</span>
             </div>
@@ -989,7 +1003,13 @@ onMounted(reload)
 .task-assignee {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
+.task-duration { color: var(--el-color-primary); white-space: nowrap; }
 .task-range { white-space: nowrap; margin-left: auto; }
+.task-timing {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding: 7px 8px;
+  border-radius: 6px; background: var(--el-fill-color-lighter); color: var(--itsm-text-muted);
+  font-size: 12px;
+}
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
 .ie-select { width: 96px; }
 /* 第三行：操作按钮从卡片左缘开始均匀分布（删除贴右缘=时间右缘），不超出边框 */

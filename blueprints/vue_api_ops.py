@@ -1278,9 +1278,12 @@ def api_task_schedule_board():
 
     customer_map = {c.id: c.name for c in _C.query.all()}
     user_map = {u.id: u for u in _U.query.all()}
+    from services.task_schedule_service import local_now as _task_now, task_timing_payload
+    timing_now = _task_now()
 
     def payload(t):
         u = user_map.get(t.assigned_to_user_id)
+        timing = task_timing_payload(t, now=timing_now)
         return {
             'id': t.id,
             'title': t.title,
@@ -1294,7 +1297,7 @@ def api_task_schedule_board():
             'planned_start': t.planned_start.isoformat() if t.planned_start else '',
             'planned_end': t.planned_end.isoformat() if t.planned_end else '',
             'estimated_effort': t.estimated_effort,
-            'actual_effort': t.actual_effort,
+            **timing,
             'overdue': is_overdue(t, today),
             'source': t.source or '',
             'remark': t.remark or '',
@@ -1421,6 +1424,8 @@ def api_task_schedule_update(task_id):
     from blueprints.task_schedule import local_now
     t = _IT.query.get_or_404(task_id)
     data = request.get_json(silent=True) or {}
+    if 'actual_effort' in data:
+        return fail('实际人天由执行开始至审核通过的实际耗时自动计算，不能手工修改', 400)
     if data.get('title') is not None:
         t.title = (data['title'] or '').strip() or t.title
     if data.get('status') is not None:
@@ -1457,8 +1462,6 @@ def api_task_schedule_update(task_id):
         t.planned_end = _date.fromisoformat(data['planned_end']) if data['planned_end'] else None
     if data.get('estimated_effort') is not None:
         t.estimated_effort = float(data['estimated_effort']) if data['estimated_effort'] not in (None, '') else None
-    if data.get('actual_effort') is not None:
-        t.actual_effort = float(data['actual_effort']) if data['actual_effort'] not in (None, '') else None
     if data.get('priority') is not None:
         t.priority = (data['priority'] or '中').strip() or '中'
     if data.get('remark') is not None:
@@ -1580,8 +1583,11 @@ def api_task_schedule_import_template():
         EXCEL_HEADERS,
         TASK_STATUS_EXCEL_COLUMN_STYLES,
     )
-    rows = [['示例客户A', '示例客户A2026年二季度巡检', '中', '2026-04-01', '2026-06-30', _const.TASK_DONE,
-             '张三', '2026-06-15', '1', '1.5']]
+    rows = [[
+        '示例客户A', '示例客户A2026年二季度巡检', '中',
+        '2026-04-01', '2026-06-30', _const.TASK_DONE, '张三',
+        '2026-06-15 09:00', '2026-06-15 17:00', '8小时', '1', '1',
+    ]]
     tmp_path, download_name = export_xlsx(EXCEL_HEADERS, rows, filename='任务安排导入模板.xlsx',
                                           sheet_name='成员分工安排表',
                                           column_value_styles=TASK_STATUS_EXCEL_COLUMN_STYLES)
@@ -1607,8 +1613,8 @@ def api_task_schedule_export():
         _apply_filters,
         _base_query,
         _effective_request_args,
-        _fmt_effort,
         TASK_STATUS_EXCEL_COLUMN_STYLES,
+        task_export_row,
     )
     from models import InspectionTask as _IT
     from utils.excel_export import cleanup_export_tmp, export_xlsx
@@ -1629,21 +1635,9 @@ def api_task_schedule_export():
                        _IT.planned_end.asc(),
                        _IT.id.desc())
              .all())
-    rows = []
-    for task in tasks:
-        assignee = task.assignee_rel
-        rows.append([
-            task.customer_rel.name if task.customer_rel else '',
-            task.title,
-            task.priority or '',
-            task.planned_start.isoformat() if task.planned_start else '',
-            task.planned_end.isoformat() if task.planned_end else '',
-            task.status or '',
-            (assignee.realname or assignee.username) if assignee else '',
-            task.actual_end.strftime('%Y-%m-%d') if task.actual_end else '',
-            _fmt_effort(task.estimated_effort),
-            _fmt_effort(task.actual_effort),
-        ])
+    from services.task_schedule_service import local_now as _task_local_now
+    export_now = _task_local_now()
+    rows = [task_export_row(task, now=export_now) for task in tasks]
 
     range_suffix = (
         f'_{start_raw or "最早"}_至_{end_raw or "最新"}'

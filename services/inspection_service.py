@@ -184,8 +184,7 @@ def _sync_task_to_reviewing(i, current_user_id=None):
     if task.status == TASK_RUNNING:
         apply_task_status(task, TASK_REVIEWING)
     elif task.status == TASK_PENDING:
-        task.status = TASK_RUNNING
-        task.actual_start = task.actual_start or datetime.utcnow()
+        apply_task_status(task, TASK_RUNNING)
         apply_task_status(task, TASK_REVIEWING)
     return task
 
@@ -194,8 +193,7 @@ def _revert_task_to_running(i):
     """记录被退回 → 关联任务回「执行中」（若任务处于待审核）。"""
     task = _task_from_inspection(i)
     if task and task.status == TASK_REVIEWING:
-        task.status = TASK_RUNNING
-        task.actual_start = task.actual_start or datetime.utcnow()
+        apply_task_status(task, TASK_RUNNING)
 
 
 @transaction
@@ -516,7 +514,7 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
     task = _task_from_inspection(i)
     if approved:
         if task and task.status == TASK_REVIEWING:
-            apply_task_status(task, TASK_DONE)
+            apply_task_status(task, TASK_DONE, allow_review_complete=True)
         try:
             _generate_report_for_inspection(i)
             if not i.report_file:
@@ -569,6 +567,6 @@ def delete_inspection(inspection_id):
     i = Inspection.query.get_or_404(inspection_id)
     task = _task_from_inspection(i)
     if task and task.status == TASK_REVIEWING:
-        task.status = TASK_RUNNING
+        apply_task_status(task, TASK_RUNNING)
     SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).delete()
     db.session.delete(i)

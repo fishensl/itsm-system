@@ -4,7 +4,8 @@ import base64
 import io
 import pytest
 
-from models import db, Customer, Device, Rack, RackInstall, PasswordHistory, Inspection, Ticket, Fault, User
+from models import (db, Customer, Device, Rack, RackInstall, PasswordHistory,
+                    Inspection, InspectionTask, Ticket, Fault, User)
 from utils.crypto import encrypt_password
 
 
@@ -34,7 +35,16 @@ def seed(app):
         db.session.add(RackInstall(rack_id=rack.id, device_id=d1.id, start_u=3, occupy_u=2))
         db.session.add(PasswordHistory(device_id=d1.id, changed_by='op', remark='改密',
                                        password_encrypted=encrypt_password('oldpwd')))
-        i1 = Inspection(title='导出巡检', customer_id=c.id, inspection_date=None,
+        from datetime import datetime
+        inspection_task = InspectionTask(
+            title='导出巡检任务', customer_id=c.id, status='已完成',
+            actual_start=datetime(2026, 8, 24, 8, 0),
+            actual_end=datetime(2026, 8, 24, 18, 0),
+        )
+        db.session.add(inspection_task)
+        db.session.flush()
+        i1 = Inspection(title='导出巡检', customer_id=c.id, task_id=inspection_task.id,
+                        inspection_date=None,
                         inspector_name='op', overall_status='正常', review_status='已通过')
         t1 = Ticket(number='WO-TEST-001', title='导出工单', customer_id=c.id, status='已完成',
                     priority='中', assigned_to='op', created_by='admin')
@@ -140,11 +150,20 @@ class TestDevicePresets:
 class TestModuleExports:
     def test_inspection_export_columns_and_filter(self, op_client, seed):
         r = op_client.post('/api/inspections/export', json={
-            'columns': ['title', 'customer', 'review_status'],
+            'columns': [
+                'title', 'customer', 'review_status', 'task_actual_start',
+                'task_actual_end', 'task_actual_duration', 'task_actual_effort',
+            ],
             'customer_id': seed['c']})
         header, rows = _decode_xlsx(r)
-        assert header == ['标题', '客户', '审核状态']
+        assert header == [
+            '标题', '客户', '审核状态', '任务实际开始', '任务审核完成',
+            '任务实际耗时', '任务实际人天',
+        ]
         assert rows[0][:2] == ['导出巡检', '导出客户A']
+        assert rows[0][2:] == [
+            '已通过', '2026-08-24 08:00', '2026-08-24 18:00', '10小时', 1.25,
+        ]
 
     def test_inspection_export_date_filter(self, op_client, seed):
         r = op_client.post('/api/inspections/export', json={
