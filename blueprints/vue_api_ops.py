@@ -1576,11 +1576,15 @@ def api_task_schedule_import_template():
     """下载导入模板（xlsx，base64 返回）"""
     import base64
     from utils.excel_export import export_xlsx
-    from blueprints.task_schedule import EXCEL_HEADERS
+    from blueprints.task_schedule import (
+        EXCEL_HEADERS,
+        TASK_STATUS_EXCEL_COLUMN_STYLES,
+    )
     rows = [['示例客户A', '示例客户A2026年二季度巡检', '中', '2026-04-01', '2026-06-30', _const.TASK_DONE,
              '张三', '2026-06-15', '1', '1.5']]
     tmp_path, download_name = export_xlsx(EXCEL_HEADERS, rows, filename='任务安排导入模板.xlsx',
-                                          sheet_name='成员分工安排表')
+                                          sheet_name='成员分工安排表',
+                                          column_value_styles=TASK_STATUS_EXCEL_COLUMN_STYLES)
     with open(tmp_path, 'rb') as fh:
         b64 = base64.b64encode(fh.read()).decode('ascii')
     try:
@@ -1604,6 +1608,7 @@ def api_task_schedule_export():
         _base_query,
         _effective_request_args,
         _fmt_effort,
+        TASK_STATUS_EXCEL_COLUMN_STYLES,
     )
     from models import InspectionTask as _IT
     from utils.excel_export import cleanup_export_tmp, export_xlsx
@@ -1649,6 +1654,7 @@ def api_task_schedule_export():
         rows,
         filename=f'任务安排{range_suffix}.xlsx',
         sheet_name='成员分工安排表',
+        column_value_styles=TASK_STATUS_EXCEL_COLUMN_STYLES,
     )
     try:
         with open(tmp_path, 'rb') as fh:

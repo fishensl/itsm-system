@@ -11,7 +11,7 @@ import tempfile
 
 
 def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True,
-                header_color=('1890FF', '096DD9')):
+                header_color=('1890FF', '096DD9'), column_value_styles=None):
     """生成 Excel 并通过 send_from_directory 发送给客户端
 
     :param headers: 列名 list，如 ['客户名称', '电话']
@@ -20,6 +20,9 @@ def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True,
     :param sheet_name: 工作表名
     :param use_styles: 是否使用彩色表头样式
     :param header_color: (起始色, 结束色) 表头渐变，默认蓝；备件用绿 ('52C41A','389E0D')
+    :param column_value_styles: 按单元格值设置样式，格式为
+        {列号(从 1 开始): {'值': {'fill': '背景色', 'font_color': '文字色',
+                                  'bold': True, 'horizontal': 'center'}}}
     :return: (file_path, download_name) — 传给 send_from_directory
     """
     import openpyxl
@@ -50,6 +53,26 @@ def export_xlsx(headers, rows, filename, sheet_name='Sheet1', use_styles=True,
             if use_styles:
                 cell.alignment = Alignment(vertical='center')
                 cell.border = thin_border
+            value_styles = (column_value_styles or {}).get(col_idx, {})
+            value_style = value_styles.get(str(val))
+            if value_style:
+                fill_color = value_style.get('fill')
+                if fill_color:
+                    cell.fill = PatternFill(
+                        start_color=fill_color,
+                        end_color=fill_color,
+                        fill_type='solid',
+                    )
+                cell.font = Font(
+                    name='微软雅黑',
+                    size=10,
+                    color=value_style.get('font_color', '000000'),
+                    bold=value_style.get('bold', False),
+                )
+                cell.alignment = Alignment(
+                    horizontal=value_style.get('horizontal', 'center'),
+                    vertical='center',
+                )
 
     # 设置列宽
     for col_idx, h in enumerate(headers, 1):

@@ -239,6 +239,11 @@ class TestTaskScheduleApi:
             assert InspectionTask.query.filter(InspectionTask.id.in_(ids)).count() == 0
 
     def test_import_template_and_import(self, admin_client, app):
+        import base64
+        import io
+
+        from openpyxl import load_workbook
+
         cid, op_id = _seed(app)
         with app.app_context():
             op = db.session.get(User, op_id)
@@ -246,8 +251,11 @@ class TestTaskScheduleApi:
         r = admin_client.get('/api/task-schedule/import-template')
         assert r.get_json()['code'] == 0
         assert r.get_json()['data']['filename'].endswith('.xlsx')
+        template = load_workbook(io.BytesIO(base64.b64decode(r.get_json()['data']['content'])))
+        template_status = template.active.cell(row=2, column=6)
+        assert template_status.value == '已完成'
+        assert template_status.fill.fgColor.rgb.endswith('E1F3D8')
         # 构造导入 xlsx
-        import io
         from openpyxl import Workbook
         wb = Workbook()
         ws = wb.active
@@ -279,7 +287,7 @@ class TestTaskScheduleApi:
         assert data['count'] == 1
         assert today in data['filename']
 
-        workbook = load_workbook(io.BytesIO(base64.b64decode(data['content'])), read_only=True)
+        workbook = load_workbook(io.BytesIO(base64.b64decode(data['content'])))
         sheet = workbook.active
         rows = list(sheet.iter_rows(values_only=True))
         assert rows[0] == tuple([
@@ -288,6 +296,10 @@ class TestTaskScheduleApi:
         ])
         assert len(rows) == 2
         assert rows[1][1] == '2026年三季度巡检'
+        status_cell = sheet.cell(row=2, column=6)
+        assert status_cell.value == '执行中'
+        assert status_cell.fill.fgColor.rgb.endswith('D9ECFF')
+        assert status_cell.font.color.rgb.endswith('409EFF')
 
         with app.app_context():
             from models import AuditLog

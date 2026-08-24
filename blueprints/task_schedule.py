@@ -26,6 +26,7 @@ from utils.constants import (
     TASK_PENDING,
     TASK_REVIEWING,
     TASK_RUNNING,
+    TASK_STATUS_TAG,
 )
 from utils.permission import require_permission, has_permission, is_supervisor
 
@@ -61,13 +62,21 @@ STATUS_FROM_EXCEL = {
 ALL_STATUSES = [TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE, TASK_CANCELLED]
 ACTIVE_STATUSES = [TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE]
 
-# V17: 状态颜色统一 — 待执行红(提醒)/执行中橙(进行中)/待审核蓝(审核中)/已完成绿/已取消灰
-STATUS_COLOR = {
-    TASK_PENDING: 'danger',
-    TASK_RUNNING: 'warning',
-    TASK_REVIEWING: 'info',
-    TASK_DONE: 'success',
-    TASK_CANCELLED: 'secondary',
+# 任务安排页将“待审核”显示为 info，其余状态沿用全局状态语义。
+STATUS_COLOR = dict(TASK_STATUS_TAG)
+STATUS_COLOR[TASK_REVIEWING] = 'info'
+
+# Element Plus 默认语义色的浅色标签样式，用于 Excel 状态单元格。
+_EXCEL_TAG_STYLES = {
+    'warning': {'fill': 'FAECD8', 'font_color': 'E6A23C', 'bold': True},
+    'primary': {'fill': 'D9ECFF', 'font_color': '409EFF', 'bold': True},
+    'info': {'fill': 'E9E9EB', 'font_color': '909399', 'bold': True},
+    'success': {'fill': 'E1F3D8', 'font_color': '67C23A', 'bold': True},
+    'danger': {'fill': 'FDE2E2', 'font_color': 'F56C6C', 'bold': True},
+}
+TASK_STATUS_EXCEL_STYLES = {
+    status: _EXCEL_TAG_STYLES[tag]
+    for status, tag in STATUS_COLOR.items()
 }
 
 # 从 Excel 任务描述里抠出客户名前缀的正则：
@@ -321,6 +330,9 @@ def list_view():
 # ============================================================
 
 EXCEL_HEADERS = ['客户名称', '任务描述', '优先级', '开始日期', '完成日期', '完成状态', '负责人', '完成时间', '预估工作量', '实际工作量']
+TASK_STATUS_EXCEL_COLUMN_STYLES = {
+    EXCEL_HEADERS.index('完成状态') + 1: TASK_STATUS_EXCEL_STYLES,
+}
 
 # 优先级允许值（与 UI 保持一致；超出范围回退 '中'）
 PRIORITY_VALUES = {'低', '中', '高', '紧急'}
@@ -340,6 +352,7 @@ def import_template():
         EXCEL_HEADERS, rows,
         filename='任务安排导入模板.xlsx',
         sheet_name='成员分工安排表',
+        column_value_styles=TASK_STATUS_EXCEL_COLUMN_STYLES,
     )
     return send_temp_export(tmp_path, download_name)
 
@@ -874,5 +887,6 @@ def export_excel():
         EXCEL_HEADERS, rows,
         filename=f'任务安排_{date.today().isoformat()}.xlsx',
         sheet_name='成员分工安排表',
+        column_value_styles=TASK_STATUS_EXCEL_COLUMN_STYLES,
     )
     return send_temp_export(tmp_path, download_name)
