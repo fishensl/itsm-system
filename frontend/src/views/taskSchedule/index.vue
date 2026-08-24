@@ -33,14 +33,14 @@
     </el-dialog>
 
     <!-- KPI -->
-    <el-row v-if="data" :gutter="8" class="kpi-row">
-      <el-col v-for="k in kpiCards" :key="k.key" :xs="12" :sm="8" :md="3">
+    <div v-if="data" class="kpi-row">
+      <div v-for="k in kpiCards" :key="k.key" class="kpi-col">
         <div class="kpi-card" :class="[k.cls, { 'kpi-clickable': k.clickable }]" @click="k.action && k.action()">
           <div class="kpi-value">{{ k.value }}</div>
           <div class="kpi-label">{{ k.label }}</div>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
     <!-- 筛选 -->
     <el-card shadow="never" class="filter-card">
@@ -892,10 +892,18 @@ onMounted(reload)
 </script>
 
 <style scoped>
-.kpi-row { margin-bottom: 12px; }
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(108px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.kpi-col { min-width: 0; }
 .kpi-card {
   border: 1px solid var(--itsm-border); border-radius: 8px; padding: 10px; text-align: center;
-  background: var(--itsm-card-bg); margin-bottom: 8px;
+  background: var(--itsm-card-bg);
 }
 .kpi-clickable {
   cursor: pointer;

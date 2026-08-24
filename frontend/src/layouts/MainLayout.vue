@@ -120,9 +120,6 @@
           :icon="Menu"
           @click="ui.mobileSidebarOpen = true"
         />
-        <div class="topbar-title">
-          {{ route.meta.title }}
-        </div>
         <div class="topbar-right">
           <!-- 全局搜索 -->
           <GlobalSearch class="global-search" />
@@ -480,10 +477,6 @@ watch(mustChangePassword, (required) => {
 }
 .mobile-menu-btn {
   display: none;
-}
-.topbar-title {
-  font-weight: 600;
-  font-size: 15px;
 }
 .topbar-right {
   margin-left: auto;

@@ -67,3 +67,19 @@ def test_theme_aware_vue_views_do_not_embed_semantic_hex_colors():
                 continue
             offenders.append(f'{relative}:{match.group()}')
     assert not offenders, f'Vue 视图仍有硬编码语义色：{offenders}'
+
+
+def test_layout_has_only_one_page_title_source():
+    """页面标题由内容页渲染一次；顶栏仅保留全局工具，避免全站双标题。"""
+    source = (ROOT / 'frontend' / 'src' / 'layouts' / 'MainLayout.vue').read_text(
+        encoding='utf-8')
+    assert 'topbar-title' not in source
+    assert '{{ route.meta.title }}' not in source
+
+
+def test_task_schedule_kpis_stay_in_one_row():
+    """9 个任务 KPI 固定为单行；窄屏通过横向滚动保持指标不换行。"""
+    source = _view_source('taskSchedule/index.vue')
+    assert 'grid-template-columns: repeat(9, minmax(108px, 1fr))' in source
+    assert 'overflow-x: auto' in source
+    assert '<el-row v-if="data"' not in source
