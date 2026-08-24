@@ -17,7 +17,7 @@
         :model="form"
         :rules="rules"
         size="large"
-        @keyup.enter="submit"
+        @submit.prevent="submit"
       >
         <el-form-item prop="username">
           <el-input
@@ -39,15 +39,15 @@
         </el-form-item>
         <el-button
           type="primary"
+          native-type="submit"
           class="login-btn"
           :loading="loading"
-          @click="submit"
         >
           登 录
         </el-button>
       </el-form>
 
-      <el-form v-else size="large" @keyup.enter="submitMfa">
+      <el-form v-else size="large" @submit.prevent="submitMfa">
         <el-alert type="info" :closable="false" show-icon
           :title="recovery ? '请输入一次性恢复码' : '请输入腾讯身份验证器中的 6 位登录动态码'" />
         <el-form-item class="mfa-input">
@@ -55,11 +55,11 @@
             :inputmode="recovery ? 'text' : 'numeric'" autocomplete="one-time-code"
             :placeholder="recovery ? '恢复码' : '6 位动态码'" />
         </el-form-item>
-        <el-button type="primary" class="login-btn" :loading="loading" @click="submitMfa">验证并登录</el-button>
-        <el-button link type="primary" @click="recovery = !recovery">
+        <el-button type="primary" native-type="submit" class="login-btn" :loading="loading">验证并登录</el-button>
+        <el-button link type="primary" native-type="button" @click="recovery = !recovery">
           {{ recovery ? '使用动态码' : '使用恢复码' }}
         </el-button>
-        <el-button link @click="step = 'password'">返回密码登录</el-button>
+        <el-button link native-type="button" @click="step = 'password'">返回密码登录</el-button>
       </el-form>
 
       <el-alert
