@@ -1590,6 +1590,81 @@ def api_task_schedule_import_template():
     return ok({'filename': download_name, 'content': b64})
 
 
+@vue_api_bp.route('/api/task-schedule/export', methods=['GET'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_export():
+    """按任务看板当前筛选及计划开始日期范围导出 Excel。"""
+    import base64
+    from datetime import date as _date
+
+    from blueprints.task_schedule import (
+        EXCEL_HEADERS,
+        _apply_filters,
+        _base_query,
+        _effective_request_args,
+        _fmt_effort,
+    )
+    from models import InspectionTask as _IT
+    from utils.excel_export import cleanup_export_tmp, export_xlsx
+
+    start_raw = (request.args.get('start_from') or '').strip()
+    end_raw = (request.args.get('start_to') or '').strip()
+    try:
+        start_date = _date.fromisoformat(start_raw) if start_raw else None
+        end_date = _date.fromisoformat(end_raw) if end_raw else None
+    except ValueError:
+        return fail('时间范围格式不正确，应为 YYYY-MM-DD', 400)
+    if start_date and end_date and start_date > end_date:
+        return fail('开始日期不能晚于结束日期', 400)
+
+    effective_args, _ = _effective_request_args(request.args)
+    tasks = (_apply_filters(_base_query(), effective_args)
+             .order_by(_IT.planned_start.asc(),
+                       _IT.planned_end.asc(),
+                       _IT.id.desc())
+             .all())
+    rows = []
+    for task in tasks:
+        assignee = task.assignee_rel
+        rows.append([
+            task.customer_rel.name if task.customer_rel else '',
+            task.title,
+            task.priority or '',
+            task.planned_start.isoformat() if task.planned_start else '',
+            task.planned_end.isoformat() if task.planned_end else '',
+            task.status or '',
+            (assignee.realname or assignee.username) if assignee else '',
+            task.actual_end.strftime('%Y-%m-%d') if task.actual_end else '',
+            _fmt_effort(task.estimated_effort),
+            _fmt_effort(task.actual_effort),
+        ])
+
+    range_suffix = (
+        f'_{start_raw or "最早"}_至_{end_raw or "最新"}'
+        if start_raw or end_raw else '_全部时间'
+    )
+    tmp_path, download_name = export_xlsx(
+        EXCEL_HEADERS,
+        rows,
+        filename=f'任务安排{range_suffix}.xlsx',
+        sheet_name='成员分工安排表',
+    )
+    try:
+        with open(tmp_path, 'rb') as fh:
+            content = base64.b64encode(fh.read()).decode('ascii')
+    finally:
+        cleanup_export_tmp(tmp_path)
+
+    from blueprints.vue_api_sys import audit_log
+    audit_log(
+        'task:export',
+        'inspection_task',
+        detail=f'导出任务安排 {len(rows)} 条，计划开始日期 {start_raw or "最早"} 至 {end_raw or "最新"}',
+    )
+    return ok({'filename': download_name, 'content': content, 'count': len(rows)})
+
+
 @vue_api_bp.route('/api/task-schedule/import', methods=['POST'])
 @login_required
 @require_permission('task:schedule')

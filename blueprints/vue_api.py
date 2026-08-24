@@ -572,6 +572,8 @@ def _device_payload(d, customer_map=None, rack_map=None, pwd_map=None):
     if not isinstance(iface, list):
         iface = []
     rack = (rack_map or {}).get(d.id)
+    installs = d.rack_installs or []
+    rack_install = max(installs, key=lambda item: item.id or 0) if installs else None
     pwd = (pwd_map or {}).get(d.id)
     return {
         'id': d.id,
@@ -605,6 +607,10 @@ def _device_payload(d, customer_map=None, rack_map=None, pwd_map=None):
         'rack_location': rack[0] if rack else '',
         'rack_name': rack[1] if rack else '',
         'rack_slot': rack[2] if rack else '',
+        'rack_id': rack_install.rack_id if rack_install else None,
+        'rack_install_id': rack_install.id if rack_install else None,
+        'rack_start_u': rack_install.start_u if rack_install else None,
+        'rack_occupy_u': rack_install.occupy_u if rack_install else 1,
         'pwd_changed_by': pwd[0] if pwd else '',
         'pwd_changed_at': pwd[1] if pwd else '',
         'remark': d.remark or '',

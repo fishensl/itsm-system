@@ -32,6 +32,10 @@ export interface Device {
   rack_location: string
   rack_name: string
   rack_slot: string
+  rack_id: number | null
+  rack_install_id: number | null
+  rack_start_u: number | null
+  rack_occupy_u: number
   /** 上次修改密码信息（来自 PasswordHistory） */
   pwd_changed_by: string
   pwd_changed_at: string
@@ -54,6 +58,10 @@ export interface DeviceForm {
   username: string
   password: string
   login_method: string
+  rack_location: string
+  rack_id?: number | null
+  rack_start_u?: number | null
+  rack_occupy_u?: number
   location: string
   power_supply: string
   interface: string[]

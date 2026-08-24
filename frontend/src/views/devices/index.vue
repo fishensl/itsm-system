@@ -368,7 +368,7 @@
     <el-dialog
       v-model="formVisible"
       :title="form.id ? '编辑设备' : '新增设备'"
-      width="720px"
+      width="760px"
       top="4vh"
       destroy-on-close
     >
@@ -381,7 +381,8 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'customer_name', '客户', 'form')">
-              <el-select v-model="form.customer_id" filterable clearable class="w-full">
+              <el-select v-model="form.customer_id" filterable clearable class="w-full"
+                @change="onFormCustomerChange">
                 <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
               </el-select>
             </el-form-item>
@@ -447,6 +448,22 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
+            <el-form-item :label="fieldLabel('device', 'rack_location', '机房位置', 'form')">
+              <el-input v-model="form.rack_location" :disabled="Boolean(form.rack_id)"
+                :placeholder="form.rack_id ? '随机柜自动带出' : '未上架设备可直接填写'" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="fieldLabel('device', 'rack_name', '机柜号', 'form')">
+              <el-select v-model="form.rack_id" filterable clearable class="w-full"
+                :loading="rackOptionsLoading" placeholder="未上架可留空" @change="onRackChange">
+                <el-option v-for="rack in rackOptions" :key="rack.id"
+                  :label="`${rack.name} · ${rack.location || '未设置机房'} · ${rack.used_label}`"
+                  :value="rack.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'location', '安装位置', 'form')">
               <el-select v-model="form.location" clearable class="w-full" placeholder="请选择正面或背面">
                 <el-option v-if="form.location && !installationPositions.includes(form.location)"
@@ -454,6 +471,18 @@
                 <el-option v-for="option in installationPositions" :key="option"
                   :label="option" :value="option" />
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="fieldLabel('device', 'rack_slot', '机柜U位', 'form')">
+              <el-input-number v-model="form.rack_start_u" :min="1"
+                :max="selectedRack?.total_u || 99" :disabled="!form.rack_id" class="w-full" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="占用U数">
+              <el-input-number v-model="form.rack_occupy_u" :min="1"
+                :max="selectedRack?.total_u || 99" :disabled="!form.rack_id" class="w-full" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -515,6 +544,26 @@
               <el-checkbox v-model="form.is_maintenance">{{ fieldLabel('device', 'is_maintenance', '是否维修', 'form') }}</el-checkbox>
             </el-form-item>
           </el-col>
+          <el-col v-if="editingSnapshot" :xs="24">
+            <el-divider content-position="left">系统与审计信息（只读）</el-divider>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item :label="fieldLabel('device', 'has_password', '已设置密码')">
+                {{ editingSnapshot.has_password ? '是' : '否' }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="fieldLabel('device', 'license_remaining_days', '授权剩余天数')">
+                {{ editingSnapshot.license_remaining_days ?? '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="fieldLabel('device', 'pwd_changed_by', '上次修改密码账号')">
+                {{ editingSnapshot.pwd_changed_by || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="fieldLabel('device', 'pwd_changed_at', '上次修改密码时间')">
+                {{ editingSnapshot.pwd_changed_at || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="fieldLabel('device', 'created_at', '创建时间')" :span="2">
+                {{ editingSnapshot.created_at || '-' }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </el-col>
         </el-row>
       </el-form>
       <template #footer>
@@ -549,6 +598,7 @@ import {
   batchUpdateDevices,
   auditPasswordCopy,
 } from '@/api/devices'
+import { fetchRack, fetchRacks, type RackItem } from '@/api/rack'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
 import {
@@ -569,6 +619,8 @@ const deviceTypes = ref<{ name: string }[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
 const installationPositions = ref<string[]>(['正面', '背面'])
 const powerSupplies = ref<string[]>(['单电源', '双电源'])
+const rackOptions = ref<RackItem[]>([])
+const rackOptionsLoading = ref(false)
 const listFieldMeta = ref<EntityFieldMeta[]>([])
 const entityMetas = ref<Record<string, EntityMeta>>({})
 
@@ -1171,12 +1223,16 @@ const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const form = reactive<DeviceForm & { id?: number }>(blankForm())
+const editingSnapshot = ref<Device | null>(null)
+const selectedRack = computed(() =>
+  rackOptions.value.find((rack) => rack.id === form.rack_id))
 
 function blankForm(): DeviceForm & { id?: number } {
   return {
     id: undefined, device_name: '', customer_id: null, device_type: '', brand: '', model: '',
     serial_number: '', network_type: '', ip_address: '', port: 22, username: '', password: '',
-    login_method: 'SSH', location: '', power_supply: '', interface: [], os_version: '', rule_version: '',
+    login_method: 'SSH', rack_location: '', rack_id: null, rack_start_u: 1, rack_occupy_u: 1,
+    location: '', power_supply: '', interface: [], os_version: '', rule_version: '',
     is_maintenance: false, is_in_use: true, license_expiry: '', license_start: '',
     build_date: '', cert_expiry_date: '', remark: '',
   }
@@ -1188,21 +1244,82 @@ const formRules = {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  editingSnapshot.value = null
+  rackOptions.value = []
   formVisible.value = true
 }
 
 async function openEdit(d: Device) {
+  let current: Device
+  try {
+    current = await fetchDevice(d.id)
+  } catch (e) {
+    ui.toast((e as Error).message || '设备详情加载失败', 'error')
+    return
+  }
   Object.assign(form, blankForm(), {
-    id: d.id, device_name: d.device_name, customer_id: d.customer_id, device_type: d.device_type,
-    brand: d.brand, model: d.model, serial_number: d.serial_number, network_type: d.network_type,
-    ip_address: d.ip_address, port: d.port, username: d.username, login_method: d.login_method,
-    location: d.location, power_supply: d.power_supply || '', interface: [...d.interface], os_version: d.os_version,
-    rule_version: d.rule_version, is_maintenance: d.is_maintenance, is_in_use: d.is_in_use,
-    license_expiry: d.license_expiry, license_start: d.license_start, build_date: d.build_date,
-    cert_expiry_date: d.cert_expiry_date, remark: d.remark,
+    id: current.id, device_name: current.device_name, customer_id: current.customer_id,
+    device_type: current.device_type, brand: current.brand, model: current.model,
+    serial_number: current.serial_number, network_type: current.network_type,
+    ip_address: current.ip_address, port: current.port, username: current.username,
+    login_method: current.login_method, rack_location: current.rack_location,
+    rack_id: current.rack_id, rack_start_u: current.rack_start_u || 1,
+    rack_occupy_u: current.rack_occupy_u || 1,
+    location: current.location, power_supply: current.power_supply || '',
+    interface: [...current.interface], os_version: current.os_version,
+    rule_version: current.rule_version, is_maintenance: current.is_maintenance,
+    is_in_use: current.is_in_use, license_expiry: current.license_expiry,
+    license_start: current.license_start, build_date: current.build_date,
+    cert_expiry_date: current.cert_expiry_date, remark: current.remark,
   })
+  editingSnapshot.value = current
+  await loadRackOptions(current.customer_id, current.rack_id)
   detailVisible.value = false
   formVisible.value = true
+}
+
+let rackLoadSequence = 0
+
+async function loadRackOptions(customerId: number | null | undefined, selectedId?: number | null) {
+  const sequence = ++rackLoadSequence
+  if (!customerId) {
+    rackOptions.value = []
+    return
+  }
+  rackOptionsLoading.value = true
+  try {
+    const result = await fetchRacks({ page: 1, page_size: 100, customer_id: customerId })
+    const options = [...result.items]
+    if (selectedId && !options.some((rack) => rack.id === selectedId)) {
+      const selected = await fetchRack(selectedId)
+      if (selected.customer_id === customerId) options.unshift(selected)
+    }
+    if (sequence === rackLoadSequence) rackOptions.value = options
+  } catch (e) {
+    if (sequence === rackLoadSequence) {
+      rackOptions.value = []
+      ui.toast((e as Error).message || '机柜列表加载失败', 'error')
+    }
+  } finally {
+    if (sequence === rackLoadSequence) rackOptionsLoading.value = false
+  }
+}
+
+function onFormCustomerChange() {
+  form.rack_id = null
+  form.rack_location = ''
+  form.rack_start_u = 1
+  form.rack_occupy_u = 1
+  void loadRackOptions(form.customer_id)
+}
+
+function onRackChange(rackId: number | null) {
+  const rack = rackOptions.value.find((item) => item.id === rackId)
+  if (rack) {
+    form.rack_location = rack.location || ''
+    form.rack_start_u = 1
+    form.rack_occupy_u = 1
+  }
 }
 
 async function save() {

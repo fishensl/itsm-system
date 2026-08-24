@@ -176,7 +176,9 @@ def _effective_request_args(args):
       - effective_period：回填筛选条 f_period 用于"本季"按钮高亮。
     用户点了期间按钮或手填了日期则尊重原值。
     """
-    has_explicit_period = bool(args.get('period', ''))
+    # ``period=`` 是前端“全部时间”的显式选择，不能再次回退成“本季度”。
+    # 只有请求中完全没有 period 且也没有手填日期时，才应用默认季度。
+    has_explicit_period = 'period' in args
     has_explicit_date = bool(args.get('start_from', '')) or bool(args.get('start_to', ''))
     if not has_explicit_period and not has_explicit_date:
         effective_period = 'this_quarter'

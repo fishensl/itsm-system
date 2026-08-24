@@ -3,6 +3,7 @@
     <div class="page-header">
       <h2 class="page-title">任务安排</h2>
       <div class="header-actions">
+        <el-button plain :icon="Download" @click="openExport">导出Excel</el-button>
         <el-button plain :icon="Download" @click="downloadTemplate">导入模板</el-button>
         <input ref="importInput" type="file" accept=".xlsx,.xls" style="display: none" @change="onImportFile" />
         <el-button plain :icon="Upload" @click="importInput?.click()">批量导入</el-button>
@@ -14,6 +15,22 @@
         </el-button>
       </div>
     </div>
+
+    <el-dialog v-model="exportVisible" title="导出任务安排" width="520px" destroy-on-close>
+      <el-form label-width="120px">
+        <el-form-item label="计划开始日期">
+          <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
+            start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
+            clearable class="w-full" />
+        </el-form-item>
+        <el-alert type="info" :closable="false" show-icon
+          title="导出沿用当前客户、负责人、状态、搜索和逾期筛选；清空日期表示全部时间。" />
+      </el-form>
+      <template #footer>
+        <el-button @click="exportVisible = false">取消</el-button>
+        <el-button type="primary" :loading="exporting" @click="doExport">导出Excel</el-button>
+      </template>
+    </el-dialog>
 
     <!-- KPI -->
     <el-row v-if="data" :gutter="8" class="kpi-row">
@@ -388,7 +405,7 @@ import { Plus, Search, Download, Upload, UploadFilled, Delete } from '@element-p
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
-  fetchRequiredAssets, reviewTaskContract,
+  fetchRequiredAssets, reviewTaskContract, exportTaskSchedule,
   type TaskScheduleData, type TaskScheduleItem,
 } from '@/api/taskSchedule'
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
@@ -397,6 +414,7 @@ import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { TASK_STATUS, REVIEW_STATUS } from '@/utils/status'
+import { handleExportResult } from '@/utils/export'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -423,6 +441,9 @@ const inlineForm = reactive<{ status: string; assignee_id: number | null }>({ st
 const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
+const exportVisible = ref(false)
+const exporting = ref(false)
+const exportDateRange = ref<string[]>([])
 
 // V21/V22: 关联巡检记录 + 上传全套资料
 const record = ref<Inspection | null>(null)
@@ -636,6 +657,59 @@ async function saveInline() {
     reload()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
+  }
+}
+
+function formatLocalDate(value: Date) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function currentPeriodRange(period: unknown): string[] {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  if (period === 'this_month') {
+    return [formatLocalDate(new Date(year, month, 1)), formatLocalDate(new Date(year, month + 1, 0))]
+  }
+  if (period === 'this_quarter') {
+    const startMonth = Math.floor(month / 3) * 3
+    return [formatLocalDate(new Date(year, startMonth, 1)), formatLocalDate(new Date(year, startMonth + 3, 0))]
+  }
+  if (period === 'this_year') {
+    return [`${year}-01-01`, `${year}-12-31`]
+  }
+  const start = String(query.start_from || '')
+  const end = String(query.start_to || '')
+  return start || end ? [start, end] : []
+}
+
+function openExport() {
+  exportDateRange.value = currentPeriodRange(query.period)
+  exportVisible.value = true
+}
+
+async function doExport() {
+  exporting.value = true
+  try {
+    const params = { ...query, period: '' } as Record<string, unknown>
+    if (exportDateRange.value.length === 2) {
+      params.start_from = exportDateRange.value[0]
+      params.start_to = exportDateRange.value[1]
+    } else {
+      delete params.start_from
+      delete params.start_to
+    }
+    if (onlyOverdue.value) params.overdue = '1'
+    const result = await exportTaskSchedule(params as never)
+    handleExportResult(result, { close: () => { exportVisible.value = false } })
+    ui.toast(`已导出 ${result.count} 条任务`, 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    exporting.value = false
   }
 }
 

@@ -34,6 +34,79 @@ def normalize_device_choice(field, value, current_value=None):
     return text
 
 
+def _sync_rack_placement(device, form):
+    """按设备表单同步机柜位置；与设备字段共用当前事务。
+
+    ``rack_id`` 是显式开关：旧表单没有该字段时保持原上架关系不动；Vue 表单
+    传空值表示下架，传机柜 ID 表示上架或迁柜。未上架设备的机房位置保存在
+    devices.rack_location，已上架设备的机房位置由 Rack.location 单一派生。
+    """
+    data = form.to_dict() if hasattr(form, 'to_dict') else form
+    if 'rack_id' not in data:
+        if 'rack_location' in data and not device.rack_installs:
+            device.rack_location = str(data.get('rack_location') or '').strip()[:128]
+        return
+
+    from models import Rack, RackInstall
+
+    installs = (RackInstall.query.filter_by(device_id=device.id)
+                .order_by(RackInstall.id.desc()).all())
+    current = installs[0] if installs else None
+    rack_id = data.get('rack_id')
+    if rack_id in (None, ''):
+        for install in installs:
+            db.session.delete(install)
+        device.rack_location = str(data.get('rack_location') or '').strip()[:128]
+        return
+
+    try:
+        rack_id = int(rack_id)
+    except (TypeError, ValueError) as exc:
+        raise ServiceError('机柜参数无效') from exc
+    rack = Rack.query.get(rack_id)
+    if not rack:
+        raise ServiceError('所选机柜不存在')
+    if rack.customer_id != device.customer_id:
+        raise ServiceError('设备与机柜必须属于同一客户')
+
+    default_start = current.start_u if current and current.rack_id == rack.id else 1
+    default_occupy = current.occupy_u if current else 1
+    try:
+        start_u = int(data.get('rack_start_u') or default_start)
+        occupy_u = int(data.get('rack_occupy_u') or default_occupy)
+    except (TypeError, ValueError) as exc:
+        raise ServiceError('机柜 U 位参数无效') from exc
+    if start_u < 1 or occupy_u < 1:
+        raise ServiceError('机柜 U 位和占用 U 数必须大于 0')
+    if start_u + occupy_u - 1 > (rack.total_u or 0):
+        raise ServiceError(f'U 位超出范围（机柜共 {rack.total_u or 0}U）')
+
+    own_install_ids = {install.id for install in installs}
+    new_end = start_u + occupy_u - 1
+    for other in rack.installs:
+        if other.id in own_install_ids:
+            continue
+        other_start = other.start_u or 1
+        other_end = other_start + (other.occupy_u or 1) - 1
+        if not (new_end < other_start or start_u > other_end):
+            raise ServiceError(f'U 位冲突：{other_start}U-{other_end}U 已被占用')
+
+    if current:
+        current.rack_id = rack.id
+        current.rack_rel = rack
+        current.start_u = start_u
+        current.occupy_u = occupy_u
+    else:
+        current = RackInstall(
+            rack_id=rack.id, device_id=device.id,
+            start_u=start_u, occupy_u=occupy_u,
+        )
+        db.session.add(current)
+    for stale in installs[1:]:
+        db.session.delete(stale)
+    device.rack_location = ''
+
+
 @transaction
 def create_device_from_form(form):
     """新增设备（接收 web 表单 form 字典）
@@ -74,6 +147,7 @@ def create_device_from_form(form):
         serial_number=form.get('serial_number', ''),
         login_method=form.get('login_method', ''),
         location=normalize_device_choice('location', form.get('location')),
+        rack_location=str(form.get('rack_location') or '').strip()[:128],
         interface=dumps_json(interfaces) if interfaces else None,
         power_supply=normalize_device_choice('power_supply', form.get('power_supply')),
         os_version=form.get('os_version', ''),
@@ -88,6 +162,8 @@ def create_device_from_form(form):
         remark=form.get('remark', ''),
     )
     db.session.add(d)
+    db.session.flush()
+    _sync_rack_placement(d, form)
     return d
 
 
@@ -149,6 +225,7 @@ def update_device_from_form(device_id, form):
     d.build_date = _parse_date(form.get('build_date'))
     d.cert_expiry_date = _parse_date(form.get('cert_expiry_date'))
     d.remark = form.get('remark', '')
+    _sync_rack_placement(d, form)
     return d
 
 

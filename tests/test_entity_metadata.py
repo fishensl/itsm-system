@@ -41,6 +41,11 @@ def test_device_location_power_and_export_profiles_share_one_contract():
     assert list_keys[start:start + 4] == location_block
     assert list_keys[start + 4] == 'power_supply'
 
+    form_keys = _keys(schema, 'form')
+    start = form_keys.index('rack_location')
+    assert form_keys[start:start + 4] == location_block
+    assert form_keys[start + 4] == 'power_supply'
+
     for profile in ('export_default', 'export_available'):
         keys = _keys(schema, profile)
         start = keys.index('rack_location')
@@ -59,6 +64,30 @@ def test_device_location_power_and_export_profiles_share_one_contract():
     assert [key for key in _keys(schema, 'export_available') if key != 'password'] == [
         key for key in list_keys if key != 'has_password'
     ]
+
+
+def test_device_edit_covers_every_business_field_from_list_and_export():
+    """列表/导出的可维护字段必须进入编辑面；派生和审计字段必须明确只读展示。"""
+    schema = get_entity_schema('device')
+    list_and_export = set(_keys(schema, 'list')) | set(_keys(schema, 'export_available'))
+    readonly = {
+        'has_password', 'license_remaining_days', 'pwd_changed_by', 'pwd_changed_at', 'created_at',
+    }
+    form_keys = set(_keys(schema, 'form'))
+    assert list_and_export - readonly <= form_keys
+
+    source = (ROOT / 'frontend' / 'src' / 'views' / 'devices' / 'index.vue').read_text(
+        encoding='utf-8')
+    form_binding = {
+        'customer_name': 'customer_id',
+        'rack_name': 'rack_id',
+        'rack_slot': 'rack_start_u',
+    }
+    for key in form_keys:
+        bound_key = form_binding.get(key, key)
+        assert f'form.{bound_key}' in source, f'设备编辑框缺少字段绑定：{key}'
+    for key in readonly:
+        assert f"fieldLabel('device', '{key}'" in source, f'设备编辑框缺少只读说明：{key}'
 
 
 def test_existing_export_codes_are_derived_without_contract_breakage():

@@ -49,7 +49,8 @@ class TestDeviceList:
         # 全量字段（与导出 vue_export.DEVICE_EXPORT_COLUMNS 对齐）下发：网络类型/证书到期/机柜/改密记录
         first = data['items'][0]
         assert 'network_type' in first and 'cert_expiry_date' in first
-        assert {'rack_location', 'rack_name', 'rack_slot'} <= first.keys()
+        assert {'rack_location', 'rack_name', 'rack_slot', 'rack_id', 'rack_install_id',
+                'rack_start_u', 'rack_occupy_u'} <= first.keys()
         assert first['power_supply'] in ('', '双电源')
         assert {'pwd_changed_by', 'pwd_changed_at'} <= first.keys()
         assert first['rack_location'] == ''  # 未上架设备机柜列为空
@@ -80,6 +81,36 @@ class TestDeviceList:
 
 
 class TestDeviceCrud:
+    def test_create_with_rack_placement(self, op_client, seed, app):
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='A-01', location='一楼机房', total_u=42)
+            db.session.add(rack)
+            db.session.commit()
+            rack_id = rack.id
+
+        r = op_client.post('/api/devices', json={
+            'device_name': 'SW-RACKED', 'customer_id': seed['c1'],
+            'rack_location': '不会写入设备自身', 'rack_id': rack_id,
+            'rack_start_u': 8, 'rack_occupy_u': 2,
+            'location': '正面', 'power_supply': '双电源', 'is_in_use': True,
+        })
+        assert r.status_code == 200, r.get_json()
+        device_id = r.get_json()['data']['id']
+        with app.app_context():
+            device = Device.query.get(device_id)
+            install = RackInstall.query.filter_by(device_id=device_id).one()
+            assert device.rack_location == ''
+            assert (install.rack_id, install.start_u, install.occupy_u) == (rack_id, 8, 2)
+
+        payload = op_client.get(f'/api/devices/{device_id}').get_json()['data']
+        assert payload['rack_location'] == '一楼机房'
+        assert payload['rack_name'] == 'A-01'
+        assert payload['rack_slot'] == 'U8'
+        assert payload['rack_id'] == rack_id
+        assert payload['rack_start_u'] == 8
+        assert payload['rack_occupy_u'] == 2
+
     def test_create(self, op_client, seed, app):
         r = op_client.post('/api/devices', json={
             'device_name': 'SW-C', 'customer_id': seed['c1'], 'device_type': '交换机',
@@ -146,6 +177,66 @@ class TestDeviceCrud:
             # 客户 device_count 同步
             c = Customer.query.get(seed['c2'])
             assert c.device_count == 2  # FW-B + SW-A-EDITED
+
+    def test_update_rack_placement_then_unrack(self, op_client, seed, app):
+        from models import Rack, RackInstall
+        with app.app_context():
+            old_rack = Rack(customer_id=seed['c1'], name='OLD', location='旧机房', total_u=42)
+            new_rack = Rack(customer_id=seed['c1'], name='NEW', location='新机房', total_u=24)
+            db.session.add_all([old_rack, new_rack])
+            db.session.flush()
+            db.session.add(RackInstall(
+                rack_id=old_rack.id, device_id=seed['d1'], start_u=2, occupy_u=1))
+            db.session.commit()
+            new_rack_id = new_rack.id
+
+        r = op_client.put(f"/api/devices/{seed['d1']}", json={
+            'device_name': 'SW-A', 'customer_id': seed['c1'],
+            'rack_id': new_rack_id, 'rack_start_u': 10, 'rack_occupy_u': 2,
+            'rack_location': '应由机柜派生', 'location': '背面',
+            'power_supply': '双电源', 'is_in_use': True,
+        })
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            installs = RackInstall.query.filter_by(device_id=seed['d1']).all()
+            assert len(installs) == 1
+            assert (installs[0].rack_id, installs[0].start_u, installs[0].occupy_u) == (
+                new_rack_id, 10, 2)
+            assert Device.query.get(seed['d1']).rack_location == ''
+
+        r = op_client.put(f"/api/devices/{seed['d1']}", json={
+            'device_name': 'SW-A', 'customer_id': seed['c1'],
+            'rack_id': None, 'rack_location': '灾备机房',
+            'location': '背面', 'power_supply': '双电源', 'is_in_use': True,
+        })
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            assert RackInstall.query.filter_by(device_id=seed['d1']).count() == 0
+            assert Device.query.get(seed['d1']).rack_location == '灾备机房'
+
+    def test_update_rack_placement_rejects_conflict_atomically(
+            self, op_client, seed, app):
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='FULL', location='生产机房', total_u=12)
+            other = Device(customer_id=seed['c1'], device_name='OCCUPIED', is_in_use=True)
+            db.session.add_all([rack, other])
+            db.session.flush()
+            db.session.add(RackInstall(
+                rack_id=rack.id, device_id=other.id, start_u=5, occupy_u=2))
+            db.session.commit()
+            rack_id = rack.id
+
+        r = op_client.put(f"/api/devices/{seed['d1']}", json={
+            'device_name': 'SHOULD-ROLLBACK', 'customer_id': seed['c1'],
+            'rack_id': rack_id, 'rack_start_u': 6, 'rack_occupy_u': 1,
+            'location': '正面', 'power_supply': '双电源', 'is_in_use': True,
+        })
+        assert r.status_code == 400
+        assert '冲突' in r.get_json()['message']
+        with app.app_context():
+            assert Device.query.get(seed['d1']).device_name == 'SW-A'
+            assert RackInstall.query.filter_by(device_id=seed['d1']).count() == 0
 
     def test_delete(self, admin_client, seed, app):
         """删除需 device:delete（operator 无此权限，admin 走短路）"""

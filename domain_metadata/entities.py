@@ -59,7 +59,8 @@ DEVICE_LIST = ('device_name', 'device_type', 'customer_name', 'rack_location', '
 DEVICE_DETAIL = tuple(item.key for item in DEVICE_FIELDS if item.key != 'password')
 DEVICE_FORM = ('device_name', 'customer_name', 'device_type', 'brand', 'model', 'serial_number',
                'network_type', 'ip_address', 'port', 'username', 'password', 'login_method',
-               'location', 'power_supply', 'interface', 'os_version', 'rule_version', 'build_date',
+               'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
+               'interface', 'os_version', 'rule_version', 'build_date',
                'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
                'is_in_use', 'remark')
 DEVICE_EXPORT_DEFAULT = (

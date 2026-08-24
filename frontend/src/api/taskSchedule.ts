@@ -49,6 +49,7 @@ export interface TaskScheduleQuery {
   start_from?: string
   start_to?: string
   q?: string
+  status?: string
   overdue?: string
   customer_id?: number
   engineer_id?: number
@@ -88,6 +89,14 @@ export function batchTaskSchedule(ids: number[], action: 'status' | 'assign' | '
 
 export function fetchImportTemplate() {
   return request<{ filename: string; content: string }>({ url: '/api/task-schedule/import-template', method: 'GET' })
+}
+
+export function exportTaskSchedule(params: TaskScheduleQuery) {
+  return request<{ filename: string; content: string; count: number }>({
+    url: '/api/task-schedule/export',
+    method: 'GET',
+    params,
+  })
 }
 
 export function importTaskSchedule(formData: FormData) {

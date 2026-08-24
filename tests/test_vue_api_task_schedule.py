@@ -38,6 +38,19 @@ class TestTaskScheduleApi:
         assert d['kpi']['overdue'] == 1
         assert len(d['engineers']) == 1
 
+    def test_explicit_all_period_does_not_fall_back_to_current_quarter(
+            self, admin_client, app):
+        _seed(app)
+        with app.app_context():
+            customer_id = Customer.query.filter_by(name='看板客户').one().id
+            db.session.add(InspectionTask(
+                title='历史跨季度任务', customer_id=customer_id, status='已完成',
+                planned_start=date(2020, 1, 1), planned_end=date(2020, 1, 2)))
+            db.session.commit()
+
+        data = admin_client.get('/api/task-schedule?period=').get_json()['data']
+        assert '历史跨季度任务' in {item['title'] for item in data['tasks']}
+
     def test_status_view(self, admin_client, app):
         _seed(app)
         r = admin_client.get('/api/task-schedule?view=status')
@@ -251,6 +264,46 @@ class TestTaskScheduleApi:
         with app.app_context():
             assert InspectionTask.query.filter_by(title='导入任务A').count() == 1
 
+    def test_export_excel_supports_planned_start_date_range(self, admin_client, app):
+        import base64
+        import io
+
+        from openpyxl import load_workbook
+
+        _seed(app)
+        today = date.today().isoformat()
+        response = admin_client.get(
+            f'/api/task-schedule/export?period=&start_from={today}&start_to={today}')
+        assert response.status_code == 200, response.get_json()
+        data = response.get_json()['data']
+        assert data['count'] == 1
+        assert today in data['filename']
+
+        workbook = load_workbook(io.BytesIO(base64.b64decode(data['content'])), read_only=True)
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+        assert rows[0] == tuple([
+            '客户名称', '任务描述', '优先级', '开始日期', '完成日期',
+            '完成状态', '负责人', '完成时间', '预估工作量', '实际工作量',
+        ])
+        assert len(rows) == 2
+        assert rows[1][1] == '2026年三季度巡检'
+
+        with app.app_context():
+            from models import AuditLog
+            assert AuditLog.query.filter_by(action='task:export').count() == 1
+
+    def test_export_rejects_reversed_or_invalid_date_range(self, admin_client):
+        reversed_range = admin_client.get(
+            '/api/task-schedule/export?period=&start_from=2026-08-31&start_to=2026-08-01')
+        assert reversed_range.status_code == 400
+        assert '开始日期' in reversed_range.get_json()['message']
+
+        invalid = admin_client.get(
+            '/api/task-schedule/export?period=&start_from=2026-99-01')
+        assert invalid.status_code == 400
+        assert '格式' in invalid.get_json()['message']
+
     def test_import_missing_required_column(self, admin_client, app):
         import io
         from openpyxl import Workbook
@@ -270,6 +323,7 @@ class TestTaskScheduleApi:
         assert viewer_client.get('/api/task-schedule').status_code == 403  # 无 task:schedule
         assert op_client.get('/api/task-schedule').status_code == 200
         assert viewer_client.post('/api/task-schedule', json={}).status_code == 403
+        assert viewer_client.get('/api/task-schedule/export?period=').status_code == 403
 
     def test_legacy_status_form_requires_task_permission(self, viewer_client, app):
         cid, _ = _seed(app)
