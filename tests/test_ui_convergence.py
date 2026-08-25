@@ -93,10 +93,16 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     assert source.count('v-model="inlinePlanRange[0]" type="date"') == 2
     assert source.count('v-model="inlinePlanRange[1]" type="date"') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
-    assert source.count('class="inline-plan-date" style="width: 120px"') == 4
-    assert 'flex: 0 0 120px' in source
-    assert 'width: 120px !important' in source
-    assert 'overflow: hidden' in source
+    assert source.count('class="inline-plan-date" style="width: 95px"') == 4
+    assert 'flex: 0 0 95px' in source
+    assert 'width: 95px !important' in source
+    # 最窄 310px 看板列中，扣除各层边框/内边距和“安排”标签后日期区至少 216px。
+    minimum_date_area = 310 - 2 - 20 - 2 - 20 - 16 - 28 - 6
+    date_controls_width = 95 * 2 + 14 + 6 * 2
+    assert date_controls_width <= minimum_date_area
+    inline_plan_style = re.search(r'\.inline-plan-dates\s*\{([^}]+)\}', source)
+    assert inline_plan_style is not None
+    assert 'overflow' not in inline_plan_style.group(1)
     assert source.count(':shortcuts="rangeDateShortcuts"') == 1
     assert source.count(':shortcuts="dateShortcuts"') == 6
     assert "planned_start: today, planned_end: today" in source
