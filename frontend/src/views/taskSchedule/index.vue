@@ -1088,33 +1088,36 @@ onMounted(reload)
 .task-timing > span { min-width: 0; overflow-wrap: anywhere; }
 .task-timing-total { color: var(--el-color-primary); }
 .task-plan-editor {
-  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  display: grid; grid-template-columns: 28px minmax(0, 1fr);
   gap: 6px; align-items: center;
   min-width: 0; width: 100%;
 }
 .date-with-today {
   min-width: 0; width: 100%; max-width: 100%;
 }
-.ie-date-range { width: 236px !important; max-width: 100%; min-width: 0; }
+.task-plan-editor .date-with-today { min-width: 0; width: 100%; overflow: hidden; }
+.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
 :deep(.ie-date-range.el-date-editor) {
   box-sizing: border-box;
   justify-content: flex-start;
-  padding-right: 6px;
-  padding-left: 6px;
+  overflow: hidden;
+  padding-right: 5px;
+  padding-left: 5px;
 }
 :deep(.ie-date-range .el-range-input) {
-  flex: 0 0 80px;
-  width: 80px;
+  flex: 1 1 0;
+  width: 0;
   min-width: 0;
-  font-size: 12px;
+  padding: 0;
+  font-size: 11px;
 }
 :deep(.ie-date-range .el-range-separator) {
-  flex: 0 0 18px;
-  width: 18px;
+  flex: 0 0 14px;
+  width: 14px;
   padding: 0;
 }
-:deep(.ie-date-range .el-range__icon) { margin-right: 2px; }
-:deep(.ie-date-range .el-range__close-icon) { margin-left: 2px; }
+:deep(.ie-date-range .el-range__icon) { margin-right: 0; }
+:deep(.ie-date-range .el-range__close-icon) { display: none; }
 :global(.task-date-today-popper .el-picker-panel__sidebar) {
   position: absolute;
   inset: 8px 72px auto auto;
