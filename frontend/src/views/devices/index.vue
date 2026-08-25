@@ -203,7 +203,7 @@
         <el-descriptions-item :label="fieldLabel('device', 'rack_location', '机房位置')">{{ detail.rack_location || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'rack_name', '机柜号')">{{ detail.rack_name || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'location', '安装位置')">{{ detail.location || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="fieldLabel('device', 'rack_slot', '机柜U位')">{{ detail.rack_slot || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'rack_slot', '起始U位')">{{ detail.rack_slot || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'power_supply', '电源配置')">{{ detail.power_supply || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'build_date', '建设时间')">{{ detail.build_date || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="`${fieldLabel('device', 'license_start', '授权开始')} / ${fieldLabel('device', 'license_expiry', '授权截止')}`">
@@ -461,11 +461,13 @@
               <div class="rack-select-stack">
                 <el-select v-model="rackSelection" filterable clearable :value-on-clear="null" class="w-full"
                   :loading="rackOptionsLoading" placeholder="选择机柜号或自定义" @change="onRackChange">
-                  <el-option v-for="rack in rackOptions" :key="rack.id"
-                    :label="`${rack.name} · ${rack.location || '未设置机房'} · ${rack.used_label}`"
-                    :value="rack.id" />
-                  <el-option v-for="name in missingPresetRackNames" :key="`preset-${name}`"
-                    :label="name" :value="`__preset__:${name}`" />
+                  <el-option v-for="option in rackSelectOptions" :key="String(option.value)"
+                    :label="option.name" :value="option.value">
+                    <div class="rack-option">
+                      <span class="rack-option-name">{{ option.name }}</span>
+                      <span class="rack-option-detail">{{ option.detail }}</span>
+                    </div>
+                  </el-option>
                   <el-option label="自定义…" value="__custom__" />
                 </el-select>
                 <el-input v-if="isCustomRackSelection" v-model="form.rack_custom_name"
@@ -484,7 +486,7 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item :label="fieldLabel('device', 'rack_slot', '机柜U位', 'form')">
+            <el-form-item :label="fieldLabel('device', 'rack_slot', '起始U位', 'form')">
               <el-input-number v-model="form.rack_start_u" :min="1"
                 :max="selectedRack?.total_u || 42" controls-position="right" class="w-full" />
             </el-form-item>
@@ -634,11 +636,22 @@ const rackOptions = ref<RackItem[]>([])
 const rackOptionsLoading = ref(false)
 const rackSelection = ref<number | string | null>(null)
 const presetRackNames = ['1', '2', '3', '4']
-const missingPresetRackNames = computed(() => {
-  const existing = new Set(rackOptions.value.map((rack) => rack.name))
-  return presetRackNames.filter((name) => !existing.has(name))
+const rackSelectOptions = computed(() => {
+  const options = rackOptions.value.map((rack) => ({
+    value: rack.id as number | string,
+    name: rack.name,
+    detail: `${rack.location || '未设置机房'} · ${rack.used_label}`,
+  }))
+  const existing = new Set(options.map((option) => option.name))
+  for (const name of presetRackNames) {
+    if (!existing.has(name)) {
+      options.push({ value: `__preset__:${name}`, name, detail: '新建 42U 机柜' })
+    }
+  }
+  return options.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
 })
-const isCustomRackSelection = computed(() => typeof rackSelection.value === 'string')
+const isCustomRackSelection = computed(() => rackSelection.value === '__custom__')
+const isNewRackSelection = computed(() => typeof rackSelection.value === 'string')
 const listFieldMeta = ref<EntityFieldMeta[]>([])
 const entityMetas = ref<Record<string, EntityMeta>>({})
 
@@ -753,7 +766,7 @@ function licenseLevel(expiry: string | undefined, certExpiry: string | undefined
 
 const columns = computed<DataColumn[]>(() => {
   // 列标签、顺序分组与导出字段均由 device 元数据合并；导出可选字段在列设置中都有对应项。
-  // 机房位置/机柜号/安装位置/机柜U位固定为相邻分组。
+  // 机房位置/机柜号/安装位置/起始U位固定为相邻分组。
   // 说明：登录密码为敏感信息，明文不下发列表（查看走详情弹窗 device:reveal + 审计、导出走审核流）。
   const cols: DataColumn[] = [
     { key: 'device_name', label: '设备名称', type: 'link', minWidth: 160, asTitle: true,
@@ -764,7 +777,7 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'rack_name', label: '机柜号', minWidth: 90, group: 'location', cellClass: () => 'cell-muted' },
     { key: 'location', label: '安装位置', minWidth: 90, group: 'location',
       cellClass: () => 'cell-muted' },
-    { key: 'rack_slot', label: '机柜U位', minWidth: 90, group: 'location',
+    { key: 'rack_slot', label: '起始U位', minWidth: 90, group: 'location',
       cellClass: () => 'cell-muted' },
     { key: 'power_supply', label: '电源配置', minWidth: 90 },
     { key: 'brand', label: '品牌', minWidth: 100,
@@ -1367,7 +1380,7 @@ async function save() {
   } catch {
     return
   }
-  if (isCustomRackSelection.value && !String(form.rack_custom_name || '').trim()) {
+  if (isNewRackSelection.value && !String(form.rack_custom_name || '').trim()) {
     ui.toast('请输入自定义机柜号', 'warning')
     return
   }
@@ -1505,6 +1518,18 @@ fetchDeviceDicts().then((d) => {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+}
+.rack-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+.rack-option-name { font-weight: 600; }
+.rack-option-detail {
+  color: var(--itsm-text-muted);
+  font-size: 12px;
 }
 .ml-1 {
   margin-left: 6px;

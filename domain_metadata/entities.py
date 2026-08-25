@@ -14,7 +14,7 @@ DEVICE_FIELDS = (
     F('rack_name', '机柜号', min_width=90, group='location'),
     F('location', '安装位置', min_width=90, group='location',
       value_map={'正面': '正面', '背面': '背面'}),
-    F('rack_slot', '机柜U位', min_width=90, group='location'),
+    F('rack_slot', '起始U位', min_width=90, group='location'),
     F('power_supply', '电源配置', min_width=90,
       value_map={'单电源': '单电源', '双电源': '双电源'}),
     F('brand', '品牌', min_width=100, filterable=True),

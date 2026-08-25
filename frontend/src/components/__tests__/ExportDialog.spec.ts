@@ -37,7 +37,7 @@ describe('ExportDialog 设备预设自动勾选', () => {
     expect(labels).toHaveLength(16)
     expect(labels).toContain('客户')
     expect(labels).toContain('机柜号')
-    expect(labels).toContain('机柜U位')
+    expect(labels).toContain('起始U位')
     expect(labels).toContain('电源配置')
     expect(labels).not.toContain('登录密码')
   })

@@ -22,8 +22,8 @@
           <div class="date-with-today w-full">
             <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
               start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
-              :shortcuts="rangeDateShortcuts" clearable class="w-full" />
-            <el-button link type="primary" @click="setRangeToday(exportDateRange)">今天</el-button>
+              :shortcuts="rangeDateShortcuts" popper-class="task-date-today-popper"
+              clearable class="w-full" />
           </div>
         </el-form-item>
         <el-alert type="info" :closable="false" show-icon
@@ -134,8 +134,8 @@
                   <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
                     end-placeholder="结束日期" :shortcuts="rangeDateShortcuts" size="small"
-                    class="ie-date-range" @change="inlinePlanChanged = true" />
-                  <el-button link type="primary" size="small" @click="setInlinePlanToday">今天</el-button>
+                    popper-class="task-date-today-popper" class="ie-date-range"
+                    @change="inlinePlanChanged = true" />
                 </div>
               </div>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
@@ -217,8 +217,8 @@
                   <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
                     end-placeholder="结束日期" :shortcuts="rangeDateShortcuts" size="small"
-                    class="ie-date-range" @change="inlinePlanChanged = true" />
-                  <el-button link type="primary" size="small" @click="setInlinePlanToday">今天</el-button>
+                    popper-class="task-date-today-popper" class="ie-date-range"
+                    @change="inlinePlanChanged = true" />
                 </div>
               </div>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
@@ -275,8 +275,7 @@
             <el-form-item label="开始日期">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.planned_start" type="date" value-format="YYYY-MM-DD"
-                  :shortcuts="dateShortcuts" style="width: 100%" />
-                <el-button link type="primary" @click="createForm.planned_start = todayString()">今天</el-button>
+                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
           </el-col>
@@ -284,8 +283,7 @@
             <el-form-item label="完成日期">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.planned_end" type="date" value-format="YYYY-MM-DD"
-                  :shortcuts="dateShortcuts" style="width: 100%" />
-                <el-button link type="primary" @click="createForm.planned_end = todayString()">今天</el-button>
+                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
           </el-col>
@@ -755,16 +753,6 @@ function todayString() {
   return formatLocalDate(new Date())
 }
 
-function setRangeToday(target: string[]) {
-  const today = todayString()
-  target.splice(0, target.length, today, today)
-}
-
-function setInlinePlanToday() {
-  setRangeToday(inlinePlanRange.value)
-  inlinePlanChanged.value = true
-}
-
 function currentPeriodRange(period: unknown): string[] {
   const now = new Date()
   const year = now.getFullYear()
@@ -1105,14 +1093,46 @@ onMounted(reload)
   min-width: 0; width: 100%;
 }
 .date-with-today {
-  display: flex; flex-direction: column; align-items: flex-start;
-  gap: 2px; min-width: 0; max-width: 100%;
+  min-width: 0; width: 100%; max-width: 100%;
 }
-.task-plan-editor .date-with-today { width: auto; overflow: hidden; }
-.date-with-today .el-button { margin-left: 0; min-height: 22px; padding: 0 2px; }
 .ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
 :deep(.ie-date-range.el-date-editor) { box-sizing: border-box; }
-:deep(.ie-date-range .el-range-input) { min-width: 0; }
+:deep(.ie-date-range .el-range-input) {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  font-size: 12px;
+}
+:deep(.ie-date-range .el-range-separator) {
+  flex: 0 0 24px;
+  width: 24px;
+}
+:global(.task-date-today-popper .el-picker-panel__sidebar) {
+  position: absolute;
+  inset: 8px 72px auto auto;
+  z-index: 3;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-right: 0;
+  background: transparent;
+}
+:global(.task-date-today-popper .el-picker-panel__shortcut) {
+  width: auto;
+  min-width: 48px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--el-color-primary);
+  line-height: 28px;
+  text-align: center;
+}
+:global(.task-date-today-popper .el-picker-panel__shortcut:hover) {
+  background: var(--el-fill-color-light);
+}
+:global(.task-date-today-popper .el-picker-panel__body) {
+  margin-left: 0 !important;
+}
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
 .ie-select { width: calc(50% - 4px); min-width: 0; }
 /* 第三行：操作按钮从卡片左缘开始均匀分布（删除贴右缘=时间右缘），不超出边框 */

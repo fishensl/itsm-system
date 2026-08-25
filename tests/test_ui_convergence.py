@@ -95,16 +95,24 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     assert source.count(':shortcuts="rangeDateShortcuts"') == 3
     assert source.count(':shortcuts="dateShortcuts"') == 2
     assert "planned_start: today, planned_end: today" in source
-    assert source.count('@click="setInlinePlanToday"') == 2
-    assert '.task-plan-editor .date-with-today { width: auto; overflow: hidden; }' in source
+    assert '@click="setInlinePlanToday"' not in source
+    assert source.count('popper-class="task-date-today-popper"') == 5
+    assert ':global(.task-date-today-popper .el-picker-panel__sidebar)' in source
+    assert 'inset: 8px 72px auto auto' in source
+    assert 'flex: 1 1 0' in source
+    assert 'width: 0' in source
 
 
 def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
     source = _view_source('devices/index.vue')
     assert 'v-for="name in networkTypes"' in source
     assert '<el-option label="内网" value="内网"' not in source
-    assert 'v-for="name in missingPresetRackNames"' in source
+    assert 'v-for="option in rackSelectOptions"' in source
+    assert ':label="option.name" :value="option.value"' in source
+    assert "presetRackNames = ['1', '2', '3', '4']" in source
+    assert "localeCompare(right.name, 'zh-CN', { numeric: true })" in source
     assert '<el-option label="自定义…" value="__custom__"' in source
+    assert "fieldLabel('device', 'rack_slot', '起始U位', 'form')" in source
     assert source.count('controls-position="right" class="w-full"') >= 2
     assert ':disabled="!form.rack_id"' not in source
     assert 'v-if="form.id && !changePasswordEnabled"' in source

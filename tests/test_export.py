@@ -74,7 +74,7 @@ class TestDevicePresets:
         from datetime import date
         r = op_client.post('/api/v2/devices/export', json={'preset': 'asset'})
         header, rows = _decode_xlsx(r)
-        assert header == ['客户', '机房位置', '机柜号', '安装位置', '机柜U位', '电源配置',
+        assert header == ['客户', '机房位置', '机柜号', '安装位置', '起始U位', '电源配置',
                           '名称', '类型', '品牌', '型号',
                           '序列号', 'IP', '建设时间', '是否维修', '是否在用', '备注']
         assert '登录密码' not in header
@@ -85,7 +85,7 @@ class TestDevicePresets:
         assert row1['机房位置'] == '2F 机房 B 区'  # 机柜 Rack.location
         assert row1['机柜号'] == 'A-01'
         assert row1['安装位置'] == '正面'
-        assert row1['机柜U位'] == 'U3'
+        assert row1['起始U位'] == 'U3'
         assert row1['电源配置'] == '双电源'
         assert row1['是否维修'] == '是'
         # 未选客户 → 文件名 = {表格类型}_{日期}.xlsx

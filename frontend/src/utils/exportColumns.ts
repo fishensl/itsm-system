@@ -12,7 +12,7 @@ export const DEVICE_EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'rack_location', label: '机房位置' },
   { key: 'rack_name', label: '机柜号' },
   { key: 'location', label: '安装位置' },
-  { key: 'rack_slot', label: '机柜U位' },
+  { key: 'rack_slot', label: '起始U位' },
   { key: 'power_supply', label: '电源配置' },
   { key: 'brand', label: '品牌' },
   { key: 'model', label: '型号' },
