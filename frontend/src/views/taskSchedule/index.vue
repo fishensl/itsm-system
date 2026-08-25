@@ -1106,8 +1106,9 @@ onMounted(reload)
 }
 .date-with-today {
   display: flex; flex-direction: column; align-items: flex-start;
-  gap: 2px; min-width: 0; width: 100%;
+  gap: 2px; min-width: 0; max-width: 100%;
 }
+.task-plan-editor .date-with-today { width: auto; overflow: hidden; }
 .date-with-today .el-button { margin-left: 0; min-height: 22px; padding: 0 2px; }
 .ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
 :deep(.ie-date-range.el-date-editor) { box-sizing: border-box; }

@@ -96,6 +96,7 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     assert source.count(':shortcuts="dateShortcuts"') == 2
     assert "planned_start: today, planned_end: today" in source
     assert source.count('@click="setInlinePlanToday"') == 2
+    assert '.task-plan-editor .date-with-today { width: auto; overflow: hidden; }' in source
 
 
 def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
@@ -106,3 +107,5 @@ def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
     assert '<el-option label="自定义…" value="__custom__"' in source
     assert source.count('controls-position="right" class="w-full"') >= 2
     assert ':disabled="!form.rack_id"' not in source
+    assert 'v-if="form.id && !changePasswordEnabled"' in source
+    assert 'if (form.id && !changePasswordEnabled.value) delete payload.password' in source

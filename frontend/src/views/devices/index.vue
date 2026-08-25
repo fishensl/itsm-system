@@ -444,8 +444,10 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="form.id ? `新${fieldLabel('device', 'password', '登录密码', 'form')}` : fieldLabel('device', 'password', '登录密码', 'form')">
-              <el-input v-model="form.password" type="password" show-password autocomplete="new-password"
-                :placeholder="form.id ? '留空则不修改' : ''" />
+              <el-button v-if="form.id && !changePasswordEnabled" plain
+                @click="enablePasswordChange">修改登录密码</el-button>
+              <el-input v-else v-model="form.password" type="password" show-password
+                autocomplete="new-password" :placeholder="form.id ? '请输入新密码' : ''" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -1237,6 +1239,7 @@ async function revealHistory(historyId: number) {
 // 表单
 const formVisible = ref(false)
 const saving = ref(false)
+const changePasswordEnabled = ref(false)
 const formRef = ref()
 const form = reactive<DeviceForm & { id?: number }>(blankForm())
 const editingSnapshot = ref<Device | null>(null)
@@ -1261,6 +1264,7 @@ const formRules = {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  changePasswordEnabled.value = true
   rackSelection.value = null
   editingSnapshot.value = null
   rackOptions.value = []
@@ -1291,6 +1295,7 @@ async function openEdit(d: Device) {
     cert_expiry_date: current.cert_expiry_date, remark: current.remark,
   })
   editingSnapshot.value = current
+  changePasswordEnabled.value = false
   rackSelection.value = current.rack_id
   await loadRackOptions(current.customer_id, current.rack_id)
   detailVisible.value = false
@@ -1372,8 +1377,9 @@ async function save() {
   }
   saving.value = true
   try {
-    const payload = { ...form }
+    const payload = { ...form } as Partial<DeviceForm> & { id?: number }
     delete payload.id
+    if (form.id && !changePasswordEnabled.value) delete payload.password
     if (form.id) {
       await updateDevice(form.id, payload as DeviceForm)
       ui.toast('设备已更新', 'success')
@@ -1411,6 +1417,11 @@ function reload() {
   } else {
     loadTree()
   }
+}
+
+function enablePasswordChange() {
+  form.password = ''
+  changePasswordEnabled.value = true
 }
 
 // 初始化字典
