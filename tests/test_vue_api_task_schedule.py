@@ -76,7 +76,65 @@ class TestTaskScheduleApi:
         d = r.get_json()['data']
         assert d['view'] == 'status'
         assert d['status_groups']['待执行'] and d['status_groups']['执行中']
+        assert '已安排' in d['status_groups']
         assert '待审核' in d['status_groups']  # V21 新状态列
+
+    def test_scheduled_requires_period_and_does_not_start_timer(
+            self, admin_client, app):
+        cid, op_id = _seed(app)
+        created = admin_client.post('/api/task-schedule', json={
+            'title': '待排期任务', 'customer_id': cid,
+        })
+        tid = created.get_json()['data']['id']
+
+        missing_period = admin_client.put(
+            f'/api/task-schedule/{tid}', json={'status': '已安排'})
+        assert missing_period.status_code == 400
+        assert '完整的安排' in missing_period.get_json()['message']
+
+        missing_assignee = admin_client.put(f'/api/task-schedule/{tid}', json={
+            'status': '已安排',
+            'planned_start': '2026-08-25',
+            'planned_end': '2026-08-29',
+        })
+        assert missing_assignee.status_code == 400
+        assert '负责人' in missing_assignee.get_json()['message']
+
+        scheduled = admin_client.put(f'/api/task-schedule/{tid}', json={
+            'status': '已安排',
+            'assignee_id': op_id,
+            'planned_start': '2026-08-25',
+            'planned_end': '2026-08-29',
+        })
+        assert scheduled.status_code == 200
+        with app.app_context():
+            task = db.session.get(InspectionTask, tid)
+            assert task.status == '已安排'
+            assert task.actual_start is None
+            assert task.actual_end is None
+            assert task.actual_effort is None
+        clear_assignee = admin_client.put(
+            f'/api/task-schedule/{tid}', json={'assignee_id': None})
+        assert clear_assignee.status_code == 400
+        assert '负责人' in clear_assignee.get_json()['message']
+
+        board = admin_client.get('/api/task-schedule?period=&view=status').get_json()['data']
+        assert board['kpi']['scheduled'] == 1
+        assert board['status_groups']['已安排'][0]['id'] == tid
+
+        assert admin_client.put(
+            f'/api/task-schedule/{tid}', json={'status': '执行中'}).status_code == 200
+        with app.app_context():
+            task = db.session.get(InspectionTask, tid)
+            assert task.actual_start is not None
+
+        assert admin_client.put(
+            f'/api/task-schedule/{tid}', json={'status': '已安排'}).status_code == 200
+        with app.app_context():
+            task = db.session.get(InspectionTask, tid)
+            assert task.actual_start is None
+            assert task.actual_end is None
+            assert task.actual_effort is None
 
     def test_reviewing_kpi_and_group(self, admin_client, app):
         """V21: 待审核任务计入 KPI + 状态分组 + 排序优先级"""
@@ -231,6 +289,24 @@ class TestTaskScheduleApi:
             assert t.actual_start is not None
             assert t.actual_effort is None
             assert t.actual_end is None
+            t.actual_start = datetime(2026, 8, 24, 9, 0)
+            t.actual_end = datetime(2026, 8, 24, 10, 0)
+            t.actual_effort = 0.13
+            db.session.commit()
+        r = admin_client.put(f'/api/task-schedule/{tid}', json={'status': '待执行'})
+        assert r.get_json()['code'] == 0
+        with app.app_context():
+            t = db.session.get(InspectionTask, tid)
+            assert t.status == '待执行'
+            assert t.actual_start is None
+            assert t.actual_end is None
+            assert t.actual_effort is None
+        r = admin_client.put(f'/api/task-schedule/{tid}', json={'status': '执行中'})
+        assert r.get_json()['code'] == 0
+        with app.app_context():
+            t = db.session.get(InspectionTask, tid)
+            assert t.actual_start is not None
+            assert t.actual_start != datetime(2026, 8, 24, 9, 0)
         r = admin_client.delete(f'/api/task-schedule/{tid}')
         assert r.get_json()['code'] == 0
         with app.app_context():
@@ -257,6 +333,12 @@ class TestTaskScheduleApi:
         with app.app_context():
             tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
             assert all(t.status == '执行中' and t.assigned_to_user_id == op_id for t in tasks)
+        r = admin_client.post('/api/task-schedule/batch', json={
+            'ids': ids, 'action': 'status', 'value': '待执行'})
+        assert r.get_json()['code'] == 0
+        with app.app_context():
+            tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
+            assert all(t.status == '待执行' and t.actual_start is None for t in tasks)
         r = admin_client.post('/api/task-schedule/batch', json={'ids': ids, 'action': 'delete'})
         assert r.get_json()['code'] == 0
         with app.app_context():
@@ -349,6 +431,32 @@ class TestTaskScheduleApi:
             '/api/task-schedule/export?period=&start_from=2026-99-01')
         assert invalid.status_code == 400
         assert '格式' in invalid.get_json()['message']
+
+    def test_scheduled_status_has_matching_excel_color(self, admin_client, app):
+        import base64
+        import io
+
+        from openpyxl import load_workbook
+
+        cid, op_id = _seed(app)
+        response = admin_client.post('/api/task-schedule', json={
+            'title': '已排期导出', 'customer_id': cid, 'assignee_id': op_id,
+            'planned_start': '2026-08-25', 'planned_end': '2026-08-29',
+        })
+        assert response.status_code == 200
+        with app.app_context():
+            task = db.session.get(InspectionTask, response.get_json()['data']['id'])
+            assert task.status == '已安排'
+            assert task.actual_start is None
+
+        exported = admin_client.get(
+            '/api/task-schedule/export?period=&start_from=2026-08-25&start_to=2026-08-25')
+        workbook = load_workbook(io.BytesIO(base64.b64decode(
+            exported.get_json()['data']['content'])))
+        status_cell = workbook.active.cell(row=2, column=6)
+        assert status_cell.value == '已安排'
+        assert status_cell.fill.fgColor.rgb.endswith('D5F5F6')
+        assert status_cell.font.color.rgb.endswith('08979C')
 
     def test_import_missing_required_column(self, admin_client, app):
         import io

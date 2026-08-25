@@ -71,7 +71,7 @@
       <span>已选 {{ selectedIds.length }} 项</span>
       <el-select v-model="batchStatus" placeholder="批量改状态" size="small" style="width: 140px"
         @change="runBatch('status', batchStatus)">
-        <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
+        <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.CANCELLED]" :key="s" :label="s" :value="s" />
       </el-select>
       <el-select v-model="batchAssignee" placeholder="批量指派" clearable filterable size="small" style="width: 160px"
         @change="runBatch('assign', batchAssignee)">
@@ -83,7 +83,7 @@
 
     <!-- 按状态视图 -->
     <div v-if="data?.view === 'status'" class="board-cols">
-      <div v-for="st in [TASK_STATUS.CONTRACT_REVIEW, TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
+      <div v-for="st in [TASK_STATUS.CONTRACT_REVIEW, TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
         <div class="col-head" :class="`col-${st}`">
           {{ st }}
           <span class="col-count">{{ data.status_groups?.[st]?.length || 0 }}</span>
@@ -117,19 +117,27 @@
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
                   :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
                   :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
-                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
                     :key="s" :label="s" :value="s" :disabled="s === TASK_STATUS.DONE" />
                 </el-select>
               </template>
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
-              <span v-if="t.actual_duration_text" class="task-duration">实际 {{ t.actual_duration_text }}</span>
-              <span class="task-range">{{ rangeText(t) }}</span>
+              <span v-if="expandedId !== t.id" class="task-range">安排 {{ rangeText(t) }}</span>
             </div>
-            <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
-            <div v-if="expandedId === t.id && t.actual_start" class="task-timing">
-              <span>开始：{{ t.actual_start }}</span>
-              <span>审核完成：{{ t.actual_end || '进行中' }}</span>
-              <span>实际：{{ t.actual_duration_text || '-' }} / {{ t.actual_effort ?? 0 }} 人天</span>
+            <div v-if="expandedId === t.id" class="task-timing">
+              <div class="task-plan-editor">
+                <span>安排</span>
+                <el-date-picker v-model="inlineForm.planned_start" type="date" value-format="YYYY-MM-DD"
+                  size="small" placeholder="开始日期" class="ie-date" />
+                <span>至</span>
+                <el-date-picker v-model="inlineForm.planned_end" type="date" value-format="YYYY-MM-DD"
+                  size="small" placeholder="结束日期" class="ie-date" />
+              </div>
+              <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
+              <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
+              <span v-if="t.actual_start" class="task-timing-total">
+                实际耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
+              </span>
             </div>
             <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
               <span>例外原因：{{ t.contract_exception_reason || '-' }}</span>
@@ -144,7 +152,8 @@
               </template>
               <template v-else>
                 <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-                <el-button size="small" type="warning" plain @click="openUpload">
+                <el-button size="small" type="warning" plain
+                  :disabled="t.status === TASK_STATUS.SCHEDULED" @click="openUpload">
                   {{ record ? '重新上传' : '上传' }}
                 </el-button>
                 <el-button size="small" @click="cancelInline">取消</el-button>
@@ -189,19 +198,27 @@
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
                   :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
                   :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
-                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
+                  <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
                     :key="s" :label="s" :value="s" :disabled="s === TASK_STATUS.DONE" />
                 </el-select>
               </template>
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
-              <span v-if="t.actual_duration_text" class="task-duration">实际 {{ t.actual_duration_text }}</span>
-              <span class="task-range">{{ rangeText(t) }}</span>
+              <span v-if="expandedId !== t.id" class="task-range">安排 {{ rangeText(t) }}</span>
             </div>
-            <!-- 第三行：操作按钮（编辑态，均匀分布；删除贴右缘与时间右缘对齐） -->
-            <div v-if="expandedId === t.id && t.actual_start" class="task-timing">
-              <span>开始：{{ t.actual_start }}</span>
-              <span>审核完成：{{ t.actual_end || '进行中' }}</span>
-              <span>实际：{{ t.actual_duration_text || '-' }} / {{ t.actual_effort ?? 0 }} 人天</span>
+            <div v-if="expandedId === t.id" class="task-timing">
+              <div class="task-plan-editor">
+                <span>安排</span>
+                <el-date-picker v-model="inlineForm.planned_start" type="date" value-format="YYYY-MM-DD"
+                  size="small" placeholder="开始日期" class="ie-date" />
+                <span>至</span>
+                <el-date-picker v-model="inlineForm.planned_end" type="date" value-format="YYYY-MM-DD"
+                  size="small" placeholder="结束日期" class="ie-date" />
+              </div>
+              <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
+              <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
+              <span v-if="t.actual_start" class="task-timing-total">
+                实际耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
+              </span>
             </div>
             <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
               <span>例外原因：{{ t.contract_exception_reason || '-' }}</span>
@@ -216,7 +233,8 @@
               </template>
               <template v-else>
                 <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-                <el-button size="small" type="warning" plain @click="openUpload">
+                <el-button size="small" type="warning" plain
+                  :disabled="t.status === TASK_STATUS.SCHEDULED" @click="openUpload">
                   {{ record ? '重新上传' : '上传' }}
                 </el-button>
                 <el-button size="small" @click="cancelInline">取消</el-button>
@@ -451,7 +469,12 @@ const createForm = reactive<Record<string, unknown>>({
 
 // 行内展开编辑（V29：点击卡片在卡片下方展开，状态/负责人快捷修改，不再弹窗）
 const expandedId = ref<number | null>(null)
-const inlineForm = reactive<{ status: string; assignee_id: number | null }>({ status: '', assignee_id: null })
+const inlineForm = reactive<{
+  status: string
+  assignee_id: number | null
+  planned_start: string
+  planned_end: string
+}>({ status: '', assignee_id: null, planned_start: '', planned_end: '' })
 const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
@@ -492,6 +515,7 @@ function assetLabel(key: string) {
 }
 const uploadHint = computed(() => {
   const st = detail.value?.status
+  if (st === TASK_STATUS.SCHEDULED) return '任务只已排期，尚未开始计时；请先切换为「执行中」'
   if (st === TASK_STATUS.REVIEWING) return '任务正在审核中，请等待审核结果后再上传'
   if (st === TASK_STATUS.DONE) return '任务已完成，可补传报告/资料（补传不改变任务状态）'
   if (st === TASK_STATUS.CANCELLED) return '任务已取消，不可上传'
@@ -506,6 +530,7 @@ const kpiCards = computed(() => {
   if (!k) return []
   const statusCards = [
     { key: 'pending', label: TASK_STATUS.PENDING, value: k.pending, cls: 'warning', status: TASK_STATUS.PENDING },
+    { key: 'scheduled', label: TASK_STATUS.SCHEDULED, value: k.scheduled, cls: 'scheduled', status: TASK_STATUS.SCHEDULED },
     { key: 'running', label: TASK_STATUS.RUNNING, value: k.running, cls: 'primary', status: TASK_STATUS.RUNNING },
     { key: 'reviewing', label: TASK_STATUS.REVIEWING, value: k.reviewing, cls: 'info', status: TASK_STATUS.REVIEWING },
     { key: 'done', label: TASK_STATUS.DONE, value: k.done, cls: 'success', status: TASK_STATUS.DONE },
@@ -645,6 +670,8 @@ function openInline(t: TaskScheduleItem) {
   detail.value = t
   inlineForm.status = t.status
   inlineForm.assignee_id = t.assignee_id
+  inlineForm.planned_start = t.planned_start || ''
+  inlineForm.planned_end = t.planned_end || ''
   loadRecord()
 }
 
@@ -657,9 +684,25 @@ function cancelInline() {
 
 async function saveInline() {
   if (!detail.value) return
+  if (inlineForm.status === TASK_STATUS.SCHEDULED && !inlineForm.assignee_id) {
+    ui.toast('变更为「已安排」前请选择负责人', 'warning')
+    return
+  }
+  if (inlineForm.status === TASK_STATUS.SCHEDULED &&
+      (!inlineForm.planned_start || !inlineForm.planned_end)) {
+    ui.toast('变更为「已安排」前请填写完整的安排日期', 'warning')
+    return
+  }
+  if (inlineForm.planned_start && inlineForm.planned_end &&
+      inlineForm.planned_start > inlineForm.planned_end) {
+    ui.toast('安排开始日期不能晚于结束日期', 'warning')
+    return
+  }
   const patch: Record<string, unknown> = {}
   if (inlineForm.status !== detail.value.status) patch.status = inlineForm.status
   if (inlineForm.assignee_id !== detail.value.assignee_id) patch.assignee_id = inlineForm.assignee_id
+  if (inlineForm.planned_start !== detail.value.planned_start) patch.planned_start = inlineForm.planned_start
+  if (inlineForm.planned_end !== detail.value.planned_end) patch.planned_end = inlineForm.planned_end
   if (!Object.keys(patch).length) {
     ui.toast('无改动', 'info')
     return
@@ -908,7 +951,7 @@ onMounted(reload)
 <style scoped>
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(9, minmax(108px, 1fr));
+  grid-template-columns: repeat(10, minmax(100px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
   overflow-x: auto;
@@ -930,6 +973,7 @@ onMounted(reload)
 }
 .kpi-card.danger .kpi-value { color: var(--el-color-danger); }
 .kpi-card.warning .kpi-value { color: var(--el-color-warning); }
+.kpi-card.scheduled .kpi-value { color: var(--itsm-scheduled); }
 .kpi-card.primary .kpi-value { color: var(--el-color-primary); }
 .kpi-card.success .kpi-value { color: var(--el-color-success); }
 .kpi-value { font-size: 20px; font-weight: 700; }
@@ -950,6 +994,7 @@ onMounted(reload)
   padding: 8px 12px; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px;
 }
 .col-待执行 { color: var(--el-color-warning); border-bottom: 3px solid var(--el-color-warning); }
+.col-已安排 { color: var(--itsm-scheduled); border-bottom: 3px solid var(--itsm-scheduled); }
 .col-执行中 { color: var(--el-color-primary); border-bottom: 3px solid var(--el-color-primary); }
 .col-待审核 { color: var(--el-color-info); border-bottom: 3px solid var(--el-color-info); }
 .col-已完成 { color: var(--el-color-success); border-bottom: 3px solid var(--el-color-success); }
@@ -980,6 +1025,7 @@ onMounted(reload)
   width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
 }
 .dot-待执行 { background: var(--el-color-warning); }
+.dot-已安排 { background: var(--itsm-scheduled); }
 .dot-执行中 { background: var(--el-color-primary); }
 .dot-待审核 { background: var(--el-color-info); }
 .dot-已完成 { background: var(--el-color-success); }
@@ -1001,17 +1047,25 @@ onMounted(reload)
   margin-top: 3px; padding-left: 35px; font-size: 12px; color: var(--itsm-text-muted);
 }
 .task-assignee {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
 }
-.task-duration { color: var(--el-color-primary); white-space: nowrap; }
 .task-range { white-space: nowrap; margin-left: auto; }
 .task-timing {
-  display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding: 7px 8px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px;
+  margin-top: 7px; padding: 7px 8px;
   border-radius: 6px; background: var(--el-fill-color-lighter); color: var(--itsm-text-muted);
   font-size: 12px;
 }
+.task-timing > span { min-width: 0; overflow-wrap: anywhere; }
+.task-timing-total { grid-column: 1 / -1; color: var(--el-color-primary); }
+.task-plan-editor {
+  grid-column: 1 / -1; display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 6px; align-items: center;
+}
+.ie-date { width: 100% !important; min-width: 0; }
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
-.ie-select { width: 96px; }
+.ie-select { width: calc(50% - 4px); min-width: 0; }
 /* 第三行：操作按钮从卡片左缘开始均匀分布（删除贴右缘=时间右缘），不超出边框 */
 .task-actions {
   display: flex; justify-content: space-between; align-items: center; gap: 6px;

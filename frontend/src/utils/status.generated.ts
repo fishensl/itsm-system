@@ -31,6 +31,7 @@ export const TICKET_STATUS_TAG: Record<string, TagType> = {
 
 export const TASK_STATUS = {
   "PENDING": "待执行",
+  "SCHEDULED": "已安排",
   "RUNNING": "执行中",
   "REVIEWING": "待审核",
   "DONE": "已完成",
@@ -40,6 +41,7 @@ export const TASK_STATUS = {
 
 export const TASK_STATUS_TAG: Record<string, TagType> = {
   "待执行": "warning",
+  "已安排": "info",
   "执行中": "primary",
   "待审核": "warning",
   "已完成": "success",

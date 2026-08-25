@@ -24,6 +24,7 @@ from utils.constants import (
     TASK_CONTRACT_REVIEW,
     TASK_DONE,
     TASK_PENDING,
+    TASK_SCHEDULED,
     TASK_REVIEWING,
     TASK_RUNNING,
     TASK_STATUS_TAG,
@@ -51,6 +52,7 @@ def local_now():
 STATUS_FROM_EXCEL = {
     '未开始': TASK_PENDING,
     TASK_PENDING: TASK_PENDING,
+    TASK_SCHEDULED: TASK_SCHEDULED,
     '进行中': TASK_RUNNING,
     TASK_RUNNING: TASK_RUNNING,
     TASK_DONE: TASK_DONE,
@@ -59,8 +61,9 @@ STATUS_FROM_EXCEL = {
     '取消': TASK_CANCELLED,
 }
 
-ALL_STATUSES = [TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE, TASK_CANCELLED]
-ACTIVE_STATUSES = [TASK_PENDING, TASK_RUNNING, TASK_REVIEWING, TASK_DONE]
+ALL_STATUSES = [TASK_PENDING, TASK_SCHEDULED, TASK_RUNNING, TASK_REVIEWING,
+                TASK_DONE, TASK_CANCELLED]
+ACTIVE_STATUSES = [TASK_PENDING, TASK_SCHEDULED, TASK_RUNNING, TASK_REVIEWING, TASK_DONE]
 
 # 任务安排页将“待审核”显示为 info，其余状态沿用全局状态语义。
 STATUS_COLOR = dict(TASK_STATUS_TAG)
@@ -77,6 +80,10 @@ _EXCEL_TAG_STYLES = {
 TASK_STATUS_EXCEL_STYLES = {
     status: _EXCEL_TAG_STYLES[tag]
     for status, tag in STATUS_COLOR.items()
+}
+# Web 看板用青色区分「已安排」与灰色「待审核」；Excel 同步该色值。
+TASK_STATUS_EXCEL_STYLES[TASK_SCHEDULED] = {
+    'fill': 'D5F5F6', 'font_color': '08979C', 'bold': True,
 }
 
 # 从 Excel 任务描述里抠出客户名前缀的正则：
@@ -290,6 +297,7 @@ def _kpi_counts(tasks):
     today = date.today()
     total = len(tasks)
     todo = sum(1 for t in tasks if t.status == TASK_PENDING)
+    scheduled = sum(1 for t in tasks if t.status == TASK_SCHEDULED)
     doing = sum(1 for t in tasks if t.status == TASK_RUNNING)
     done = sum(1 for t in tasks if t.status == TASK_DONE)
     overdue = sum(1 for t in tasks if is_overdue(t, today))
@@ -299,7 +307,8 @@ def _kpi_counts(tasks):
     # 实际工作量合计（仅已完成任务有实际值）
     actual_effort_done = sum(t.actual_effort or 0 for t in tasks if t.status == TASK_DONE)
     return {
-        'total': total, 'todo': todo, 'doing': doing, 'done': done, 'overdue': overdue,
+        'total': total, 'todo': todo, 'scheduled': scheduled,
+        'doing': doing, 'done': done, 'overdue': overdue,
         'effort_total': effort_total, 'effort_done': effort_done,
         'actual_effort_done': actual_effort_done,
     }
@@ -582,6 +591,11 @@ def change_assignee(task_id):
         _apply_assignee(task, user)
         name = user.realname or user.username
     else:
+        if task.status == TASK_SCHEDULED:
+            return jsonify(
+                success=False,
+                error='「已安排」任务不能清空负责人，请先改回「待执行」',
+            ), 400
         _apply_assignee(task, None)
         name = ''
     db.session.commit()
@@ -649,11 +663,14 @@ def quick_add():
     if not customer_id:
         flash('请选择客户', 'danger')
         return redirect(request.referrer or url_for('task_schedule.index'))
+    if planned_start and planned_end and planned_start > planned_end:
+        flash('安排开始日期不能晚于结束日期', 'danger')
+        return redirect(request.referrer or url_for('task_schedule.index'))
 
     # V28: 客户合同过期门禁 → 合同审批态
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
-    status = TASK_PENDING
+    status = TASK_SCHEDULED if assignee_id and planned_start and planned_end else TASK_PENDING
     exception_reason = (request.form.get('contract_exception_reason') or '').strip()
     cust = _C.query.get(customer_id) if customer_id else None
     if cust is not None and _ce(cust):
@@ -815,6 +832,11 @@ def batch_assign():
             return jsonify(success=False, error='用户不存在'), 400
 
     tasks = InspectionTask.query.filter(InspectionTask.id.in_(ids)).all()
+    if user is None and any(t.status == TASK_SCHEDULED for t in tasks):
+        return jsonify(
+            success=False,
+            error='「已安排」任务不能清空负责人，请先改回「待执行」',
+        ), 400
     now = local_now()
     for t in tasks:
         _apply_assignee(t, user, now)

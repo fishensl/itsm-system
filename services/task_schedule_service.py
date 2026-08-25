@@ -16,6 +16,7 @@ from utils.constants import (
     TASK_CONTRACT_REVIEW,
     TASK_DONE,
     TASK_PENDING,
+    TASK_SCHEDULED,
     TASK_REVIEWING,
     TASK_RUNNING,
     TASK_STATUSES,
@@ -100,8 +101,27 @@ def task_timing_payload(task, now=None):
     }
 
 
+def validate_task_schedule_period(task, status=None):
+    """校验任务安排条件。
+
+    普通状态允许历史数据缺少日期，但只要同时有起止日期就不能倒置；
+    「已安排」语义上必须已明确负责人和完整起止日期。
+    返回错误文案或 None。
+    """
+    target_status = status or task.status
+    if task.planned_start and task.planned_end and task.planned_start > task.planned_end:
+        return '安排开始日期不能晚于结束日期'
+    if target_status == TASK_SCHEDULED and (
+            not task.planned_start or not task.planned_end):
+        return '变更为「已安排」前必须填写完整的安排开始和结束日期'
+    if target_status == TASK_SCHEDULED and not task.assigned_to_user_id:
+        return '变更为「已安排」前必须选择负责人'
+    return None
+
+
 STATUS_FROM_EXCEL = {
     '未开始': TASK_PENDING, TASK_PENDING: TASK_PENDING,
+    TASK_SCHEDULED: TASK_SCHEDULED,
     '进行中': TASK_RUNNING, TASK_RUNNING: TASK_RUNNING,
     TASK_DONE: TASK_DONE, '完成': TASK_DONE,
     TASK_CANCELLED: TASK_CANCELLED, '取消': TASK_CANCELLED,
@@ -265,6 +285,8 @@ def import_task_excel(file_storage, user):
             actual_end = parse_excel_datetime(cell_any('实际完成时间', '完成时间'))
             effort = _parse_effort(cell_any('预估人天', '预估工作量'))
             actual_effort = _parse_effort(cell_any('实际人天', '实际工作量'))
+            if planned_start and planned_end and planned_end < planned_start:
+                raise ValueError(f'第{r}行：安排结束日期不能早于开始日期')
             if actual_start and actual_end and actual_end < actual_start:
                 raise ValueError(f'第{r}行：实际完成时间不能早于实际开始时间')
 
@@ -272,6 +294,10 @@ def import_task_excel(file_storage, user):
                         .filter_by(title=title, customer_id=customer.id)
                         .first())
             if existing:
+                effective_start = planned_start or existing.planned_start
+                effective_end = planned_end or existing.planned_end
+                if status == TASK_SCHEDULED and (not effective_start or not effective_end):
+                    raise ValueError(f'第{r}行：「已安排」任务必须填写完整的安排日期')
                 existing.status = status
                 existing.priority = priority
                 existing.assigned_to_user_id = assignee.id
@@ -295,6 +321,8 @@ def import_task_excel(file_storage, user):
                 existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
                 updated += 1
             else:
+                if status == TASK_SCHEDULED and (not planned_start or not planned_end):
+                    raise ValueError(f'第{r}行：「已安排」任务必须填写完整的安排日期')
                 if status in (TASK_RUNNING, TASK_REVIEWING) and not actual_start:
                     actual_start = local_now()
                 if status == TASK_DONE and not actual_end:
@@ -344,6 +372,9 @@ def check_task_transition(task, new_status, allow_reopen=False,
     """
     if new_status not in TASK_STATUSES:
         return '非法状态：%s' % new_status
+    period_error = validate_task_schedule_period(task, new_status)
+    if period_error:
+        return period_error
     if new_status == task.status:
         return None
     if task.status == TASK_CONTRACT_REVIEW and not allow_contract_review:
@@ -389,6 +420,12 @@ def apply_task_status(task, new_status, allow_reopen=False,
         if previous_status in (TASK_DONE, TASK_CANCELLED):
             task.actual_end = None
             task.actual_effort = None
+    elif new_status in (TASK_PENDING, TASK_SCHEDULED) and previous_status == TASK_RUNNING:
+        # 执行中撤回到执行前阶段表示本轮重置：清空计时边界，
+        # 下次再进入「执行中」时以新时间重新起算。
+        task.actual_start = None
+        task.actual_end = None
+        task.actual_effort = None
     task.status = new_status
     if new_status == TASK_DONE:
         # 历史异常数据可能没有起点，用最早任务记录创建时间兜底；新流程
@@ -410,7 +447,11 @@ def review_task_contract_exception(task, approved, reviewer_name, comment=''):
     """审核过期客户任务的合同例外申请。"""
     if task.status != TASK_CONTRACT_REVIEW:
         raise ValueError(f'任务当前状态「{task.status}」不能进行合同例外审核')
-    target = TASK_PENDING if approved else TASK_CANCELLED
+    target = (
+        TASK_SCHEDULED
+        if approved and task.assigned_to_user_id and task.planned_start and task.planned_end
+        else TASK_PENDING
+    ) if approved else TASK_CANCELLED
     apply_task_status(task, target, allow_contract_review=True)
     task.contract_exception_status = '通过' if approved else '拒绝'
     note = (comment or '').strip()

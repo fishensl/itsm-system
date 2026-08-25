@@ -365,6 +365,7 @@ def api_dashboard_overview():
             InspectionTask.query.filter(
                 InspectionTask.status.in_([
                     _const.TASK_PENDING,
+                    _const.TASK_SCHEDULED,
                     _const.TASK_RUNNING,
                     _const.TASK_REVIEWING,
                 ])),
@@ -1546,7 +1547,7 @@ def _task_payload(t, customer_map=None):
     from services.task_schedule_service import task_timing_payload
     today = date.today()
     overdue = (
-        t.status in (_const.TASK_PENDING, _const.TASK_RUNNING)
+        t.status in (_const.TASK_PENDING, _const.TASK_SCHEDULED, _const.TASK_RUNNING)
         and t.planned_end
         and t.planned_end < today
     )
@@ -1604,6 +1605,7 @@ def api_task_board():
     groups = {}
     for st in (
         _const.TASK_PENDING,
+        _const.TASK_SCHEDULED,
         _const.TASK_RUNNING,
         _const.TASK_REVIEWING,
         _const.TASK_DONE,
@@ -1616,6 +1618,7 @@ def api_task_board():
         'status_tag': _const.TASK_STATUS_TAG,
         'total': len(tasks),
         'pending': len(groups[_const.TASK_PENDING]),
+        'scheduled': len(groups[_const.TASK_SCHEDULED]),
         'running': len(groups[_const.TASK_RUNNING]),
         'reviewing': len(groups[_const.TASK_REVIEWING]),
         'done': len(groups[_const.TASK_DONE]),

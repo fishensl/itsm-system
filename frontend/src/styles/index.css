@@ -10,6 +10,7 @@
   --itsm-danger-soft: #fee2e2;
   --itsm-info: #64748b;
   --itsm-info-soft: #f1f5f9;
+  --itsm-scheduled: #08979c;
   --itsm-text-inverse: #ffffff;
   --itsm-overlay: rgba(15, 23, 42, 0.48);
   --itsm-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.08);
@@ -63,6 +64,7 @@ html.dark {
   --itsm-danger-soft: #7f1d1d;
   --itsm-info: #94a3b8;
   --itsm-info-soft: #1e293b;
+  --itsm-scheduled: #22d3ee;
   --itsm-bg: #111827;
   --itsm-card-bg: #1f2937;
   --itsm-text: #e5e7eb;

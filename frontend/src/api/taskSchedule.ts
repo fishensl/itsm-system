@@ -36,6 +36,7 @@ export interface TaskScheduleData {
   kpi: {
     total: number
     pending: number
+    scheduled: number
     running: number
     reviewing: number
     done: number

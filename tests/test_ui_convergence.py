@@ -37,7 +37,8 @@ def test_theme_defines_semantic_tokens_for_light_and_dark_modes():
     source = (ROOT / 'frontend' / 'src' / 'styles' / 'index.css').read_text(encoding='utf-8')
     required = (
         '--itsm-primary', '--itsm-success', '--itsm-warning', '--itsm-danger',
-        '--itsm-info', '--itsm-text-inverse', '--itsm-overlay', '--itsm-shadow-sm',
+        '--itsm-info', '--itsm-scheduled', '--itsm-text-inverse', '--itsm-overlay',
+        '--itsm-shadow-sm',
     )
     root_block, dark_block = source.split('html.dark', maxsplit=1)
     for token in required:
@@ -78,8 +79,8 @@ def test_layout_has_only_one_page_title_source():
 
 
 def test_task_schedule_kpis_stay_in_one_row():
-    """9 个任务 KPI 固定为单行；窄屏通过横向滚动保持指标不换行。"""
+    """10 个任务 KPI 固定为单行；窄屏通过横向滚动保持指标不换行。"""
     source = _view_source('taskSchedule/index.vue')
-    assert 'grid-template-columns: repeat(9, minmax(108px, 1fr))' in source
+    assert 'grid-template-columns: repeat(10, minmax(100px, 1fr))' in source
     assert 'overflow-x: auto' in source
     assert '<el-row v-if="data"' not in source

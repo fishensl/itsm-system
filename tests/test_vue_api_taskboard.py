@@ -60,6 +60,7 @@ class TestTaskBoard:
         assert body['code'] == 0
         data = body['data']
         assert data['pending'] == 1
+        assert data['scheduled'] == 0
         assert data['running'] == 1
         assert data['done'] == 1
         assert data['total'] == 3  # 默认不含已取消
@@ -172,6 +173,23 @@ class TestTaskBoardRoleScope:
 
 
 class TestTaskStatusFlow:
+    def test_scheduled_is_not_timed_until_running(self, op_client, seed, app):
+        reset = op_client.post(
+            f"/api/task-board/{seed['t2']}/status", json={'status': '待执行'})
+        assert reset.status_code == 200
+        arranged = op_client.post(
+            f"/api/task-board/{seed['t2']}/status", json={'status': '已安排'})
+        assert arranged.status_code == 200
+        with app.app_context():
+            task = db.session.get(InspectionTask, seed['t2'])
+            assert task.status == '已安排'
+            assert task.actual_start is None
+        started = op_client.post(
+            f"/api/task-board/{seed['t2']}/status", json={'status': '执行中'})
+        assert started.status_code == 200
+        with app.app_context():
+            assert db.session.get(InspectionTask, seed['t2']).actual_start is not None
+
     def test_done_requires_approved_record(self, op_client, seed, app):
         r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '执行中'})
         assert r.status_code == 200

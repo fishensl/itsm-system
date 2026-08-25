@@ -1315,6 +1315,7 @@ def api_task_schedule_board():
     kpi = {
         'total': len(items),
         'pending': sum(1 for t in items if t['status'] == _const.TASK_PENDING),
+        'scheduled': sum(1 for t in items if t['status'] == _const.TASK_SCHEDULED),
         'running': sum(1 for t in items if t['status'] == _const.TASK_RUNNING),
         'reviewing': sum(1 for t in items if t['status'] == _const.TASK_REVIEWING),
         'done': sum(1 for t in items if t['status'] == _const.TASK_DONE),
@@ -1337,6 +1338,7 @@ def api_task_schedule_board():
                   for st in (
                       _const.TASK_CONTRACT_REVIEW,
                       _const.TASK_PENDING,
+                      _const.TASK_SCHEDULED,
                       _const.TASK_RUNNING,
                       _const.TASK_REVIEWING,
                       _const.TASK_DONE,
@@ -1362,12 +1364,21 @@ def api_task_schedule_quick_add():
     if not customer_id:
         return fail('请选择客户')
     from datetime import date as _date
-    planned_start = _date.fromisoformat(data['planned_start']) if data.get('planned_start') else None
-    planned_end = _date.fromisoformat(data['planned_end']) if data.get('planned_end') else None
+    try:
+        planned_start = _date.fromisoformat(data['planned_start']) if data.get('planned_start') else None
+        planned_end = _date.fromisoformat(data['planned_end']) if data.get('planned_end') else None
+    except (TypeError, ValueError):
+        return fail('安排日期格式不正确，应为 YYYY-MM-DD', 400)
+    if planned_start and planned_end and planned_start > planned_end:
+        return fail('安排开始日期不能晚于结束日期', 400)
     # V28: 客户合同过期门禁 → 合同审批态（需部门主管审核放行）
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
-    status = _const.TASK_PENDING
+    status = (
+        _const.TASK_SCHEDULED
+        if data.get('assignee_id') and planned_start and planned_end
+        else _const.TASK_PENDING
+    )
     exception_reason = (data.get('contract_exception_reason') or '').strip()
     cust = _C.query.get(int(customer_id)) if customer_id else None
     if cust is not None and _ce(cust):
@@ -1426,6 +1437,25 @@ def api_task_schedule_update(task_id):
     data = request.get_json(silent=True) or {}
     if 'actual_effort' in data:
         return fail('实际人天由执行开始至审核通过的实际耗时自动计算，不能手工修改', 400)
+    try:
+        if data.get('planned_start') is not None:
+            t.planned_start = _date.fromisoformat(data['planned_start']) if data['planned_start'] else None
+        if data.get('planned_end') is not None:
+            t.planned_end = _date.fromisoformat(data['planned_end']) if data['planned_end'] else None
+    except (TypeError, ValueError):
+        db.session.rollback()
+        return fail('安排日期格式不正确，应为 YYYY-MM-DD', 400)
+    old_uid = t.assigned_to_user_id
+    assignee_changed = 'assignee_id' in data
+    if assignee_changed:
+        t.assigned_to_user_id = data.get('assignee_id') or None
+        t.dispatched_by = t.dispatched_by or current_user.id
+        t.dispatched_at = t.dispatched_at or local_now()
+    from services.task_schedule_service import validate_task_schedule_period
+    period_error = validate_task_schedule_period(t, data.get('status') or t.status)
+    if period_error:
+        db.session.rollback()
+        return fail(period_error, 400)
     if data.get('title') is not None:
         t.title = (data['title'] or '').strip() or t.title
     if data.get('status') is not None:
@@ -1435,11 +1465,7 @@ def api_task_schedule_update(task_id):
         except ValueError as e:
             db.session.rollback()
             return fail(str(e), 400)
-    if data.get('assignee_id') is not None:
-        old_uid = t.assigned_to_user_id
-        t.assigned_to_user_id = data['assignee_id'] or None
-        t.dispatched_by = t.dispatched_by or current_user.id
-        t.dispatched_at = t.dispatched_at or local_now()
+    if assignee_changed:
         # 事件源：任务指派通知（新指派且非本人）
         new_uid = t.assigned_to_user_id
         if new_uid and new_uid != old_uid and new_uid != current_user.id:
@@ -1456,10 +1482,6 @@ def api_task_schedule_update(task_id):
                                 target_user_ids=[new_uid])
             except Exception:
                 current_app.logger.warning('任务指派通知失败 task_id=%s', task_id)
-    if data.get('planned_start') is not None:
-        t.planned_start = _date.fromisoformat(data['planned_start']) if data['planned_start'] else None
-    if data.get('planned_end') is not None:
-        t.planned_end = _date.fromisoformat(data['planned_end']) if data['planned_end'] else None
     if data.get('estimated_effort') is not None:
         t.estimated_effort = float(data['estimated_effort']) if data['estimated_effort'] not in (None, '') else None
     if data.get('priority') is not None:
@@ -1473,7 +1495,7 @@ def api_task_schedule_update(task_id):
 @vue_api_bp.route('/api/task-schedule/<int:task_id>/contract-review', methods=['POST'])
 @login_required
 def api_task_schedule_contract_review(task_id):
-    """合同例外审核：通过回到待执行，拒绝进入已取消。"""
+    """合同例外审核：通过后按排期完整度进入已安排/待执行，拒绝进入已取消。"""
     from models import InspectionTask as _IT, User as _U
     from services.task_schedule_service import review_task_contract_exception
     from utils.permission import has_permission, is_supervisor
@@ -1556,6 +1578,8 @@ def api_task_schedule_batch():
                 db.session.rollback()
                 return fail(str(e), 400)
     elif action == 'assign':
+        if not value and any(t.status == _const.TASK_SCHEDULED for t in tasks):
+            return fail('「已安排」任务不能清空负责人，请先改回「待执行」', 400)
         for t in tasks:
             t.assigned_to_user_id = value or None
             t.dispatched_by = t.dispatched_by or current_user.id
