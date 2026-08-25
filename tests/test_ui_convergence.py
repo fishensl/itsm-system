@@ -89,20 +89,20 @@ def test_task_schedule_kpis_stay_in_one_row():
 def test_task_schedule_timing_uses_single_column_bounded_date_range():
     """展开后排期/开始/审核/实际耗时逐行展示，日期范围不溢出卡片。"""
     source = _view_source('taskSchedule/index.vue')
-    assert source.count('v-model="inlinePlanRange" type="daterange"') == 2
+    assert 'v-model="inlinePlanRange" type="daterange"' not in source
+    assert source.count('v-model="inlinePlanRange[0]" type="date"') == 2
+    assert source.count('v-model="inlinePlanRange[1]" type="date"') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
-    assert '.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }' in source
-    assert source.count(':shortcuts="rangeDateShortcuts"') == 3
-    assert source.count(':shortcuts="dateShortcuts"') == 2
+    assert 'grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr)' in source
+    assert source.count(':shortcuts="rangeDateShortcuts"') == 1
+    assert source.count(':shortcuts="dateShortcuts"') == 6
     assert "planned_start: today, planned_end: today" in source
     assert '@click="setInlinePlanToday"' not in source
-    assert source.count('popper-class="task-date-today-popper"') == 5
+    assert source.count('popper-class="task-date-today-popper"') == 7
     assert ':global(.task-date-today-popper .el-picker-panel__sidebar)' in source
     assert 'inset: 8px 72px auto auto' in source
     assert 'grid-template-columns: 28px minmax(0, 1fr)' in source
-    assert 'flex: 1 1 0' in source
-    assert 'flex: 0 0 14px' in source
-    assert ':deep(.ie-date-range .el-range__close-icon) { display: none; }' in source
+    assert ':deep(.inline-plan-date .el-input__prefix) { display: none; }' in source
 
 
 def test_device_edit_uses_shared_network_types_and_editable_rack_fields():

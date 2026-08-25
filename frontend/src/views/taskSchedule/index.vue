@@ -130,11 +130,15 @@
             <div v-if="expandedId === t.id" class="task-timing">
               <div class="task-plan-editor">
                 <span>安排</span>
-                <div class="date-with-today">
-                  <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
-                    format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
-                    end-placeholder="结束日期" :shortcuts="rangeDateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="ie-date-range"
+                <div class="inline-plan-dates">
+                  <el-date-picker v-model="inlinePlanRange[0]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-plan-date"
+                    @change="inlinePlanChanged = true" />
+                  <span class="inline-plan-separator">至</span>
+                  <el-date-picker v-model="inlinePlanRange[1]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-plan-date"
                     @change="inlinePlanChanged = true" />
                 </div>
               </div>
@@ -213,11 +217,15 @@
             <div v-if="expandedId === t.id" class="task-timing">
               <div class="task-plan-editor">
                 <span>安排</span>
-                <div class="date-with-today">
-                  <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
-                    format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
-                    end-placeholder="结束日期" :shortcuts="rangeDateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="ie-date-range"
+                <div class="inline-plan-dates">
+                  <el-date-picker v-model="inlinePlanRange[0]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-plan-date"
+                    @change="inlinePlanChanged = true" />
+                  <span class="inline-plan-separator">至</span>
+                  <el-date-picker v-model="inlinePlanRange[1]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-plan-date"
                     @change="inlinePlanChanged = true" />
                 </div>
               </div>
@@ -1095,29 +1103,37 @@ onMounted(reload)
 .date-with-today {
   min-width: 0; width: 100%; max-width: 100%;
 }
-.task-plan-editor .date-with-today { min-width: 0; width: 100%; overflow: hidden; }
-.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
-:deep(.ie-date-range.el-date-editor) {
-  box-sizing: border-box;
-  justify-content: flex-start;
-  overflow: hidden;
-  padding-right: 5px;
-  padding-left: 5px;
-}
-:deep(.ie-date-range .el-range-input) {
-  flex: 1 1 0;
-  width: 0;
+.inline-plan-dates {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px;
   min-width: 0;
-  padding: 0;
+  width: 100%;
+}
+.inline-plan-date {
+  width: 100% !important;
+  min-width: 0;
+}
+.inline-plan-separator {
+  width: 12px;
+  color: var(--itsm-text-muted);
+  text-align: center;
+}
+:deep(.inline-plan-date.el-date-editor) {
+  box-sizing: border-box;
+  min-width: 0;
+}
+:deep(.inline-plan-date .el-input__wrapper) {
+  min-width: 0;
+  padding: 0 5px;
+}
+:deep(.inline-plan-date .el-input__inner) {
+  min-width: 0;
   font-size: 11px;
+  text-align: center;
 }
-:deep(.ie-date-range .el-range-separator) {
-  flex: 0 0 14px;
-  width: 14px;
-  padding: 0;
-}
-:deep(.ie-date-range .el-range__icon) { margin-right: 0; }
-:deep(.ie-date-range .el-range__close-icon) { display: none; }
+:deep(.inline-plan-date .el-input__prefix) { display: none; }
 :global(.task-date-today-popper .el-picker-panel__sidebar) {
   position: absolute;
   inset: 8px 72px auto auto;
