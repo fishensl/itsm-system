@@ -127,11 +127,10 @@
             <div v-if="expandedId === t.id" class="task-timing">
               <div class="task-plan-editor">
                 <span>安排</span>
-                <el-date-picker v-model="inlineForm.planned_start" type="date" value-format="YYYY-MM-DD"
-                  size="small" placeholder="开始日期" class="ie-date" />
-                <span>至</span>
-                <el-date-picker v-model="inlineForm.planned_end" type="date" value-format="YYYY-MM-DD"
-                  size="small" placeholder="结束日期" class="ie-date" />
+                <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
+                  end-placeholder="结束日期" size="small" class="ie-date-range"
+                  @change="inlinePlanChanged = true" />
               </div>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
@@ -208,11 +207,10 @@
             <div v-if="expandedId === t.id" class="task-timing">
               <div class="task-plan-editor">
                 <span>安排</span>
-                <el-date-picker v-model="inlineForm.planned_start" type="date" value-format="YYYY-MM-DD"
-                  size="small" placeholder="开始日期" class="ie-date" />
-                <span>至</span>
-                <el-date-picker v-model="inlineForm.planned_end" type="date" value-format="YYYY-MM-DD"
-                  size="small" placeholder="结束日期" class="ie-date" />
+                <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
+                  end-placeholder="结束日期" size="small" class="ie-date-range"
+                  @change="inlinePlanChanged = true" />
               </div>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
@@ -472,9 +470,9 @@ const expandedId = ref<number | null>(null)
 const inlineForm = reactive<{
   status: string
   assignee_id: number | null
-  planned_start: string
-  planned_end: string
-}>({ status: '', assignee_id: null, planned_start: '', planned_end: '' })
+}>({ status: '', assignee_id: null })
+const inlinePlanRange = ref<string[]>([])
+const inlinePlanChanged = ref(false)
 const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
@@ -670,39 +668,45 @@ function openInline(t: TaskScheduleItem) {
   detail.value = t
   inlineForm.status = t.status
   inlineForm.assignee_id = t.assignee_id
-  inlineForm.planned_start = t.planned_start || ''
-  inlineForm.planned_end = t.planned_end || ''
+  inlinePlanRange.value = t.planned_start && t.planned_end
+    ? [t.planned_start, t.planned_end]
+    : []
+  inlinePlanChanged.value = false
   loadRecord()
 }
 
 function cancelInline() {
   expandedId.value = null
   detail.value = null
+  inlinePlanRange.value = []
+  inlinePlanChanged.value = false
   record.value = null
   versions.value = []
 }
 
 async function saveInline() {
   if (!detail.value) return
+  const planRange = inlinePlanRange.value || []
+  const plannedStart = inlinePlanChanged.value ? (planRange[0] || '') : detail.value.planned_start
+  const plannedEnd = inlinePlanChanged.value ? (planRange[1] || '') : detail.value.planned_end
   if (inlineForm.status === TASK_STATUS.SCHEDULED && !inlineForm.assignee_id) {
     ui.toast('变更为「已安排」前请选择负责人', 'warning')
     return
   }
   if (inlineForm.status === TASK_STATUS.SCHEDULED &&
-      (!inlineForm.planned_start || !inlineForm.planned_end)) {
+      (!plannedStart || !plannedEnd)) {
     ui.toast('变更为「已安排」前请填写完整的安排日期', 'warning')
     return
   }
-  if (inlineForm.planned_start && inlineForm.planned_end &&
-      inlineForm.planned_start > inlineForm.planned_end) {
+  if (plannedStart && plannedEnd && plannedStart > plannedEnd) {
     ui.toast('安排开始日期不能晚于结束日期', 'warning')
     return
   }
   const patch: Record<string, unknown> = {}
   if (inlineForm.status !== detail.value.status) patch.status = inlineForm.status
   if (inlineForm.assignee_id !== detail.value.assignee_id) patch.assignee_id = inlineForm.assignee_id
-  if (inlineForm.planned_start !== detail.value.planned_start) patch.planned_start = inlineForm.planned_start
-  if (inlineForm.planned_end !== detail.value.planned_end) patch.planned_end = inlineForm.planned_end
+  if (inlinePlanChanged.value && plannedStart !== detail.value.planned_start) patch.planned_start = plannedStart
+  if (inlinePlanChanged.value && plannedEnd !== detail.value.planned_end) patch.planned_end = plannedEnd
   if (!Object.keys(patch).length) {
     ui.toast('无改动', 'info')
     return
@@ -1051,19 +1055,21 @@ onMounted(reload)
 }
 .task-range { white-space: nowrap; margin-left: auto; }
 .task-timing {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;
   margin-top: 7px; padding: 7px 8px;
   border-radius: 6px; background: var(--el-fill-color-lighter); color: var(--itsm-text-muted);
   font-size: 12px;
 }
 .task-timing > span { min-width: 0; overflow-wrap: anywhere; }
-.task-timing-total { grid-column: 1 / -1; color: var(--el-color-primary); }
+.task-timing-total { color: var(--el-color-primary); }
 .task-plan-editor {
-  grid-column: 1 / -1; display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
   gap: 6px; align-items: center;
+  min-width: 0; width: 100%;
 }
-.ie-date { width: 100% !important; min-width: 0; }
+.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
+:deep(.ie-date-range.el-date-editor) { box-sizing: border-box; }
+:deep(.ie-date-range .el-range-input) { min-width: 0; }
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
 .ie-select { width: calc(50% - 4px); min-width: 0; }
 /* 第三行：操作按钮从卡片左缘开始均匀分布（删除贴右缘=时间右缘），不超出边框 */

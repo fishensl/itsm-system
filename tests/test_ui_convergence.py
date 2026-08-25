@@ -84,3 +84,11 @@ def test_task_schedule_kpis_stay_in_one_row():
     assert 'grid-template-columns: repeat(10, minmax(100px, 1fr))' in source
     assert 'overflow-x: auto' in source
     assert '<el-row v-if="data"' not in source
+
+
+def test_task_schedule_timing_uses_single_column_bounded_date_range():
+    """展开后排期/开始/审核/实际耗时逐行展示，日期范围不溢出卡片。"""
+    source = _view_source('taskSchedule/index.vue')
+    assert source.count('v-model="inlinePlanRange" type="daterange"') == 2
+    assert 'grid-template-columns: minmax(0, 1fr)' in source
+    assert '.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }' in source
