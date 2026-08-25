@@ -137,7 +137,7 @@ class TestDeviceCrud:
         payload = op_client.get(f'/api/devices/{device_id}').get_json()['data']
         assert payload['rack_location'] == '一楼机房'
         assert payload['rack_name'] == 'A-01'
-        assert payload['rack_slot'] == 'U8'
+        assert payload['rack_slot'] == '8U-9U'
         assert payload['rack_id'] == rack_id
         assert payload['rack_start_u'] == 8
         assert payload['rack_occupy_u'] == 2

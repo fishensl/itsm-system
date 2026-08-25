@@ -120,8 +120,19 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
     return ''
 
 
+def format_rack_u_range(start_u, occupy_u):
+    """将起始 U 位和占用数格式化为列表/详情/导出共用的占用范围。"""
+    if not start_u:
+        return ''
+    start = int(start_u)
+    occupy = max(int(occupy_u or 1), 1)
+    if occupy == 1:
+        return f'{start}U'
+    return f'{start}U-{start + occupy - 1}U'
+
+
 def build_rack_map(devices):
-    """每设备最近一次上架记录 → (Rack.location, Rack.name, 'U{start_u}')（防 N+1）。
+    """每设备最近一次上架记录 → (Rack.location, Rack.name, U位范围)（防 N+1）。
 
     未上架设备返回设备自身 rack_location（批量修改可写入），机柜/机柜号为空。
     """
@@ -136,7 +147,7 @@ def build_rack_map(devices):
         rack_map[d.id] = (
             (r.location or '') if r else '',
             (r.name or '') if r else '',
-            f'U{inst.start_u}' if inst.start_u else '',
+            format_rack_u_range(inst.start_u, inst.occupy_u),
         )
     return rack_map
 

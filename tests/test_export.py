@@ -9,6 +9,15 @@ from models import (db, Customer, Device, Rack, RackInstall, PasswordHistory,
 from utils.crypto import encrypt_password
 
 
+@pytest.mark.parametrize(('start_u', 'occupy_u', 'expected'), [
+    (5, 1, '5U'),
+    (5, 4, '5U-8U'),
+])
+def test_format_rack_u_range(start_u, occupy_u, expected):
+    from blueprints.vue_export import format_rack_u_range
+    assert format_rack_u_range(start_u, occupy_u) == expected
+
+
 @pytest.fixture()
 def seed(app):
     with app.app_context():
@@ -85,7 +94,7 @@ class TestDevicePresets:
         assert row1['机房位置'] == '2F 机房 B 区'  # 机柜 Rack.location
         assert row1['机柜号'] == 'A-01'
         assert row1['安装位置'] == '正面'
-        assert row1['起始U位'] == 'U3'
+        assert row1['起始U位'] == '3U-4U'
         assert row1['电源配置'] == '双电源'
         assert row1['是否维修'] == '是'
         # 未选客户 → 文件名 = {表格类型}_{日期}.xlsx
