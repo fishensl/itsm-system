@@ -92,3 +92,17 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     assert source.count('v-model="inlinePlanRange" type="daterange"') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
     assert '.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }' in source
+    assert source.count(':shortcuts="rangeDateShortcuts"') == 3
+    assert source.count(':shortcuts="dateShortcuts"') == 2
+    assert "planned_start: today, planned_end: today" in source
+    assert source.count('@click="setInlinePlanToday"') == 2
+
+
+def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
+    source = _view_source('devices/index.vue')
+    assert 'v-for="name in networkTypes"' in source
+    assert '<el-option label="内网" value="内网"' not in source
+    assert 'v-for="name in missingPresetRackNames"' in source
+    assert '<el-option label="自定义…" value="__custom__"' in source
+    assert source.count('controls-position="right" class="w-full"') >= 2
+    assert ':disabled="!form.rack_id"' not in source

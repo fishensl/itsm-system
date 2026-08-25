@@ -19,9 +19,12 @@
     <el-dialog v-model="exportVisible" title="导出任务安排" width="520px" destroy-on-close>
       <el-form label-width="120px">
         <el-form-item label="计划开始日期">
-          <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
-            start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
-            clearable class="w-full" />
+          <div class="date-with-today w-full">
+            <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
+              start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
+              :shortcuts="rangeDateShortcuts" clearable class="w-full" />
+            <el-button link type="primary" @click="setRangeToday(exportDateRange)">今天</el-button>
+          </div>
         </el-form-item>
         <el-alert type="info" :closable="false" show-icon
           title="导出沿用当前客户、负责人、状态、搜索和逾期筛选；清空日期表示全部时间。" />
@@ -127,10 +130,13 @@
             <div v-if="expandedId === t.id" class="task-timing">
               <div class="task-plan-editor">
                 <span>安排</span>
-                <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
-                  format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
-                  end-placeholder="结束日期" size="small" class="ie-date-range"
-                  @change="inlinePlanChanged = true" />
+                <div class="date-with-today">
+                  <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
+                    end-placeholder="结束日期" :shortcuts="rangeDateShortcuts" size="small"
+                    class="ie-date-range" @change="inlinePlanChanged = true" />
+                  <el-button link type="primary" size="small" @click="setInlinePlanToday">今天</el-button>
+                </div>
               </div>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
@@ -207,10 +213,13 @@
             <div v-if="expandedId === t.id" class="task-timing">
               <div class="task-plan-editor">
                 <span>安排</span>
-                <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
-                  format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
-                  end-placeholder="结束日期" size="small" class="ie-date-range"
-                  @change="inlinePlanChanged = true" />
+                <div class="date-with-today">
+                  <el-date-picker v-model="inlinePlanRange" type="daterange" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期"
+                    end-placeholder="结束日期" :shortcuts="rangeDateShortcuts" size="small"
+                    class="ie-date-range" @change="inlinePlanChanged = true" />
+                  <el-button link type="primary" size="small" @click="setInlinePlanToday">今天</el-button>
+                </div>
               </div>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
@@ -264,14 +273,20 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="开始日期">
-              <el-date-picker v-model="createForm.planned_start" type="date" value-format="YYYY-MM-DD"
-                style="width: 100%" />
+              <div class="date-with-today w-full">
+                <el-date-picker v-model="createForm.planned_start" type="date" value-format="YYYY-MM-DD"
+                  :shortcuts="dateShortcuts" style="width: 100%" />
+                <el-button link type="primary" @click="createForm.planned_start = todayString()">今天</el-button>
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="完成日期">
-              <el-date-picker v-model="createForm.planned_end" type="date" value-format="YYYY-MM-DD"
-                style="width: 100%" />
+              <div class="date-with-today w-full">
+                <el-date-picker v-model="createForm.planned_end" type="date" value-format="YYYY-MM-DD"
+                  :shortcuts="dateShortcuts" style="width: 100%" />
+                <el-button link type="primary" @click="createForm.planned_end = todayString()">今天</el-button>
+              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -480,6 +495,12 @@ const exportVisible = ref(false)
 const exporting = ref(false)
 const exportDateRange = ref<string[]>([])
 
+const dateShortcuts = [{ text: '今天', value: () => new Date() }]
+const rangeDateShortcuts = [{ text: '今天', value: () => {
+  const today = new Date()
+  return [today, today]
+} }]
+
 // V21/V22: 关联巡检记录 + 上传全套资料
 const record = ref<Inspection | null>(null)
 const versions = ref<SubmissionVersion[]>([])
@@ -636,8 +657,9 @@ async function runBatch(action: 'status' | 'assign' | 'delete', value?: unknown)
 }
 
 function openCreate() {
+  const today = todayString()
   Object.assign(createForm, {
-    title: '', customer_id: undefined, assignee_id: null, planned_start: '', planned_end: '',
+    title: '', customer_id: undefined, assignee_id: null, planned_start: today, planned_end: today,
     priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
   })
   createVisible.value = true
@@ -668,10 +690,11 @@ function openInline(t: TaskScheduleItem) {
   detail.value = t
   inlineForm.status = t.status
   inlineForm.assignee_id = t.assignee_id
-  inlinePlanRange.value = t.planned_start && t.planned_end
-    ? [t.planned_start, t.planned_end]
-    : []
-  inlinePlanChanged.value = false
+  const today = todayString()
+  const start = t.planned_start || t.planned_end || today
+  const end = t.planned_end || t.planned_start || today
+  inlinePlanRange.value = [start, end]
+  inlinePlanChanged.value = !t.planned_start || !t.planned_end
   loadRecord()
 }
 
@@ -726,6 +749,20 @@ function formatLocalDate(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, '0')
   const day = String(value.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function todayString() {
+  return formatLocalDate(new Date())
+}
+
+function setRangeToday(target: string[]) {
+  const today = todayString()
+  target.splice(0, target.length, today, today)
+}
+
+function setInlinePlanToday() {
+  setRangeToday(inlinePlanRange.value)
+  inlinePlanChanged.value = true
 }
 
 function currentPeriodRange(period: unknown): string[] {
@@ -1067,6 +1104,11 @@ onMounted(reload)
   gap: 6px; align-items: center;
   min-width: 0; width: 100%;
 }
+.date-with-today {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 2px; min-width: 0; width: 100%;
+}
+.date-with-today .el-button { margin-left: 0; min-height: 22px; padding: 0 2px; }
 .ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
 :deep(.ie-date-range.el-date-editor) { box-sizing: border-box; }
 :deep(.ie-date-range .el-range-input) { min-width: 0; }

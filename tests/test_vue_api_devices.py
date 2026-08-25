@@ -11,7 +11,7 @@ from utils.crypto import encrypt_password
 @pytest.fixture()
 def seed(app):
     with app.app_context():
-        from models import DeviceType
+        from models import DeviceType, NetworkType
         c1 = Customer(name='设备API客户A')
         c2 = Customer(name='设备API客户B')
         db.session.add_all([c1, c2])
@@ -30,6 +30,9 @@ def seed(app):
         if not DeviceType.query.first():
             db.session.add(DeviceType(name='交换机'))
             db.session.add(DeviceType(name='防火墙'))
+        if not NetworkType.query.first():
+            db.session.add(NetworkType(name='内网', sort_order=1))
+            db.session.add(NetworkType(name='外网', sort_order=2))
         db.session.commit()
         yield {'c1': c1.id, 'c2': c2.id, 'd1': d1.id, 'd2': d2.id}
 
@@ -81,6 +84,34 @@ class TestDeviceList:
 
 
 class TestDeviceCrud:
+    def test_create_with_custom_rack_is_atomic(self, op_client, seed, app):
+        from models import Rack, RackInstall
+
+        r = op_client.post('/api/devices', json={
+            'device_name': 'SW-CUSTOM-RACK', 'customer_id': seed['c1'],
+            'rack_custom_name': '3', 'rack_location': '二楼机房',
+            'rack_start_u': 12, 'rack_occupy_u': 2,
+            'location': '正面', 'power_supply': '双电源', 'is_in_use': True,
+        })
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            rack = Rack.query.filter_by(customer_id=seed['c1'], name='3').one()
+            assert rack.location == '二楼机房'
+            install = RackInstall.query.filter_by(
+                device_id=r.get_json()['data']['id']).one()
+            assert install.rack_id == rack.id
+            assert (install.start_u, install.occupy_u) == (12, 2)
+
+        failed = op_client.post('/api/devices', json={
+            'device_name': 'SW-BAD-CUSTOM-RACK', 'customer_id': seed['c1'],
+            'rack_custom_name': '临时孤儿柜', 'rack_location': '二楼机房',
+            'rack_start_u': 42, 'rack_occupy_u': 2,
+            'location': '正面', 'power_supply': '双电源', 'is_in_use': True,
+        })
+        assert failed.status_code == 400
+        with app.app_context():
+            assert Rack.query.filter_by(name='临时孤儿柜').count() == 0
+
     def test_create_with_rack_placement(self, op_client, seed, app):
         from models import Rack, RackInstall
         with app.app_context():
@@ -474,6 +505,7 @@ class TestDeviceDicts:
         data = body['data']
         assert '华为' in data['brands']
         assert any(t['name'] == '交换机' for t in data['device_types'])
+        assert data['network_types'] == ['内网', '外网']
         assert len(data['customers']) >= 2
         assert data['installation_positions'] == ['正面', '背面']
         assert data['power_supplies'] == ['单电源', '双电源']

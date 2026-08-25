@@ -2281,16 +2281,20 @@ def api_ticket_dicts():
 @login_required
 @require_permission('device:view')
 def api_device_dicts():
-    from models import Device as _Device, DeviceType as _DT
+    from models import Device as _Device, DeviceType as _DT, NetworkType as _NT
     from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_POWER_SUPPLIES
     from utils.customer_scope import customer_dropdown_options
     brands = [r[0] for r in db.session.query(_Device.brand).distinct()
               .filter(_Device.brand != '').order_by(_Device.brand).all()]
     types = [{'name': t.name} for t in _DT.query.order_by(_DT.sort_order, _DT.id).all()]
+    network_types = [
+        t.name for t in _NT.query.order_by(_NT.sort_order, _NT.id).all()
+    ]
     customers = customer_dropdown_options(current_user)
     return ok({
         'brands': brands,
         'device_types': types,
+        'network_types': network_types,
         'customers': customers,
         'installation_positions': list(DEVICE_INSTALLATION_POSITIONS),
         'power_supplies': list(DEVICE_POWER_SUPPLIES),

@@ -5,22 +5,54 @@ from datetime import date, datetime, timedelta
 from models import db, Customer, InspectionTask, Inspector, User
 
 
-def test_task_timing_payload_uses_execution_to_approval_window():
+def test_task_timing_payload_uses_workday_execution_to_approval_window():
     from services.task_schedule_service import task_timing_payload
 
     task = InspectionTask(
         title='计时任务', status='已完成',
-        actual_start=datetime(2026, 8, 24, 9, 0),
-        actual_end=datetime(2026, 8, 24, 19, 30),
+        actual_start=datetime(2026, 8, 24, 8, 0),
+        actual_end=datetime(2026, 8, 24, 18, 0),
     )
     timing = task_timing_payload(task)
-    assert timing['actual_duration_hours'] == 10.5
-    assert timing['actual_duration_text'] == '10小时30分钟'
-    assert timing['actual_effort'] == 1.31
+    assert timing['actual_duration_hours'] == 7.5
+    assert timing['actual_duration_text'] == '7小时30分钟'
+    assert timing['actual_effort'] == 0.94
+
+
+def test_task_timing_excludes_night_lunch_and_weekend():
+    from services.task_schedule_service import task_timing_payload
+
+    overnight = InspectionTask(
+        title='跨夜任务', status='已完成',
+        actual_start=datetime(2026, 8, 24, 9, 9),
+        actual_end=datetime(2026, 8, 25, 10, 13),
+    )
+    timing = task_timing_payload(overnight)
+    assert timing['actual_duration_text'] == '8小时34分钟'
+    assert timing['actual_effort'] == 1.07
+
+    eight_hours = InspectionTask(
+        title='满一人天任务', status='已完成',
+        actual_start=datetime(2026, 8, 24, 8, 30),
+        actual_end=datetime(2026, 8, 25, 9, 0),
+    )
+    timing = task_timing_payload(eight_hours)
+    assert timing['actual_duration_text'] == '8小时'
+    assert timing['actual_effort'] == 1.0
+
+    weekend = InspectionTask(
+        title='跨周末任务', status='已完成',
+        actual_start=datetime(2026, 8, 28, 16, 30),  # Friday
+        actual_end=datetime(2026, 8, 31, 9, 30),     # Monday
+    )
+    timing = task_timing_payload(weekend)
+    assert timing['actual_duration_text'] == '2小时'
+    assert timing['actual_effort'] == 0.25
 
 
 def _seed(app):
     with app.app_context():
+        from services.task_schedule_service import local_now
         c = Customer(name='看板客户')
         db.session.add(c)
         db.session.flush()
@@ -34,14 +66,16 @@ def _seed(app):
                                       planned_end=date.today() - timedelta(days=1)))
         db.session.add(InspectionTask(title='2026年三季度巡检', customer_id=c.id, status='执行中',
                                       assigned_to_user_id=op.id,
-                                      actual_start=datetime.now() - timedelta(hours=2),
+                                      actual_start=local_now() - timedelta(hours=2),
                                       planned_start=date.today(), planned_end=date.today() + timedelta(days=30)))
         db.session.commit()
         return c.id, op.id
 
 
 class TestTaskScheduleApi:
-    def test_board_default_quarter(self, admin_client, app):
+    def test_board_default_quarter(self, admin_client, app, monkeypatch):
+        fake_now = datetime(2026, 8, 25, 10, 30)
+        monkeypatch.setattr('services.task_schedule_service.local_now', lambda: fake_now)
         _, op_id = _seed(app)
         r = admin_client.get('/api/task-schedule')
         assert r.get_json()['code'] == 0
@@ -378,12 +412,15 @@ class TestTaskScheduleApi:
         with app.app_context():
             assert InspectionTask.query.filter_by(title='导入任务A').count() == 1
 
-    def test_export_excel_supports_planned_start_date_range(self, admin_client, app):
+    def test_export_excel_supports_planned_start_date_range(
+            self, admin_client, app, monkeypatch):
         import base64
         import io
 
         from openpyxl import load_workbook
 
+        fake_now = datetime(2026, 8, 25, 10, 30)
+        monkeypatch.setattr('services.task_schedule_service.local_now', lambda: fake_now)
         _seed(app)
         today = date.today().isoformat()
         with app.app_context():

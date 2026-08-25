@@ -162,7 +162,7 @@ class TestModuleExports:
         ]
         assert rows[0][:2] == ['导出巡检', '导出客户A']
         assert rows[0][2:] == [
-            '已通过', '2026-08-24 08:00', '2026-08-24 18:00', '10小时', 1.25,
+            '已通过', '2026-08-24 08:00', '2026-08-24 18:00', '7小时30分钟', 0.94,
         ]
 
     def test_inspection_export_date_filter(self, op_client, seed):

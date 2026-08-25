@@ -5,7 +5,7 @@
 SSR 视图与 Vue API 均调用本函数，保证行为一致。
 """
 import re
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta, date, time
 
 from flask import current_app
 
@@ -33,10 +33,42 @@ def local_now():
 
 _ACTIVE_TIMING_STATUSES = frozenset({TASK_RUNNING, TASK_REVIEWING})
 _SECONDS_PER_PERSON_DAY = 8 * 60 * 60
+_WORK_PERIODS = (
+    (time(8, 30), time(12, 0)),
+    (time(13, 30), time(17, 30)),
+)
+
+
+def workday_duration_seconds(start, end):
+    """Return Beijing business-time seconds between two naive datetimes.
+
+    Task timestamps are stored as Beijing-local naive datetimes. Only Monday
+    through Friday, 08:30-12:00 and 13:30-17:30, count toward task effort.
+    Public-holiday calendars are intentionally outside this baseline rule.
+    """
+    if not start or not end or end <= start:
+        return 0
+
+    total = 0
+    current_day = start.date()
+    end_day = end.date()
+    while current_day <= end_day:
+        if current_day.weekday() < 5:
+            for period_start, period_end in _WORK_PERIODS:
+                window_start = datetime.combine(
+                    current_day, period_start, tzinfo=start.tzinfo)
+                window_end = datetime.combine(
+                    current_day, period_end, tzinfo=start.tzinfo)
+                overlap_start = max(start, window_start)
+                overlap_end = min(end, window_end)
+                if overlap_end > overlap_start:
+                    total += int((overlap_end - overlap_start).total_seconds())
+        current_day += timedelta(days=1)
+    return total
 
 
 def task_actual_duration_seconds(task, now=None):
-    """Return elapsed wall-clock seconds from first execution to final approval.
+    """Return working-time seconds from first execution to final approval.
 
     Running/reviewing tasks are calculated up to ``now``. Completed tasks use
     their frozen ``actual_end``. Tasks without a reliable start/end boundary
@@ -49,7 +81,7 @@ def task_actual_duration_seconds(task, now=None):
         end = now or local_now()
     if not end:
         return None
-    return max(0, int((end - task.actual_start).total_seconds()))
+    return workday_duration_seconds(task.actual_start, end)
 
 
 def format_task_duration(seconds):
@@ -68,7 +100,7 @@ def format_task_duration(seconds):
 
 
 def task_actual_effort(task, now=None):
-    """Actual person-days derived from elapsed time (8 hours/person-day)."""
+    """Actual person-days derived from workday time (8 hours/person-day)."""
     seconds = task_actual_duration_seconds(task, now=now)
     if seconds is None:
         return task.actual_effort

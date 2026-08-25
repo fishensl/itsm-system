@@ -60,6 +60,7 @@ export interface DeviceForm {
   login_method: string
   rack_location: string
   rack_id?: number | null
+  rack_custom_name?: string
   rack_start_u?: number | null
   rack_occupy_u?: number
   location: string

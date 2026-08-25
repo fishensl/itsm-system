@@ -42,7 +42,8 @@ def _sync_rack_placement(device, form):
     devices.rack_location，已上架设备的机房位置由 Rack.location 单一派生。
     """
     data = form.to_dict() if hasattr(form, 'to_dict') else form
-    if 'rack_id' not in data:
+    custom_name = str(data.get('rack_custom_name') or '').strip()[:64]
+    if 'rack_id' not in data and not custom_name:
         if 'rack_location' in data and not device.rack_installs:
             device.rack_location = str(data.get('rack_location') or '').strip()[:128]
         return
@@ -53,6 +54,25 @@ def _sync_rack_placement(device, form):
                 .order_by(RackInstall.id.desc()).all())
     current = installs[0] if installs else None
     rack_id = data.get('rack_id')
+    if custom_name:
+        if not device.customer_id:
+            raise ServiceError('自定义机柜前必须选择客户')
+        rack_location = str(data.get('rack_location') or '').strip()[:128]
+        rack = Rack.query.filter_by(
+            customer_id=device.customer_id,
+            name=custom_name,
+            location=rack_location,
+        ).order_by(Rack.id).first()
+        if not rack:
+            rack = Rack(
+                customer_id=device.customer_id,
+                name=custom_name,
+                location=rack_location,
+                total_u=42,
+            )
+            db.session.add(rack)
+            db.session.flush()
+        rack_id = rack.id
     if rack_id in (None, ''):
         for install in installs:
             db.session.delete(install)

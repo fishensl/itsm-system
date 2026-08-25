@@ -333,18 +333,20 @@ class TestInspectionUploadReportFlow:
             'approved': True, 'remark': '审核通过'})
         assert r.status_code == 200, r.get_json()
         with app.app_context():
+            from services.task_schedule_service import task_timing_payload
             i = Inspection.query.get(seed['i1'])
             assert i.review_status == '已通过'
             assert i.overall_status == '正常'
             t = db.session.get(InspectionTask, seed['t1'])
             assert t.status == '已完成'
             assert t.actual_end is not None
-            assert t.actual_effort == 1.25
+            expected_timing = task_timing_payload(t)
+            assert t.actual_effort == expected_timing['actual_effort']
         detail = op_client.get(f"/api/inspections/{seed['i1']}").get_json()['data']
         assert detail['task_actual_start']
         assert detail['task_actual_end']
-        assert detail['task_actual_duration'] == '10小时'
-        assert detail['task_actual_effort'] == 1.25
+        assert detail['task_actual_duration'] == expected_timing['actual_duration_text']
+        assert detail['task_actual_effort'] == expected_timing['actual_effort']
 
     def test_review_reject_reverts_task(self, op_client, seed, app):
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",

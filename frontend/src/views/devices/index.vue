@@ -396,10 +396,11 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'network_type', '网络类型', 'form')">
-              <el-select v-model="form.network_type" filterable allow-create clearable class="w-full">
-                <el-option label="内网" value="内网" />
-                <el-option label="外网" value="外网" />
-                <el-option label="DMZ" value="DMZ" />
+              <el-select v-model="form.network_type" filterable clearable class="w-full"
+                placeholder="请选择网络类型设置中的名称">
+                <el-option v-if="form.network_type && !networkTypes.includes(form.network_type)"
+                  :label="`${form.network_type}（历史值）`" :value="form.network_type" disabled />
+                <el-option v-for="name in networkTypes" :key="name" :label="name" :value="name" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -455,12 +456,19 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'rack_name', '机柜号', 'form')">
-              <el-select v-model="form.rack_id" filterable clearable class="w-full"
-                :loading="rackOptionsLoading" placeholder="未上架可留空" @change="onRackChange">
-                <el-option v-for="rack in rackOptions" :key="rack.id"
-                  :label="`${rack.name} · ${rack.location || '未设置机房'} · ${rack.used_label}`"
-                  :value="rack.id" />
-              </el-select>
+              <div class="rack-select-stack">
+                <el-select v-model="rackSelection" filterable clearable :value-on-clear="null" class="w-full"
+                  :loading="rackOptionsLoading" placeholder="选择机柜号或自定义" @change="onRackChange">
+                  <el-option v-for="rack in rackOptions" :key="rack.id"
+                    :label="`${rack.name} · ${rack.location || '未设置机房'} · ${rack.used_label}`"
+                    :value="rack.id" />
+                  <el-option v-for="name in missingPresetRackNames" :key="`preset-${name}`"
+                    :label="name" :value="`__preset__:${name}`" />
+                  <el-option label="自定义…" value="__custom__" />
+                </el-select>
+                <el-input v-if="isCustomRackSelection" v-model="form.rack_custom_name"
+                  maxlength="64" placeholder="请输入自定义机柜号" />
+              </div>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -476,13 +484,13 @@
           <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'rack_slot', '机柜U位', 'form')">
               <el-input-number v-model="form.rack_start_u" :min="1"
-                :max="selectedRack?.total_u || 99" :disabled="!form.rack_id" class="w-full" />
+                :max="selectedRack?.total_u || 42" controls-position="right" class="w-full" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="占用U数">
               <el-input-number v-model="form.rack_occupy_u" :min="1"
-                :max="selectedRack?.total_u || 99" :disabled="!form.rack_id" class="w-full" />
+                :max="selectedRack?.total_u || 42" controls-position="right" class="w-full" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -616,11 +624,19 @@ const ui = useUiStore()
 const query = reactive<Record<string, unknown>>({ search: '', brand: '', device_type: '', customer_id: undefined })
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
+const networkTypes = ref<string[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
 const installationPositions = ref<string[]>(['正面', '背面'])
 const powerSupplies = ref<string[]>(['单电源', '双电源'])
 const rackOptions = ref<RackItem[]>([])
 const rackOptionsLoading = ref(false)
+const rackSelection = ref<number | string | null>(null)
+const presetRackNames = ['1', '2', '3', '4']
+const missingPresetRackNames = computed(() => {
+  const existing = new Set(rackOptions.value.map((rack) => rack.name))
+  return presetRackNames.filter((name) => !existing.has(name))
+})
+const isCustomRackSelection = computed(() => typeof rackSelection.value === 'string')
 const listFieldMeta = ref<EntityFieldMeta[]>([])
 const entityMetas = ref<Record<string, EntityMeta>>({})
 
@@ -1231,7 +1247,8 @@ function blankForm(): DeviceForm & { id?: number } {
   return {
     id: undefined, device_name: '', customer_id: null, device_type: '', brand: '', model: '',
     serial_number: '', network_type: '', ip_address: '', port: 22, username: '', password: '',
-    login_method: 'SSH', rack_location: '', rack_id: null, rack_start_u: 1, rack_occupy_u: 1,
+    login_method: 'SSH', rack_location: '', rack_id: null, rack_custom_name: '',
+    rack_start_u: 1, rack_occupy_u: 1,
     location: '', power_supply: '', interface: [], os_version: '', rule_version: '',
     is_maintenance: false, is_in_use: true, license_expiry: '', license_start: '',
     build_date: '', cert_expiry_date: '', remark: '',
@@ -1244,6 +1261,7 @@ const formRules = {
 
 function openCreate() {
   Object.assign(form, blankForm())
+  rackSelection.value = null
   editingSnapshot.value = null
   rackOptions.value = []
   formVisible.value = true
@@ -1263,7 +1281,7 @@ async function openEdit(d: Device) {
     serial_number: current.serial_number, network_type: current.network_type,
     ip_address: current.ip_address, port: current.port, username: current.username,
     login_method: current.login_method, rack_location: current.rack_location,
-    rack_id: current.rack_id, rack_start_u: current.rack_start_u || 1,
+    rack_id: current.rack_id, rack_custom_name: '', rack_start_u: current.rack_start_u || 1,
     rack_occupy_u: current.rack_occupy_u || 1,
     location: current.location, power_supply: current.power_supply || '',
     interface: [...current.interface], os_version: current.os_version,
@@ -1273,6 +1291,7 @@ async function openEdit(d: Device) {
     cert_expiry_date: current.cert_expiry_date, remark: current.remark,
   })
   editingSnapshot.value = current
+  rackSelection.value = current.rack_id
   await loadRackOptions(current.customer_id, current.rack_id)
   detailVisible.value = false
   formVisible.value = true
@@ -1306,19 +1325,34 @@ async function loadRackOptions(customerId: number | null | undefined, selectedId
 }
 
 function onFormCustomerChange() {
+  rackSelection.value = null
   form.rack_id = null
+  form.rack_custom_name = ''
   form.rack_location = ''
   form.rack_start_u = 1
   form.rack_occupy_u = 1
   void loadRackOptions(form.customer_id)
 }
 
-function onRackChange(rackId: number | null) {
-  const rack = rackOptions.value.find((item) => item.id === rackId)
+function onRackChange(selection: number | string | null) {
+  if (selection === null || selection === '') {
+    rackSelection.value = null
+    form.rack_id = null
+    form.rack_custom_name = ''
+    return
+  }
+  if (typeof selection === 'string') {
+    form.rack_id = null
+    form.rack_custom_name = selection.startsWith('__preset__:')
+      ? selection.slice('__preset__:'.length)
+      : ''
+    return
+  }
+  form.rack_id = selection
+  form.rack_custom_name = ''
+  const rack = rackOptions.value.find((item) => item.id === selection)
   if (rack) {
     form.rack_location = rack.location || ''
-    form.rack_start_u = 1
-    form.rack_occupy_u = 1
   }
 }
 
@@ -1326,6 +1360,14 @@ async function save() {
   try {
     await formRef.value?.validate()
   } catch {
+    return
+  }
+  if (isCustomRackSelection.value && !String(form.rack_custom_name || '').trim()) {
+    ui.toast('请输入自定义机柜号', 'warning')
+    return
+  }
+  if (rackSelection.value !== null && !form.customer_id) {
+    ui.toast('选择机柜前请先选择客户', 'warning')
     return
   }
   saving.value = true
@@ -1376,6 +1418,7 @@ import { fetchDeviceDicts } from '@/api/dicts'
 fetchDeviceDicts().then((d) => {
   brands.value = d.brands
   deviceTypes.value = d.device_types
+  networkTypes.value = d.network_types || []
   customers.value = d.customers
   if (d.installation_positions?.length) installationPositions.value = d.installation_positions
   if (d.power_supplies?.length) powerSupplies.value = d.power_supplies
@@ -1445,6 +1488,12 @@ fetchDeviceDicts().then((d) => {
 }
 .flex-gap .el-input {
   flex: 1;
+}
+.rack-select-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
 }
 .ml-1 {
   margin-left: 6px;
