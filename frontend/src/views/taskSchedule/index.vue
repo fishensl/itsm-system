@@ -133,12 +133,12 @@
                 <div class="inline-plan-dates">
                   <el-date-picker v-model="inlinePlanRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date"
+                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 120px"
                     @change="inlinePlanChanged = true" />
                   <span class="inline-plan-separator">至</span>
                   <el-date-picker v-model="inlinePlanRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date"
+                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 120px"
                     @change="inlinePlanChanged = true" />
                 </div>
               </div>
@@ -220,12 +220,12 @@
                 <div class="inline-plan-dates">
                   <el-date-picker v-model="inlinePlanRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date"
+                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 120px"
                     @change="inlinePlanChanged = true" />
                   <span class="inline-plan-separator">至</span>
                   <el-date-picker v-model="inlinePlanRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date"
+                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 120px"
                     @change="inlinePlanChanged = true" />
                 </div>
               </div>
@@ -1104,25 +1104,30 @@ onMounted(reload)
   min-width: 0; width: 100%; max-width: 100%;
 }
 .inline-plan-dates {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
   min-width: 0;
   width: 100%;
+  overflow: hidden;
 }
 .inline-plan-date {
-  width: 100% !important;
-  min-width: 0;
+  flex: 0 0 120px;
+  width: 120px !important;
+  min-width: 120px;
+  max-width: 120px;
 }
 .inline-plan-separator {
-  width: 12px;
+  flex: 0 0 14px;
+  width: 14px;
   color: var(--itsm-text-muted);
   text-align: center;
 }
 :deep(.inline-plan-date.el-date-editor) {
   box-sizing: border-box;
-  min-width: 0;
+  width: 120px !important;
+  min-width: 120px !important;
+  max-width: 120px !important;
 }
 :deep(.inline-plan-date .el-input__wrapper) {
   min-width: 0;

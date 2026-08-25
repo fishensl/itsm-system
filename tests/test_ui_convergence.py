@@ -93,7 +93,10 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     assert source.count('v-model="inlinePlanRange[0]" type="date"') == 2
     assert source.count('v-model="inlinePlanRange[1]" type="date"') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
-    assert 'grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr)' in source
+    assert source.count('class="inline-plan-date" style="width: 120px"') == 4
+    assert 'flex: 0 0 120px' in source
+    assert 'width: 120px !important' in source
+    assert 'overflow: hidden' in source
     assert source.count(':shortcuts="rangeDateShortcuts"') == 1
     assert source.count(':shortcuts="dateShortcuts"') == 6
     assert "planned_start: today, planned_end: today" in source
