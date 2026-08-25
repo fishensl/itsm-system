@@ -91,7 +91,7 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     source = _view_source('taskSchedule/index.vue')
     assert source.count('v-model="inlinePlanRange" type="daterange"') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
-    assert '.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }' in source
+    assert '.ie-date-range { width: 236px !important; max-width: 100%; min-width: 0; }' in source
     assert source.count(':shortcuts="rangeDateShortcuts"') == 3
     assert source.count(':shortcuts="dateShortcuts"') == 2
     assert "planned_start: today, planned_end: today" in source
@@ -99,8 +99,8 @@ def test_task_schedule_timing_uses_single_column_bounded_date_range():
     assert source.count('popper-class="task-date-today-popper"') == 5
     assert ':global(.task-date-today-popper .el-picker-panel__sidebar)' in source
     assert 'inset: 8px 72px auto auto' in source
-    assert 'flex: 1 1 0' in source
-    assert 'width: 0' in source
+    assert 'flex: 0 0 80px' in source
+    assert 'flex: 0 0 18px' in source
 
 
 def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
@@ -109,6 +109,7 @@ def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
     assert '<el-option label="内网" value="内网"' not in source
     assert 'v-for="option in rackSelectOptions"' in source
     assert ':label="option.name" :value="option.value"' in source
+    assert 'option.detail' not in source
     assert "presetRackNames = ['1', '2', '3', '4']" in source
     assert "localeCompare(right.name, 'zh-CN', { numeric: true })" in source
     assert '<el-option label="自定义…" value="__custom__"' in source

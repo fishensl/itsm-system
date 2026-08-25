@@ -1095,18 +1095,26 @@ onMounted(reload)
 .date-with-today {
   min-width: 0; width: 100%; max-width: 100%;
 }
-.ie-date-range { width: 100% !important; max-width: 100%; min-width: 0; }
-:deep(.ie-date-range.el-date-editor) { box-sizing: border-box; }
+.ie-date-range { width: 236px !important; max-width: 100%; min-width: 0; }
+:deep(.ie-date-range.el-date-editor) {
+  box-sizing: border-box;
+  justify-content: flex-start;
+  padding-right: 6px;
+  padding-left: 6px;
+}
 :deep(.ie-date-range .el-range-input) {
-  flex: 1 1 0;
-  width: 0;
+  flex: 0 0 80px;
+  width: 80px;
   min-width: 0;
   font-size: 12px;
 }
 :deep(.ie-date-range .el-range-separator) {
-  flex: 0 0 24px;
-  width: 24px;
+  flex: 0 0 18px;
+  width: 18px;
+  padding: 0;
 }
+:deep(.ie-date-range .el-range__icon) { margin-right: 2px; }
+:deep(.ie-date-range .el-range__close-icon) { margin-left: 2px; }
 :global(.task-date-today-popper .el-picker-panel__sidebar) {
   position: absolute;
   inset: 8px 72px auto auto;

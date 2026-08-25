@@ -462,12 +462,7 @@
                 <el-select v-model="rackSelection" filterable clearable :value-on-clear="null" class="w-full"
                   :loading="rackOptionsLoading" placeholder="选择机柜号或自定义" @change="onRackChange">
                   <el-option v-for="option in rackSelectOptions" :key="String(option.value)"
-                    :label="option.name" :value="option.value">
-                    <div class="rack-option">
-                      <span class="rack-option-name">{{ option.name }}</span>
-                      <span class="rack-option-detail">{{ option.detail }}</span>
-                    </div>
-                  </el-option>
+                    :label="option.name" :value="option.value" />
                   <el-option label="自定义…" value="__custom__" />
                 </el-select>
                 <el-input v-if="isCustomRackSelection" v-model="form.rack_custom_name"
@@ -640,12 +635,11 @@ const rackSelectOptions = computed(() => {
   const options = rackOptions.value.map((rack) => ({
     value: rack.id as number | string,
     name: rack.name,
-    detail: `${rack.location || '未设置机房'} · ${rack.used_label}`,
   }))
   const existing = new Set(options.map((option) => option.name))
   for (const name of presetRackNames) {
     if (!existing.has(name)) {
-      options.push({ value: `__preset__:${name}`, name, detail: '新建 42U 机柜' })
+      options.push({ value: `__preset__:${name}`, name })
     }
   }
   return options.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
@@ -1518,18 +1512,6 @@ fetchDeviceDicts().then((d) => {
   flex-direction: column;
   gap: 6px;
   width: 100%;
-}
-.rack-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-}
-.rack-option-name { font-weight: 600; }
-.rack-option-detail {
-  color: var(--itsm-text-muted);
-  font-size: 12px;
 }
 .ml-1 {
   margin-left: 6px;
