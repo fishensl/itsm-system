@@ -166,9 +166,10 @@
               </template>
               <template v-else>
                 <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-                <el-button size="small" type="warning" plain
-                  :disabled="t.status === TASK_STATUS.SCHEDULED" @click="openUpload">
-                  {{ record ? '重新上传' : '上传' }}
+                <el-button size="small" type="warning" plain :loading="recordLoading"
+                  :disabled="t.status === TASK_STATUS.SCHEDULED || t.status === TASK_STATUS.CANCELLED"
+                  @click="openUpload">
+                  {{ isSupplementing ? '补传资料' : record ? '重新提交' : '上传资料' }}
                 </el-button>
                 <el-button size="small" @click="cancelInline">取消</el-button>
                 <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
@@ -258,9 +259,10 @@
               </template>
               <template v-else>
                 <el-button size="small" type="primary" @click="saveInline">保存</el-button>
-                <el-button size="small" type="warning" plain
-                  :disabled="t.status === TASK_STATUS.SCHEDULED" @click="openUpload">
-                  {{ record ? '重新上传' : '上传' }}
+                <el-button size="small" type="warning" plain :loading="recordLoading"
+                  :disabled="t.status === TASK_STATUS.SCHEDULED || t.status === TASK_STATUS.CANCELLED"
+                  @click="openUpload">
+                  {{ isSupplementing ? '补传资料' : record ? '重新提交' : '上传资料' }}
                 </el-button>
                 <el-button size="small" @click="cancelInline">取消</el-button>
                 <el-button size="small" type="danger" plain @click="onDelete(t)">删除</el-button>
@@ -368,7 +370,9 @@
     </el-dialog>
 
     <!-- 上传提交资料（全套：报告 + 配置备份 + 拓扑图 + 资产清单） -->
-    <el-dialog v-model="uploadVisible" title="上传巡检资料并提交审核" width="680px" destroy-on-close>
+    <el-dialog v-model="uploadVisible"
+      :title="isSupplementing ? '补传巡检资料' : '上传巡检资料并提交审核'"
+      width="680px" destroy-on-close>
       <el-form label-width="100px">
         <!-- 巡检报告 -->
         <el-form-item :label="assetLabel('report')" :required="isRequired('report')">
@@ -470,7 +474,9 @@
       </el-form>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button type="primary" :loading="uploading" @click="doUpload">上传并提交审核</el-button>
+        <el-button type="primary" :loading="uploading" @click="doUpload">
+          {{ isSupplementing ? '确认补传' : '上传并提交审核' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -538,6 +544,7 @@ const rangeDateShortcuts = [{ text: '今天', value: () => {
 
 // V21/V22: 关联巡检记录 + 上传全套资料
 const record = ref<Inspection | null>(null)
+const recordLoading = ref(false)
 const versions = ref<SubmissionVersion[]>([])
 const uploadVisible = ref(false)
 const uploading = ref(false)
@@ -560,8 +567,13 @@ const ASSET_LABELS: Record<string, string> = {
   topology: '拓扑图', asset_list: '资产清单',
 }
 
+// 待审核/已通过记录是在最近版本上补资料；已退回仍需重新提交新版本走审核。
+const isSupplementing = computed(() => !!record.value && [
+  REVIEW_STATUS.PENDING, REVIEW_STATUS.APPROVED,
+].includes(record.value.review_status as typeof REVIEW_STATUS.PENDING | typeof REVIEW_STATUS.APPROVED))
+
 function isRequired(key: string) {
-  return !!requiredAssets.value[key]
+  return !isSupplementing.value && !!requiredAssets.value[key]
 }
 
 function assetLabel(key: string) {
@@ -570,10 +582,10 @@ function assetLabel(key: string) {
 const uploadHint = computed(() => {
   const st = detail.value?.status
   if (st === TASK_STATUS.SCHEDULED) return '任务只已排期，尚未开始计时；请先切换为「执行中」'
-  if (st === TASK_STATUS.REVIEWING) return '任务正在审核中，请等待审核结果后再上传'
+  if (st === TASK_STATUS.REVIEWING) return '当前版本正在审核，可继续补传漏交的配置、拓扑或资产清单；不会重复提交审核'
   if (st === TASK_STATUS.DONE) return '任务已完成，可补传报告/资料（补传不改变任务状态）'
   if (st === TASK_STATUS.CANCELLED) return '任务已取消，不可上传'
-  if (record.value?.review_status === REVIEW_STATUS.PENDING) return '已有报告在审核中，请等待审核结果'
+  if (record.value?.review_status === REVIEW_STATUS.PENDING) return '已有报告在审核中，可补传其他资料'
   return ''
 })
 const canContractReview = computed(() =>
@@ -878,18 +890,24 @@ async function loadRecord() {
   record.value = null
   versions.value = []
   if (!detail.value) return
+  const taskId = detail.value.id
+  recordLoading.value = true
   try {
-    const page = await fetchInspections({ task_id: detail.value.id, page_size: 1 })
+    const page = await fetchInspections({ task_id: taskId, page_size: 1 })
     const row = page.items?.[0]
     if (row) {
       const [full, vers] = await Promise.all([
         fetchInspection(row.id),
         fetchInspectionVersions(row.id),
       ])
+      if (detail.value?.id !== taskId) return
       record.value = full
       versions.value = vers
     }
   } catch { /* toast */ }
+  finally {
+    if (detail.value?.id === taskId) recordLoading.value = false
+  }
 }
 
 function openUpload() {
@@ -934,13 +952,20 @@ function previewLatestReport() {
 
 async function doUpload() {
   if (!detail.value) return
-  if (!uploadFile.value && !skipReasons.report.trim()) {
+  if (!isSupplementing.value && !uploadFile.value && !skipReasons.report.trim()) {
     ui.toast('请选择巡检报告文件，或填写无法上传的原因', 'warning')
+    return
+  }
+  const hasConfigText = configTextRows.value.some((r) => r.file || r.content.trim())
+  if (isSupplementing.value && !uploadFile.value && !configZipFile.value &&
+      !hasConfigText && !topologyFile.value && !assetListFile.value) {
+    ui.toast('请至少选择一项需要补传的文件或配置内容', 'warning')
     return
   }
   uploading.value = true
   try {
     const fd = new FormData()
+    fd.append('mode', isSupplementing.value ? 'supplement' : 'submit')
     if (uploadFile.value) fd.append('report_file', uploadFile.value)
     else fd.append('report_skip_reason', skipReasons.report)
     fd.append('conclusion', uploadConclusion.value)
@@ -973,7 +998,9 @@ async function doUpload() {
     else if (skipReasons.asset_list) fd.append('asset_list_skip_reason', skipReasons.asset_list)
 
     const r = await uploadTaskReport(detail.value.id, fd)
-    let msg = `已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`
+    let msg = r.supplemented
+      ? `已补传到版本 ${r.version_no}，任务状态保持：${r.task_status}`
+      : `已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`
     if (r.asset_import) {
       msg += `；资产清单导入：新增 ${r.asset_import.created} 台、更新 ${r.asset_import.updated} 台`
     }

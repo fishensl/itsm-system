@@ -478,7 +478,7 @@ def upload_report(task_id):
     conclusion = (request.form.get('conclusion') or '').strip()
     remark = (request.form.get('remark') or '').strip()
     try:
-        inspection, version = upload_report_for_task(
+        inspection, version, _ = upload_report_for_task(
             task.id, rel_path, conclusion,
             current_user_id=current_user.id,
             current_user_name=current_user.realname or current_user.username,

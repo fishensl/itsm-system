@@ -120,15 +120,15 @@
       </template>
     </el-dialog>
 
-    <!-- 提交审核（处理报告 + 诊断/方案 + 提交备注） -->
+    <!-- 提交审核（报告可选 + 诊断/方案 + 提交备注） -->
     <el-dialog v-model="submitVisible" title="提交审核" width="560px" destroy-on-close>
       <el-form label-width="90px">
-        <el-form-item label="处理报告" required>
+        <el-form-item label="故障报告（可选）">
           <el-upload ref="submitUploadRef" drag :auto-upload="false" :limit="1"
             accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
             :on-change="onSubmitFileChange" :on-remove="() => submitFile = null">
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖拽或点击上传处理报告（Word/PDF/Excel/图片）</div>
+            <div class="el-upload__text">已有故障报告可在此上传；没有报告也可直接提交审核</div>
           </el-upload>
         </el-form-item>
         <el-form-item label="诊断分析">
@@ -466,7 +466,7 @@ async function doAudit() {
   }
 }
 
-// 提交审核（处理报告 + 诊断/方案 + 提交备注）
+// 提交审核（故障报告可选 + 诊断/方案 + 提交备注）
 const submitVisible = ref(false)
 const submitting = ref(false)
 const submitUploadRef = ref()
@@ -502,15 +502,11 @@ function onSubmitFileChange(f: UploadFile) {
 
 async function doSubmit() {
   if (!detail.value) return
-  if (!submitFile.value) {
-    ui.toast('请上传处理报告文件', 'warning')
-    return
-  }
   submitting.value = true
   try {
     const fd = new FormData()
     fd.append('action', 'submit')
-    fd.append('report_file', submitFile.value)
+    if (submitFile.value) fd.append('report_file', submitFile.value)
     fd.append('diagnosis', submitForm.diagnosis)
     fd.append('solution', submitForm.solution)
     fd.append('note', submitForm.note)

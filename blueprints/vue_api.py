@@ -3202,9 +3202,10 @@ def api_task_required_assets(task_id):
 @login_required
 @require_permission('inspection:edit')
 def api_inspection_upload_report(task_id):
-    """工程师从任务上传全套资料 → 自动创建/复用巡检记录 + 建版本 + 任务「执行中→待审核」。
+    """工程师首次提交或向最近版本补传巡检资料。
 
     multipart 字段：
+      mode=submit(默认，建版本并提交审核) | supplement(补传到最近版本，不改变状态)
       report_file(必传，可豁免：report_skip_reason) + conclusion + remark
       config_zip(完整配置包) + config_zip_device_id + config_zip_skip_reason
       config_text_file_N / config_text_content_N / config_text_device_id_N（核心设备文本配置，可粘贴或传文件）
@@ -3212,7 +3213,9 @@ def api_inspection_upload_report(task_id):
       topology_file（拓扑图）+ topology_skip_reason
       asset_list（资产清单 Excel，提交时解析导入设备）+ asset_list_skip_reason
     """
-    from services.inspection_service import upload_report_for_task
+    from services.inspection_service import (supplement_report_assets_for_task,
+                                             upload_report_for_task)
+    from services.base import ServiceError
     from utils.upload import validate_upload
     from models import InspectionTask as _IT
 
@@ -3224,16 +3227,37 @@ def api_inspection_upload_report(task_id):
                             '.pdf', '.vsd', '.vsdx', '.drawio', '.xml'}
     ALLOWED_ASSET_EXT = {'.xlsx', '.xls'}
 
+    saved_paths = []
+
     def _save_file(f, subdir, allowed, max_mb=50):
         ok_flag, err, safe_name = validate_upload(f, allowed, max_size_mb=max_mb)
         if not ok_flag:
             return None, err
         os.makedirs(os.path.join('static', 'uploads', subdir), exist_ok=True)
+        target = os.path.join('static', 'uploads', subdir, safe_name)
+        if os.path.exists(target):
+            from uuid import uuid4
+            stem, ext = os.path.splitext(safe_name)
+            safe_name = f'{stem}_{uuid4().hex[:8]}{ext}'
         rel = '/'.join(('uploads', subdir, safe_name))
         f.save(os.path.join('static', rel))
+        saved_paths.append(rel)
         return rel, None
 
+    def _upload_fail(message, status=400):
+        db.session.rollback()
+        for rel in saved_paths:
+            try:
+                os.remove(os.path.join('static', rel))
+            except OSError:
+                pass
+        return fail(message, status)
+
     task = _IT.query.get_or_404(task_id)
+    mode = (request.form.get('mode') or 'submit').strip().lower()
+    if mode not in ('submit', 'supplement'):
+        return fail('未知上传模式', 400)
+    supplementing = mode == 'supplement'
 
     report_path = ''
     report_skip_reason = (request.form.get('report_skip_reason') or '').strip()
@@ -3241,7 +3265,7 @@ def api_inspection_upload_report(task_id):
     if f:
         report_path, err = _save_file(f, f'inspection_reports/{task.id}', ALLOWED_REPORT_EXT)
         if err:
-            return fail(err or '报告文件校验失败')
+            return _upload_fail('巡检报告：' + (err or '文件校验失败'))
 
     # 完整配置备份包
     config_zip_path = ''
@@ -3251,7 +3275,7 @@ def api_inspection_upload_report(task_id):
     if f:
         config_zip_path, err = _save_file(f, f'inspection_configs/{task.id}', ALLOWED_ZIP_EXT, max_mb=100)
         if err:
-            return fail(err or '配置包文件校验失败')
+            return _upload_fail('完整配置备份包：' + (err or '文件校验失败'))
 
     # 核心设备文本配置（动态行：文件 N 或粘贴 N + 设备 N）
     config_texts = []
@@ -3265,7 +3289,7 @@ def api_inspection_upload_report(task_id):
         handled_idx.add(n)
         tpath, err = _save_file(fobj, f'inspection_configs/{task.id}', ALLOWED_TEXT_EXT)
         if err:
-            return fail(err or '文本配置文件校验失败')
+            return _upload_fail('核心设备文本配置：' + (err or '文件校验失败'))
         dev_id = request.form.get(f'config_text_device_id_{n}') or None
         content = ''
         try:
@@ -3296,7 +3320,7 @@ def api_inspection_upload_report(task_id):
     if f:
         topology_file_path, err = _save_file(f, f'inspection_topologies/{task.id}', ALLOWED_TOPOLOGY_EXT)
         if err:
-            return fail(err or '拓扑图文件校验失败')
+            return _upload_fail('拓扑图：' + (err or '文件校验失败'))
         topology_file_name = f.filename or ''
 
     # 资产清单（保存 + 解析导入设备）
@@ -3308,68 +3332,98 @@ def api_inspection_upload_report(task_id):
     if f:
         asset_list_path, err = _save_file(f, f'inspection_assets/{task.id}', ALLOWED_ASSET_EXT)
         if err:
-            return fail(err or '资产清单文件校验失败')
+            return _upload_fail('资产清单：' + (err or '文件校验失败'))
         asset_list_file_name = f.filename or ''
         try:
             from services.asset_list_service import import_asset_list
             asset_import_result = import_asset_list(
                 asset_list_path, task.customer_id,
-                current_user.realname or current_user.username, asset_list_file_name)
-        except Exception as e:
-            db.session.rollback()
-            return fail(str(e) or '资产清单解析失败', 400)
+                current_user.realname or current_user.username, asset_list_file_name,
+                commit=False)
+        except ServiceError as e:
+            return _upload_fail('资产清单：' + (str(e) or '解析失败'), 400)
+        except Exception:
+            current_app.logger.exception('巡检资产清单解析失败 task_id=%s', task_id)
+            return _upload_fail('资产清单解析失败，错误已记录，请检查文件后重试', 400)
 
     conclusion = (request.form.get('conclusion') or '').strip()
     remark = (request.form.get('remark') or '').strip()
     me = current_user
     try:
-        inspection, version, asset_result = upload_report_for_task(
-            task.id, report_path, conclusion,
-            current_user_id=me.id,
-            current_user_name=me.realname or me.username,
-            force=me.is_admin,
-            remark=remark,
-            report_skip_reason=report_skip_reason,
-            config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
-            config_zip_skip_reason=config_zip_skip_reason,
-            config_texts=config_texts, config_text_skip_reason=config_text_skip_reason,
-            topology_file_path=topology_file_path, topology_file_name=topology_file_name,
-            topology_skip_reason=topology_skip_reason,
-            asset_list_path=asset_list_path, asset_list_file_name=asset_list_file_name,
-            asset_list_skip_reason=asset_list_skip_reason,
-        )
-    except Exception as e:
-        db.session.rollback()
-        return fail(str(e) or '上传失败', 400)
+        if supplementing:
+            inspection, version, asset_result = supplement_report_assets_for_task(
+                task.id, current_user_id=me.id,
+                current_user_name=me.realname or me.username,
+                force=me.is_admin,
+                report_path=report_path, conclusion=conclusion, remark=remark,
+                config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
+                config_texts=config_texts,
+                topology_file_path=topology_file_path, topology_file_name=topology_file_name,
+                asset_list_path=asset_list_path, asset_list_file_name=asset_list_file_name,
+            )
+        else:
+            inspection, version, asset_result = upload_report_for_task(
+                task.id, report_path, conclusion,
+                current_user_id=me.id,
+                current_user_name=me.realname or me.username,
+                force=me.is_admin,
+                remark=remark,
+                report_skip_reason=report_skip_reason,
+                config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
+                config_zip_skip_reason=config_zip_skip_reason,
+                config_texts=config_texts, config_text_skip_reason=config_text_skip_reason,
+                topology_file_path=topology_file_path, topology_file_name=topology_file_name,
+                topology_skip_reason=topology_skip_reason,
+                asset_list_path=asset_list_path, asset_list_file_name=asset_list_file_name,
+                asset_list_skip_reason=asset_list_skip_reason,
+            )
+    except ServiceError as e:
+        return _upload_fail(str(e) or ('补传失败' if supplementing else '上传失败'), 400)
+    except Exception:
+        current_app.logger.exception('巡检资料%s失败 task_id=%s',
+                                     '补传' if supplementing else '提交', task_id)
+        return _upload_fail('巡检资料保存失败，错误已记录，请稍后重试', 400)
 
-    if asset_result['config_backups'] or asset_result['topologies']:
+    if asset_import_result is not None:
+        try:
+            from services.device_service import sync_customer_device_count
+            sync_customer_device_count(task.customer_id)
+        except Exception:
+            current_app.logger.warning('巡检资产清单导入后设备数同步失败 task_id=%s', task_id)
+
+    if supplementing or asset_result['assets'] or asset_result['skipped']:
         try:
             from blueprints.vue_api_sys import audit_log
-            audit_log('巡检提交资料同步', 'task', task.id,
-                      '配置备份 %d 条、拓扑 %d 条、资产导入 %s' % (
+            audit_log('inspection:supplement' if supplementing else '巡检提交资料同步',
+                      'task', task.id,
+                      '版本 %d；附件 %d 项、配置备份 %d 条、拓扑 %d 条、资产新增/更新 %s/%s' % (
+                          version.version_no, asset_result['assets'],
                           asset_result['config_backups'], asset_result['topologies'],
-                          (asset_import_result or {}).get('created', 0)))
+                          (asset_import_result or {}).get('created', 0),
+                          (asset_import_result or {}).get('updated', 0)))
         except Exception:
             current_app.logger.warning('巡检资料同步审计失败 task_id=%s', task_id)
 
-    # 上传全套资料并提交审核：通知任务指派工程师所在部门负责人 + 全部 admin
-    try:
-        from models import User as _U5
-        from utils.notifications import notify_review_submitted
-        dept_id = me.department_id
-        if task.assigned_to_user_id and task.assigned_to_user_id != me.id:
-            _eng = _U5.query.get(task.assigned_to_user_id)
-            dept_id = (_eng.department_id if _eng else None) or dept_id
-        notify_review_submitted(
-            dept_id, 'inspection',
-            f'任务「{task.title}」已上传全套资料提交审核',
-            f'{me.realname or me.username} 提交了巡检资料（{inspection.customer_rel.name if inspection.customer_rel else ""}）',
-            '/app/task-schedule', except_user_id=me.id)
-    except Exception:
-        current_app.logger.warning('巡检资料提交通知发送失败 task_id=%s', task_id)
+    if not supplementing:
+        # 首次/退回重提才发送审核通知；补传不重复制造审核通知。
+        try:
+            from models import User as _U5
+            from utils.notifications import notify_review_submitted
+            dept_id = me.department_id
+            if task.assigned_to_user_id and task.assigned_to_user_id != me.id:
+                _eng = _U5.query.get(task.assigned_to_user_id)
+                dept_id = (_eng.department_id if _eng else None) or dept_id
+            notify_review_submitted(
+                dept_id, 'inspection',
+                f'任务「{task.title}」已上传全套资料提交审核',
+                f'{me.realname or me.username} 提交了巡检资料（{inspection.customer_rel.name if inspection.customer_rel else ""}）',
+                '/app/task-schedule', except_user_id=me.id)
+        except Exception:
+            current_app.logger.warning('巡检资料提交通知发送失败 task_id=%s', task_id)
 
     return ok({'inspection_id': inspection.id, 'version_no': version.version_no,
                'task_status': task.status,
+               'supplemented': supplementing,
                'config_backups': asset_result['config_backups'],
                'topologies': asset_result['topologies'],
                'skipped': asset_result['skipped'],

@@ -131,7 +131,7 @@ export function ticketAction(id: number, payload: TicketActionPayload) {
   return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: payload })
 }
 
-/** 提交处理结果 + 上传处理报告（multipart：action + report_file + diagnosis + solution + remark） */
+/** 提交处理结果（report_file 可选；multipart：action + report_file + diagnosis + solution + remark） */
 export function ticketActionSubmit(id: number, formData: FormData) {
   return request<null>({ url: `/api/tickets/${id}/action`, method: 'POST', data: formData })
 }

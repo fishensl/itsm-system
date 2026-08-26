@@ -263,6 +263,25 @@ class TestTicketVersionedSubmit:
             assert '光模块故障' in (v.content_json or '')
             assert '工作时段外' in (v.content_json or '')  # 提交备注随版本留档
 
+    def test_submit_without_fault_report_can_complete_review(self, op_client, seed, app):
+        """故障报告是可选附件；无报告也能提交并审核通过，且不计为资料缺失。"""
+        self._to_processing(op_client, seed['t'])
+        r = op_client.post(f"/api/tickets/{seed['t']}/action", json={
+            'action': 'submit', 'diagnosis': '链路抖动', 'solution': '更换跳线并观察'})
+        assert r.status_code == 200, r.get_json()
+        with app.app_context():
+            t = Ticket.query.get(seed['t'])
+            version = SubmissionVersion.query.filter_by(entity_type='ticket', entity_id=t.id).one()
+            assert t.report_file == ''
+            assert version.report_file == ''
+
+        r = op_client.post(f"/api/tickets/{seed['t']}/action", json={
+            'action': 'audit', 'approved': True, 'remark': '处置记录完整'})
+        assert r.status_code == 200, r.get_json()
+        data = op_client.get(f"/api/tickets/{seed['t']}").get_json()['data']
+        assert data['complete'] is True
+        assert '处理报告' not in data['missing_fields']
+
     def test_audit_comment_written_to_version_and_reject_resubmit(self, op_client, seed, app):
         """退回修改（意见+修改要求挂版本）→ 重新提交（版本递增），每轮意见留档"""
         self._to_processing(op_client, seed['t'])
@@ -325,7 +344,7 @@ class TestTicketVersionedSubmit:
         assert data['audit_by'] == 'op'
         assert 'complete' in data
         assert data['complete'] is False
-        assert '处理报告' in data['missing_fields']
+        assert '处理报告' not in data['missing_fields']
 
     def test_versions_require_view_permission(self, viewer_client, seed):
         r = viewer_client.get(f"/api/tickets/{seed['t']}/versions")

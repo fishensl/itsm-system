@@ -33,7 +33,7 @@ def _leaf_fault_type_id(l1, l2, l3):
 TICKET_STATES = TICKET_STATUSES
 
 def ticket_completeness(t):
-    """工单资料完整性检查：返回 (complete, missing_fields)"""
+    """工单资料完整性检查：报告为可选附件，返回 (complete, missing_fields)。"""
     missing = []
     if not (t.assigned_to or '').strip():
         missing.append('处理人')
@@ -41,8 +41,6 @@ def ticket_completeness(t):
         missing.append('诊断')
     if not (t.solution or '').strip():
         missing.append('方案')
-    if not t.report_file:
-        missing.append('处理报告')
     if not t.audit_status:
         missing.append('审核')
     if t.status not in (TICKET_CHECKED, TICKET_CLOSED) and not t.accept_status:

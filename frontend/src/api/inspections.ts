@@ -150,6 +150,7 @@ export interface UploadTaskReportResult {
   inspection_id: number
   version_no: number
   task_status: string
+  supplemented: boolean
   config_backups: number
   topologies: number
   skipped: Array<[string, string]>

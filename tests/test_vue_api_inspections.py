@@ -727,7 +727,8 @@ class TestTaskSubmissionAssets:
             # 同步目标
             assert DeviceConfigBackup.query.filter_by(device_id=did).count() == 2
             cb = DeviceConfigBackup.query.filter_by(device_id=did, backup_type='全部配置').first()
-            assert cb is not None and cb.file_path.endswith('full.zip')
+            assert cb is not None
+            assert os.path.basename(cb.file_path).startswith('full') and cb.file_path.endswith('.zip')
             ct = DeviceConfigBackup.query.filter_by(device_id=did, backup_type='运行配置').first()
             assert ct is not None and 'hostname core-a' in ct.config_content
             assert Topology.query.filter_by(customer_id=seed['c']).count() == 1
@@ -741,6 +742,77 @@ class TestTaskSubmissionAssets:
         r = op_client.get(f"/api/inspections/{i.id}/versions")
         vers = r.get_json()['data']
         assert len(vers[0]['assets']) == 5
+
+    def test_pending_submission_can_supplement_files_without_new_version(self, op_client, app, seed):
+        """先传报告进入待审核后，仍可把配置包和资产清单补到同一版本。"""
+        from models import AuditLog, SubmissionAsset
+        tid, did = self._task(app, seed)
+        first = op_client.post(f'/api/inspections/task/{tid}/report',
+                               data={'report_file': _dummy_file()},
+                               content_type='multipart/form-data')
+        assert first.status_code == 200, first.get_json()
+        assert first.get_json()['data']['version_no'] == 1
+
+        supplement = op_client.post(f'/api/inspections/task/{tid}/report', data={
+            'mode': 'supplement',
+            'config_zip': (io.BytesIO(b'zip'), 'supplement.zip'),
+            'config_zip_device_id': str(did),
+            'asset_list': (_xlsx_bytes([
+                ['设备名称', '设备类型', 'IP地址'],
+                ['补传服务器', '服务器', '10.0.0.8'],
+            ]), 'supplement-assets.xlsx'),
+        }, content_type='multipart/form-data')
+        assert supplement.status_code == 200, supplement.get_json()
+        body = supplement.get_json()['data']
+        assert body['supplemented'] is True
+        assert body['version_no'] == 1
+        assert body['task_status'] == '待审核'
+        assert body['asset_import']['created'] == 1
+
+        with app.app_context():
+            inspection = Inspection.query.filter_by(task_id=tid).one()
+            versions = SubmissionVersion.query.filter_by(
+                entity_type='inspection', entity_id=inspection.id).all()
+            assert len(versions) == 1
+            types = [a.asset_type for a in SubmissionAsset.query.filter_by(
+                version_id=versions[0].id).order_by(SubmissionAsset.id).all()]
+            assert types == ['report', 'config_zip', 'asset_list']
+            assert Device.query.filter_by(customer_id=seed['c'], device_name='补传服务器').one()
+            assert AuditLog.query.filter_by(action='inspection:supplement', target_id=tid).one()
+
+    def test_supplement_requires_at_least_one_file(self, op_client, app, seed):
+        tid, _ = self._task(app, seed)
+        assert op_client.post(
+            f'/api/inspections/task/{tid}/report', data={'report_file': _dummy_file()},
+            content_type='multipart/form-data').status_code == 200
+        r = op_client.post(f'/api/inspections/task/{tid}/report',
+                           data={'mode': 'supplement'}, content_type='multipart/form-data')
+        assert r.status_code == 400
+        assert '至少选择一项' in r.get_json()['message']
+
+    def test_asset_import_rolls_back_when_submission_is_rejected(self, op_client, app, seed):
+        """资产表先解析成功、后续必传校验失败时，不得留下半提交设备数据。"""
+        import json
+        from models import InspectionTaskTemplate
+        with app.app_context():
+            tpl = InspectionTaskTemplate(
+                name='事务回滚模板',
+                required_assets_json=json.dumps({'report': True, 'config_zip': True}))
+            db.session.add(tpl)
+            db.session.commit()
+            tid, _ = self._task(app, seed, tpl)
+        r = op_client.post(f'/api/inspections/task/{tid}/report', data={
+            'report_file': _dummy_file(),
+            'asset_list': (_xlsx_bytes([
+                ['设备名称', '设备类型', 'IP地址'],
+                ['不得残留的设备', '服务器', '10.0.0.99'],
+            ]), 'rollback-assets.xlsx'),
+        }, content_type='multipart/form-data')
+        assert r.status_code == 400
+        assert '完整配置备份包' in r.get_json()['message']
+        with app.app_context():
+            assert Device.query.filter_by(
+                customer_id=seed['c'], device_name='不得残留的设备').first() is None
 
     def test_required_assets_enforced(self, op_client, app, seed):
         """模板配置 config_zip 必传：缺传拒绝 / 填豁免原因放行"""

@@ -8,13 +8,13 @@
 import os
 from datetime import datetime
 from flask import current_app
-from models import db, Inspection, InspectionTask, User
+from models import db, Inspection, InspectionTask, SubmissionVersion, User
 from .base import ServiceError, transaction
 from .submission_version_service import add_version, review_version, latest_pending_version
 from .task_schedule_service import apply_task_status
 from utils.constants import (REVIEW_PENDING, REVIEW_APPROVED, REVIEW_REJECTED,
                              TASK_PENDING, TASK_REVIEWING, TASK_RUNNING, TASK_DONE)
-from utils.json_fields import parse_json
+from utils.json_fields import dumps_json, parse_json
 
 
 def _resolve_inspector(data, current_user_name):
@@ -295,6 +295,74 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
 
     if submit_review:
         _sync_task_to_reviewing(inspection)
+    return inspection, version, asset_result
+
+
+@transaction
+def supplement_report_assets_for_task(
+        task_id, current_user_id, current_user_name, force=False,
+        report_path='', conclusion='', remark='',
+        config_zip_path='', config_zip_device_id=None,
+        config_texts=None, topology_file_path='', topology_file_name='',
+        asset_list_path='', asset_list_file_name=''):
+    """向任务最近一次巡检提交版本补充资料，不重复提交审核、不改变任务状态。
+
+    补传资料属于原提交版本的一部分：待审核期间可把漏传的配置/资产表补齐；
+    已审核记录也允许补档，但所有新增附件均保留独立 ``created_at`` 并由路由写审计。
+    退回修改后的重新提交仍走 :func:`upload_report_for_task`，创建新版本。
+    """
+    from .submission_version_service import add_asset
+
+    task = InspectionTask.query.get_or_404(task_id)
+    if task.status not in (TASK_RUNNING, TASK_REVIEWING, TASK_PENDING, TASK_DONE):
+        raise ServiceError('任务状态「%s」不允许补传资料' % task.status)
+    if not force and task.assigned_to_user_id and current_user_id \
+            and int(task.assigned_to_user_id) != int(current_user_id):
+        raise ServiceError('只有该任务指派工程师或管理员可以补传资料')
+
+    inspection = Inspection.query.filter_by(task_id=task.id).first()
+    if not inspection:
+        raise ServiceError('该任务尚未提交巡检报告，请先完成首次提交')
+    version = SubmissionVersion.query \
+        .filter_by(entity_type='inspection', entity_id=inspection.id) \
+        .order_by(SubmissionVersion.version_no.desc()).first()
+    if not version:
+        raise ServiceError('该巡检记录没有可补传的提交版本')
+
+    config_texts = config_texts or []
+    if not any((report_path, config_zip_path, config_texts,
+                topology_file_path, asset_list_path)):
+        raise ServiceError('请至少选择一项需要补传的文件或配置内容')
+
+    if report_path:
+        inspection.submitted_report = report_path
+        if not version.report_file:
+            version.report_file = report_path
+    if conclusion:
+        inspection.conclusion = conclusion
+    if conclusion or remark:
+        content = parse_json(version.content_json, {}, 'submission_versions.content_json')
+        if not isinstance(content, dict):
+            content = {}
+        supplements = content.get('supplements')
+        if not isinstance(supplements, list):
+            supplements = []
+        supplements.append({
+            'submitted_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            'submitted_by': current_user_name,
+            'conclusion': conclusion or '',
+            'remark': remark or '',
+        })
+        content['supplements'] = supplements
+        version.content_json = dumps_json(content)
+
+    asset_result = _sync_submission_assets(
+        version, task, report_path, '',
+        config_zip_path, config_zip_device_id, '',
+        config_texts, '',
+        topology_file_path, topology_file_name, '',
+        asset_list_path, asset_list_file_name, '',
+        current_user_name, add_asset)
     return inspection, version, asset_result
 
 

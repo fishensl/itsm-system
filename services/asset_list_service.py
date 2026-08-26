@@ -21,7 +21,7 @@ _FIELD_MAPPING = {
 }
 
 
-def import_asset_list(file_path, customer_id, operator_name, filename='资产清单.xlsx'):
+def import_asset_list(file_path, customer_id, operator_name, filename='资产清单.xlsx', commit=True):
     """解析资产清单 Excel（已保存的 static 相对路径）并按 (customer_id, device_name) upsert 设备。
 
     Args:
@@ -29,6 +29,7 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
         customer_id: 归属客户（任务客户）
         operator_name: 操作人
         filename: 展示用文件名
+        commit: 是否立即提交。巡检资料上传传 False，使资产导入与提交版本处于同一事务。
     Returns:
         {'created': n, 'updated': n, 'skipped': n, 'errors': [...], 'filename': str}
     Raises:
@@ -118,12 +119,13 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
             existing[device_name] = dev
             created += 1
 
-    db.session.commit()
-    # 刷新客户 device_count/等级冗余（统一入口，全量口径：与删除校验/设备 CRUD 一致）
-    try:
-        from services.device_service import sync_customer_device_count
-        sync_customer_device_count(customer.id)
-    except Exception:
-        db.session.rollback()
+    if commit:
+        db.session.commit()
+        # 刷新客户 device_count/等级冗余（统一入口，全量口径：与删除校验/设备 CRUD 一致）
+        try:
+            from services.device_service import sync_customer_device_count
+            sync_customer_device_count(customer.id)
+        except Exception:
+            db.session.rollback()
     return {'created': created, 'updated': updated, 'skipped': skipped,
             'errors': errors, 'filename': filename or '资产清单.xlsx'}

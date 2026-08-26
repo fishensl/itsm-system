@@ -34,12 +34,14 @@ def _ticket_export_filter(args):
 def _ticket_export_rows(tickets):
     """工单导出行 + 收集报告文件列表 [(完整路径, zip内名)]"""
     from models import SubmissionVersion
+    from services.ticket_service import ticket_completeness
     customer_map = {c.id: c.name for c in Customer.query.all()}
     headers = ['单号', '标题', '客户', '状态', '优先级', '处理人', '创建时间',
                '诊断', '方案', '处理报告', '审核状态', '审核意见', '资料完整']
     rows = []
     files = []
     for t in tickets:
+        complete, _missing = ticket_completeness(t)
         cust = customer_map.get(t.customer_id, '-')
         versions = SubmissionVersion.query \
             .filter_by(entity_type='ticket', entity_id=t.id) \
@@ -56,8 +58,7 @@ def _ticket_export_rows(tickets):
             t.diagnosis or '', t.solution or '',
             '有' if t.report_file else '无',
             (t.audit_status or '') + (f'（{t.audit_comment}）' if t.audit_comment else ''),
-            '完整' if not [x for x in [t.assigned_to, t.diagnosis, t.solution, t.report_file,
-                                       t.audit_status] if not x] else '缺失',
+            '完整' if complete else '缺失',
         ])
     return headers, rows, files
 
