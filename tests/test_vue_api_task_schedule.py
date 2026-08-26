@@ -113,7 +113,7 @@ class TestTaskScheduleApi:
         assert '已安排' in d['status_groups']
         assert '待审核' in d['status_groups']  # V21 新状态列
 
-    def test_scheduled_requires_period_and_does_not_start_timer(
+    def test_scheduled_requires_task_deadline_and_does_not_start_timer(
             self, admin_client, app):
         cid, op_id = _seed(app)
         created = admin_client.post('/api/task-schedule', json={
@@ -124,12 +124,12 @@ class TestTaskScheduleApi:
         missing_period = admin_client.put(
             f'/api/task-schedule/{tid}', json={'status': '已安排'})
         assert missing_period.status_code == 400
-        assert '完整的安排' in missing_period.get_json()['message']
+        assert '完整的任务期限' in missing_period.get_json()['message']
 
         missing_assignee = admin_client.put(f'/api/task-schedule/{tid}', json={
             'status': '已安排',
-            'planned_start': '2026-08-25',
-            'planned_end': '2026-08-29',
+            'scheduled_start': '2026-08-25',
+            'scheduled_end': '2026-08-29',
         })
         assert missing_assignee.status_code == 400
         assert '负责人' in missing_assignee.get_json()['message']
@@ -137,13 +137,19 @@ class TestTaskScheduleApi:
         scheduled = admin_client.put(f'/api/task-schedule/{tid}', json={
             'status': '已安排',
             'assignee_id': op_id,
-            'planned_start': '2026-08-25',
-            'planned_end': '2026-08-29',
+            'planned_start': '2026-07-01',
+            'planned_end': '2026-09-30',
+            'scheduled_start': '2026-08-25',
+            'scheduled_end': '2026-08-29',
         })
         assert scheduled.status_code == 200
         with app.app_context():
             task = db.session.get(InspectionTask, tid)
             assert task.status == '已安排'
+            assert task.planned_start == date(2026, 7, 1)
+            assert task.planned_end == date(2026, 9, 30)
+            assert task.scheduled_start == date(2026, 8, 25)
+            assert task.scheduled_end == date(2026, 8, 29)
             assert task.actual_start is None
             assert task.actual_end is None
             assert task.actual_effort is None
@@ -154,7 +160,12 @@ class TestTaskScheduleApi:
 
         board = admin_client.get('/api/task-schedule?period=&view=status').get_json()['data']
         assert board['kpi']['scheduled'] == 1
-        assert board['status_groups']['已安排'][0]['id'] == tid
+        item = board['status_groups']['已安排'][0]
+        assert item['id'] == tid
+        assert item['planned_start'] == '2026-07-01'
+        assert item['planned_end'] == '2026-09-30'
+        assert item['scheduled_start'] == '2026-08-25'
+        assert item['scheduled_end'] == '2026-08-29'
 
         assert admin_client.put(
             f'/api/task-schedule/{tid}', json={'status': '执行中'}).status_code == 200
@@ -251,6 +262,30 @@ class TestTaskScheduleApi:
             json={'approved': False})
         assert r.status_code == 200
         assert r.get_json()['data']['status'] == '已取消'
+
+    def test_contract_review_approved_keeps_complete_task_deadline(
+            self, admin_client, app):
+        cid, op_id = _seed(app)
+        with app.app_context():
+            task = InspectionTask(
+                title='已有任务期限的例外任务', customer_id=cid, status='合同审批',
+                assigned_to_user_id=op_id,
+                planned_start=date(2026, 7, 1), planned_end=date(2026, 9, 30),
+                scheduled_start=date(2026, 8, 25), scheduled_end=date(2026, 8, 29),
+                contract_exception_status='待审核', contract_exception_reason='临时例外',
+                contract_exception_by='op')
+            db.session.add(task)
+            db.session.commit()
+            task_id = task.id
+
+        response = admin_client.post(
+            f'/api/task-schedule/{task_id}/contract-review',
+            json={'approved': True})
+        assert response.status_code == 200
+        assert response.get_json()['data']['status'] == '已安排'
+        with app.app_context():
+            task = db.session.get(InspectionTask, task_id)
+            assert task.actual_start is None
 
     def test_status_machine_validation(self, admin_client, app):
         """V21: 状态机校验 — 已取消不可回退；待审核不可手工重复"""
@@ -392,7 +427,7 @@ class TestTaskScheduleApi:
         assert r.get_json()['code'] == 0
         assert r.get_json()['data']['filename'].endswith('.xlsx')
         template = load_workbook(io.BytesIO(base64.b64decode(r.get_json()['data']['content'])))
-        template_status = template.active.cell(row=2, column=6)
+        template_status = template.active.cell(row=2, column=8)
         assert template_status.value == '已完成'
         assert template_status.fill.fgColor.rgb.endswith('E1F3D8')
         # 构造导入 xlsx
@@ -410,9 +445,49 @@ class TestTaskScheduleApi:
         assert r.get_json()['code'] == 0
         assert '新增 1' in r.get_json()['data']['message']
         with app.app_context():
-            assert InspectionTask.query.filter_by(title='导入任务A').count() == 1
+            task = InspectionTask.query.filter_by(title='导入任务A').one()
+            assert task.planned_start == date(2026, 8, 1)
+            assert task.planned_end == date(2026, 8, 31)
+            assert task.scheduled_start is None
+            assert task.scheduled_end is None
 
-    def test_export_excel_supports_planned_start_date_range(
+    def test_import_keeps_contract_task_and_execution_periods_separate(
+            self, admin_client, app):
+        import io
+        from openpyxl import Workbook
+
+        cid, op_id = _seed(app)
+        with app.app_context():
+            op_realname = db.session.get(User, op_id).realname
+        wb = Workbook()
+        ws = wb.active
+        ws.append([
+            '客户名称', '任务描述', '完成状态', '负责人',
+            '合同时效开始日期', '合同时效结束日期',
+            '任务期限开始日期', '任务期限结束日期',
+        ])
+        ws.append([
+            '看板客户', '三时效导入任务', '已安排', op_realname,
+            '2026-07-01', '2026-09-30', '2026-08-25', '2026-08-29',
+        ])
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+
+        response = admin_client.post('/api/task-schedule/import', data={
+            'importFile': (bio, 'three-periods.xlsx'),
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200, response.get_json()
+        with app.app_context():
+            task = InspectionTask.query.filter_by(title='三时效导入任务').one()
+            assert task.status == '已安排'
+            assert task.planned_start == date(2026, 7, 1)
+            assert task.planned_end == date(2026, 9, 30)
+            assert task.scheduled_start == date(2026, 8, 25)
+            assert task.scheduled_end == date(2026, 8, 29)
+            assert task.actual_start is None
+
+    def test_export_excel_supports_contract_start_date_range(
             self, admin_client, app, monkeypatch):
         import base64
         import io
@@ -439,17 +514,19 @@ class TestTaskScheduleApi:
         sheet = workbook.active
         rows = list(sheet.iter_rows(values_only=True))
         assert rows[0] == tuple([
-            '客户名称', '任务描述', '优先级', '计划开始日期', '计划完成日期',
-            '完成状态', '负责人', '实际开始时间', '实际完成时间', '实际耗时',
+            '客户名称', '任务描述', '优先级',
+            '合同时效开始日期', '合同时效结束日期',
+            '任务期限开始日期', '任务期限结束日期',
+            '完成状态', '负责人', '实施开始时间', '实施结束时间', '实施耗时',
             '预估人天', '实际人天',
         ])
         assert len(rows) == 2
         assert rows[1][1] == '2026年三季度巡检'
-        assert rows[1][7]
-        assert rows[1][8] is None
-        assert rows[1][9] == '2小时'
-        assert rows[1][11] == '0.25'
-        status_cell = sheet.cell(row=2, column=6)
+        assert rows[1][9]
+        assert rows[1][10] is None
+        assert rows[1][11] == '2小时'
+        assert rows[1][13] == '0.25'
+        status_cell = sheet.cell(row=2, column=8)
         assert status_cell.value == '执行中'
         assert status_cell.fill.fgColor.rgb.endswith('D9ECFF')
         assert status_cell.font.color.rgb.endswith('409EFF')
@@ -478,7 +555,8 @@ class TestTaskScheduleApi:
         cid, op_id = _seed(app)
         response = admin_client.post('/api/task-schedule', json={
             'title': '已排期导出', 'customer_id': cid, 'assignee_id': op_id,
-            'planned_start': '2026-08-25', 'planned_end': '2026-08-29',
+            'planned_start': '2026-07-01', 'planned_end': '2026-09-30',
+            'scheduled_start': '2026-08-25', 'scheduled_end': '2026-08-29',
         })
         assert response.status_code == 200
         with app.app_context():
@@ -487,10 +565,10 @@ class TestTaskScheduleApi:
             assert task.actual_start is None
 
         exported = admin_client.get(
-            '/api/task-schedule/export?period=&start_from=2026-08-25&start_to=2026-08-25')
+            '/api/task-schedule/export?period=&start_from=2026-07-01&start_to=2026-07-01')
         workbook = load_workbook(io.BytesIO(base64.b64decode(
             exported.get_json()['data']['content'])))
-        status_cell = workbook.active.cell(row=2, column=6)
+        status_cell = workbook.active.cell(row=2, column=8)
         assert status_cell.value == '已安排'
         assert status_cell.fill.fgColor.rgb.endswith('D5F5F6')
         assert status_cell.font.color.rgb.endswith('08979C')

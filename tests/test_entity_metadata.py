@@ -114,6 +114,7 @@ def test_existing_export_codes_are_derived_without_contract_breakage():
 def test_inspection_task_timing_is_shared_by_list_detail_and_export():
     schema = get_entity_schema('inspection')
     timing = {
+        'task_contract_period', 'task_deadline_period',
         'task_actual_start', 'task_actual_end',
         'task_actual_duration', 'task_actual_effort',
     }

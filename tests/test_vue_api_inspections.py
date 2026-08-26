@@ -19,6 +19,10 @@ def seed(app):
         op.customers = [c]
         t1 = InspectionTask(title='核心机房月度巡检任务', customer_id=c.id,
                             status='执行中', assigned_to_user_id=op.id,
+                            planned_start=__import__('datetime').date(2026, 7, 1),
+                            planned_end=__import__('datetime').date(2026, 9, 30),
+                            scheduled_start=__import__('datetime').date(2026, 8, 24),
+                            scheduled_end=__import__('datetime').date(2026, 8, 28),
                             actual_start=(local_now()
                                           - __import__('datetime').timedelta(hours=10)))
         t2 = InspectionTask(title='季度巡检任务', customer_id=c.id,
@@ -55,6 +59,8 @@ class TestInspectionList:
         assert item['review_status'] == '草稿'
         assert item['task_id'] == seed['t1']
         assert item['task_title'] == '核心机房月度巡检任务'
+        assert item['task_contract_period'] == '2026-07-01 至 2026-09-30'
+        assert item['task_deadline_period'] == '2026-08-24 至 2026-08-28'
         assert item['submitted_report'] is True
         assert item['complete'] is False  # 缺正式报告/审核通过
         assert 'missing_fields' in item
@@ -345,6 +351,8 @@ class TestInspectionUploadReportFlow:
         detail = op_client.get(f"/api/inspections/{seed['i1']}").get_json()['data']
         assert detail['task_actual_start']
         assert detail['task_actual_end']
+        assert detail['task_contract_period'] == '2026-07-01 至 2026-09-30'
+        assert detail['task_deadline_period'] == '2026-08-24 至 2026-08-28'
         assert detail['task_actual_duration'] == expected_timing['actual_duration_text']
         assert detail['task_actual_effort'] == expected_timing['actual_effort']
 

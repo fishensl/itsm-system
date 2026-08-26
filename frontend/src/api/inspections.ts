@@ -40,6 +40,8 @@ export interface Inspection {
   task_id: number | null
   task_title: string
   task_status: string
+  task_contract_period: string
+  task_deadline_period: string
   task_actual_start: string
   task_actual_end: string
   task_actual_duration: string

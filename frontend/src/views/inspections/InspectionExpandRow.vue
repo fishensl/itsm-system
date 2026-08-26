@@ -15,12 +15,18 @@
         <el-descriptions-item :label="label('customer_name', '客户')">{{ detail.customer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('task_title', '关联任务')">{{ detail.task_title || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('task_status', '任务状态')">{{ detail.task_status || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="label('task_actual_start', '任务实际开始')">{{ detail.task_actual_start || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="label('task_actual_end', '任务审核完成')">
+        <el-descriptions-item :label="label('task_contract_period', '合同时效')">
+          {{ detail.task_contract_period || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('task_deadline_period', '任务期限')">
+          {{ detail.task_deadline_period || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('task_actual_start', '实施开始')">{{ detail.task_actual_start || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('task_actual_end', '实施结束')">
           {{ detail.task_actual_start ? (detail.task_actual_end || '进行中') : '-' }}
         </el-descriptions-item>
-        <el-descriptions-item :label="label('task_actual_duration', '任务实际耗时')">{{ detail.task_actual_duration || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="label('task_actual_effort', '任务实际人天')">
+        <el-descriptions-item :label="label('task_actual_duration', '实施耗时')">{{ detail.task_actual_duration || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('task_actual_effort', '实施人天')">
           {{ detail.task_actual_effort ?? '-' }}<span v-if="detail.task_actual_effort !== null"> 人天</span>
         </el-descriptions-item>
         <el-descriptions-item :label="label('inspection_date', '巡检日期')">{{ detail.inspection_date || '-' }}</el-descriptions-item>

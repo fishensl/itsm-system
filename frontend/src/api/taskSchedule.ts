@@ -12,6 +12,8 @@ export interface TaskScheduleItem {
   assignee_name: string
   planned_start: string
   planned_end: string
+  scheduled_start: string
+  scheduled_end: string
   estimated_effort: number | null
   actual_effort: number | null
   actual_start: string

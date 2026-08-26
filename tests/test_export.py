@@ -44,9 +44,11 @@ def seed(app):
         db.session.add(RackInstall(rack_id=rack.id, device_id=d1.id, start_u=3, occupy_u=2))
         db.session.add(PasswordHistory(device_id=d1.id, changed_by='op', remark='改密',
                                        password_encrypted=encrypt_password('oldpwd')))
-        from datetime import datetime
+        from datetime import date, datetime
         inspection_task = InspectionTask(
             title='导出巡检任务', customer_id=c.id, status='已完成',
+            planned_start=date(2026, 7, 1), planned_end=date(2026, 9, 30),
+            scheduled_start=date(2026, 8, 24), scheduled_end=date(2026, 8, 28),
             actual_start=datetime(2026, 8, 24, 8, 0),
             actual_end=datetime(2026, 8, 24, 18, 0),
         )
@@ -160,18 +162,20 @@ class TestModuleExports:
     def test_inspection_export_columns_and_filter(self, op_client, seed):
         r = op_client.post('/api/inspections/export', json={
             'columns': [
-                'title', 'customer', 'review_status', 'task_actual_start',
+                'title', 'customer', 'review_status', 'task_contract_period',
+                'task_deadline_period', 'task_actual_start',
                 'task_actual_end', 'task_actual_duration', 'task_actual_effort',
             ],
             'customer_id': seed['c']})
         header, rows = _decode_xlsx(r)
         assert header == [
-            '标题', '客户', '审核状态', '任务实际开始', '任务审核完成',
-            '任务实际耗时', '任务实际人天',
+            '标题', '客户', '审核状态', '合同时效', '任务期限',
+            '实施开始', '实施结束', '实施耗时', '实施人天',
         ]
         assert rows[0][:2] == ['导出巡检', '导出客户A']
         assert rows[0][2:] == [
-            '已通过', '2026-08-24 08:00', '2026-08-24 18:00', '7小时30分钟', 0.94,
+            '已通过', '2026-07-01 至 2026-09-30', '2026-08-24 至 2026-08-28',
+            '2026-08-24 08:00', '2026-08-24 18:00', '7小时30分钟', 0.94,
         ]
 
     def test_inspection_export_date_filter(self, op_client, seed):

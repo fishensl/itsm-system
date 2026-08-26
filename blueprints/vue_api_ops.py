@@ -1296,6 +1296,8 @@ def api_task_schedule_board():
             'assignee_name': (u.realname or u.username) if u else '',
             'planned_start': t.planned_start.isoformat() if t.planned_start else '',
             'planned_end': t.planned_end.isoformat() if t.planned_end else '',
+            'scheduled_start': t.scheduled_start.isoformat() if t.scheduled_start else '',
+            'scheduled_end': t.scheduled_end.isoformat() if t.scheduled_end else '',
             'estimated_effort': t.estimated_effort,
             **timing,
             'overdue': is_overdue(t, today),
@@ -1368,15 +1370,28 @@ def api_task_schedule_quick_add():
         planned_start = _date.fromisoformat(data['planned_start']) if data.get('planned_start') else None
         planned_end = _date.fromisoformat(data['planned_end']) if data.get('planned_end') else None
     except (TypeError, ValueError):
-        return fail('安排日期格式不正确，应为 YYYY-MM-DD', 400)
+        return fail('合同时效格式不正确，应为 YYYY-MM-DD', 400)
     if planned_start and planned_end and planned_start > planned_end:
-        return fail('安排开始日期不能晚于结束日期', 400)
+        return fail('合同时效开始日期不能晚于结束日期', 400)
+    try:
+        scheduled_start = (
+            _date.fromisoformat(data['scheduled_start'])
+            if data.get('scheduled_start') else None
+        )
+        scheduled_end = (
+            _date.fromisoformat(data['scheduled_end'])
+            if data.get('scheduled_end') else None
+        )
+    except (TypeError, ValueError):
+        return fail('任务期限格式不正确，应为 YYYY-MM-DD', 400)
+    if scheduled_start and scheduled_end and scheduled_start > scheduled_end:
+        return fail('任务期限开始日期不能晚于结束日期', 400)
     # V28: 客户合同过期门禁 → 合同审批态（需部门主管审核放行）
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
     status = (
         _const.TASK_SCHEDULED
-        if data.get('assignee_id') and planned_start and planned_end
+        if data.get('assignee_id') and scheduled_start and scheduled_end
         else _const.TASK_PENDING
     )
     exception_reason = (data.get('contract_exception_reason') or '').strip()
@@ -1392,6 +1407,8 @@ def api_task_schedule_quick_add():
         customer_id=customer_id,
         planned_start=planned_start,
         planned_end=planned_end,
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_end,
         priority=(data.get('priority') or '中').strip() or '中',
         estimated_effort=float(data['estimated_effort']) if data.get('estimated_effort') is not None else None,
         assigned_to_user_id=data.get('assignee_id') or None,
@@ -1436,7 +1453,7 @@ def api_task_schedule_update(task_id):
     t = _IT.query.get_or_404(task_id)
     data = request.get_json(silent=True) or {}
     if 'actual_effort' in data:
-        return fail('实际人天由执行开始至审核通过的实际耗时自动计算，不能手工修改', 400)
+        return fail('实际人天由实施开始至审核通过的实施耗时自动计算，不能手工修改', 400)
     try:
         if data.get('planned_start') is not None:
             t.planned_start = _date.fromisoformat(data['planned_start']) if data['planned_start'] else None
@@ -1444,7 +1461,21 @@ def api_task_schedule_update(task_id):
             t.planned_end = _date.fromisoformat(data['planned_end']) if data['planned_end'] else None
     except (TypeError, ValueError):
         db.session.rollback()
-        return fail('安排日期格式不正确，应为 YYYY-MM-DD', 400)
+        return fail('合同时效格式不正确，应为 YYYY-MM-DD', 400)
+    try:
+        if data.get('scheduled_start') is not None:
+            t.scheduled_start = (
+                _date.fromisoformat(data['scheduled_start'])
+                if data['scheduled_start'] else None
+            )
+        if data.get('scheduled_end') is not None:
+            t.scheduled_end = (
+                _date.fromisoformat(data['scheduled_end'])
+                if data['scheduled_end'] else None
+            )
+    except (TypeError, ValueError):
+        db.session.rollback()
+        return fail('任务期限格式不正确，应为 YYYY-MM-DD', 400)
     old_uid = t.assigned_to_user_id
     assignee_changed = 'assignee_id' in data
     if assignee_changed:
@@ -1472,12 +1503,14 @@ def api_task_schedule_update(task_id):
             try:
                 from utils.notifications import notify
                 notify(new_uid, 'inspection', f'新任务指派：{t.title}',
-                       f'计划时间 {t.planned_start or "-"} ~ {t.planned_end or "-"}，请及时处理',
+                       f'合同时效 {t.planned_start or "-"} ~ {t.planned_end or "-"}；'
+                       f'任务期限 {t.scheduled_start or "-"} ~ {t.scheduled_end or "-"}，请及时处理',
                        '/app/task-schedule')
                 from utils.wecom_notify import wecom_broadcast, EVENT_INSPECTION_ASSIGN
                 wecom_broadcast(EVENT_INSPECTION_ASSIGN,
                                 f'巡检任务指派：{t.title}',
-                                f'计划时间 {t.planned_start or "-"} ~ {t.planned_end or "-"}，请及时处理',
+                                f'合同时效 {t.planned_start or "-"} ~ {t.planned_end or "-"}；'
+                                f'任务期限 {t.scheduled_start or "-"} ~ {t.scheduled_end or "-"}，请及时处理',
                                 '/app/task-schedule',
                                 target_user_ids=[new_uid])
             except Exception:
@@ -1609,7 +1642,7 @@ def api_task_schedule_import_template():
     )
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
-        '2026-04-01', '2026-06-30', _const.TASK_DONE, '张三',
+        '2026-04-01', '2026-06-30', '2026-06-15', '2026-06-19', _const.TASK_DONE, '张三',
         '2026-06-15 09:00', '2026-06-15 17:00', '8小时', '1', '1',
     ]]
     tmp_path, download_name = export_xlsx(EXCEL_HEADERS, rows, filename='任务安排导入模板.xlsx',
@@ -1628,7 +1661,7 @@ def api_task_schedule_import_template():
 @login_required
 @require_permission('task:schedule')
 def api_task_schedule_export():
-    """按任务看板当前筛选及计划开始日期范围导出 Excel。"""
+    """按任务看板当前筛选及合同时效开始日期范围导出 Excel。"""
     import base64
     from datetime import date as _date
 
@@ -1684,7 +1717,7 @@ def api_task_schedule_export():
     audit_log(
         'task:export',
         'inspection_task',
-        detail=f'导出任务安排 {len(rows)} 条，计划开始日期 {start_raw or "最早"} 至 {end_raw or "最新"}',
+        detail=f'导出任务安排 {len(rows)} 条，合同时效开始日期 {start_raw or "最早"} 至 {end_raw or "最新"}',
     )
     return ok({'filename': download_name, 'content': content, 'count': len(rows)})
 

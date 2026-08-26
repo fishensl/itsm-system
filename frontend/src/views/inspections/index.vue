@@ -271,7 +271,7 @@ const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'overall_status', label: '总体状态', width: 90, type: 'tag', asTag: true,
     tagMap: OVERALL_STATUS_TAG },
   { key: 'review_status', label: '审核状态', width: 90, type: 'tag', tagMap: REVIEW_STATUS_TAG },
-  { key: 'task_actual_duration', label: '任务实际耗时', width: 120 },
+  { key: 'task_actual_duration', label: '实施耗时', width: 120 },
   { key: 'complete', label: '资料完整', width: 100, type: 'tag',
     tagMap: { true: 'success', false: 'warning' } as Record<string, 'success' | 'warning'>,
     valueMap: { true: '完整', false: '不完整' } },

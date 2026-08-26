@@ -86,32 +86,36 @@ def test_task_schedule_kpis_stay_in_one_row():
     assert '<el-row v-if="data"' not in source
 
 
-def test_task_schedule_timing_uses_single_column_bounded_date_range():
-    """展开后排期/开始/审核/实际耗时逐行展示，日期范围不溢出卡片。"""
+def test_task_schedule_separates_contract_deadline_and_execution_timing():
+    """合同时效、任务期限、实施时效分开，日期范围不溢出卡片。"""
     source = _view_source('taskSchedule/index.vue')
-    assert 'v-model="inlinePlanRange" type="daterange"' not in source
-    assert source.count('v-model="inlinePlanRange[0]" type="date"') == 2
-    assert source.count('v-model="inlinePlanRange[1]" type="date"') == 2
+    assert 'v-model="inlineScheduleRange" type="daterange"' not in source
+    assert source.count('v-model="inlineScheduleRange[0]" type="date"') == 2
+    assert source.count('v-model="inlineScheduleRange[1]" type="date"') == 2
+    assert source.count('合同时效：{{ fullRangeText(t.planned_start, t.planned_end) }}') == 2
+    assert source.count('任务期限 {{ taskDeadlineText(t) }}') == 2
+    assert source.count('class="task-period-label">实施时效') == 2
+    assert source.count('开始：{{ t.actual_start }}') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
-    assert source.count('class="inline-plan-date" style="width: 95px"') == 4
+    assert source.count('class="inline-schedule-date" style="width: 95px"') == 4
     assert 'flex: 0 0 95px' in source
     assert 'width: 95px !important' in source
-    # 最窄 310px 看板列中，扣除各层边框/内边距和“安排”标签后日期区至少 216px。
-    minimum_date_area = 310 - 2 - 20 - 2 - 20 - 16 - 28 - 6
+    # 最窄 310px 看板列中，任务期限标签独占一行，日期区仍有 250px。
+    minimum_date_area = 310 - 2 - 20 - 2 - 20 - 16
     date_controls_width = 95 * 2 + 14 + 6 * 2
     assert date_controls_width <= minimum_date_area
-    inline_plan_style = re.search(r'\.inline-plan-dates\s*\{([^}]+)\}', source)
-    assert inline_plan_style is not None
-    assert 'overflow' not in inline_plan_style.group(1)
+    inline_schedule_style = re.search(r'\.inline-schedule-dates\s*\{([^}]+)\}', source)
+    assert inline_schedule_style is not None
+    assert 'overflow' not in inline_schedule_style.group(1)
     assert source.count(':shortcuts="rangeDateShortcuts"') == 1
-    assert source.count(':shortcuts="dateShortcuts"') == 6
+    assert source.count(':shortcuts="dateShortcuts"') == 8
     assert "planned_start: today, planned_end: today" in source
-    assert '@click="setInlinePlanToday"' not in source
-    assert source.count('popper-class="task-date-today-popper"') == 7
+    assert "scheduled_start: today, scheduled_end: today" in source
+    assert source.count('popper-class="task-date-today-popper"') == 9
     assert ':global(.task-date-today-popper .el-picker-panel__sidebar)' in source
     assert 'inset: 8px 72px auto auto' in source
-    assert 'grid-template-columns: 28px minmax(0, 1fr)' in source
-    assert ':deep(.inline-plan-date .el-input__prefix) { display: none; }' in source
+    assert source.count('grid-template-columns: minmax(0, 1fr)') >= 2
+    assert ':deep(.inline-schedule-date .el-input__prefix) { display: none; }' in source
 
 
 def test_device_edit_uses_shared_network_types_and_editable_rack_fields():

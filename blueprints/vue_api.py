@@ -1560,6 +1560,10 @@ def _task_payload(t, customer_map=None):
         'customer_name': (customer_map or {}).get(t.customer_id, ''),
         'planned_start': t.planned_start.strftime('%m-%d') if t.planned_start else '',
         'planned_end': t.planned_end.strftime('%m-%d') if t.planned_end else '',
+        'scheduled_start': (
+            t.scheduled_start.strftime('%m-%d') if t.scheduled_start else ''),
+        'scheduled_end': (
+            t.scheduled_end.strftime('%m-%d') if t.scheduled_end else ''),
         'assigned_to_user_id': t.assigned_to_user_id,
         'assigned_to_name': t.assignee_rel.realname or t.assignee_rel.username
         if t.assignee_rel else '',
@@ -2758,6 +2762,8 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
         'task_id': i.task_id,
         'task_title': task_title,
         'task_status': task.status if task else '',
+        'task_contract_period': task_timing['contract_period_text'],
+        'task_deadline_period': task_timing['task_deadline_text'],
         'task_actual_start': task_timing['actual_start'],
         'task_actual_end': task_timing['actual_end'],
         'task_actual_duration': task_timing['actual_duration_text'],
@@ -3659,6 +3665,8 @@ def api_v2_inspection_export():
             'inspector': r.inspector_name or r.inspector or '',
             'task_title': r.task_rel.title if r.task_rel else '',
             'task_status': r.task_rel.status if r.task_rel else '',
+            'task_contract_period': timing['contract_period_text'],
+            'task_deadline_period': timing['task_deadline_text'],
             'task_actual_start': timing['actual_start'],
             'task_actual_end': timing['actual_end'],
             'task_actual_duration': timing['actual_duration_text'],
@@ -3730,6 +3738,8 @@ def api_v2_inspection_export_bundle():
             'inspector': r.inspector_name or r.inspector or '',
             'task_title': r.task_rel.title if r.task_rel else '',
             'task_status': r.task_rel.status if r.task_rel else '',
+            'task_contract_period': timing['contract_period_text'],
+            'task_deadline_period': timing['task_deadline_text'],
             'task_actual_start': timing['actual_start'],
             'task_actual_end': timing['actual_end'],
             'task_actual_duration': timing['actual_duration_text'],

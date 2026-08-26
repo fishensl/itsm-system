@@ -43,6 +43,8 @@ def seed(app):
                             task_type='计划', priority='中')
         t2 = InspectionTask(title='应急巡检B', customer_id=c.id, status='执行中',
                             planned_start=date.today(), planned_end=date.today() + timedelta(days=2),
+                            scheduled_start=date.today(),
+                            scheduled_end=date.today() + timedelta(days=1),
                             task_type='突发', assigned_to_user_id=op.id)
         t3 = InspectionTask(title='月度巡检C', customer_id=c.id, status='已完成',
                             task_type='计划')
@@ -183,6 +185,8 @@ class TestTaskStatusFlow:
         with app.app_context():
             task = db.session.get(InspectionTask, seed['t2'])
             assert task.status == '已安排'
+            assert task.scheduled_start == date.today()
+            assert task.scheduled_end == date.today() + timedelta(days=1)
             assert task.actual_start is None
         started = op_client.post(
             f"/api/task-board/{seed['t2']}/status", json={'status': '执行中'})

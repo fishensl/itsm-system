@@ -222,8 +222,13 @@ class InspectionTask(db.Model):
     template_id = db.Column(db.Integer, db.ForeignKey('inspection_templates.id'), nullable=True)
     # V11: 关联新任务模板（推荐使用，旧 template_id 保留只读做兼容）
     task_template_id = db.Column(db.Integer, db.ForeignKey('inspection_task_templates.id'), nullable=True)
+    # 合同时效：合同/巡检频率约定的周期（例如第三季度 7 月 1 日至 9 月 30 日）。
     planned_start = db.Column(db.Date, nullable=True)
     planned_end = db.Column(db.Date, nullable=True)
+    # 任务期限：部门主管安排的执行窗口；进入「已安排」必须填写，但不会启动计时。
+    scheduled_start = db.Column(db.Date, nullable=True)
+    scheduled_end = db.Column(db.Date, nullable=True)
+    # 实施时效：进入「执行中」开始，巡检审核通过后结束。
     actual_start = db.Column(db.DateTime, nullable=True)
     actual_end = db.Column(db.DateTime, nullable=True)
     # 预估工作量（单位：人天，允许 0.5 半天）。None=未设置，便于老数据兼容

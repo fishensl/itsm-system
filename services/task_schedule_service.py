@@ -107,16 +107,34 @@ def task_actual_effort(task, now=None):
     return round(seconds / _SECONDS_PER_PERSON_DAY, 2)
 
 
+def format_task_period(start, end):
+    """将合同时效/任务期限统一格式化为可展示的日期区间。"""
+    start_text = start.isoformat() if start else ''
+    end_text = end.isoformat() if end else ''
+    if start_text and end_text:
+        return f'{start_text} 至 {end_text}'
+    if start_text:
+        return f'{start_text} 起'
+    if end_text:
+        return f'{end_text} 止'
+    return ''
+
+
 def task_timing_payload(task, now=None):
-    """Serialize the common actual-start/end/duration contract."""
+    """序列化合同时效、任务期限和实施时效的统一契约。"""
     if not task:
         return {
+            'contract_period_text': '', 'task_deadline_text': '',
             'actual_start': '', 'actual_end': '',
             'actual_duration_hours': None, 'actual_duration_text': '',
             'actual_effort': None,
         }
     seconds = task_actual_duration_seconds(task, now=now)
     return {
+        'contract_period_text': format_task_period(
+            task.planned_start, task.planned_end),
+        'task_deadline_text': format_task_period(
+            task.scheduled_start, task.scheduled_end),
         'actual_start': (
             task.actual_start.strftime('%Y-%m-%d %H:%M')
             if task.actual_start else ''
@@ -134,18 +152,21 @@ def task_timing_payload(task, now=None):
 
 
 def validate_task_schedule_period(task, status=None):
-    """校验任务安排条件。
+    """分别校验合同时效与任务期限。
 
-    普通状态允许历史数据缺少日期，但只要同时有起止日期就不能倒置；
-    「已安排」语义上必须已明确负责人和完整起止日期。
+    ``planned_*`` 是合同时效；``scheduled_*`` 是主管下达的任务期限。
+    「已安排」必须已明确负责人和完整任务期限，但不会启动实施计时。
     返回错误文案或 None。
     """
     target_status = status or task.status
     if task.planned_start and task.planned_end and task.planned_start > task.planned_end:
-        return '安排开始日期不能晚于结束日期'
+        return '合同时效开始日期不能晚于结束日期'
+    if (task.scheduled_start and task.scheduled_end
+            and task.scheduled_start > task.scheduled_end):
+        return '任务期限开始日期不能晚于结束日期'
     if target_status == TASK_SCHEDULED and (
-            not task.planned_start or not task.planned_end):
-        return '变更为「已安排」前必须填写完整的安排开始和结束日期'
+            not task.scheduled_start or not task.scheduled_end):
+        return '变更为「已安排」前必须填写完整的任务期限'
     if target_status == TASK_SCHEDULED and not task.assigned_to_user_id:
         return '变更为「已安排」前必须选择负责人'
     return None
@@ -311,30 +332,45 @@ def import_task_excel(file_storage, user):
             raw_priority = str(cell('优先级') or '').strip()
             priority = raw_priority if raw_priority in PRIORITY_VALUES else '中'
 
-            planned_start = parse_excel_date(cell_any('计划开始日期', '开始日期'))
-            planned_end = parse_excel_date(cell_any('计划完成日期', '完成日期'))
-            actual_start = parse_excel_datetime(cell_any('实际开始时间', '开始时间'))
-            actual_end = parse_excel_datetime(cell_any('实际完成时间', '完成时间'))
+            planned_start = parse_excel_date(cell_any(
+                '合同时效开始日期', '要求开始日期', '合同要求开始日期',
+                '计划开始日期', '开始日期'))
+            planned_end = parse_excel_date(cell_any(
+                '合同时效结束日期', '要求截止日期', '合同要求截止日期',
+                '计划完成日期', '完成日期'))
+            scheduled_start = parse_excel_date(cell_any(
+                '任务期限开始日期', '安排开始日期', '排期开始日期'))
+            scheduled_end = parse_excel_date(cell_any(
+                '任务期限结束日期', '安排结束日期', '排期结束日期'))
+            actual_start = parse_excel_datetime(cell_any(
+                '实施开始时间', '实际开始时间', '开始时间'))
+            actual_end = parse_excel_datetime(cell_any(
+                '实施结束时间', '实际完成时间', '完成时间'))
             effort = _parse_effort(cell_any('预估人天', '预估工作量'))
             actual_effort = _parse_effort(cell_any('实际人天', '实际工作量'))
             if planned_start and planned_end and planned_end < planned_start:
-                raise ValueError(f'第{r}行：安排结束日期不能早于开始日期')
+                raise ValueError(f'第{r}行：合同时效结束日期不能早于开始日期')
+            if scheduled_start and scheduled_end and scheduled_end < scheduled_start:
+                raise ValueError(f'第{r}行：任务期限结束日期不能早于开始日期')
             if actual_start and actual_end and actual_end < actual_start:
-                raise ValueError(f'第{r}行：实际完成时间不能早于实际开始时间')
+                raise ValueError(f'第{r}行：实施结束时间不能早于实施开始时间')
 
             existing = (InspectionTask.query
                         .filter_by(title=title, customer_id=customer.id)
                         .first())
             if existing:
-                effective_start = planned_start or existing.planned_start
-                effective_end = planned_end or existing.planned_end
-                if status == TASK_SCHEDULED and (not effective_start or not effective_end):
-                    raise ValueError(f'第{r}行：「已安排」任务必须填写完整的安排日期')
+                effective_scheduled_start = scheduled_start or existing.scheduled_start
+                effective_scheduled_end = scheduled_end or existing.scheduled_end
+                if status == TASK_SCHEDULED and (
+                        not effective_scheduled_start or not effective_scheduled_end):
+                    raise ValueError(f'第{r}行：「已安排」任务必须填写完整的任务期限')
                 existing.status = status
                 existing.priority = priority
                 existing.assigned_to_user_id = assignee.id
                 existing.planned_start = planned_start or existing.planned_start
                 existing.planned_end = planned_end or existing.planned_end
+                existing.scheduled_start = scheduled_start or existing.scheduled_start
+                existing.scheduled_end = scheduled_end or existing.scheduled_end
                 if actual_start:
                     existing.actual_start = actual_start
                 if status in (TASK_RUNNING, TASK_REVIEWING) and not existing.actual_start:
@@ -353,8 +389,9 @@ def import_task_excel(file_storage, user):
                 existing.dispatched_at = existing.dispatched_at or datetime.utcnow()
                 updated += 1
             else:
-                if status == TASK_SCHEDULED and (not planned_start or not planned_end):
-                    raise ValueError(f'第{r}行：「已安排」任务必须填写完整的安排日期')
+                if status == TASK_SCHEDULED and (
+                        not scheduled_start or not scheduled_end):
+                    raise ValueError(f'第{r}行：「已安排」任务必须填写完整的任务期限')
                 if status in (TASK_RUNNING, TASK_REVIEWING) and not actual_start:
                     actual_start = local_now()
                 if status == TASK_DONE and not actual_end:
@@ -367,6 +404,8 @@ def import_task_excel(file_storage, user):
                     customer_id=customer.id,
                     planned_start=planned_start,
                     planned_end=planned_end,
+                    scheduled_start=scheduled_start,
+                    scheduled_end=scheduled_end,
                     actual_start=actual_start,
                     actual_end=actual_end,
                     estimated_effort=effort,
@@ -481,7 +520,8 @@ def review_task_contract_exception(task, approved, reviewer_name, comment=''):
         raise ValueError(f'任务当前状态「{task.status}」不能进行合同例外审核')
     target = (
         TASK_SCHEDULED
-        if approved and task.assigned_to_user_id and task.planned_start and task.planned_end
+        if approved and task.assigned_to_user_id
+        and task.scheduled_start and task.scheduled_end
         else TASK_PENDING
     ) if approved else TASK_CANCELLED
     apply_task_status(task, target, allow_contract_review=True)

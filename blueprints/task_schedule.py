@@ -339,9 +339,9 @@ def list_view():
 # ============================================================
 
 EXCEL_HEADERS = [
-    '客户名称', '任务描述', '优先级', '计划开始日期', '计划完成日期',
-    '完成状态', '负责人', '实际开始时间', '实际完成时间', '实际耗时',
-    '预估人天', '实际人天',
+    '客户名称', '任务描述', '优先级', '合同时效开始日期', '合同时效结束日期',
+    '任务期限开始日期', '任务期限结束日期', '完成状态', '负责人',
+    '实施开始时间', '实施结束时间', '实施耗时', '预估人天', '实际人天',
 ]
 TASK_STATUS_EXCEL_COLUMN_STYLES = {
     EXCEL_HEADERS.index('完成状态') + 1: TASK_STATUS_EXCEL_STYLES,
@@ -360,6 +360,8 @@ def task_export_row(task, now=None):
         task.priority or '',
         task.planned_start.isoformat() if task.planned_start else '',
         task.planned_end.isoformat() if task.planned_end else '',
+        task.scheduled_start.isoformat() if task.scheduled_start else '',
+        task.scheduled_end.isoformat() if task.scheduled_end else '',
         task.status,
         (user.realname or user.username) if user else '',
         timing['actual_start'],
@@ -381,7 +383,7 @@ def import_template():
     from utils.excel_export import export_xlsx, send_temp_export
     rows = [[
         '示例客户A', '示例客户A2026年二季度巡检', '中',
-        '2026-04-01', '2026-06-30', TASK_DONE, '张三',
+        '2026-04-01', '2026-06-30', '2026-06-15', '2026-06-19', TASK_DONE, '张三',
         '2026-06-15 09:00', '2026-06-15 17:00', '8小时', '1', '1'
     ]]
     tmp_path, download_name = export_xlsx(
@@ -519,7 +521,7 @@ def set_complete_time(task_id):
     InspectionTask.query.get_or_404(task_id)
     return jsonify(
         success=False,
-        error='实际完成时间由巡检记录审核通过自动生成，不能手工修改',
+        error='实施结束时间由巡检记录审核通过自动生成，不能手工修改',
     ), 400
 
 
@@ -567,7 +569,7 @@ def set_actual_effort(task_id):
     InspectionTask.query.get_or_404(task_id)
     return jsonify(
         success=False,
-        error='实际人天由执行开始至审核通过的实际耗时自动计算，不能手工修改',
+        error='实际人天由实施开始至审核通过的实施耗时自动计算，不能手工修改',
     ), 400
 
 
@@ -655,6 +657,8 @@ def quick_add():
     priority = (request.form.get('priority') or '中').strip()
     planned_start = parse_excel_date(request.form.get('planned_start'))
     planned_end = parse_excel_date(request.form.get('planned_end'))
+    scheduled_start = parse_excel_date(request.form.get('scheduled_start'))
+    scheduled_end = parse_excel_date(request.form.get('scheduled_end'))
     effort = _parse_effort(request.form.get('estimated_effort'))
 
     if not title:
@@ -664,13 +668,20 @@ def quick_add():
         flash('请选择客户', 'danger')
         return redirect(request.referrer or url_for('task_schedule.index'))
     if planned_start and planned_end and planned_start > planned_end:
-        flash('安排开始日期不能晚于结束日期', 'danger')
+        flash('合同时效开始日期不能晚于结束日期', 'danger')
+        return redirect(request.referrer or url_for('task_schedule.index'))
+    if scheduled_start and scheduled_end and scheduled_start > scheduled_end:
+        flash('任务期限开始日期不能晚于结束日期', 'danger')
         return redirect(request.referrer or url_for('task_schedule.index'))
 
     # V28: 客户合同过期门禁 → 合同审批态
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
-    status = TASK_SCHEDULED if assignee_id and planned_start and planned_end else TASK_PENDING
+    status = (
+        TASK_SCHEDULED
+        if assignee_id and scheduled_start and scheduled_end
+        else TASK_PENDING
+    )
     exception_reason = (request.form.get('contract_exception_reason') or '').strip()
     cust = _C.query.get(customer_id) if customer_id else None
     if cust is not None and _ce(cust):
@@ -688,6 +699,8 @@ def quick_add():
         assigned_to_user_id=assignee_id or None,
         planned_start=planned_start,
         planned_end=planned_end,
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_end,
         estimated_effort=effort,
         dispatched_by=current_user.id,
         dispatched_at=datetime.utcnow(),

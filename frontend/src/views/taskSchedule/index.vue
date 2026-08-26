@@ -18,7 +18,7 @@
 
     <el-dialog v-model="exportVisible" title="导出任务安排" width="520px" destroy-on-close>
       <el-form label-width="120px">
-        <el-form-item label="计划开始日期">
+        <el-form-item label="合同时效开始">
           <div class="date-with-today w-full">
             <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
               start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
@@ -125,27 +125,32 @@
                 </el-select>
               </template>
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
-              <span v-if="expandedId !== t.id" class="task-range">安排 {{ rangeText(t) }}</span>
+              <span v-if="expandedId !== t.id" class="task-range">合同时效 {{ contractRangeText(t) }}</span>
+            </div>
+            <div v-if="expandedId !== t.id" class="task-schedule-summary">
+              任务期限 {{ taskDeadlineText(t) }}
             </div>
             <div v-if="expandedId === t.id" class="task-timing">
-              <div class="task-plan-editor">
-                <span>安排</span>
-                <div class="inline-plan-dates">
-                  <el-date-picker v-model="inlinePlanRange[0]" type="date" value-format="YYYY-MM-DD"
+              <span>合同时效：{{ fullRangeText(t.planned_start, t.planned_end) }}</span>
+              <div class="task-schedule-editor">
+                <span>任务期限：</span>
+                <div class="inline-schedule-dates">
+                  <el-date-picker v-model="inlineScheduleRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 95px"
-                    @change="inlinePlanChanged = true" />
-                  <span class="inline-plan-separator">至</span>
-                  <el-date-picker v-model="inlinePlanRange[1]" type="date" value-format="YYYY-MM-DD"
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineScheduleChanged = true" />
+                  <span class="inline-schedule-separator">至</span>
+                  <el-date-picker v-model="inlineScheduleRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 95px"
-                    @change="inlinePlanChanged = true" />
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineScheduleChanged = true" />
                 </div>
               </div>
+              <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
-              <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
+              <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
               <span v-if="t.actual_start" class="task-timing-total">
-                实际耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
+                实施耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
               </span>
             </div>
             <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
@@ -212,27 +217,32 @@
                 </el-select>
               </template>
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
-              <span v-if="expandedId !== t.id" class="task-range">安排 {{ rangeText(t) }}</span>
+              <span v-if="expandedId !== t.id" class="task-range">合同时效 {{ contractRangeText(t) }}</span>
+            </div>
+            <div v-if="expandedId !== t.id" class="task-schedule-summary">
+              任务期限 {{ taskDeadlineText(t) }}
             </div>
             <div v-if="expandedId === t.id" class="task-timing">
-              <div class="task-plan-editor">
-                <span>安排</span>
-                <div class="inline-plan-dates">
-                  <el-date-picker v-model="inlinePlanRange[0]" type="date" value-format="YYYY-MM-DD"
+              <span>合同时效：{{ fullRangeText(t.planned_start, t.planned_end) }}</span>
+              <div class="task-schedule-editor">
+                <span>任务期限：</span>
+                <div class="inline-schedule-dates">
+                  <el-date-picker v-model="inlineScheduleRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 95px"
-                    @change="inlinePlanChanged = true" />
-                  <span class="inline-plan-separator">至</span>
-                  <el-date-picker v-model="inlinePlanRange[1]" type="date" value-format="YYYY-MM-DD"
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineScheduleChanged = true" />
+                  <span class="inline-schedule-separator">至</span>
+                  <el-date-picker v-model="inlineScheduleRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
-                    popper-class="task-date-today-popper" class="inline-plan-date" style="width: 95px"
-                    @change="inlinePlanChanged = true" />
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineScheduleChanged = true" />
                 </div>
               </div>
+              <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
-              <span v-if="t.actual_start">审核完成：{{ t.actual_end || '进行中' }}</span>
+              <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
               <span v-if="t.actual_start" class="task-timing-total">
-                实际耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
+                实施耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
               </span>
             </div>
             <div v-if="expandedId === t.id && t.status === TASK_STATUS.CONTRACT_REVIEW" class="contract-review-box">
@@ -280,7 +290,7 @@
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="开始日期">
+            <el-form-item label="合同时效开始">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.planned_start" type="date" value-format="YYYY-MM-DD"
                   :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
@@ -288,9 +298,27 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="完成日期">
+            <el-form-item label="合同时效结束">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.planned_end" type="date" value-format="YYYY-MM-DD"
+                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="任务期限开始">
+              <div class="date-with-today w-full">
+                <el-date-picker v-model="createForm.scheduled_start" type="date" value-format="YYYY-MM-DD"
+                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="任务期限结束">
+              <div class="date-with-today w-full">
+                <el-date-picker v-model="createForm.scheduled_end" type="date" value-format="YYYY-MM-DD"
                   :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
@@ -482,7 +510,8 @@ const createVisible = ref(false)
 const creating = ref(false)
 const createFormRef = ref()
 const createForm = reactive<Record<string, unknown>>({
-  title: '', customer_id: undefined, assignee_id: null, planned_start: '', planned_end: '',
+  title: '', customer_id: undefined, assignee_id: null,
+  planned_start: '', planned_end: '', scheduled_start: '', scheduled_end: '',
   priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
 })
 
@@ -492,8 +521,8 @@ const inlineForm = reactive<{
   status: string
   assignee_id: number | null
 }>({ status: '', assignee_id: null })
-const inlinePlanRange = ref<string[]>([])
-const inlinePlanChanged = ref(false)
+const inlineScheduleRange = ref<string[]>([])
+const inlineScheduleChanged = ref(false)
 const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
@@ -591,18 +620,33 @@ function clearFilters() {
   reload()
 }
 
-// 任务时间范围展示：2026-08-01 ~ 2026-08-31 → 8/1~8/31；跨年显示完整日期；仅结束显示「08-31 止」
-function rangeText(t: TaskScheduleItem) {
-  const s = t.planned_start || ''
-  const e = t.planned_end || ''
+// 卡片收起态用紧凑日期；跨年时保留完整日期，避免混淆年份。
+function compactRangeText(s: string, e: string) {
   const short = (d: string) => {
     const [, m, day] = d.split('-')
     return `${Number(m)}/${Number(day)}`
   }
-  if (s && e) return `${s.slice(0, 4) !== e.slice(0, 4) ? `${s.slice(5)}~${e.slice(5)}` : `${short(s)}~${short(e)}`}`
+  if (s && e) return s.slice(0, 4) === e.slice(0, 4)
+    ? `${short(s)}~${short(e)}`
+    : `${s}~${e}`
   if (s) return `${short(s)} 起`
   if (e) return `${short(e)} 止`
-  return '未排期'
+  return '未设置'
+}
+
+function contractRangeText(t: TaskScheduleItem) {
+  return compactRangeText(t.planned_start || '', t.planned_end || '')
+}
+
+function taskDeadlineText(t: TaskScheduleItem) {
+  return compactRangeText(t.scheduled_start || '', t.scheduled_end || '')
+}
+
+function fullRangeText(start: string, end: string) {
+  if (start && end) return `${start} 至 ${end}`
+  if (start) return `${start} 起`
+  if (end) return `${end} 止`
+  return '未设置'
 }
 
 function reload() {
@@ -665,7 +709,8 @@ async function runBatch(action: 'status' | 'assign' | 'delete', value?: unknown)
 function openCreate() {
   const today = todayString()
   Object.assign(createForm, {
-    title: '', customer_id: undefined, assignee_id: null, planned_start: today, planned_end: today,
+    title: '', customer_id: undefined, assignee_id: null,
+    planned_start: today, planned_end: today, scheduled_start: today, scheduled_end: today,
     priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
   })
   createVisible.value = true
@@ -697,45 +742,51 @@ function openInline(t: TaskScheduleItem) {
   inlineForm.status = t.status
   inlineForm.assignee_id = t.assignee_id
   const today = todayString()
-  const start = t.planned_start || t.planned_end || today
-  const end = t.planned_end || t.planned_start || today
-  inlinePlanRange.value = [start, end]
-  inlinePlanChanged.value = !t.planned_start || !t.planned_end
+  const start = t.scheduled_start || t.scheduled_end || today
+  const end = t.scheduled_end || t.scheduled_start || today
+  inlineScheduleRange.value = [start, end]
+  inlineScheduleChanged.value = !t.scheduled_start || !t.scheduled_end
   loadRecord()
 }
 
 function cancelInline() {
   expandedId.value = null
   detail.value = null
-  inlinePlanRange.value = []
-  inlinePlanChanged.value = false
+  inlineScheduleRange.value = []
+  inlineScheduleChanged.value = false
   record.value = null
   versions.value = []
 }
 
 async function saveInline() {
   if (!detail.value) return
-  const planRange = inlinePlanRange.value || []
-  const plannedStart = inlinePlanChanged.value ? (planRange[0] || '') : detail.value.planned_start
-  const plannedEnd = inlinePlanChanged.value ? (planRange[1] || '') : detail.value.planned_end
+  const scheduleRange = inlineScheduleRange.value || []
+  const scheduledStart = inlineScheduleChanged.value
+    ? (scheduleRange[0] || '') : detail.value.scheduled_start
+  const scheduledEnd = inlineScheduleChanged.value
+    ? (scheduleRange[1] || '') : detail.value.scheduled_end
   if (inlineForm.status === TASK_STATUS.SCHEDULED && !inlineForm.assignee_id) {
     ui.toast('变更为「已安排」前请选择负责人', 'warning')
     return
   }
   if (inlineForm.status === TASK_STATUS.SCHEDULED &&
-      (!plannedStart || !plannedEnd)) {
-    ui.toast('变更为「已安排」前请填写完整的安排日期', 'warning')
+      (!scheduledStart || !scheduledEnd)) {
+    ui.toast('变更为「已安排」前请填写完整的任务期限', 'warning')
     return
   }
-  if (plannedStart && plannedEnd && plannedStart > plannedEnd) {
-    ui.toast('安排开始日期不能晚于结束日期', 'warning')
+  if (scheduledStart && scheduledEnd && scheduledStart > scheduledEnd) {
+    ui.toast('任务期限开始日期不能晚于结束日期', 'warning')
     return
   }
   const patch: Record<string, unknown> = {}
   if (inlineForm.status !== detail.value.status) patch.status = inlineForm.status
   if (inlineForm.assignee_id !== detail.value.assignee_id) patch.assignee_id = inlineForm.assignee_id
-  if (inlinePlanChanged.value && plannedStart !== detail.value.planned_start) patch.planned_start = plannedStart
-  if (inlinePlanChanged.value && plannedEnd !== detail.value.planned_end) patch.planned_end = plannedEnd
+  if (inlineScheduleChanged.value && scheduledStart !== detail.value.scheduled_start) {
+    patch.scheduled_start = scheduledStart
+  }
+  if (inlineScheduleChanged.value && scheduledEnd !== detail.value.scheduled_end) {
+    patch.scheduled_end = scheduledEnd
+  }
   if (!Object.keys(patch).length) {
     ui.toast('无改动', 'info')
     return
@@ -1087,6 +1138,10 @@ onMounted(reload)
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
 }
 .task-range { white-space: nowrap; margin-left: auto; }
+.task-schedule-summary {
+  margin-top: 2px; padding-left: 35px; color: var(--itsm-text-muted);
+  font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .task-timing {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;
   margin-top: 7px; padding: 7px 8px;
@@ -1094,50 +1149,51 @@ onMounted(reload)
   font-size: 12px;
 }
 .task-timing > span { min-width: 0; overflow-wrap: anywhere; }
+.task-period-label { color: var(--itsm-text); font-weight: 600; }
 .task-timing-total { color: var(--el-color-primary); }
-.task-plan-editor {
-  display: grid; grid-template-columns: 28px minmax(0, 1fr);
-  gap: 6px; align-items: center;
+.task-schedule-editor {
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   min-width: 0; width: 100%;
 }
 .date-with-today {
   min-width: 0; width: 100%; max-width: 100%;
 }
-.inline-plan-dates {
+.inline-schedule-dates {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   width: 100%;
 }
-.inline-plan-date {
+.inline-schedule-date {
   flex: 0 0 95px;
   width: 95px !important;
   min-width: 95px;
   max-width: 95px;
 }
-.inline-plan-separator {
+.inline-schedule-separator {
   flex: 0 0 14px;
   width: 14px;
   color: var(--itsm-text-muted);
   text-align: center;
 }
-:deep(.inline-plan-date.el-date-editor) {
+:deep(.inline-schedule-date.el-date-editor) {
   box-sizing: border-box;
   width: 95px !important;
   min-width: 95px !important;
   max-width: 95px !important;
 }
-:deep(.inline-plan-date .el-input__wrapper) {
+:deep(.inline-schedule-date .el-input__wrapper) {
   min-width: 0;
   padding: 0 5px;
 }
-:deep(.inline-plan-date .el-input__inner) {
+:deep(.inline-schedule-date .el-input__inner) {
   min-width: 0;
   font-size: 11px;
   text-align: center;
 }
-:deep(.inline-plan-date .el-input__prefix) { display: none; }
+:deep(.inline-schedule-date .el-input__prefix) { display: none; }
 :global(.task-date-today-popper .el-picker-panel__sidebar) {
   position: absolute;
   inset: 8px 72px auto auto;
