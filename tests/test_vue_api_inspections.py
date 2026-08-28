@@ -780,6 +780,55 @@ class TestTaskSubmissionAssets:
             assert Device.query.filter_by(customer_id=seed['c'], device_name='补传服务器').one()
             assert AuditLog.query.filter_by(action='inspection:supplement', target_id=tid).one()
 
+    def test_supplement_accepts_current_device_export_headers_without_clearing_omitted_fields(
+            self, op_client, app, seed):
+        """系统导出的「设备资产表」可直接补传，未导出列不得覆盖已有数据。"""
+        tid, did = self._task(app, seed)
+        with app.app_context():
+            existing = db.session.get(Device, did)
+            existing.username = 'keep-user'
+            existing.os_version = 'keep-os'
+            existing.rule_version = 'keep-rule'
+            db.session.commit()
+
+        first = op_client.post(
+            f'/api/inspections/task/{tid}/report',
+            data={'report_file': _dummy_file()},
+            content_type='multipart/form-data')
+        assert first.status_code == 200, first.get_json()
+
+        supplement = op_client.post(f'/api/inspections/task/{tid}/report', data={
+            'mode': 'supplement',
+            'asset_list': (_xlsx_bytes([
+                ['客户', '机房位置', '机柜号', '安装位置', '起始U位', '电源配置',
+                 '名称', '类型', '品牌', '型号', '序列号', 'IP', '建设时间',
+                 '是否维修', '是否在用', '备注'],
+                ['字典客户', '9楼机房', '4', '正面', '27U-30U', '双电源',
+                 '核心交换机A', '核心交换机', '华为', 'S12700', 'SN-001',
+                 '10.0.0.10', '2026-01-02', '否', '是', '资产表更新'],
+                ['字典客户', '9楼机房', '', '背面', '5U', '单电源',
+                 '补传服务器', '服务器', '浪潮', 'NF5180', 'SN-002',
+                 '10.0.0.11', '2026-02-03', '否', '是', ''],
+            ]), '设备资产表.xlsx'),
+        }, content_type='multipart/form-data')
+        assert supplement.status_code == 200, supplement.get_json()
+        assert supplement.get_json()['data']['asset_import'] == {
+            'created': 1, 'updated': 1, 'skipped': 0, 'errors': [],
+            'filename': '设备资产表.xlsx',
+        }
+
+        with app.app_context():
+            existing = db.session.get(Device, did)
+            assert existing.ip_address == '10.0.0.10'
+            assert existing.rack_location == '9楼机房'
+            assert existing.brand == '华为'
+            assert existing.build_date.isoformat() == '2026-01-02'
+            assert existing.username == 'keep-user'
+            assert existing.os_version == 'keep-os'
+            assert existing.rule_version == 'keep-rule'
+            assert Device.query.filter_by(
+                customer_id=seed['c'], device_name='补传服务器').one()
+
     def test_supplement_requires_at_least_one_file(self, op_client, app, seed):
         tid, _ = self._task(app, seed)
         assert op_client.post(

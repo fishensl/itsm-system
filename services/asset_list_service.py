@@ -7,18 +7,40 @@
 """
 import os
 from flask import current_app
+from domain_metadata import get_entity_schema
 from models import db, Customer, Device
+from utils.json_fields import dumps_json
 from .base import ServiceError
 
-_FIELD_MAPPING = {
-    '所属客户': 'customer_name', '设备名称': 'device_name', '设备类型': 'device_type',
-    '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
-    '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
-    '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method',
-    '安装位置': 'location', '电源配置': 'power_supply',
-    '系统版本': 'os_version', '规则库版本': 'rule_version', '备注': 'remark',
-    '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
+_IMPORTABLE_DEVICE_FIELDS = {
+    'device_name', 'device_type', 'rack_location', 'location', 'power_supply',
+    'brand', 'model', 'serial_number', 'network_type', 'ip_address', 'port',
+    'login_method', 'username', 'password', 'interface', 'os_version',
+    'rule_version', 'build_date', 'license_start', 'license_expiry',
+    'cert_expiry_date', 'is_maintenance', 'is_in_use', 'remark',
 }
+
+
+def _build_field_mapping():
+    """导入表头直接复用设备字段注册表，并保留旧导入模板别名。"""
+    schema = get_entity_schema('device')
+    mapping = {
+        field.label: field.key
+        for field in schema.fields
+        if field.key in _IMPORTABLE_DEVICE_FIELDS
+    }
+    mapping.update({
+        '所属客户': 'customer_name',
+        '设备名称': 'device_name',
+        '设备类型': 'device_type',
+        'IP地址': 'ip_address',
+        '授权截止日期': 'license_expiry',
+        '授权开始日期': 'license_start',
+    })
+    return mapping
+
+
+_FIELD_MAPPING = _build_field_mapping()
 
 
 def import_asset_list(file_path, customer_id, operator_name, filename='资产清单.xlsx', commit=True):
@@ -54,8 +76,9 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
         if cell.value:
             col_map[str(cell.value).strip()] = idx
 
-    if '设备名称' not in col_map:
-        raise ServiceError('Excel 缺少必需列「设备名称」')
+    if 'device_name' not in {
+            _FIELD_MAPPING.get(header) for header in col_map}:
+        raise ServiceError('Excel 缺少必需列「名称」（旧模板可用「设备名称」）')
 
     existing = {d.device_name: d for d in Device.query.filter_by(customer_id=customer.id).all()}
 
@@ -77,28 +100,33 @@ def import_asset_list(file_path, customer_id, operator_name, filename='资产清
 
         plain_password = row_data.get('password', '')
         try:
-            payload = dict(
-                device_type=row_data.get('device_type', ''),
-                brand=row_data.get('brand', ''),
-                model=row_data.get('model', ''),
-                serial_number=row_data.get('serial_number', ''),
-                ip_address=row_data.get('ip_address', ''),
-                port=int(row_data.get('port', 22)) if row_data.get('port') else 22,
-                username=row_data.get('username', ''),
-                login_method=row_data.get('login_method', ''),
-                os_version=row_data.get('os_version', ''),
-                rule_version=row_data.get('rule_version', ''),
-                is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
-                is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
-                license_expiry=_parse_date(row_data.get('license_expiry')),
-                license_start=_parse_date(row_data.get('license_start')),
-                remark=row_data.get('remark', ''),
-            )
-            if '安装位置' in col_map:
+            # 只更新 Excel 实际包含的列；资产表不得清空已有账号、版本等字段。
+            payload = {}
+            for field in (
+                    'device_type', 'brand', 'model', 'serial_number',
+                    'network_type', 'ip_address', 'username', 'login_method',
+                    'os_version', 'rule_version', 'rack_location', 'remark'):
+                if field in row_data:
+                    payload[field] = row_data[field]
+            if 'port' in row_data:
+                payload['port'] = int(row_data['port']) if row_data['port'] else 22
+            for field in ('license_expiry', 'license_start', 'build_date',
+                          'cert_expiry_date'):
+                if field in row_data:
+                    payload[field] = _parse_date(row_data[field])
+            for field in ('is_maintenance', 'is_in_use'):
+                if field in row_data:
+                    payload[field] = row_data[field] in ('是', '1', 'true', 'True')
+            if 'interface' in row_data:
+                raw_interfaces = row_data['interface'].replace('，', ',').replace('、', ',')
+                payload['interface'] = dumps_json([
+                    item.strip() for item in raw_interfaces.split(',') if item.strip()
+                ])
+            if 'location' in row_data:
                 payload['location'] = normalize_device_choice(
                     'location', row_data.get('location'), existing.get(device_name).location
                     if existing.get(device_name) else None)
-            if '电源配置' in col_map:
+            if 'power_supply' in row_data:
                 payload['power_supply'] = normalize_device_choice(
                     'power_supply', row_data.get('power_supply'))
             if plain_password:

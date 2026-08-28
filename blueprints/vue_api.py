@@ -3341,6 +3341,8 @@ def api_inspection_upload_report(task_id):
                 current_user.realname or current_user.username, asset_list_file_name,
                 commit=False)
         except ServiceError as e:
+            current_app.logger.warning(
+                '巡检资产清单解析被拒绝 task_id=%s reason=%s', task_id, e)
             return _upload_fail('资产清单：' + (str(e) or '解析失败'), 400)
         except Exception:
             current_app.logger.exception('巡检资产清单解析失败 task_id=%s', task_id)
@@ -3378,6 +3380,8 @@ def api_inspection_upload_report(task_id):
                 asset_list_skip_reason=asset_list_skip_reason,
             )
     except ServiceError as e:
+        current_app.logger.warning('巡检资料%s被拒绝 task_id=%s reason=%s',
+                                   '补传' if supplementing else '提交', task_id, e)
         return _upload_fail(str(e) or ('补传失败' if supplementing else '上传失败'), 400)
     except Exception:
         current_app.logger.exception('巡检资料%s失败 task_id=%s',

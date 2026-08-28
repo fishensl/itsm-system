@@ -21,6 +21,12 @@ const instance = axios.create({
   timeout: 30000,
 })
 
+/** 提取后端统一契约中的业务错误，避免 4xx 只显示 Axios 状态码。 */
+export function apiErrorMessage(error: unknown): string {
+  const data = (error as AxiosError<ApiResponse>)?.response?.data
+  return typeof data?.message === 'string' ? data.message.trim() : ''
+}
+
 // 请求拦截：非 GET 自动附加 Flask-WTF 所需的 X-CSRFToken
 instance.interceptors.request.use((config) => {
   const method = (config.method || 'get').toUpperCase()
@@ -76,6 +82,8 @@ export async function request<T>(config: ItsmRequestConfig): Promise<T> {
       retryConfig._operationRetried = true
       resp = await instance.request<ApiResponse<T>>(retryConfig)
     } else {
+      const message = apiErrorMessage(error)
+      if (message) throw new Error(message)
       throw error
     }
   }
