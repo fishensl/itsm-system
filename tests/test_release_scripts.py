@@ -153,3 +153,4 @@ def test_backup_timer_units_are_installed_and_hardened():
     assert 'Persistent=true' in timer
     web_service = (ROOT / 'scripts' / 'itsm.service').read_text(encoding='utf-8')
     assert 'UMask=0077' in web_service
+    assert '--no-control-socket' in web_service
