@@ -242,12 +242,14 @@ export function importDevices(formData: FormData) {
   })
 }
 
-/** 设备批量修改：普通字段 {device_ids, field, value} 或机柜迁移 {device_ids, rack_id, start_u, occupy_u} */
+/** 设备批量修改：普通字段，或按已有/自定义机柜号连续安排 U 位。 */
 export function batchUpdateDevices(data: {
   device_ids: number[]
   field?: string
   value?: unknown
   rack_id?: number
+  rack_custom_name?: string
+  rack_location?: string
   start_u?: number
   occupy_u?: number
 }) {

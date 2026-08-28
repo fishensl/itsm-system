@@ -7,8 +7,10 @@
 - 返回 (success, errors, skipped)；errors 为每行错误信息列表，供前端展示
 """
 from datetime import datetime, date
+import re
 
 from models import db, Customer, SparePart, SpareStock, Inspection, Fault
+from utils.import_templates import get_import_template
 
 
 def _col_map(ws):
@@ -28,6 +30,14 @@ def _cell(ws, r, col_map, name):
     if v is None:
         return ''
     return str(v).strip()
+
+
+def _row_data(ws, row_number, col_map, module):
+    """按注册表字段读取一行，确保模板字段不会在导入时被静默忽略。"""
+    return {
+        field: _cell(ws, row_number, col_map, header)
+        for header, field in get_import_template(module)['fields']
+    }
 
 
 def _num(v):
@@ -60,15 +70,34 @@ def _parse_date(v):
     return parse_excel_date(str(v).strip() if v is not None else '')
 
 
+def _parse_datetime(v):
+    """解析 Excel 日期时间；仅给日期时按当天 00:00 保存。"""
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, date):
+        return datetime.combine(v, datetime.min.time())
+    text = str(v).strip()
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
+                '%Y-%m-%dT%H:%M', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 # ==================== 备件档案 ====================
 def import_spare_parts(ws):
-    """模板列：编码/名称/分类/规格/单位/最低库存/备注（编码唯一，幂等跳过已存在）"""
+    """导入完整备件可编辑字段（编码唯一，幂等跳过已存在）。"""
     col_map = _col_map(ws)
     success = skipped = 0
     errors = []
     for r in range(2, ws.max_row + 1):
-        code = _cell(ws, r, col_map, '编码')
-        name = _cell(ws, r, col_map, '名称')
+        row = _row_data(ws, r, col_map, 'spare')
+        code = row['code']
+        name = row['name']
         if not name:
             continue
         if code and SparePart.query.filter_by(code=code).first():
@@ -81,11 +110,17 @@ def import_spare_parts(ws):
             db.session.add(SparePart(
                 code=code,
                 name=name,
-                category=_cell(ws, r, col_map, '分类') or '',
-                specification=_cell(ws, r, col_map, '规格') or '',
-                unit=_cell(ws, r, col_map, '单位') or '个',
-                min_stock=_int(_cell(ws, r, col_map, '最低库存')) or 0,
-                remark=_cell(ws, r, col_map, '备注') or '',
+                category=row['category'] or '',
+                brand=row['brand'] or '',
+                model=row['model'] or '',
+                specification=row['specification'] or '',
+                unit=row['unit'] or '个',
+                min_stock=_int(row['min_stock']) or 0,
+                reference_price=_num(row['reference_price']) or 0.0,
+                warranty_months=_int(row['warranty_months']) or 0,
+                manufacturer=row['manufacturer'] or '',
+                serial_number=row['serial_number'] or '',
+                remark=row['remark'] or '',
             ))
             success += 1
         except Exception as e:
@@ -101,18 +136,19 @@ def import_spare_stocks(ws):
     success = skipped = 0
     errors = []
     for r in range(2, ws.max_row + 1):
-        pname = _cell(ws, r, col_map, '备件名称')
+        row = _row_data(ws, r, col_map, 'stock')
+        pname = row['spare_name']
         if not pname:
             continue
         part = SparePart.query.filter_by(name=pname).first()
         if not part:
             errors.append(f'第{r}行备件「{pname}」不存在，跳过')
             continue
-        qty = _int(_cell(ws, r, col_map, '数量'))
+        qty = _int(row['quantity'])
         if qty is None or qty < 0:
             errors.append(f'第{r}行「{pname}」数量无效，跳过')
             continue
-        location = _cell(ws, r, col_map, '位置') or ''
+        location = row['location'] or ''
         # 同名库位已存在则累加（防重复导入翻倍到错误行）
         exist = SpareStock.query.filter_by(spare_part_id=part.id, location=location).first()
         if exist:
@@ -124,7 +160,7 @@ def import_spare_stocks(ws):
                 spare_part_id=part.id,
                 location=location,
                 quantity=qty,
-                unit_price=_num(_cell(ws, r, col_map, '单价')) or 0.0,
+                unit_price=_num(row['unit_price']) or 0.0,
             ))
             success += 1
         except Exception as e:
@@ -135,32 +171,32 @@ def import_spare_stocks(ws):
 
 # ==================== 巡检记录 ====================
 def import_inspections(ws):
-    """模板列：客户名称/标题/巡检人员/巡检日期/巡检地点/总体状态/结论/备注"""
+    """导入巡检记录可编辑字段。"""
     col_map = _col_map(ws)
     success = skipped = 0
     errors = []
     for r in range(2, ws.max_row + 1):
-        title = _cell(ws, r, col_map, '标题')
+        row = _row_data(ws, r, col_map, 'inspection')
+        title = row['title']
         if not title:
             continue
-        cust = _find_customer(_cell(ws, r, col_map, '客户名称'))
+        cust = _find_customer(row['customer_name'])
         if not cust:
-            errors.append(f'第{r}行客户「{_cell(ws, r, col_map, "客户名称")}」不存在，跳过')
+            errors.append(f'第{r}行客户「{row["customer_name"]}」不存在，跳过')
             continue
-        insp_date = _parse_date(ws.cell(r, (col_map.get('巡检日期') or 0) + 1).value) \
-            if '巡检日期' in col_map else None
-        status = _cell(ws, r, col_map, '总体状态') or '正常'
+        insp_date = _parse_date(row['inspection_date'])
+        status = row['overall_status'] or '正常'
         if status not in ('正常', '警告', '异常'):
             status = '正常'
         try:
             db.session.add(Inspection(
                 customer_id=cust.id,
                 title=title,
-                inspector=_cell(ws, r, col_map, '巡检人员') or '',
+                inspector=row['inspector'] or '',
                 inspection_date=insp_date or date.today(),
-                location=_cell(ws, r, col_map, '巡检地点') or '',
+                location=row['location'] or '',
                 overall_status=status,
-                conclusion=_cell(ws, r, col_map, '结论') or '',
+                conclusion=row['conclusion'] or '',
             ))
             success += 1
         except Exception as e:
@@ -171,34 +207,45 @@ def import_inspections(ws):
 
 # ==================== 故障记录 ====================
 def import_faults(ws):
-    """模板列：客户名称/标题/处理人/故障时间/故障类型/故障描述/故障原因/解决方案/处理结果"""
+    """导入故障记录可编辑字段；故障分类使用“一级/二级/三级”路径。"""
     col_map = _col_map(ws)
     success = skipped = 0
     errors = []
     for r in range(2, ws.max_row + 1):
-        title = _cell(ws, r, col_map, '标题')
+        row = _row_data(ws, r, col_map, 'fault')
+        title = row['title']
         if not title:
             continue
-        cust = _find_customer(_cell(ws, r, col_map, '客户名称'))
+        cust = _find_customer(row['customer_name'])
         if not cust:
-            errors.append(f'第{r}行客户「{_cell(ws, r, col_map, "客户名称")}」不存在，跳过')
+            errors.append(f'第{r}行客户「{row["customer_name"]}」不存在，跳过')
             continue
-        ftime = _parse_date(ws.cell(r, (col_map.get('故障时间') or 0) + 1).value) \
-            if '故障时间' in col_map else None
-        result = _cell(ws, r, col_map, '处理结果') or '已解决'
+        ftime = _parse_datetime(row['fault_time'])
+        recovery_time = _parse_datetime(row['recovery_time'])
+        category_path = [
+            item.strip() for item in re.split(r'[/／>＞]+', row['fault_category'])
+            if item.strip()
+        ][:3]
+        category_path.extend([''] * (3 - len(category_path)))
+        result = row['result'] or '已解决'
         if result not in ('已解决', '待观察', '未解决'):
             result = '已解决'
         try:
             db.session.add(Fault(
                 customer_id=cust.id,
                 title=title,
-                handler=_cell(ws, r, col_map, '处理人') or '',
-                fault_time=datetime.combine(ftime, datetime.min.time()) if ftime else datetime.utcnow(),
-                fault_type=_cell(ws, r, col_map, '故障类型') or '',
-                fault_description=_cell(ws, r, col_map, '故障描述') or '',
-                fault_cause=_cell(ws, r, col_map, '故障原因') or '',
-                solution=_cell(ws, r, col_map, '解决方案') or '',
+                handler=row['handler'] or '',
+                fault_time=ftime or datetime.utcnow(),
+                fault_type=row['fault_type'] or '',
+                fault_category_level1=category_path[0],
+                fault_category_level2=category_path[1],
+                fault_category_level3=category_path[2],
+                fault_description=row['fault_description'] or '',
+                impact_range=row['impact_range'] or '',
+                fault_cause=row['fault_cause'] or '',
+                solution=row['solution'] or '',
                 result=result,
+                recovery_time=recovery_time,
             ))
             success += 1
         except Exception as e:

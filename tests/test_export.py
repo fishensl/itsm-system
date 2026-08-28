@@ -253,6 +253,21 @@ class TestModuleExports:
         assert header == ['备件编码', '名称', '库存数量']
         assert ['WL-001', '网线', 10] in rows
 
+    def test_spare_export_accepts_all_editable_commercial_fields(self, app, op_client, seed):
+        from models import SparePart
+        with app.app_context():
+            db.session.add(SparePart(
+                name='测试光模块', code='SFP-FULL', reference_price=399.5,
+                warranty_months=24,
+            ))
+            db.session.commit()
+        r = op_client.post('/api/spare-parts/export', json={
+            'columns': ['code', 'name', 'reference_price', 'warranty_months'],
+        })
+        header, rows = _decode_xlsx(r)
+        assert header == ['备件编码', '名称', '参考价', '质保月数']
+        assert ['SFP-FULL', '测试光模块', 399.5, 24] in rows
+
     def test_export_requires_permission(self, viewer_client, seed):
         r = viewer_client.post('/api/faults/export', json={'columns': ['title']})
         assert r.status_code == 200  # viewer 有 fault:view

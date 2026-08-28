@@ -90,11 +90,22 @@ def test_device_edit_covers_every_business_field_from_list_and_export():
         assert f"fieldLabel('device', '{key}'" in source, f'设备编辑框缺少只读说明：{key}'
 
 
+def test_device_batch_edit_exposes_rack_number_and_u_placement():
+    source = (ROOT / 'frontend' / 'src' / 'views' / 'devices' / 'index.vue').read_text(
+        encoding='utf-8')
+    assert 'value="rack_name"' in source
+    assert 'batchForm.rackSelection' in source
+    assert 'batchForm.startU' in source
+    assert 'batchForm.occupyU' in source
+    assert 'rack_custom_name: batchForm.rackCustomName' in source
+
+
 def test_existing_export_codes_are_derived_without_contract_breakage():
     from blueprints.vue_export import (DEVICE_EXPORT_COLUMNS, DEVICE_EXPORT_AVAILABLE_COLUMNS,
                                        TICKET_EXPORT_COLUMNS, TICKET_EXPORT_AVAILABLE_COLUMNS,
                                        FAULT_EXPORT_COLUMNS, INSPECTION_EXPORT_COLUMNS,
                                        FAULT_EXPORT_AVAILABLE_COLUMNS, SPARE_EXPORT_COLUMNS,
+                                       SPARE_EXPORT_AVAILABLE_COLUMNS,
                                        CUSTOMER_EXPORT_COLUMNS)
 
     assert DEVICE_EXPORT_COLUMNS == get_entity_schema('device').export_columns()
@@ -102,6 +113,7 @@ def test_existing_export_codes_are_derived_without_contract_breakage():
     assert FAULT_EXPORT_COLUMNS == get_entity_schema('fault').export_columns()
     assert INSPECTION_EXPORT_COLUMNS == get_entity_schema('inspection').export_columns()
     assert SPARE_EXPORT_COLUMNS == get_entity_schema('spare').export_columns()
+    assert SPARE_EXPORT_AVAILABLE_COLUMNS == get_entity_schema('spare').export_columns('export_available')
     assert CUSTOMER_EXPORT_COLUMNS == get_entity_schema('customer').export_columns('export_available')
     assert DEVICE_EXPORT_AVAILABLE_COLUMNS == get_entity_schema('device').export_columns('export_available')
     assert TICKET_EXPORT_AVAILABLE_COLUMNS == get_entity_schema('ticket').export_columns('export_available')
@@ -109,6 +121,13 @@ def test_existing_export_codes_are_derived_without_contract_breakage():
     assert dict(DEVICE_EXPORT_COLUMNS)['name'] == '名称'
     assert dict(TICKET_EXPORT_COLUMNS)['number'] == '工单号'
     assert dict(FAULT_EXPORT_COLUMNS)['fault_time'] == '故障时间'
+
+
+def test_fault_and_spare_export_available_cover_editable_fields():
+    fault = get_entity_schema('fault')
+    spare = get_entity_schema('spare')
+    assert set(_keys(fault, 'form')) <= set(_keys(fault, 'export_available'))
+    assert set(_keys(spare, 'form')) <= set(_keys(spare, 'export_available'))
 
 
 def test_inspection_task_timing_is_shared_by_list_detail_and_export():

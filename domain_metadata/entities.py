@@ -151,13 +151,13 @@ FAULT_FIELDS = (
 )
 FAULT_LIST = ('title', 'customer_name', 'handler', 'fault_time', 'fault_category', 'fault_type',
               'result', 'impact_range', 'recovery_time', 'ticket_number', 'created_at')
-FAULT_DETAIL = FAULT_LIST
+FAULT_DETAIL = tuple(item.key for item in FAULT_FIELDS)
 FAULT_FORM = ('title', 'customer_name', 'handler', 'fault_time', 'fault_type',
               'fault_category', 'result', 'fault_description', 'fault_cause', 'solution',
               'impact_range', 'recovery_time')
 FAULT_EXPORT_DEFAULT = ('title', 'customer_name', 'handler', 'fault_time', 'fault_type',
                         'result', 'recovery_time', 'created_at')
-FAULT_EXPORT_AVAILABLE = tuple(dict.fromkeys(FAULT_EXPORT_DEFAULT + FAULT_LIST))
+FAULT_EXPORT_AVAILABLE = tuple(dict.fromkeys(FAULT_EXPORT_DEFAULT + FAULT_DETAIL))
 
 
 INSPECTION_FIELDS = (
@@ -226,6 +226,7 @@ SPARE_FORM = ('name', 'code', 'category', 'brand', 'model', 'specification', 'un
 SPARE_EXPORT_DEFAULT = ('code', 'name', 'category', 'specification', 'unit', 'brand',
                         'model', 'serial_number', 'manufacturer', 'total_stock', 'min_stock',
                         'remark', 'created_at')
+SPARE_EXPORT_AVAILABLE = tuple(dict.fromkeys(SPARE_EXPORT_DEFAULT + SPARE_DETAIL))
 
 
 CUSTOMER_FIELDS = (
@@ -711,7 +712,7 @@ ENTITY_SCHEMAS = {
         }),
     'spare': EntitySchema('spare', '备件', 'spare:view', SPARE_FIELDS, {
         'list': SPARE_LIST, 'detail': SPARE_DETAIL, 'form': SPARE_FORM,
-        'export_default': SPARE_EXPORT_DEFAULT, 'export_available': SPARE_EXPORT_DEFAULT,
+        'export_default': SPARE_EXPORT_DEFAULT, 'export_available': SPARE_EXPORT_AVAILABLE,
     }),
     'customer': EntitySchema('customer', '客户', 'customer:view', CUSTOMER_FIELDS, {
         'list': CUSTOMER_LIST, 'detail': CUSTOMER_DETAIL, 'form': CUSTOMER_FORM,

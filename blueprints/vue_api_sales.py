@@ -121,10 +121,12 @@ def api_spare_part_export():
     import os
     from datetime import date as _date
     from utils.excel_export import export_xlsx
-    from blueprints.vue_export import SPARE_EXPORT_COLUMNS, resolve_columns, generic_rows
+    from blueprints.vue_export import (SPARE_EXPORT_COLUMNS, SPARE_EXPORT_AVAILABLE_COLUMNS,
+                                       resolve_columns, generic_rows)
     data = request.get_json(silent=True) or {}
     try:
-        codes = resolve_columns(SPARE_EXPORT_COLUMNS, data.get('columns'))
+        codes = (resolve_columns(SPARE_EXPORT_AVAILABLE_COLUMNS, data.get('columns'))
+                 if data.get('columns') else resolve_columns(SPARE_EXPORT_COLUMNS, None))
     except ValueError as e:
         return fail(str(e), 400)
     stock_sum = db.session.query(
@@ -141,7 +143,7 @@ def api_spare_part_export():
         q = q.filter(SparePart.created_at <= date_to + ' 23:59:59')
     rows = q.order_by(SparePart.id.desc()).all()
     stock_map = {p.id: int(t or 0) for p, t in rows}
-    headers = [dict(SPARE_EXPORT_COLUMNS)[c] for c in codes]
+    headers = [dict(SPARE_EXPORT_AVAILABLE_COLUMNS)[c] for c in codes]
 
     def cell(p, code):
         return {
@@ -150,6 +152,8 @@ def api_spare_part_export():
             'brand': p.brand or '', 'model': p.model or '',
             'serial_number': p.serial_number or '', 'manufacturer': p.manufacturer or '',
             'quantity': stock_map.get(p.id, 0), 'min_stock': p.min_stock or 0,
+            'reference_price': p.reference_price or 0,
+            'warranty_months': p.warranty_months or 0,
             'remark': p.remark or '',
             'created_at': p.created_at.strftime('%Y-%m-%d') if p.created_at else '',
         }.get(code, '')
@@ -175,7 +179,7 @@ def api_spare_part_export():
 @login_required
 @require_permission('spare:add')
 def api_spare_part_import():
-    """备件档案批量导入（multipart import_file；列：编码/名称/分类/规格/单位/最低库存/备注）"""
+    """备件档案批量导入（multipart import_file；字段由导入模板注册表统一定义）。"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
     from services.batch_import_service import import_spare_parts
     if 'import_file' not in request.files:

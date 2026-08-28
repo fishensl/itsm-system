@@ -64,8 +64,9 @@
         :title="`将对选中的 ${selectedRows.length} 台设备生效`" />
       <el-form label-width="90px">
         <el-form-item label="修改项">
-          <el-select v-model="batchForm.type" class="w-full">
+          <el-select v-model="batchForm.type" class="w-full" @change="onBatchTypeChange">
             <el-option :label="fieldLabel('device', 'rack_location', '机房位置', 'form')" value="rack_location" />
+            <el-option :label="fieldLabel('device', 'rack_name', '机柜号', 'form')" value="rack_name" />
             <el-option :label="fieldLabel('device', 'location', '安装位置', 'form')" value="location" />
             <el-option :label="fieldLabel('device', 'power_supply', '电源配置', 'form')" value="power_supply" />
             <el-option :label="fieldLabel('device', 'network_type', '网络类型', 'form')" value="network_type" />
@@ -80,7 +81,31 @@
             <el-option :label="fieldLabel('device', 'remark', '备注', 'form')" value="remark" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="batchForm.type === 'is_in_use' || batchForm.type === 'is_maintenance'" label="值">
+        <template v-if="batchForm.type === 'rack_name'">
+          <el-form-item :label="fieldLabel('device', 'rack_name', '机柜号', 'form')">
+            <el-select v-model="batchForm.rackSelection" filterable class="w-full"
+              :loading="rackOptionsLoading" placeholder="选择机柜号或自定义" @change="onBatchRackChange">
+              <el-option v-for="option in rackSelectOptions" :key="String(option.value)"
+                :label="option.name" :value="option.value" />
+              <el-option label="自定义…" value="__custom__" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="typeof batchForm.rackSelection === 'string'" label="自定义号">
+            <el-input v-model="batchForm.rackCustomName" maxlength="64" placeholder="请输入自定义机柜号" />
+          </el-form-item>
+          <el-form-item v-if="typeof batchForm.rackSelection === 'string'" label="机房位置">
+            <el-input v-model="batchForm.rackLocation" maxlength="128" placeholder="请输入机房位置" />
+          </el-form-item>
+          <el-form-item label="起始U位">
+            <el-input-number v-model="batchForm.startU" :min="1" :max="999" class="w-full" />
+          </el-form-item>
+          <el-form-item label="占用U数">
+            <el-input-number v-model="batchForm.occupyU" :min="1" :max="999" class="w-full" />
+          </el-form-item>
+          <el-alert type="info" :closable="false"
+            title="多台设备将从起始U位开始，按占用U数连续排列" />
+        </template>
+        <el-form-item v-else-if="batchForm.type === 'is_in_use' || batchForm.type === 'is_maintenance'" label="值">
           <el-radio-group v-model="batchForm.value">
             <el-radio :value="true">是</el-radio>
             <el-radio :value="false">否</el-radio>
@@ -697,7 +722,15 @@ const batchSaving = ref(false)
 const batchForm = reactive<{
   type: string
   value: unknown
-}>({ type: 'rack_location', value: '' })
+  rackSelection: number | string | null
+  rackCustomName: string
+  rackLocation: string
+  startU: number
+  occupyU: number
+}>({
+  type: 'rack_location', value: '', rackSelection: null, rackCustomName: '',
+  rackLocation: '', startU: 1, occupyU: 1,
+})
 
 const isDateBatchField = computed(() =>
   ['license_start', 'license_expiry', 'cert_expiry_date'].includes(batchForm.type))
@@ -719,7 +752,47 @@ function clearSelection() {
 async function openBatchEdit() {
   batchForm.type = 'rack_location'
   batchForm.value = ''
+  batchForm.rackSelection = null
+  batchForm.rackCustomName = ''
+  batchForm.rackLocation = ''
+  batchForm.startU = 1
+  batchForm.occupyU = 1
   batchVisible.value = true
+}
+
+function batchCustomerId() {
+  const ids = selectedRows.value.map((row) => Number(row.customer_id))
+  if (!ids.length || ids.some((id) => !Number.isInteger(id) || id <= 0)) return null
+  const unique = new Set(ids)
+  return unique.size === 1 ? ids[0] : null
+}
+
+async function onBatchTypeChange(type: string) {
+  batchForm.value = ''
+  if (type !== 'rack_name') return
+  const customerId = batchCustomerId()
+  if (!customerId) {
+    ui.toast('批量修改机柜号只能选择同一客户且已关联客户的设备', 'warning')
+    batchForm.type = 'rack_location'
+    return
+  }
+  batchForm.rackSelection = null
+  batchForm.rackCustomName = ''
+  batchForm.rackLocation = ''
+  await loadRackOptions(customerId)
+}
+
+function onBatchRackChange(selection: number | string | null) {
+  if (typeof selection === 'number') {
+    const rack = rackOptions.value.find((item) => item.id === selection)
+    batchForm.rackCustomName = ''
+    batchForm.rackLocation = rack?.location || ''
+    return
+  }
+  batchForm.rackCustomName = selection?.startsWith('__preset__:')
+    ? selection.slice('__preset__:'.length)
+    : ''
+  batchForm.rackLocation = ''
 }
 
 async function doBatchSave() {
@@ -727,6 +800,32 @@ async function doBatchSave() {
   const ids = selectedRows.value.map((r) => Number(r.id))
   batchSaving.value = true
   try {
+    if (batchForm.type === 'rack_name') {
+      if (!batchCustomerId()) {
+        ui.toast('批量修改机柜号只能选择同一客户且已关联客户的设备', 'warning')
+        return
+      }
+      if (batchForm.rackSelection === null) {
+        ui.toast('请选择机柜号', 'warning')
+        return
+      }
+      if (typeof batchForm.rackSelection === 'string' && !batchForm.rackCustomName.trim()) {
+        ui.toast('请输入自定义机柜号', 'warning')
+        return
+      }
+      const payload = typeof batchForm.rackSelection === 'number'
+        ? { device_ids: ids, rack_id: batchForm.rackSelection,
+            start_u: batchForm.startU, occupy_u: batchForm.occupyU }
+        : { device_ids: ids, rack_custom_name: batchForm.rackCustomName,
+            rack_location: batchForm.rackLocation,
+            start_u: batchForm.startU, occupy_u: batchForm.occupyU }
+      const res = await batchUpdateDevices(payload)
+      ui.toast(`已批量修改 ${res.count} 台设备的机柜号`, 'success')
+      batchVisible.value = false
+      clearSelection()
+      reload()
+      return
+    }
     if ((typeof batchForm.value === 'string' && !batchForm.value.trim())
       || batchForm.value === null || batchForm.value === undefined) {
       ui.toast('请填写修改值', 'warning')

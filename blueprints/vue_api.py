@@ -807,9 +807,12 @@ def api_v2_device_export():
 def api_v2_device_import():
     """设备批量导入（multipart import_file；与 SSR 导入同字段映射）"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
-    from services.device_service import _parse_date, normalize_device_choice
+    from services.device_service import (_parse_date, _sync_rack_placement,
+                                          normalize_device_choice)
     from utils.crypto import encrypt_password as _ep
-    from models import Device as _D, Customer as _C
+    from utils.import_templates import get_import_field_mapping
+    from utils.json_fields import dumps_json
+    from models import Device as _D, Customer as _C, NetworkType as _NT
     if 'import_file' not in request.files:
         return fail('请选择要导入的 Excel 文件', 400)
     f = request.files['import_file']
@@ -829,20 +832,13 @@ def api_v2_device_import():
         for idx, h in enumerate(header_row):
             if h:
                 col_map[str(h).strip()] = idx
-        field_mapping = {
-            '所属客户': 'customer_name', '设备名称': 'device_name', '设备类型': 'device_type',
-            '品牌': 'brand', '型号': 'model', '序列号': 'serial_number', 'IP地址': 'ip_address',
-            '端口': 'port', '登录用户名': 'username', '登录密码': 'password',
-            '授权截止日期': 'license_expiry', '授权开始日期': 'license_start', '登录方式': 'login_method',
-            '安装位置': 'location', '电源配置': 'power_supply',
-            '系统版本': 'os_version', '规则库版本': 'rule_version',
-            '备注': 'remark', '是否维修': 'is_maintenance', '是否在用': 'is_in_use',
-        }
+        field_mapping = get_import_field_mapping('device')
         from utils.customer_scope import apply_customer_scope
         customers = {c.name: c for c in apply_customer_scope(
             _C.query, _C, current_user).all()}
         from utils.customer_scope import has_full_customer_scope
         allow_unassigned = has_full_customer_scope(current_user)
+        network_types = {item.name for item in _NT.query.all()}
         new_devices = []
         for row_idx in range(2, ws.max_row + 1):
             row_data = {}
@@ -862,33 +858,61 @@ def api_v2_device_import():
             if row_data.get('customer_name') and not customer:
                 errors.append(f'第{row_idx}行：客户 "{row_data["customer_name"]}" 不存在，已跳过')
                 continue
+            network_type = row_data.get('network_type', '')
+            if network_type and network_type not in network_types:
+                errors.append(
+                    f'第{row_idx}行：网络类型 "{network_type}" 不在网络类型设置中，已跳过')
+                continue
             try:
-                plain_password = row_data.get('password', '')
-                new_devices.append(_D(
-                    customer_id=customer.id if customer else None,
-                    device_name=device_name, device_type=row_data.get('device_type', ''),
-                    brand=row_data.get('brand', ''), model=row_data.get('model', ''),
-                    serial_number=row_data.get('serial_number', ''),
-                    ip_address=row_data.get('ip_address', ''),
-                    port=int(row_data.get('port', 22)) if row_data.get('port') else 22,
-                    username=row_data.get('username', ''),
-                    password_encrypted=_ep(plain_password) if plain_password else '',
-                    login_method=row_data.get('login_method', ''),
-                    location=normalize_device_choice('location', row_data.get('location')),
-                    power_supply=normalize_device_choice(
-                        'power_supply', row_data.get('power_supply')),
-                    os_version=row_data.get('os_version', ''), rule_version=row_data.get('rule_version', ''),
-                    is_maintenance=row_data.get('is_maintenance', '') in ('是', '1', 'true', 'True'),
-                    is_in_use=row_data.get('is_in_use', '') in ('是', '1', 'true', 'True'),
-                    license_expiry=_parse_date(row_data.get('license_expiry')),
-                    license_start=_parse_date(row_data.get('license_start')),
-                    remark=row_data.get('remark', ''),
-                ))
+                with db.session.begin_nested():
+                    import re as _re
+                    plain_password = row_data.get('password', '')
+                    interfaces = [
+                        item.strip() for item in _re.split(
+                            r'[、,，;；\n]+', row_data.get('interface', ''))
+                        if item.strip()
+                    ]
+                    device = _D(
+                        customer_id=customer.id if customer else None,
+                        device_name=device_name, device_type=row_data.get('device_type', ''),
+                        brand=row_data.get('brand', ''), model=row_data.get('model', ''),
+                        serial_number=row_data.get('serial_number', ''),
+                        network_type=network_type,
+                        ip_address=row_data.get('ip_address', ''),
+                        port=int(row_data.get('port', 22)) if row_data.get('port') else 22,
+                        username=row_data.get('username', ''),
+                        password_encrypted=_ep(plain_password) if plain_password else '',
+                        login_method=row_data.get('login_method', ''),
+                        rack_location=row_data.get('rack_location', '')[:128],
+                        location=normalize_device_choice('location', row_data.get('location')),
+                        power_supply=normalize_device_choice(
+                            'power_supply', row_data.get('power_supply')),
+                        interface=dumps_json(interfaces) if interfaces else None,
+                        os_version=row_data.get('os_version', ''),
+                        rule_version=row_data.get('rule_version', ''),
+                        build_date=_parse_date(row_data.get('build_date')),
+                        license_expiry=_parse_date(row_data.get('license_expiry')),
+                        license_start=_parse_date(row_data.get('license_start')),
+                        cert_expiry_date=_parse_date(row_data.get('cert_expiry_date')),
+                        is_maintenance=row_data.get('is_maintenance', '') in
+                        ('是', '1', 'true', 'True', 'Y', 'y'),
+                        is_in_use=row_data.get('is_in_use', '') not in
+                        ('否', '0', 'false', 'False', 'N', 'n'),
+                        remark=row_data.get('remark', ''),
+                    )
+                    db.session.add(device)
+                    db.session.flush()
+                    _sync_rack_placement(device, {
+                        'rack_location': row_data.get('rack_location', ''),
+                        'rack_custom_name': row_data.get('rack_name', ''),
+                        'rack_start_u': row_data.get('rack_start_u', '') or 1,
+                        'rack_occupy_u': row_data.get('rack_occupy_u', '') or 1,
+                    })
+                    new_devices.append(device)
             except Exception as e:
                 errors.append(f'第{row_idx}行（{device_name}）：{e}')
         if new_devices:
             try:
-                db.session.add_all(new_devices)
                 db.session.commit()
                 created = len(new_devices)
             except Exception as e:
@@ -931,16 +955,51 @@ def api_v2_device_batch_update():
         return fail('部分设备不存在、已删除或不在当前数据范围', 400)
 
     # ---------- 机柜位置批量迁移 ----------
-    if 'rack_id' in data:
-        rack = _R.query.get(int(data['rack_id']))
+    rack_custom_name = str(data.get('rack_custom_name') or '').strip()[:64]
+    if 'rack_id' in data or rack_custom_name:
+        customer_ids = {device.customer_id for device in devices}
+        if len(customer_ids) != 1 or None in customer_ids:
+            return fail('批量修改机柜号只能选择同一客户且已关联客户的设备', 400)
+        customer_id = next(iter(customer_ids))
+        if rack_custom_name:
+            rack_location = str(data.get('rack_location') or '').strip()[:128]
+            rack = _R.query.filter_by(
+                customer_id=customer_id, name=rack_custom_name,
+                location=rack_location,
+            ).order_by(_R.id).first()
+            if not rack:
+                rack = _R(customer_id=customer_id, name=rack_custom_name,
+                          location=rack_location, total_u=42)
+                db.session.add(rack)
+                try:
+                    db.session.flush()
+                except Exception as e:
+                    db.session.rollback()
+                    current_app.logger.exception('批量修改设备时创建机柜失败: %s', e)
+                    return fail(f'创建机柜失败：{e}', 400)
+        else:
+            try:
+                rack_id = int(data['rack_id'])
+            except (TypeError, ValueError):
+                return fail('机柜参数无效', 400)
+            rack = _R.query.get(rack_id)
         if not rack:
             return fail('机柜不存在', 404)
-        start_u = int(data.get('start_u') or 1)
-        occupy_u = int(data.get('occupy_u') or 1)
-        rated_w = int(data.get('rated_w') or 0)
+        if rack.customer_id != customer_id:
+            return fail('设备与机柜必须属于同一客户', 400)
+        try:
+            start_u = int(data.get('start_u') or 1)
+            occupy_u = int(data.get('occupy_u') or 1)
+            rated_w = int(data.get('rated_w') or 0)
+        except (TypeError, ValueError):
+            if rack_custom_name:
+                db.session.rollback()
+            return fail('机柜 U 位参数无效', 400)
         try:
             _check_u_range(rack, start_u, occupy_u)
         except ValueError as e:
+            if rack_custom_name:
+                db.session.rollback()
             return fail(str(e), 400)
         # 基线 = 该机柜现有占用（排除本次迁移设备的旧记录，旧记录将删除）
         moving_ids = set(ids)
@@ -954,6 +1013,7 @@ def api_v2_device_batch_update():
                 _check_u_range(rack, cur_start, occupy_u)
                 _check_u_conflict(baseline, cur_start, occupy_u)
             except ValueError as e:
+                db.session.rollback()
                 return fail(str(e), 400)
             baseline.append(_RI(rack_id=rack.id, device_id=did, start_u=cur_start,
                                 occupy_u=occupy_u))
@@ -2458,6 +2518,8 @@ def api_v2_customer_export():
 def api_v2_customer_import():
     """客户批量导入（multipart import_file；与 SSR 导入同字段映射）"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
+    from utils.import_templates import get_import_template
+    from services.customer_service import _parse_contract_date
     from models import Customer as _C, Region as _R, CustomerCategory as _CC
     if 'import_file' not in request.files:
         return fail('请选择要导入的 Excel 文件', 400)
@@ -2487,20 +2549,22 @@ def api_v2_customer_import():
             return str(v).strip() if v is not None else ''
 
         TRUE_SET = {'是', '1', 'true', 'True', 'Y', 'y', '有'}
+        template_fields = get_import_template('customer')['fields']
         for r in range(2, ws.max_row + 1):
-            name = _cell(r, '客户名称')
+            row_data = {field: _cell(r, header) for header, field in template_fields}
+            name = row_data['name']
             if not name:
                 continue
             if _C.query.filter_by(name=name).first():
                 continue
             region_id = None
-            region_name = _cell(r, '所属地区')
+            region_name = row_data['region_name']
             if region_name:
                 region = _R.query.filter_by(name=region_name.split(' - ')[-1]).first()
                 if region:
                     region_id = region.id
             category_id = None
-            cat_name = _cell(r, '单位类别')
+            cat_name = row_data['category_name']
             if cat_name:
                 cat = _CC.query.filter_by(name=cat_name).first()
                 if cat:
@@ -2508,18 +2572,22 @@ def api_v2_customer_import():
                 else:
                     unknown_categories.add(cat_name)
             customer = _C(
-                name=name, contact_person=_cell(r, '联系人') or None,
-                phone=_cell(r, '电话') or None, email=_cell(r, '邮箱') or None,
+                name=name, contact_person=row_data['contact_person'] or None,
+                phone=row_data['phone'] or None, email=row_data['email'] or None,
                 region_id=region_id, category_id=category_id,
-                city=_cell(r, '地市') or None, address=_cell(r, '地址') or None,
-                office=_cell(r, '办公室') or '', level=_cell(r, '客户等级') or '常规',
-                has_onsite=_cell(r, '有无驻场') in TRUE_SET,
-                onsite_contact=_cell(r, '驻场联系人') or '',
-                onsite_phone=_cell(r, '驻场联系方式') or '',
-                onsite_office=_cell(r, '驻场办公室') or '',
-                has_drill=_cell(r, '有无攻防演练') in TRUE_SET,
-                inspection_frequency=_cell(r, '巡检频率') or '',
-                source=_cell(r, '来源') or None, remark=_cell(r, '备注') or None,
+                city=row_data['city'] or None, address=row_data['address'] or None,
+                office=row_data['office'] or '', level=row_data['level'] or '常规',
+                office_room=row_data['office_room'] or '',
+                map_location=row_data['map_location'] or '',
+                has_onsite=row_data['has_onsite'] in TRUE_SET,
+                onsite_contact=row_data['onsite_contact'] or '',
+                onsite_phone=row_data['onsite_phone'] or '',
+                onsite_office=row_data['onsite_office'] or '',
+                has_drill=row_data['has_drill'] in TRUE_SET,
+                inspection_frequency=row_data['inspection_frequency'] or '',
+                contract_start_date=_parse_contract_date(row_data['contract_start_date']),
+                contract_end_date=_parse_contract_date(row_data['contract_end_date']),
+                source=row_data['source'] or None, remark=row_data['remark'] or None,
             )
             db.session.add(customer)
             imported_customers.append(customer)
@@ -4024,6 +4092,9 @@ def api_v2_fault_export():
                                                    r.fault_category_level2 or '',
                                                    r.fault_category_level3 or '') if x),
             'result': r.result or '', 'impact_range': r.impact_range or '',
+            'fault_description': r.fault_description or '',
+            'fault_cause': r.fault_cause or '',
+            'solution': r.solution or '',
             'recovery_time': r.recovery_time.strftime('%Y-%m-%d %H:%M') if r.recovery_time else '',
             'ticket_number': ticket_map.get(r.ticket_id, ''),
             'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
@@ -4049,7 +4120,7 @@ def api_v2_fault_export():
 @login_required
 @require_permission('inspection:add')
 def api_v2_inspection_import():
-    """巡检记录批量导入（multipart import_file；列：客户名称/标题/巡检人员/巡检日期/巡检地点/总体状态/结论/备注）"""
+    """巡检记录批量导入（multipart import_file；字段由导入模板注册表统一定义）。"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
     from services.batch_import_service import import_inspections
     if 'import_file' not in request.files:
@@ -4079,7 +4150,7 @@ def api_v2_inspection_import():
 @login_required
 @require_permission('fault:add')
 def api_v2_fault_import():
-    """故障记录批量导入（multipart import_file；列：客户名称/标题/处理人/故障时间/故障类型/故障描述/故障原因/解决方案/处理结果）"""
+    """故障记录批量导入（multipart import_file；字段由导入模板注册表统一定义）。"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
     from services.batch_import_service import import_faults
     if 'import_file' not in request.files:

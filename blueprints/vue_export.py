@@ -179,6 +179,7 @@ FAULT_EXPORT_COLUMNS = get_entity_schema('fault').export_columns()
 FAULT_EXPORT_AVAILABLE_COLUMNS = get_entity_schema('fault').export_columns('export_available')
 
 SPARE_EXPORT_COLUMNS = get_entity_schema('spare').export_columns()
+SPARE_EXPORT_AVAILABLE_COLUMNS = get_entity_schema('spare').export_columns('export_available')
 
 CUSTOMER_EXPORT_COLUMNS = get_entity_schema('customer').export_columns('export_available')
 
