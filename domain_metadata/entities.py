@@ -9,7 +9,8 @@ def F(key, label, **kwargs):
 DEVICE_FIELDS = (
     F('device_name', '名称', export_key='name', min_width=160, required=True, sortable=True),
     F('device_type', '类型', export_key='type', width=90, filterable=True),
-    F('customer_name', '客户', export_key='customer', min_width=100, filterable=True),
+    F('customer_name', '客户', export_key='customer', min_width=100, filterable=True,
+      default_visible=False),
     F('rack_location', '机房位置', min_width=100, group='location'),
     F('rack_name', '机柜号', min_width=90, group='location'),
     F('location', '安装位置', min_width=90, group='location',
@@ -20,8 +21,8 @@ DEVICE_FIELDS = (
     F('brand', '品牌', min_width=100, filterable=True),
     F('model', '型号', min_width=120, filterable=True),
     F('serial_number', '序列号', export_key='sn', min_width=130),
-    F('network_type', '网络类型', width=90, default_visible=False),
     F('ip_address', 'IP', export_key='ip', min_width=130, filterable=True),
+    F('network_type', '网络类型', width=90, default_visible=False),
     F('port', '端口', data_type='number', width=70),
     F('login_method', '登录方式', width=90, group='credential'),
     F('username', '登录用户名', min_width=110, group='credential'),
@@ -52,21 +53,21 @@ DEVICE_FIELDS = (
 
 DEVICE_LIST = ('device_name', 'device_type', 'customer_name', 'rack_location', 'rack_name',
                'location', 'rack_slot', 'power_supply', 'brand', 'model', 'serial_number',
-               'network_type', 'ip_address', 'port', 'login_method', 'username',
+               'ip_address', 'network_type', 'port', 'login_method', 'username',
                'has_password', 'interface', 'os_version', 'rule_version', 'build_date',
                'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
                'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at')
 DEVICE_DETAIL = tuple(item.key for item in DEVICE_FIELDS if item.key != 'password')
 DEVICE_FORM = ('device_name', 'customer_name', 'device_type', 'brand', 'model', 'serial_number',
-               'network_type', 'ip_address', 'port', 'username', 'password', 'login_method',
+               'ip_address', 'network_type', 'port', 'username', 'password', 'login_method',
                'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
                'interface', 'os_version', 'rule_version', 'build_date',
                'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
                'is_in_use', 'remark')
 DEVICE_EXPORT_DEFAULT = (
     'device_name', 'device_type', 'customer_name', 'rack_location', 'rack_name', 'location',
-    'rack_slot', 'power_supply', 'brand', 'model', 'serial_number', 'network_type',
-    'ip_address', 'port', 'login_method', 'username', 'password', 'interface', 'os_version',
+    'rack_slot', 'power_supply', 'brand', 'model', 'serial_number', 'ip_address',
+    'network_type', 'port', 'login_method', 'username', 'password', 'interface', 'os_version',
     'rule_version', 'build_date', 'license_start', 'license_expiry', 'cert_expiry_date',
     'is_maintenance', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at',
 )

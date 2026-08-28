@@ -19,15 +19,16 @@ IMPORT_TEMPLATE_FIELDS = {
         ('合同结束日期', 'contract_end_date'), ('来源', 'source'), ('备注', 'remark'),
     ),
     'device': (
-        ('所属客户', 'customer_name'), ('设备名称', 'device_name'),
-        ('设备类型', 'device_type'), ('品牌', 'brand'), ('型号', 'model'),
-        ('序列号', 'serial_number'), ('网络类型', 'network_type'),
-        ('IP地址', 'ip_address'), ('端口', 'port'), ('登录用户名', 'username'),
-        ('登录密码', 'password'), ('登录方式', 'login_method'),
+        # 客户是导入归属字段；其后的设备字段严格跟随设备列表/列设置顺序。
+        # 占用U数虽由列表聚合进“起始U位”显示，导入时仍需紧邻起始U位填写。
+        ('客户', 'customer_name'), ('名称', 'device_name'), ('类型', 'device_type'),
         ('机房位置', 'rack_location'), ('机柜号', 'rack_name'),
         ('安装位置', 'location'), ('起始U位', 'rack_start_u'),
         ('占用U数', 'rack_occupy_u'), ('电源配置', 'power_supply'),
-        ('接口', 'interface'), ('系统版本', 'os_version'),
+        ('品牌', 'brand'), ('型号', 'model'), ('序列号', 'serial_number'),
+        ('IP', 'ip_address'), ('网络类型', 'network_type'), ('端口', 'port'),
+        ('登录方式', 'login_method'), ('登录用户名', 'username'),
+        ('登录密码', 'password'), ('接口', 'interface'), ('系统版本', 'os_version'),
         ('规则库版本', 'rule_version'), ('建设时间', 'build_date'),
         ('授权开始日期', 'license_start'), ('授权截止日期', 'license_expiry'),
         ('证书到期日期', 'cert_expiry_date'), ('是否维修', 'is_maintenance'),
@@ -75,9 +76,10 @@ IMPORT_TEMPLATES = {
         'name': '设备导入模板',
         'permission': 'device:add',
         'example': [
-            '示例客户（须已存在）', '示例设备（导入前请删除）', '交换机', '示例品牌',
-            '示例型号', 'SN-DEMO', '内网', '192.0.2.1', 22, 'admin', '', 'SSH',
-            '中心机房', '1', '正面', 27, 4, '双电源', 'GE0/0/1、GE0/0/2', '', '',
+            '示例客户（须已存在）', '示例设备（导入前请删除）', '交换机',
+            '中心机房', '1', '正面', 27, 4, '双电源', '示例品牌', '示例型号',
+            'SN-DEMO', '192.0.2.1', '内网', 22, 'SSH', 'admin', '',
+            'GE0/0/1、GE0/0/2', '', '',
             '2026-01-01', '2026-01-01', '2026-12-31', '2026-12-31', '否', '是', '',
         ],
     },
@@ -114,6 +116,19 @@ IMPORT_TEMPLATES = {
 }
 
 
+# 兼容已经下载或人工维护的旧模板表头。新下载模板只展示上面的统一标签，
+# 导入读取仍接受历史名称，避免仅因表头规范化而破坏存量 Excel。
+IMPORT_TEMPLATE_HEADER_ALIASES = {
+    'device': {
+        '所属客户': 'customer_name',
+        '客户名称': 'customer_name',
+        '设备名称': 'device_name',
+        '设备类型': 'device_type',
+        'IP地址': 'ip_address',
+    },
+}
+
+
 for _module, _definition in IMPORT_TEMPLATES.items():
     _definition['fields'] = IMPORT_TEMPLATE_FIELDS[_module]
     _definition['headers'] = [header for header, _field in _definition['fields']]
@@ -126,4 +141,6 @@ def get_import_template(module):
 
 def get_import_field_mapping(module):
     """返回 ``表头 -> 内部字段`` 映射；未知模块返回空字典。"""
-    return dict(IMPORT_TEMPLATE_FIELDS.get(module, ()))
+    mapping = dict(IMPORT_TEMPLATE_FIELDS.get(module, ()))
+    mapping.update(IMPORT_TEMPLATE_HEADER_ALIASES.get(module, {}))
+    return mapping

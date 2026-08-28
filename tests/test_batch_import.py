@@ -6,7 +6,7 @@ from domain_metadata import get_entity_schema
 from models import (db, Customer, CustomerCategory, Device, Fault, Inspection,
                     NetworkType, Rack, RackInstall, Region, SparePart, SpareStock)
 from utils.crypto import decrypt_password
-from utils.import_templates import IMPORT_TEMPLATES
+from utils.import_templates import IMPORT_TEMPLATES, get_import_field_mapping
 from utils.json_fields import parse_json
 
 
@@ -96,6 +96,32 @@ class TestImportTemplates:
         }
         for module, fields in expected.items():
             assert {field for _header, field in IMPORT_TEMPLATES[module]['fields']} == fields
+
+    def test_device_template_order_matches_device_list(self):
+        """客户列用于归属；设备业务列按列表顺序排列，机柜字段不得再被拆散。"""
+        assert list(IMPORT_TEMPLATES['device']['fields'][:14]) == [
+            ('客户', 'customer_name'),
+            ('名称', 'device_name'),
+            ('类型', 'device_type'),
+            ('机房位置', 'rack_location'),
+            ('机柜号', 'rack_name'),
+            ('安装位置', 'location'),
+            ('起始U位', 'rack_start_u'),
+            ('占用U数', 'rack_occupy_u'),
+            ('电源配置', 'power_supply'),
+            ('品牌', 'brand'),
+            ('型号', 'model'),
+            ('序列号', 'serial_number'),
+            ('IP', 'ip_address'),
+            ('网络类型', 'network_type'),
+        ]
+
+    def test_device_template_accepts_legacy_header_aliases(self):
+        mapping = get_import_field_mapping('device')
+        assert mapping['客户'] == mapping['所属客户'] == 'customer_name'
+        assert mapping['名称'] == mapping['设备名称'] == 'device_name'
+        assert mapping['类型'] == mapping['设备类型'] == 'device_type'
+        assert mapping['IP'] == mapping['IP地址'] == 'ip_address'
 
     def test_templates_cover_registered_form_profiles(self):
         """新增编辑字段后若忘记同步模板，本测试必须立即失败。"""
