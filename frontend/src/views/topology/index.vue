@@ -125,6 +125,10 @@
         </el-form-item>
       </el-form>
       <template #footer>
+        <el-button v-if="editForm.source === 'draw' && editForm.template_type === 'legacy'"
+          type="warning" plain :loading="legendUpgrading" @click="upgradeLegend">
+          插入当前标准图例
+        </el-button>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="editing" @click="saveEdit">保存</el-button>
       </template>
@@ -140,8 +144,8 @@
           <div class="tpl-content">
             <div class="tpl-title-row">
               <span class="tpl-name">{{ t.name }}</span>
-              <el-tag size="small" :type="t.category === 'logical' ? 'primary' : 'success'">
-                {{ t.category === 'logical' ? '逻辑关系' : t.category === 'physical' ? '物理连接' : '通用' }}
+              <el-tag size="small" :type="t.category === 'network' ? 'primary' : 'success'">
+                {{ t.category === 'network' ? '网络标准' : '会议标准' }} · V{{ t.template_version }}
               </el-tag>
             </div>
             <span class="tpl-description">{{ t.description || '在线拓扑图模板' }}</span>
@@ -163,6 +167,7 @@ import { useUiStore } from '@/stores/ui'
 import {
   fetchTopologies, fetchTopology, updateTopology, deleteTopology,
   fetchTopologyDicts, uploadTopology, fetchTopologyTemplates,
+  insertStandardLegend,
   type TopologyItem, type TopologyFile, type TopologyDicts, type TopologyTemplate,
 } from '@/api/topology'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
@@ -397,7 +402,9 @@ const editFormRef = ref()
 const editForm = reactive({
   id: null as number | null, name: '', description: '',
   customer_id: null as number | null, region_id: null as number | null,
+  source: '', template_type: 'legacy' as 'network' | 'meeting' | 'legacy',
 })
+const legendUpgrading = ref(false)
 const editFormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
 }
@@ -408,6 +415,7 @@ async function openEdit(row: TopologyItem) {
     Object.assign(editForm, {
       id: d.id, name: d.name, description: d.description,
       customer_id: d.customer_id, region_id: d.region_id,
+      source: d.source, template_type: d.template_type,
     })
     editVisible.value = true
   } catch (e) {
@@ -432,6 +440,26 @@ async function saveEdit() {
     ui.toast((e as Error).message, 'error')
   } finally {
     editing.value = false
+  }
+}
+
+async function upgradeLegend() {
+  if (!editForm.id) return
+  try {
+    const result = await ElMessageBox.prompt(
+      '输入 network 插入网络图例，或 meeting 插入会议图例。旧图内容不会被模板覆盖。',
+      '插入当前标准图例',
+      { inputValue: 'network', inputPattern: /^(network|meeting)$/,
+        inputErrorMessage: '只能填写 network 或 meeting' },
+    )
+    legendUpgrading.value = true
+    await insertStandardLegend(editForm.id, result.value as 'network' | 'meeting')
+    editForm.template_type = result.value as 'network' | 'meeting'
+    ui.toast('标准图例已插入，请进入在线编辑器确认位置', 'success')
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ui.toast((e as Error).message, 'error')
+  } finally {
+    legendUpgrading.value = false
   }
 }
 
@@ -494,12 +522,12 @@ onMounted(() => {
   display: flex; align-items: center; gap: 12px; padding: 13px 14px;
   border: 1px solid var(--itsm-border); border-radius: 8px; cursor: pointer;
 }
+
 .tpl-item:hover { background: var(--el-fill-color-light); border-color: var(--el-color-primary); }
 .tpl-name { font-size: 13px; font-weight: 600; }
 .tpl-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 38px; width: 38px; height: 38px; font-size: 18px; border-radius: 8px; }
-.tpl-icon-logical { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
-.tpl-icon-physical { color: var(--el-color-success); background: var(--el-color-success-light-9); }
-.tpl-icon-other { color: var(--el-color-info); background: var(--el-fill-color-light); }
+.tpl-icon-network { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.tpl-icon-meeting { color: var(--el-color-success); background: var(--el-color-success-light-9); }
 .tpl-content { display: flex; flex: 1; flex-direction: column; gap: 5px; min-width: 0; }
 .tpl-title-row { display: flex; align-items: center; gap: 8px; }
 .tpl-description { color: var(--itsm-text-muted); font-size: 12px; line-height: 1.4; }

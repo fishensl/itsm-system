@@ -143,6 +143,8 @@ def dashboard_reports():
 def download_template(module):
     """下载批量导入模板 Excel"""
     import openpyxl
+    from copy import deepcopy
+    from openpyxl.worksheet.datavalidation import DataValidation
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
     header_font = Font(name='微软雅黑', bold=True, size=11, color='FFFFFF')
@@ -152,7 +154,8 @@ def download_template(module):
                          top=Side(style='thin'), bottom=Side(style='thin'))
 
     from utils.import_templates import get_import_template
-    tpl = get_import_template(module)
+    source_tpl = get_import_template(module)
+    tpl = deepcopy(source_tpl) if source_tpl else None
     if not tpl:
         abort(404)
     if not has_permission(tpl['permission']):
@@ -174,6 +177,119 @@ def download_template(module):
         cell = ws.cell(row=2, column=col_idx, value=value)
         cell.alignment = Alignment(vertical='center')
         cell.border = thin_border
+
+    if module == 'customer' and '上级单位' in tpl['headers']:
+        from utils.customer_scope import customer_dropdown_options
+        values = [item['name'] for item in customer_dropdown_options(current_user)]
+        if values:
+            dict_ws = wb.create_sheet('数据字典')
+            dict_ws.cell(1, 1, '上级单位')
+            for row_no, value in enumerate(values, 2):
+                dict_ws.cell(row_no, 1, value)
+            target_col = tpl['headers'].index('上级单位') + 1
+            target_letter = openpyxl.utils.get_column_letter(target_col)
+            validation = DataValidation(
+                type='list', formula1=f"'数据字典'!$A$2:$A${len(values) + 1}", allow_blank=True)
+            ws.add_data_validation(validation)
+            validation.add(f'{target_letter}2:{target_letter}5000')
+            dict_ws.sheet_state = 'hidden'
+
+    if module == 'device':
+        from models import DeviceType, Brand, NetworkType, Rack
+        from services.device_service import get_power_supply_choices
+        from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_LOGIN_METHODS
+        from utils.customer_scope import customer_dropdown_options
+
+        customer_options = customer_dropdown_options(current_user)
+        visible_customer_ids = {item['id'] for item in customer_options}
+        dictionaries = {
+            '客户': [item['name'] for item in customer_options],
+            '类型': [item.name for item in DeviceType.query.order_by(
+                DeviceType.sort_order, DeviceType.id).all()],
+            '品牌': [item.name for item in Brand.query.order_by(Brand.sort_order, Brand.id).all()],
+            '网络类型': [item.name for item in NetworkType.query.order_by(
+                NetworkType.sort_order, NetworkType.id).all()],
+            '安装位置': list(DEVICE_INSTALLATION_POSITIONS),
+            '电源配置': list(get_power_supply_choices()),
+            '登录方式': list(DEVICE_LOGIN_METHODS),
+            '是否维修': ['是', '否'],
+            '是否在用': ['是', '否'],
+        }
+        rack_query = Rack.query
+        if visible_customer_ids:
+            rack_query = rack_query.filter(Rack.customer_id.in_(visible_customer_ids))
+        else:
+            # 当前用户没有可见客户时，模板不能泄露任何机柜名称。
+            rack_query = rack_query.filter(Rack.id == -1)
+        racks = rack_query.order_by(Rack.name).all()
+        dictionaries['机房位置'] = sorted({str(item.location or '').strip() for item in racks
+                                             if str(item.location or '').strip()})
+        dictionaries['机柜号'] = sorted({str(item.name or '').strip() for item in racks
+                                          if str(item.name or '').strip()}, key=lambda value: (len(value), value))
+
+        dict_ws = wb.create_sheet('数据字典')
+        for dict_col, (header, values) in enumerate(dictionaries.items(), 1):
+            dict_ws.cell(1, dict_col, header)
+            clean_values = list(dict.fromkeys(str(value).strip() for value in values
+                                               if str(value).strip()))
+            for row_no, value in enumerate(clean_values, 2):
+                dict_ws.cell(row_no, dict_col, value)
+            if not clean_values or header not in tpl['headers']:
+                continue
+            target_col = tpl['headers'].index(header) + 1
+            letter = openpyxl.utils.get_column_letter(dict_col)
+            target_letter = openpyxl.utils.get_column_letter(target_col)
+            validation = DataValidation(
+                type='list',
+                formula1=f"'数据字典'!${letter}$2:${letter}${len(clean_values) + 1}",
+                allow_blank=True,
+                errorTitle='请从下拉列表选择',
+                error='该值必须与系统当前设置一致。',
+                showErrorMessage=True,
+            )
+            ws.add_data_validation(validation)
+            validation.add(f'{target_letter}2:{target_letter}5000')
+            # 示例行也用当前字典，不再硬编码「内网」等历史值。
+            ws.cell(2, target_col, clean_values[0])
+
+        if '额定功率' in tpl['headers']:
+            target_col = tpl['headers'].index('额定功率') + 1
+            target_letter = openpyxl.utils.get_column_letter(target_col)
+            validation = DataValidation(type='whole', operator='between', formula1='0',
+                                        formula2='10000000', allow_blank=True)
+            validation.error = '额定功率请填写非负整数，单位 W。'
+            validation.showErrorMessage = True
+            ws.add_data_validation(validation)
+            validation.add(f'{target_letter}2:{target_letter}5000')
+        dict_ws.sheet_state = 'hidden'
+
+        guide = wb.create_sheet('填写说明')
+        guide_rows = [
+            ('字段/主题', '填写规则'),
+            ('示例行', '第 2 行仅用于说明，正式导入前请删除。'),
+            ('设备ID（可选）', '系统导出后再导入时优先按设备ID匹配；否则按“客户 + 名称”精确匹配。'),
+            ('空值覆盖', '默认空单元格不覆盖原值；只有在导入界面明确勾选“允许空值清除”时才清空。登录密码空白永不清除。'),
+            ('机房位置 / 机柜号', '请填写该客户已存在的机房和机柜；机柜、起始U位、占用U数作为一个位置组合校验。'),
+            ('起始U位 / 占用U数', '例如起始U位 27、占用U数 4，表示占用 27U-30U；不得超出机柜范围或与其他设备冲突。'),
+            ('电源配置', '从下拉选择单电源、双电源或四电源；该字段表示冗余方式，不用于倍增额定功率。'),
+            ('额定功率', '填写设备整机额定输入功率，单位 W，仅允许非负整数；不要把多个电源模块铭牌功率简单相加。'),
+            ('网络类型', '必须从系统当前网络类型选择；未知值会在预检中聚合提示，确认映射后才可导入。'),
+            ('导入模式', '仅新增：已存在则跳过；仅更新：不存在则跳过；新增并更新：不存在新增、存在更新。'),
+        ]
+        for row in guide_rows:
+            guide.append(row)
+        guide.column_dimensions['A'].width = 24
+        guide.column_dimensions['B'].width = 110
+        guide.freeze_panes = 'A2'
+        for cell in guide[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+        for row in guide.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = Alignment(vertical='top', wrap_text=True)
+                cell.border = thin_border
 
     import tempfile
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')

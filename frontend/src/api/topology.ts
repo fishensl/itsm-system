@@ -11,6 +11,8 @@ export interface TopologyItem {
   types: string[]
   file_count: number
   source: string
+  template_type: 'network' | 'meeting' | 'legacy'
+  template_version: number
   upload_by: string
   has_thumbnail: boolean
   files: TopologyFile[]
@@ -41,6 +43,8 @@ export interface TopologyDetail {
   region_id: number | null
   region_name: string
   source: string
+  template_type: 'network' | 'meeting' | 'legacy'
+  template_version: number
   file_count: number
   files: TopologyFile[]
   has_editor: boolean
@@ -105,11 +109,21 @@ export function uploadTopology(formData: FormData) {
 export interface TopologyTemplate {
   name: string
   description: string
-  category: 'logical' | 'physical' | 'other'
+  category: 'network' | 'meeting'
+  template_type: 'network' | 'meeting'
+  template_version: number
   file: string
   url: string
 }
 
 export function fetchTopologyTemplates() {
   return request<{ items: TopologyTemplate[] }>({ url: '/api/topologies/templates', method: 'GET' })
+}
+
+export function insertStandardLegend(id: number, templateType: 'network' | 'meeting') {
+  return request<{ template_type: string; template_version: number }>({
+    url: `/api/topologies/${id}/insert-standard-legend`,
+    method: 'POST',
+    data: { template_type: templateType },
+  })
 }

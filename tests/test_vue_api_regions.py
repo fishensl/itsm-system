@@ -56,6 +56,30 @@ class TestRegionApi:
         assert viewer_client.post('/api/regions', json={'name': 'x'}).status_code == 403
         assert viewer_client.delete('/api/regions/1').status_code == 403
 
+    def test_reorder_only_accepts_complete_sibling_set(self, admin_client, app):
+        with app.app_context():
+            parent = Region(name='排序父级')
+            other_parent = Region(name='另一父级')
+            db.session.add_all([parent, other_parent])
+            db.session.flush()
+            first = Region(name='排序一', parent_id=parent.id, sort_order=10)
+            second = Region(name='排序二', parent_id=parent.id, sort_order=20)
+            outsider = Region(name='其他子级', parent_id=other_parent.id, sort_order=10)
+            db.session.add_all([first, second, outsider])
+            db.session.commit()
+            parent_id = parent.id
+            first_id, second_id, outsider_id = first.id, second.id, outsider.id
+        response = admin_client.put('/api/regions/reorder', json={
+            'parent_id': parent_id, 'ids': [second_id, first_id],
+        })
+        assert response.status_code == 200
+        with app.app_context():
+            assert [item.id for item in Region.query.filter_by(parent_id=parent_id).order_by(
+                Region.sort_order, Region.id).all()] == [second_id, first_id]
+        assert admin_client.put('/api/regions/reorder', json={
+            'parent_id': parent_id, 'ids': [first_id, outsider_id],
+        }).status_code == 400
+
 
 class TestCategoryApi:
     def test_crud(self, admin_client, app):
@@ -84,3 +108,17 @@ class TestCategoryApi:
         assert viewer_client.get('/api/customer-categories').status_code == 200
         assert viewer_client.post('/api/customer-categories', json={'name': 'x'}).status_code == 403
         assert op_client.delete('/api/customer-categories/1').status_code == 403
+
+    def test_reorder(self, admin_client, app):
+        with app.app_context():
+            first = CustomerCategory(name='类别一', sort_order=10)
+            second = CustomerCategory(name='类别二', sort_order=20)
+            db.session.add_all([first, second])
+            db.session.commit()
+            first_id, second_id = first.id, second.id
+        assert admin_client.put('/api/customer-categories/reorder', json={
+            'ids': [second_id, first_id],
+        }).status_code == 200
+        with app.app_context():
+            assert [item.id for item in CustomerCategory.query.order_by(
+                CustomerCategory.sort_order, CustomerCategory.id).all()] == [second_id, first_id]

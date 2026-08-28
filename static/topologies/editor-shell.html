@@ -126,6 +126,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
     var URL_ID = mPath ? parseInt(mPath[1], 10) : parseInt(qs('id'), 10);
     var DIAGRAM_ID = isNaN(URL_ID) ? 0 : URL_ID;
     var TEMPLATE_PARAM = qs('template');
+    var TEMPLATE_TYPE = 'network';
     var IMPORT_TOPO_ID = parseInt(qs('import'), 10) || null;
 
     var META = null;          // editor-meta 返回的数据
@@ -246,6 +247,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
                 data.items.forEach(function(t) {
                     var opt = document.createElement('option');
                     opt.value = t.url; opt.textContent = t.name;
+                    opt.dataset.templateType = t.template_type || 'network';
                     sel.appendChild(opt);
                 });
                 if (TEMPLATE_PARAM) {
@@ -253,6 +255,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
                         return t.name === TEMPLATE_PARAM || t.file === TEMPLATE_PARAM;
                     })[0];
                     if (hit) {
+                        TEMPLATE_TYPE = hit.template_type || 'network';
                         if (!document.getElementById('topoName').value) {
                             document.getElementById('topoName').value = hit.name;
                         }
@@ -260,11 +263,26 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
                     }
                     else showToast('模板不存在: ' + TEMPLATE_PARAM, 'danger');
                 }
+                else if (DIAGRAM_ID === 0 && !(META && META.import)) {
+                    var defaultHit = data.items.filter(function(t) {
+                        return t.file === ((META && META.default_template) || 'standard-network-v1.drawio');
+                    })[0];
+                    if (defaultHit) {
+                        TEMPLATE_TYPE = defaultHit.template_type || 'network';
+                        if (!document.getElementById('topoName').value) {
+                            document.getElementById('topoName').value = defaultHit.name;
+                        }
+                        loadTemplateXml(defaultHit.url, defaultHit.name);
+                        sel.value = defaultHit.url;
+                    }
+                }
             }).catch(function(e) { console.warn('[tpl] 模板列表加载失败', e); });
         var tplSel = document.getElementById('tplSelect');
         if (tplSel) tplSel.addEventListener('change', function() {
             var url = this.value;
             if (!url) return;
+            var selected = this.options[this.selectedIndex];
+            TEMPLATE_TYPE = selected.dataset.templateType || 'network';
             if (!DIAGRAM_ID && !document.getElementById('topoName').value) {
                 var name = this.options[this.selectedIndex].textContent;
                 document.getElementById('topoName').value = '模板-' + name;
@@ -299,11 +317,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
             post({action: 'load', xml: xml});
             return;
         }
-        if (DIAGRAM_ID === 0) {
-            var empty = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
-            post({action: 'load', xml: empty});
-            return;
-        }
+        if (DIAGRAM_ID === 0) return;
         fetch('/topologies/api/diagram/' + DIAGRAM_ID).then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.ok) { showToast(data.error || '加载失败', 'danger'); return; }
@@ -311,6 +325,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
                 document.getElementById('topoDesc').value = data.description || '';
                 if (data.customer_id) document.getElementById('topoCustomer').value = data.customer_id;
                 if (data.region_id) document.getElementById('topoRegion').value = data.region_id;
+                TEMPLATE_TYPE = data.template_type || 'legacy';
                 post({action: 'load', xml: data.diagram_xml || ''});
             })
             .catch(function(e) { showToast('加载失败: ' + e, 'danger'); });
@@ -336,6 +351,7 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", san
             description: document.getElementById('topoDesc').value,
             customer_id: parseInt(document.getElementById('topoCustomer').value) || null,
             region_id: parseInt(document.getElementById('topoRegion').value) || null,
+            template_type: TEMPLATE_TYPE,
             diagram_xml: xml
         }).then(function(data) {
             if (!data.ok) { showToast(data.error || '保存失败', 'danger'); setStatus('保存失败'); return; }

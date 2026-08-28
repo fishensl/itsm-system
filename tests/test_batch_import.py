@@ -69,7 +69,7 @@ class TestImportTemplates:
                 'rack_start_u', 'rack_occupy_u', 'power_supply', 'interface',
                 'os_version', 'rule_version', 'build_date', 'license_start',
                 'license_expiry', 'cert_expiry_date', 'is_maintenance', 'is_in_use',
-                'remark',
+                'remark', 'rated_power_w', 'device_id',
             },
             'customer': {
                 'name', 'contact_person', 'phone', 'email', 'region_name', 'city',
@@ -77,6 +77,7 @@ class TestImportTemplates:
                 'map_location', 'has_onsite', 'onsite_contact', 'onsite_phone',
                 'onsite_office', 'has_drill', 'inspection_frequency',
                 'contract_start_date', 'contract_end_date', 'source', 'remark',
+                'parent_name',
             },
             'spare': {
                 'code', 'name', 'category', 'brand', 'model', 'specification',
@@ -99,7 +100,7 @@ class TestImportTemplates:
 
     def test_device_template_order_matches_device_list(self):
         """客户列用于归属；设备业务列按列表顺序排列，机柜字段不得再被拆散。"""
-        assert list(IMPORT_TEMPLATES['device']['fields'][:14]) == [
+        assert list(IMPORT_TEMPLATES['device']['fields'][:15]) == [
             ('客户', 'customer_name'),
             ('名称', 'device_name'),
             ('类型', 'device_type'),
@@ -109,6 +110,7 @@ class TestImportTemplates:
             ('起始U位', 'rack_start_u'),
             ('占用U数', 'rack_occupy_u'),
             ('电源配置', 'power_supply'),
+            ('额定功率', 'rated_power_w'),
             ('品牌', 'brand'),
             ('型号', 'model'),
             ('序列号', 'serial_number'),
@@ -216,7 +218,56 @@ class TestDeviceCustomerImport:
         assert response.status_code == 200
         body = response.get_json()['data']
         assert body['created'] == 0
-        assert '不在网络类型设置中' in body['errors'][0]
+        assert '未知网络类型' in body['errors'][0]
+        assert body['errors_file']['filename'].endswith('.xlsx')
+
+    def test_device_import_preflight_rejects_rack_conflict_atomically(
+            self, admin_client, app):
+        with app.app_context():
+            customer = Customer(name='U位冲突客户')
+            db.session.add(customer)
+            db.session.flush()
+            rack = Rack(customer_id=customer.id, name='1', location='中心机房', total_u=42)
+            db.session.add(rack)
+            db.session.flush()
+            db.session.add(RackInstall(
+                rack_id=rack.id, manual_name='原设备', start_u=5, occupy_u=2))
+            db.session.commit()
+        data = _xlsx(IMPORT_TEMPLATES['device']['headers'], [
+            _template_row('device', {
+                'customer_name': 'U位冲突客户', 'device_name': '冲突新设备',
+                'rack_location': '中心机房', 'rack_name': '1',
+                'rack_start_u': 6, 'rack_occupy_u': 2,
+            }),
+        ])
+        response = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(data), 'rack-conflict.xlsx'),
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        result = response.get_json()['data']
+        assert result['failed'] == 1
+        assert 'U 位冲突' in result['errors'][0]
+        with app.app_context():
+            assert Device.query.filter_by(device_name='冲突新设备').count() == 0
+
+    def test_asset_import_accepts_aggregated_u_range(self, admin_client, app):
+        with app.app_context():
+            customer = Customer(name='聚合U位客户')
+            db.session.add(customer)
+            db.session.commit()
+            customer_id = customer.id
+        data = _xlsx(['客户', '名称', '机房位置', '机柜号', '起始U位'], [[
+            '聚合U位客户', '聚合U位设备', '中心机房', '2', '27U-30U',
+        ]])
+        response = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(data), 'aggregated-u.xlsx'),
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200, response.get_json()
+        with app.app_context():
+            device = Device.query.filter_by(
+                customer_id=customer_id, device_name='聚合U位设备').one()
+            install = RackInstall.query.filter_by(device_id=device.id).one()
+            assert (install.start_u, install.occupy_u) == (27, 4)
 
     def test_customer_template_imports_extended_editable_fields(self, admin_client, app):
         with app.app_context():

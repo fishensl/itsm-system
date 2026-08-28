@@ -12,6 +12,10 @@ class Device(db.Model):
     """网络设备"""
     __tablename__ = 'devices'
     __table_args__ = (
+        db.UniqueConstraint('customer_id', 'device_name', name='uq_devices_customer_name'),
+        db.CheckConstraint(
+            'rated_power_w IS NULL OR rated_power_w >= 0',
+            name='ck_devices_rated_power_nonnegative'),
         db.Index('ix_devices_brand_model', 'brand', 'model'),  # 固件按品牌+型号匹配设备
     )
     id = db.Column(db.Integer, primary_key=True)
@@ -30,7 +34,8 @@ class Device(db.Model):
     password_encrypted = db.Column(db.Text, default='')
     location = db.Column(db.String(128), default='')       # 安装朝向：正面/背面
     rack_location = db.Column(db.String(128), default='')   # 设备自身机房位置（未上架设备可写入；已上架读机柜）
-    power_supply = db.Column(db.String(16), nullable=False, default='')  # 电源配置：单电源/双电源
+    power_supply = db.Column(db.String(16), nullable=False, default='')  # 电源配置字典：单/双/四电源等
+    rated_power_w = db.Column(db.Integer, nullable=True)    # 整机额定输入功率（W）；空=未核实
     interface = db.Column(db.Text, default='')  # JSON 数组字符串；曾 String(128) 在 SQLite 宽松、PG 严格校验长度会截断/报错，故改 Text
     os_version = db.Column(db.String(128), default='')
     rule_version = db.Column(db.String(128), default='')
@@ -179,4 +184,27 @@ class Brand(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), unique=True, nullable=False)
     sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class DevicePowerConfig(db.Model):
+    """设备电源配置字典（单/双/四电源，可排序、停用）。"""
+    __tablename__ = 'device_power_configs'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(32), unique=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class DeviceImportBatch(db.Model):
+    """设备导入幂等批次；成功批次号不可用于另一文件或参数。"""
+    __tablename__ = 'device_import_batches'
+    id = db.Column(db.Integer, primary_key=True)
+    batch_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    file_sha256 = db.Column(db.String(64), nullable=False)
+    mode = db.Column(db.String(16), nullable=False)
+    clear_empty = db.Column(db.Boolean, nullable=False, default=False)
+    result_json = db.Column(db.Text, nullable=False, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

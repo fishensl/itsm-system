@@ -44,10 +44,12 @@
       <template #header>
         <div class="dept-header">
           <span class="card-title">部门</span>
+          <el-button size="small" @click="openDeptSort">拖动排序</el-button>
           <el-button size="small" :icon="Plus" @click="openDeptCreate">新增部门</el-button>
         </div>
       </template>
-      <el-table v-if="depts.length" :data="deptTree" size="small" border>
+      <el-table v-if="depts.length" :data="deptTree" size="small" border row-key="id"
+        :tree-props="{ children: 'children' }" default-expand-all>
         <el-table-column prop="name" label="部门名称" min-width="180" />
         <el-table-column label="负责人" min-width="100">
           <template #default="{ row }">
@@ -220,6 +222,29 @@
         <el-button type="primary" @click="saveDept">保存</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="deptSortVisible" title="拖动部门顺序" width="480px">
+      <el-select v-model="deptSortParent" clearable placeholder="根部门" class="w-full mb-2"
+        @change="resetDeptSortItems">
+        <el-option v-for="dept in depts" :key="dept.id" :label="dept.name" :value="dept.id" />
+      </el-select>
+      <div class="dept-sort-list">
+        <div v-for="(dept, index) in deptSortItems" :key="dept.id" class="dept-sort-item"
+          draggable="true" @dragstart="deptDragIndex = index" @dragover.prevent @drop="dropDept(index)">
+          <span>☰</span><span>{{ dept.name }}</span>
+          <span class="dept-sort-actions">
+            <el-button size="small" link :disabled="index === 0" @click="moveDept(index, -1)">上移</el-button>
+            <el-button size="small" link :disabled="index === deptSortItems.length - 1"
+              @click="moveDept(index, 1)">下移</el-button>
+          </span>
+        </div>
+      </div>
+      <el-empty v-if="!deptSortItems.length" description="该层级暂无部门" :image-size="50" />
+      <template #footer>
+        <el-button @click="deptSortVisible = false">取消</el-button>
+        <el-button type="primary" :loading="deptSortSaving" :disabled="!deptSortItems.length"
+          @click="saveDeptSort">保存排序</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -238,7 +263,7 @@ import { useUserStore } from '@/stores/user'
 import { ROLE_LABELS, ROLE_TAG, ACTIVE_LABELS } from '@/utils/labels'
 import {
   fetchUsers, createUser, updateUser, deleteUser, resetUserPassword, resetUserMfa, offboardUser,
-  fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
+  fetchDepartments, createDepartment, updateDepartment, deleteDepartment, reorderDepartments,
   type UserItem, type DepartmentItem,
 } from '@/api/system'
 import { fetchRegions, type RegionItem } from '@/api/regions'
@@ -309,7 +334,17 @@ watch(
   { immediate: true },
 )
 
-const deptTree = computed(() => depts.value.filter((d) => !d.parent_id))
+const deptTree = computed(() => {
+  const byParent = new Map<number | null, Array<DeptRow & { children?: DeptRow[] }>>()
+  for (const dept of depts.value) {
+    const parent = dept.parent_id ?? null
+    if (!byParent.has(parent)) byParent.set(parent, [])
+    byParent.get(parent)!.push({ ...dept })
+  }
+  const build = (parent: number | null): Array<DeptRow & { children?: DeptRow[] }> =>
+    (byParent.get(parent) || []).map((dept) => ({ ...dept, children: build(dept.id) }))
+  return build(null)
+})
 
 function userName(id: number | null) {
   return allUsers.value.find((u) => u.id === id)?.name || '-'
@@ -327,10 +362,10 @@ async function load() {
   allUsers.value = deptData.users
 }
 
-const loadUsers = async (params: Record<string, unknown>): Promise<PageResult<Record<string, any>>> => {
+const loadUsers = async (params: Record<string, unknown>): Promise<PageResult<Record<string, unknown>>> => {
   const data = await fetchUsers(params)
   return {
-    items: data.users as unknown as Record<string, any>[],
+    items: data.users as unknown as Record<string, unknown>[],
     total: data.total ?? data.users.length,
     page: data.page ?? 1,
     page_size: data.page_size ?? (data.users.length || 20),
@@ -513,6 +548,11 @@ async function onOffboard(u: UserItem) {
 // 部门表单
 const deptFormVisible = ref(false)
 const deptForm = ref<Record<string, unknown>>({})
+const deptSortVisible = ref(false)
+const deptSortSaving = ref(false)
+const deptSortParent = ref<number | null>(null)
+const deptSortItems = ref<DeptRow[]>([])
+const deptDragIndex = ref<number | null>(null)
 
 function openDeptCreate() {
   deptForm.value = { name: '', parent_id: null, head_id: null }
@@ -550,6 +590,48 @@ async function onDeptDelete(d: DepartmentItem) {
   }
 }
 
+function resetDeptSortItems() {
+  deptSortItems.value = depts.value.filter(
+    (dept) => (dept.parent_id ?? null) === (deptSortParent.value ?? null))
+}
+
+function openDeptSort() {
+  deptSortParent.value = null
+  resetDeptSortItems()
+  deptSortVisible.value = true
+}
+
+function dropDept(target: number) {
+  if (deptDragIndex.value == null || deptDragIndex.value === target) return
+  const next = [...deptSortItems.value]
+  const [moved] = next.splice(deptDragIndex.value, 1)
+  next.splice(target, 0, moved)
+  deptSortItems.value = next
+  deptDragIndex.value = null
+}
+
+function moveDept(index: number, delta: number) {
+  const target = index + delta
+  if (target < 0 || target >= deptSortItems.value.length) return
+  const next = [...deptSortItems.value]
+  ;[next[index], next[target]] = [next[target], next[index]]
+  deptSortItems.value = next
+}
+
+async function saveDeptSort() {
+  deptSortSaving.value = true
+  try {
+    await reorderDepartments(deptSortParent.value, deptSortItems.value.map((dept) => dept.id))
+    ui.toast('排序已保存', 'success')
+    deptSortVisible.value = false
+    await load()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    deptSortSaving.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadRegions()
@@ -566,6 +648,12 @@ onMounted(() => {
 .user-card-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .current-security-status { margin-left: 18px; color: var(--itsm-text-muted); font-size: 12px; }
 .dept-header { display: flex; justify-content: space-between; align-items: center; }
+.dept-sort-list { display: grid; gap: 8px; }
+.dept-sort-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--itsm-border); border-radius: 6px; cursor: grab;
+}
+.dept-sort-actions { margin-left: auto; white-space: nowrap; }
 .w-full { width: 100%; }
 @media (max-width: 640px) {
   .user-card-header { align-items: flex-start; flex-direction: column; }

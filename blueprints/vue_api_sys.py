@@ -377,10 +377,14 @@ def api_department_create():
         return fail('部门名称不能为空', 400)
     if Department.query.filter_by(name=name).first():
         return fail('部门名称已存在', 400)
+    parent_id = int(data['parent_id']) if data.get('parent_id') else None
+    from sqlalchemy import func
+    max_sort = db.session.query(func.max(Department.sort_order)).filter_by(
+        parent_id=parent_id).scalar() or 0
     d = Department(name=name,
-                   parent_id=int(data['parent_id']) if data.get('parent_id') else None,
+                   parent_id=parent_id,
                    head_id=int(data['head_id']) if data.get('head_id') else None,
-                   sort_order=int(data.get('sort_order') or 0))
+                   sort_order=max_sort + 10)
     db.session.add(d)
     db.session.commit()
     audit_log('dept:create', 'department', d.id, f'创建部门 {name}')
@@ -406,6 +410,25 @@ def api_department_update(dept_id):
         d.sort_order = int(data['sort_order'])
     db.session.commit()
     audit_log('dept:update', 'department', dept_id, f'更新部门 {d.name}')
+    return ok(None)
+
+
+@vue_api_bp.route('/api/departments/reorder', methods=['PUT'])
+@login_required
+def api_department_reorder():
+    if not current_user.is_admin:
+        return fail('需要管理员权限', 403)
+    from models import Department
+    from utils.reorder import reorder_siblings
+    data = request.get_json(silent=True) or {}
+    parent_id = int(data['parent_id']) if data.get('parent_id') else None
+    try:
+        old_ids, new_ids = reorder_siblings(Department, data.get('ids'), parent_id)
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    db.session.commit()
+    audit_log('dept:reorder', 'department', parent_id,
+              f'父节点={parent_id}; 旧顺序={old_ids}; 新顺序={new_ids}')
     return ok(None)
 
 
@@ -902,9 +925,10 @@ def api_roles_add():
         return fail('角色代码仅允许字母/数字/下划线')
     if Role.query.filter_by(code=code).first():
         return fail(f'角色代码 {code} 已存在')
+    max_sort = db.session.query(db.func.max(Role.sort_order)).scalar() or 0
     role = Role(code=code, name=name, description=(data.get('description') or '').strip(),
                 is_system=False, is_active=bool(data.get('is_active', True)),
-                sort_order=int(data.get('sort_order') or 99))
+                sort_order=max_sort + 10)
     db.session.add(role)
     from utils.permission import bump_role_cache_version
     bump_role_cache_version()
@@ -926,12 +950,31 @@ def api_roles_update(rid):
         return fail('角色名称不能为空')
     role.name = name
     role.description = (data.get('description') or '').strip()
-    role.sort_order = int(data.get('sort_order') or 0)
+    if 'sort_order' in data:
+        role.sort_order = int(data.get('sort_order') or 0)
     role.is_active = bool(data.get('is_active', role.is_active))
     bump_role_cache_version()
     db.session.commit()
     invalidate_role(role.code)
     audit_log('role:update', 'role', role.id, f'更新角色 {role.code}/{role.name}')
+    return ok(None)
+
+
+@vue_api_bp.route('/api/roles/reorder', methods=['PUT'])
+@login_required
+@require_permission('permission:edit')
+def api_roles_reorder():
+    from models import Role
+    from utils.reorder import reorder_all
+    data = request.get_json(silent=True) or {}
+    try:
+        old_ids, new_ids = reorder_all(Role, data.get('ids'))
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    from utils.permission import bump_role_cache_version
+    bump_role_cache_version()
+    db.session.commit()
+    audit_log('role:reorder', 'role', None, f'旧顺序={old_ids}; 新顺序={new_ids}')
     return ok(None)
 
 

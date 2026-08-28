@@ -1,8 +1,24 @@
 <template>
   <div class="group-tree">
     <template v-for="node in nodes" :key="nodeKey(node)">
+      <template v-if="renderAllNodes">
+        <slot name="leaf" :node="node" />
+        <div v-if="node.children?.length" class="tree-children all-node-children">
+          <GroupTree
+            :nodes="node.children"
+            :depth="depth + 1"
+            :leaf-depth="leafDepth"
+            :badge-key="badgeKey"
+            :default-expanded="defaultExpanded"
+            render-all-nodes
+          >
+            <template #leaf="scope"><slot name="leaf" :node="scope.node" /></template>
+            <template #actions="scope"><slot name="actions" :node="scope.node" /></template>
+          </GroupTree>
+        </div>
+      </template>
       <!-- 叶子行：完全由页面自定义渲染 -->
-      <slot v-if="isLeaf(node)" name="leaf" :node="node" />
+      <slot v-else-if="isLeaf()" name="leaf" :node="node" />
       <!-- 分组行：名称 + 徽标 + 展开 -->
       <div v-else class="tree-block">
         <div class="tree-row" @click="toggle(nodeKey(node))">
@@ -43,17 +59,19 @@ import { ArrowRight, OfficeBuilding } from '@element-plus/icons-vue'
 
 defineOptions({ name: 'GroupTree' })
 
-defineSlots<{
-  leaf(props: { node: any }): unknown
-  actions(props: { node: any }): unknown
-}>()
-
+/* eslint-disable @typescript-eslint/no-explicit-any -- 递归分组插槽同时承载客户、设备和分组节点，具体类型由调用页面约束。 */
 interface TreeNode {
   id?: number | null
   name: string
   children?: any[]
-  [key: string]: unknown
+  [key: string]: any
 }
+
+defineSlots<{
+  leaf(props: { node: any }): unknown
+  actions(props: { node: any }): unknown
+}>()
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const props = withDefaults(defineProps<{
   nodes: TreeNode[]
@@ -64,6 +82,8 @@ const props = withDefaults(defineProps<{
   depth?: number
   /** 默认展开深度（0=全折叠） */
   defaultExpanded?: number
+  /** 每个节点都是业务行，子节点只负责缩进（用于客户任意层级） */
+  renderAllNodes?: boolean
 }>(), { depth: 0, badgeKey: '', defaultExpanded: 0 })
 
 const expanded = ref<Set<string>>(new Set())
@@ -72,7 +92,7 @@ function nodeKey(node: TreeNode): string {
   return `${node.name}:${node.id ?? ''}:${props.depth}`
 }
 
-function isLeaf(node: TreeNode): boolean {
+function isLeaf(): boolean {
   return props.depth >= props.leafDepth
 }
 

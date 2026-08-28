@@ -54,6 +54,7 @@
       <GroupTree
         :nodes="tree"
         :leaf-depth="1"
+        render-all-nodes
         badge-key="customer_count"
         :default-expanded="hasFilter || !!route.params.id ? 2 : 0"
       >
@@ -62,7 +63,7 @@
             <div class="tree-block cust-leaf" @click="toggleDetail(node as Customer)">
               <el-icon color="var(--itsm-primary)"><Location /></el-icon>
               <span class="tree-name">{{ node.name }}</span>
-              <span v-if="node.district" class="tree-district">{{ node.district }}</span>
+              <span v-if="node.region_name" class="tree-district">{{ node.region_name }}</span>
               <el-tag size="small" :type="CUSTOMER_LEVEL_TAG[node.level] || 'info'" class="ml-2">
                 {{ CUSTOMER_LEVEL_LABELS[node.level] || node.level }}
               </el-tag>
@@ -95,6 +96,11 @@
                       <span class="hero-sep">│</span>
                       <el-cascader v-model="form.regionPath" :options="regionOptions" clearable size="small"
                         style="width: 200px" placeholder="地市 → 区县" />
+                      <el-select v-model="form.parent_id" clearable filterable size="small"
+                        style="width: 210px" placeholder="上级单位">
+                        <el-option v-for="item in parentOptions" :key="item.id"
+                          :label="item.name" :value="item.id" />
+                      </el-select>
                       <span class="hero-sep">│</span>
                       <span class="hero-stats">
                         <span class="stat">{{ fieldLabel('device_count', '设备数量') }} <b>{{ detail.device_count ?? 0 }}</b></span>
@@ -162,6 +168,8 @@
                     <span class="hero-sep">│</span>
                     <span class="hero-region">{{ [detail.city, detail.region_name].filter(Boolean).join(' ') || '-' }}</span>
                     <span class="hero-sep">│</span>
+                    <span class="hero-region">{{ fieldLabel('hierarchy_path', '层级路径') }}：{{ detail.hierarchy_path }}</span>
+                    <span class="hero-sep">│</span>
                     <span class="hero-stats">
                       <span class="stat">{{ fieldLabel('device_count', '设备数量') }} <b>{{ detail.device_count ?? 0 }}</b></span>
                       <span class="stat">{{ fieldLabel('inspection_count', '巡检数量') }} <b>{{ detail.inspection_count ?? 0 }}</b></span>
@@ -222,6 +230,14 @@
             <el-form-item :label="fieldLabel('level', '客户等级', 'form')">
               <el-select v-model="form.level" class="w-full">
                 <el-option v-for="lv in levelOptions" :key="lv.value" :label="lv.label" :value="lv.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="fieldLabel('parent_name', '上级单位', 'form')">
+              <el-select v-model="form.parent_id" clearable filterable class="w-full">
+                <el-option v-for="item in parentOptions" :key="item.id"
+                  :label="item.name" :value="item.id" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -494,6 +510,7 @@ interface CustomerFormModel {
   phone: string
   email: string
   category_id: number | null
+  parent_id: number | null
   level: string
   address: string
   source: string
@@ -518,7 +535,7 @@ const form = reactive<CustomerFormModel>(blankForm())
 function blankForm(): CustomerFormModel {
   return {
     id: undefined, name: '', contact_person: '', phone: '', email: '',
-    category_id: null, level: 'auto', address: '', source: '', contract_start_date: '',
+    category_id: null, parent_id: null, level: 'auto', address: '', source: '', contract_start_date: '',
     contract_end_date: '', office_room: '', map_location: '', regionPath: [],
     has_onsite: false, onsite_contact: '', onsite_phone: '', onsite_office: '',
     has_drill: false, remark: '',
@@ -526,6 +543,24 @@ function blankForm(): CustomerFormModel {
 }
 
 const formRules = { name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }] }
+
+function descendantIds(rootId: number | undefined) {
+  const result = new Set<number>()
+  if (!rootId) return result
+  const walk = (nodes: CustomerTreeGroup[]) => {
+    for (const node of nodes) {
+      if (node.parent_id === rootId || result.has(node.parent_id || -1)) result.add(node.id)
+      if (node.children?.length) walk(node.children)
+    }
+  }
+  walk(tree.value)
+  return result
+}
+
+const parentOptions = computed(() => {
+  const excluded = descendantIds(form.id)
+  return (dicts.value?.customers || []).filter((item) => item.id !== form.id && !excluded.has(item.id))
+})
 
 function regionPathOf(regionId: number | null | undefined): number[] {
   if (!regionId) return []
@@ -546,7 +581,7 @@ function startEdit() {
   if (!c) return
   Object.assign(form, blankForm(), {
     id: c.id, name: c.name, contact_person: c.contact_person, phone: c.phone, email: c.email,
-    category_id: c.category_id, level: c.level || '常规', address: c.address, source: c.source || '',
+    category_id: c.category_id, parent_id: c.parent_id, level: c.level || '常规', address: c.address, source: c.source || '',
     contract_start_date: c.contract_start_date || '', contract_end_date: c.contract_end_date || '',
     office_room: c.office_room || '', map_location: c.map_location || '',
     regionPath: regionPathOf(c.region_id),
@@ -583,6 +618,7 @@ async function save() {
     const payload: CustomerForm = {
       name: form.name, contact_person: form.contact_person, phone: form.phone,
       email: form.email, category_id: form.category_id, level: form.level,
+      parent_id: form.parent_id,
       region_id: path.length ? path[path.length - 1] : null,
       address: form.address, has_onsite: form.has_onsite,
       onsite_contact: form.onsite_contact, onsite_phone: form.onsite_phone,

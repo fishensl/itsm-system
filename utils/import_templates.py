@@ -8,7 +8,8 @@
 
 IMPORT_TEMPLATE_FIELDS = {
     'customer': (
-        ('客户名称', 'name'), ('联系人', 'contact_person'), ('电话', 'phone'),
+        ('客户名称', 'name'), ('上级单位', 'parent_name'),
+        ('联系人', 'contact_person'), ('电话', 'phone'),
         ('邮箱', 'email'), ('所属地区', 'region_name'), ('地市', 'city'),
         ('地址', 'address'), ('单位类别', 'category_name'), ('客户等级', 'level'),
         ('办公室', 'office'), ('办公室门牌号', 'office_room'),
@@ -25,6 +26,7 @@ IMPORT_TEMPLATE_FIELDS = {
         ('机房位置', 'rack_location'), ('机柜号', 'rack_name'),
         ('安装位置', 'location'), ('起始U位', 'rack_start_u'),
         ('占用U数', 'rack_occupy_u'), ('电源配置', 'power_supply'),
+        ('额定功率', 'rated_power_w'),
         ('品牌', 'brand'), ('型号', 'model'), ('序列号', 'serial_number'),
         ('IP', 'ip_address'), ('网络类型', 'network_type'), ('端口', 'port'),
         ('登录方式', 'login_method'), ('登录用户名', 'username'),
@@ -33,6 +35,7 @@ IMPORT_TEMPLATE_FIELDS = {
         ('授权开始日期', 'license_start'), ('授权截止日期', 'license_expiry'),
         ('证书到期日期', 'cert_expiry_date'), ('是否维修', 'is_maintenance'),
         ('是否在用', 'is_in_use'), ('备注', 'remark'),
+        ('设备ID（可选）', 'device_id'),
     ),
     'inspection': (
         ('客户名称', 'customer_name'), ('标题', 'title'),
@@ -67,7 +70,7 @@ IMPORT_TEMPLATES = {
         'name': '客户导入模板',
         'permission': 'customer:add',
         'example': [
-            '示例客户（导入前请删除）', '张三', '13800000000', 'demo@example.com',
+            '示例客户（导入前请删除）', '', '张三', '13800000000', 'demo@example.com',
             '', '鹰潭市', '示例地址', '', '常规', '', 'A栋301', '', '否', '', '', '',
             '否', '每季度', '2026-01-01', '2026-12-31', '', '',
         ],
@@ -77,10 +80,10 @@ IMPORT_TEMPLATES = {
         'permission': 'device:add',
         'example': [
             '示例客户（须已存在）', '示例设备（导入前请删除）', '交换机',
-            '中心机房', '1', '正面', 27, 4, '双电源', '示例品牌', '示例型号',
+            '中心机房', '1', '正面', 27, 4, '双电源', 800, '示例品牌', '示例型号',
             'SN-DEMO', '192.0.2.1', '内网', 22, 'SSH', 'admin', '',
             'GE0/0/1、GE0/0/2', '', '',
-            '2026-01-01', '2026-01-01', '2026-12-31', '2026-12-31', '否', '是', '',
+            '2026-01-01', '2026-01-01', '2026-12-31', '2026-12-31', '否', '是', '', '',
         ],
     },
     'inspection': {

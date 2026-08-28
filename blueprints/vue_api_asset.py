@@ -30,7 +30,14 @@ _U_OCCUPY_LEVEL = ((1.0, '已满', 'danger'), (0.8, '高', 'warning'),
 def _rack_payload(r):
     used = sum(i.occupy_u or 0 for i in r.installs)
     used_pct = round(used * 100 / r.total_u, 1) if r.total_u else 0
-    used_w = sum(i.rated_w or 0 for i in r.installs)
+    power_values = [
+        i.device_rel.rated_power_w if i.device_id and i.device_rel else i.rated_w
+        for i in r.installs
+    ]
+    known_power = [value for value in power_values if value is not None]
+    used_w = sum(known_power)
+    unknown_power_count = len(power_values) - len(known_power)
+    power_completeness = round(len(known_power) * 100 / len(power_values), 1) if power_values else 100.0
     level = '低'
     for threshold, label, _c in _U_OCCUPY_LEVEL:
         if used_pct >= threshold * 100:
@@ -50,6 +57,11 @@ def _rack_payload(r):
         'color': r.color,
         'pdu_total_w': r.pdu_total_w,
         'used_w': used_w,
+        'unknown_power_count': unknown_power_count,
+        'power_completeness': power_completeness,
+        'pdu_remaining_w': (r.pdu_total_w - used_w) if r.pdu_total_w else None,
+        'pdu_load_pct': round(used_w * 100 / r.pdu_total_w, 1) if r.pdu_total_w else None,
+        'heat_btu_h': round(used_w * 3.412, 1),
         'remark': r.remark or '',
         'install_count': len(r.installs),
     }
@@ -60,15 +72,17 @@ def _rack_payload(r):
 @require_permission('device:view')
 def api_rack_cabinets():
     """机柜分页列表（join 客户名 + installs 聚合：used_u/used_pct/used_w/install_count）"""
-    from models import Rack as _R
+    from models import Rack as _R, RackInstall as _RI
     page = request.args.get('page', 1, type=int)
     page_size = min(request.args.get('page_size', 20, type=int), 100)
     customer_id = request.args.get('customer_id', type=int)
     search = (request.args.get('search') or '').strip()
     q = _R.query.options(
-        selectinload(_R.installs),
+        selectinload(_R.installs).joinedload(_RI.device_rel),
         joinedload(_R.customer_rel),
     )
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _R, current_user)
     if customer_id:
         q = q.filter(_R.customer_id == customer_id)
     if search:
@@ -89,6 +103,8 @@ def api_rack_cabinet_detail(rack_id):
         selectinload(_R.installs).joinedload(_RI.device_rel),
         joinedload(_R.customer_rel),
     ).filter_by(id=rack_id).first_or_404()
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, r.customer_id)
     installs = []
     for i in sorted(r.installs, key=lambda x: x.start_u or 0):
         if i.device_id and i.device_rel:
@@ -97,12 +113,14 @@ def api_rack_cabinet_detail(rack_id):
             model = i.device_rel.model or ''
             ip = i.device_rel.ip_address or ''
             kind = '托管'
+            rated_power_w = i.device_rel.rated_power_w
         else:
             name = i.manual_name or '(未命名)'
             brand = i.manual_brand or ''
             model = i.manual_model or ''
             ip = i.manual_ip or ''
             kind = '手动'
+            rated_power_w = i.rated_w
         installs.append({
             'id': i.id,
             'device_id': i.device_id,
@@ -114,6 +132,7 @@ def api_rack_cabinet_detail(rack_id):
             'start_u': i.start_u,
             'occupy_u': i.occupy_u,
             'rated_w': i.rated_w,
+            'rated_power_w': rated_power_w,
             'remark': i.remark or '',
         })
     payload = _rack_payload(r)
@@ -132,6 +151,8 @@ def api_rack_cabinet_create():
         return fail('机柜名称不能为空', 400)
     if not data.get('customer_id'):
         return fail('请选择所属客户', 400)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, data['customer_id'])
     try:
         total_u = int(data.get('total_u') or 42)
         pdu_total_w = int(data.get('pdu_total_w') or 0)
@@ -139,6 +160,8 @@ def api_rack_cabinet_create():
         return fail('U 位数/额定功率必须为数字', 400)
     if total_u < 1:
         return fail('机柜总 U 数必须大于 0', 400)
+    if pdu_total_w < 0:
+        return fail('PDU 额定容量不能为负数', 400)
     r = _R(customer_id=int(data['customer_id']), name=name, total_u=total_u,
            color=data.get('color') or '#0d6efd', pdu_total_w=pdu_total_w,
            location=(data.get('location') or '')[:128], remark=data.get('remark') or '')
@@ -153,10 +176,16 @@ def api_rack_cabinet_create():
 def api_rack_cabinet_update(rack_id):
     from models import Rack as _R
     r = _R.query.get_or_404(rack_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, r.customer_id)
     data = request.get_json(silent=True) or {}
     if 'customer_id' in data:
         if data.get('customer_id'):
-            r.customer_id = int(data['customer_id'])
+            require_customer_access(current_user, data['customer_id'])
+            new_customer_id = int(data['customer_id'])
+            if new_customer_id != r.customer_id and r.installs:
+                return fail('机柜已有上架记录，迁移上架记录后才能更换客户', 400)
+            r.customer_id = new_customer_id
         else:
             return fail('请选择所属客户', 400)
     if 'name' in data:
@@ -171,12 +200,18 @@ def api_rack_cabinet_update(rack_id):
             return fail('U 位数必须为数字', 400)
         if total_u < 1:
             return fail('机柜总 U 数必须大于 0', 400)
+        highest_used_u = max(
+            (item.start_u + item.occupy_u - 1 for item in r.installs), default=0)
+        if total_u < highest_used_u:
+            return fail(f'机柜已有设备占用到 {highest_used_u}U，不能缩减到 {total_u}U', 400)
         r.total_u = total_u
     if 'pdu_total_w' in data:
         try:
             r.pdu_total_w = int(data['pdu_total_w'] or 0)
         except (TypeError, ValueError):
             return fail('额定功率必须为数字', 400)
+        if r.pdu_total_w < 0:
+            return fail('PDU 额定容量不能为负数', 400)
     if 'color' in data:
         r.color = data.get('color') or r.color
     if 'location' in data:
@@ -194,6 +229,8 @@ def api_rack_cabinet_delete(rack_id):
     """删除机柜（级联删除 installs）"""
     from models import Rack as _R
     r = _R.query.get_or_404(rack_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, r.customer_id)
     for i in list(r.installs):
         db.session.delete(i)
     db.session.delete(r)
@@ -222,12 +259,14 @@ def _check_u_conflict(installs, start_u, occupy_u, exclude_id=None):
 @require_permission('device:edit')
 def api_rack_install_create():
     """设备上架（手动/托管；U 位范围与冲突校验）"""
-    from models import Rack as _R, RackInstall as _RI
+    from models import Rack as _R, RackInstall as _RI, Device as _D
     data = request.get_json(silent=True) or {}
     rack_id = data.get('rack_id')
     if not rack_id:
         return fail('请指定机柜', 400)
     r = _R.query.get_or_404(int(rack_id))
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, r.customer_id)
     try:
         start_u = int(data.get('start_u') or 1)
         occupy_u = int(data.get('occupy_u') or 1)
@@ -236,10 +275,19 @@ def api_rack_install_create():
         return fail('U 位/功率参数无效', 400)
     if occupy_u < 1:
         return fail('占用 U 数必须大于 0', 400)
+    if rated_w < 0:
+        return fail('额定功率不能为负数', 400)
     device_id = data.get('device_id')
     manual_name = (data.get('manual_name') or '').strip()
     if not device_id and not manual_name:
         return fail('请选择设备或填写手动设备名称', 400)
+    if device_id:
+        from utils.customer_scope import require_device_access
+        device = _D.query.get_or_404(int(device_id))
+        require_device_access(current_user, device)
+        if device.customer_id != r.customer_id:
+            return fail('设备与机柜必须属于同一客户', 400)
+        rated_w = 0  # 关联设备的功率只读 Device.rated_power_w
     try:
         _check_u_range(r, start_u, occupy_u)
         _check_u_conflict(r.installs, start_u, occupy_u)
@@ -265,6 +313,8 @@ def api_rack_install_update(install_id):
     """调整安装位置（冲突校验排除自身）"""
     from models import RackInstall as _RI
     inst = _RI.query.get_or_404(install_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, inst.rack_rel.customer_id)
     data = request.get_json(silent=True) or {}
     try:
         new_start = int(data.get('start_u') or inst.start_u)
@@ -281,11 +331,14 @@ def api_rack_install_update(install_id):
         return fail(str(e), 400)
     inst.start_u = new_start
     inst.occupy_u = new_occupy
-    if 'rated_w' in data:
+    if 'rated_w' in data and not inst.device_id:
         try:
-            inst.rated_w = int(data['rated_w'] or 0)
+            rated_w = int(data['rated_w'] or 0)
         except (TypeError, ValueError):
-            pass
+            return fail('额定功率必须为数字', 400)
+        if rated_w < 0:
+            return fail('额定功率不能为负数', 400)
+        inst.rated_w = rated_w
     if 'remark' in data:
         inst.remark = data.get('remark') or ''
     db.session.commit()
@@ -299,6 +352,8 @@ def api_rack_install_delete(install_id):
     """下架"""
     from models import RackInstall as _RI
     inst = _RI.query.get_or_404(install_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, inst.rack_rel.customer_id)
     db.session.delete(inst)
     db.session.commit()
     return ok(None)
@@ -317,10 +372,13 @@ def api_rack_devices():
         customer_id = r.customer_id if r else None
     if not customer_id:
         return ok({'items': []})
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, customer_id)
     installed = {row[0] for row in db.session.query(_RI.device_id)
                  .filter(_RI.device_id.isnot(None)).all()}
     items = [{'id': d.id, 'name': d.device_name, 'brand': d.brand or '',
               'model': d.model or '', 'ip': d.ip_address or '',
+              'rated_power_w': d.rated_power_w,
               'installed': d.id in installed}
              for d in _D.query.filter_by(customer_id=customer_id)
              .order_by(_D.device_name).all()]
@@ -343,7 +401,10 @@ def api_rack_dicts():
 def api_rack_tree():
     """机柜分组树：地市 → 客户 → 机柜（分组逻辑同 SSR rack_index 三段式）"""
     from models import Rack as _R, Customer as _C, Region as _Region
-    racks = _R.query.options(selectinload(_R.installs)).order_by(_R.id.desc()).all()
+    from utils.customer_scope import apply_customer_scope
+    racks = apply_customer_scope(
+        _R.query.options(selectinload(_R.installs)), _R, current_user,
+    ).order_by(_R.id.desc()).all()
     by_customer = {}
     for r in racks:
         by_customer.setdefault(r.customer_id, []).append(r)
@@ -420,6 +481,8 @@ def _topo_group_payload(name, files):
         'types': [f.file_type for f in files_sorted],
         'file_count': len(files_sorted),
         'source': first.source,
+        'template_type': first.template_type or 'legacy',
+        'template_version': first.template_version or 1,
         'upload_by': first.upload_by or '',
         'has_thumbnail': bool(first.thumbnail_path),
         'files': [_topo_file_payload(f) for f in files_sorted],
@@ -439,6 +502,8 @@ def api_topology_list():
     page_size = min(request.args.get('page_size', 20, type=int), 100)
     search = (request.args.get('search') or '').strip()
     q = _T.query.options(joinedload(_T.customer_rel))
+    from utils.customer_scope import apply_customer_scope
+    q = apply_customer_scope(q, _T, current_user)
     if search:
         q = q.filter(_T.name.contains(search) | _T.description.contains(search))
     rows = q.order_by(_T.id.desc()).all()
@@ -460,9 +525,10 @@ def api_topology_detail(topo_id):
     from models import Topology as _T
     t = _T.query.options(joinedload(_T.customer_rel), joinedload(_T.region_rel))\
         .get_or_404(topo_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, t.customer_id)
     group = [x for x in _T.query.options(joinedload(_T.customer_rel))
-             .filter(_T.name == t.name).all()
-             if _topo_cust_name(x) == _topo_cust_name(t)]
+             .filter(_T.name == t.name, _T.customer_id == t.customer_id).all()]
     files = [_topo_file_payload(f) for f in sorted(
         group, key=lambda x: (_FILE_TYPE_ORDER.get(x.file_type, 9), x.id))]
     draw = [f for f in files if f['source'] == 'draw']
@@ -475,6 +541,8 @@ def api_topology_detail(topo_id):
         'region_id': t.region_id,
         'region_name': t.region_rel.name if t.region_rel else '',
         'source': t.source,
+        'template_type': t.template_type or 'legacy',
+        'template_version': t.template_version or 1,
         'file_count': len(files),
         'files': files,
         'has_editor': bool(draw),
@@ -495,12 +563,31 @@ def api_topology_create():
     source = data.get('source') or 'upload'
     if source not in ('upload', 'draw'):
         return fail('非法的来源类型', 400)
+    template_type = data.get('template_type') or 'network'
+    diagram_xml = ''
+    if source == 'draw':
+        from utils.topology_templates import (
+            TEMPLATE_VERSION, load_topology_template, normalize_template_type)
+        try:
+            template_type = normalize_template_type(template_type, allow_legacy=False)
+            diagram_xml = load_topology_template(template_type)
+        except ValueError as exc:
+            return fail(str(exc), 400)
+    else:
+        TEMPLATE_VERSION = 1
+        template_type = 'legacy'
+    customer_id = data.get('customer_id') or None
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, customer_id)
     t = _T(name=name,
            description=data.get('description') or '',
-           customer_id=data.get('customer_id') or None,
+           customer_id=customer_id,
            region_id=data.get('region_id') or None,
            file_type=data.get('file_type') or 'image',
            source=source,
+           diagram_xml=diagram_xml,
+           template_type=template_type,
+           template_version=TEMPLATE_VERSION,
            upload_by=current_user.realname or current_user.username)
     db.session.add(t)
     db.session.commit()
@@ -549,6 +636,19 @@ def api_topology_upload():
     ext = os.path.splitext(name_lower)[1]
     if ext not in allowed:
         return fail(f'不支持的文件类型 {ext}', 400)
+    if file_type == 'drawio':
+        raw_xml = f.read()
+        try:
+            xml_text = raw_xml.decode('utf-8')
+            from utils.topology_templates import validate_topology_xml
+            validate_topology_xml(xml_text)
+        except (UnicodeDecodeError, ValueError) as exc:
+            return fail(f'拓扑 XML 无效：{exc}', 400)
+        f.stream.seek(0)
+
+    customer_id = request.form.get('customer_id', type=int)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, customer_id)
 
     upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
     os.makedirs(upload_dir, exist_ok=True)
@@ -558,7 +658,6 @@ def api_topology_upload():
     full_path = os.path.join(upload_dir, safe_name)
     f.save(full_path)
 
-    customer_id = request.form.get('customer_id', type=int)
     region_id = request.form.get('region_id', type=int)
     topo_type = request.form.get('topo_type') or '网络拓扑图'
     user_name = (request.form.get('name') or '').strip()
@@ -579,6 +678,8 @@ def api_topology_upload():
         file_path=f'uploads/topologies/{safe_name}',
         file_type=file_type,
         upload_by=current_user.username,
+        template_type='legacy',
+        template_version=1,
     )
     db.session.add(t)
     db.session.commit()
@@ -591,6 +692,8 @@ def api_topology_upload():
 def api_topology_update(topo_id):
     from models import Topology as _T
     t = _T.query.get_or_404(topo_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, t.customer_id)
     data = request.get_json(silent=True) or {}
     if 'name' in data:
         name = (data.get('name') or '').strip()
@@ -600,7 +703,9 @@ def api_topology_update(topo_id):
     if 'description' in data:
         t.description = data.get('description') or ''
     if 'customer_id' in data:
-        t.customer_id = data.get('customer_id') or None
+        customer_id = data.get('customer_id') or None
+        require_customer_access(current_user, customer_id)
+        t.customer_id = customer_id
     if 'region_id' in data:
         t.region_id = data.get('region_id') or None
     db.session.commit()
@@ -613,9 +718,42 @@ def api_topology_update(topo_id):
 def api_topology_delete(topo_id):
     from models import Topology as _T
     t = _T.query.get_or_404(topo_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, t.customer_id)
     db.session.delete(t)
     db.session.commit()
     return ok(None)
+
+
+@vue_api_bp.route('/api/topologies/<int:topo_id>/insert-standard-legend', methods=['POST'])
+@login_required
+@require_permission('topology:edit')
+def api_topology_insert_standard_legend(topo_id):
+    """旧在线图只在用户显式操作时复制当前标准图例，绝不批量静默覆盖。"""
+    from models import Topology as _T
+    from utils.topology_templates import (
+        TEMPLATE_VERSION, insert_standard_legend, normalize_template_type)
+    t = _T.query.get_or_404(topo_id)
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, t.customer_id)
+    if t.source != 'draw':
+        return fail('上传文件不支持插入在线图例', 400)
+    if (t.template_type or 'legacy') != 'legacy':
+        return fail('当前拓扑已经使用标准模板', 400)
+    data = request.get_json(silent=True) or {}
+    try:
+        template_type = normalize_template_type(
+            data.get('template_type') or 'network', allow_legacy=False)
+        t.diagram_xml = insert_standard_legend(t.diagram_xml or '', template_type)
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    t.template_type = template_type
+    t.template_version = TEMPLATE_VERSION
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('topology:insert-standard-legend', 'topology', t.id,
+              f'模板={template_type}; 版本={TEMPLATE_VERSION}')
+    return ok({'template_type': template_type, 'template_version': TEMPLATE_VERSION})
 
 
 # ==================== 网络工具（纯函数 JSON 封装） ====================
@@ -740,21 +878,23 @@ def api_tools_mac_format():
     })
 
 # ==================== 设备字典（类型/品牌/网络类型/自定义字段） ====================
-def _dict_payload(obj, with_type=False):
+def _dict_payload(obj, with_type=False, with_active=False):
     item = {'id': obj.id, 'name': obj.name, 'sort_order': obj.sort_order or 0}
     if with_type:
         item['field_type'] = obj.field_type or 'text'
+    if with_active:
+        item['is_active'] = bool(obj.is_active)
     return item
 
 
-def _register_device_dict(resource, model, with_type=False):
+def _register_device_dict(resource, model, with_type=False, with_active=False):
     """注册一组设备字典 Vue CRUD 端点（/api/device-dicts/<resource>）"""
 
     @login_required
     @require_permission('device:view')
     def _list():
         items = model.query.order_by(model.sort_order, model.id).all()
-        return ok([_dict_payload(i, with_type) for i in items])
+        return ok([_dict_payload(i, with_type, with_active) for i in items])
 
     @login_required
     @require_permission('device:edit')
@@ -763,15 +903,26 @@ def _register_device_dict(resource, model, with_type=False):
         name = (data.get('name') or '').strip()
         if not name:
             return fail('请输入名称')
-        obj = model(name=name, sort_order=int(data.get('sort_order') or 0))
+        from sqlalchemy import func
+        max_sort = db.session.query(func.max(model.sort_order)).scalar() or 0
+        try:
+            sort_order = int(data['sort_order']) if data.get('sort_order') is not None else max_sort + 10
+        except (TypeError, ValueError):
+            return fail('排序值必须为整数', 400)
+        obj = model(name=name, sort_order=sort_order)
         if with_type:
             obj.field_type = (data.get('field_type') or 'text').strip() or 'text'
+        if with_active:
+            obj.is_active = bool(data.get('is_active', True))
         db.session.add(obj)
         try:
             db.session.commit()
         except Exception:
             db.session.rollback()
             return fail('名称已存在')
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device-dict:create', 'device-dict', obj.id,
+                  f'资源={resource}; 名称={obj.name}')
         return ok({'id': obj.id})
 
     @login_required
@@ -780,23 +931,81 @@ def _register_device_dict(resource, model, with_type=False):
         obj = model.query.get_or_404(id)
         data = request.get_json(silent=True) or {}
         name = (data.get('name') or '').strip()
+        old_name = obj.name
         if name:
             obj.name = name
-        obj.sort_order = int(data.get('sort_order') or 0)
+            from models import Device
+            field = {
+                'types': Device.device_type,
+                'brands': Device.brand,
+                'network-types': Device.network_type,
+                'power-configs': Device.power_supply,
+            }.get(resource)
+            if field is not None and name != old_name:
+                Device.query.filter(field == old_name).update(
+                    {field.key: name}, synchronize_session=False)
         if with_type and data.get('field_type'):
             obj.field_type = data['field_type'].strip() or 'text'
+        if with_active and 'is_active' in data:
+            obj.is_active = bool(data.get('is_active'))
+        if 'sort_order' in data:
+            try:
+                obj.sort_order = int(data['sort_order'])
+            except (TypeError, ValueError):
+                return fail('排序值必须为整数', 400)
         try:
             db.session.commit()
         except Exception:
             db.session.rollback()
             return fail('名称已存在')
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device-dict:update', 'device-dict', obj.id,
+                  f'资源={resource}; 名称={old_name}->{obj.name}')
         return ok(None)
 
     @login_required
     @require_permission('device:delete')
     def _delete(id):
-        model.query.filter_by(id=id).delete()
+        obj = model.query.get_or_404(id)
+        from models import Device
+        referenced = {
+            'types': Device.query.filter_by(device_type=obj.name).count(),
+            'brands': Device.query.filter_by(brand=obj.name).count(),
+            'network-types': Device.query.filter_by(network_type=obj.name).count(),
+            'power-configs': Device.query.filter_by(power_supply=obj.name).count(),
+        }.get(resource, 0)
+        if referenced:
+            return fail(f'已有 {referenced} 台设备使用「{obj.name}」，请先迁移数据', 400)
+        deleted_name = obj.name
+        db.session.delete(obj)
         db.session.commit()
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device-dict:delete', 'device-dict', id,
+                  f'资源={resource}; 名称={deleted_name}')
+        return ok(None)
+
+    @login_required
+    @require_permission('device:edit')
+    def _reorder():
+        data = request.get_json(silent=True) or {}
+        ids = data.get('ids') or []
+        try:
+            ids = [int(item) for item in ids]
+        except (TypeError, ValueError):
+            return fail('排序参数无效', 400)
+        if len(ids) != len(set(ids)):
+            return fail('排序项不能重复', 400)
+        all_items = model.query.order_by(model.sort_order, model.id).all()
+        items = {item.id: item for item in all_items}
+        if len(items) != len(ids) or set(items) != set(ids):
+            return fail('排序必须包含当前资源的全部项目', 400)
+        old_ids = [item.id for item in all_items]
+        for index, item_id in enumerate(ids, 1):
+            items[item_id].sort_order = index * 10
+        db.session.commit()
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device-dict:reorder', 'device-dict', None,
+                  f'资源={resource}; 旧顺序={old_ids}; 新顺序={ids}')
         return ok(None)
 
     vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}', f'device_dict_{resource}_list', _list, methods=['GET'])
@@ -805,12 +1014,15 @@ def _register_device_dict(resource, model, with_type=False):
                             methods=['PUT'])
     vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}/<int:id>', f'device_dict_{resource}_delete', _delete,
                             methods=['DELETE'])
+    vue_api_bp.add_url_rule(f'/api/device-dicts/{resource}/reorder', f'device_dict_{resource}_reorder', _reorder,
+                            methods=['PUT', 'POST'])
 
 
-from models import DeviceType, Brand, NetworkType, CustomField  # noqa: E402
+from models import DeviceType, Brand, NetworkType, CustomField, DevicePowerConfig  # noqa: E402
 _register_device_dict('types', DeviceType)
 _register_device_dict('brands', Brand)
 _register_device_dict('network-types', NetworkType)
+_register_device_dict('power-configs', DevicePowerConfig, with_active=True)
 _register_device_dict('custom-fields', CustomField, with_type=True)
 
 # ==================== 固件版本库 ====================
@@ -1023,6 +1235,14 @@ def api_device_export_password_request():
         reason=reason[:500],
         filters_json=dumps_json({'search': (filters.get('search') or '').strip(),
                                  'customer_id': customer_id,
+                                 'brand': (filters.get('brand') or '').strip(),
+                                 'model': (filters.get('model') or '').strip(),
+                                 'device_type': (filters.get('device_type') or '').strip(),
+                                 'is_in_use': filters.get('is_in_use'),
+                                 'room_locations': filters.get('room_locations') or
+                                 filters.get('room_location') or [],
+                                 'location_scope': filters.get('location_scope') or '',
+                                 'device_ids': filters.get('device_ids') or [],
                                  'preset': filters.get('preset') or '',
                                  'columns': codes}),
         status='pending',
@@ -1136,12 +1356,8 @@ def api_device_export_password_review(req_id):
     q = _D.query.options(_sil(_D.rack_installs).joinedload(_RI.rack_rel))
     from utils.customer_scope import apply_customer_scope
     q = apply_customer_scope(q, _D, req.user_rel)
-    search = (filters.get('search') or '').strip()
-    if search:
-        q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
-                     _D.brand.contains(search))
-    if filters.get('customer_id'):
-        q = q.filter(_D.customer_id == int(filters['customer_id']))
+    from utils.device_filters import apply_device_filters
+    q = apply_device_filters(q, _D, _RI, filters)
     devices = q.order_by(_D.id.desc()).all()
     customer_ids = {d.customer_id for d in devices if d.customer_id is not None}
     customer_map = {c.id: c.name for c in _C.query.filter(_C.id.in_(customer_ids)).all()}

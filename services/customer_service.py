@@ -278,6 +278,9 @@ def get_customer_with_regions(customer_id=None):
 def delete_customer(customer_id):
     """删除客户（保留用于兼容；新代码建议软删除）"""
     c = Customer.query.get_or_404(customer_id)
+    child_count = Customer.query.filter_by(parent_id=customer_id).count()
+    if child_count:
+        raise ServiceError(f'客户 "{c.name}" 仍有下级单位 {child_count} 个，请先迁移或解除层级关系')
     if c.devices.count() > 0:
         raise ServiceError(f'客户 "{c.name}" 仍有关联设备，无法删除')
     # 引用完整性检查：销售链路（商机/报价/合同/项目）与备件销售单有引用时拒绝删除

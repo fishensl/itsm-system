@@ -22,6 +22,8 @@ export interface Customer {
   region_id: number | null
   category_id: number | null
   parent_id: number | null
+  parent_name: string
+  hierarchy_path: string
   has_onsite: boolean
   has_onsite_label: string
   onsite_contact: string
@@ -54,6 +56,7 @@ export interface CustomerForm {
   email: string
   region_id: number | null
   category_id: number | null
+  parent_id?: number | null
   level: string
   address: string
   source?: string
@@ -93,12 +96,9 @@ export function fetchCustomers(params: CustomerQuery) {
   return request<PageResult<Customer>>({ url: '/api/customers', method: 'GET', params })
 }
 
-export interface CustomerTreeGroup {
-  id: number | null
-  name: string
-  region: boolean
+export interface CustomerTreeGroup extends Customer {
   customer_count: number
-  children: Array<Customer & { district: string }>
+  children: CustomerTreeGroup[]
 }
 
 export function fetchCustomerTree(params?: Pick<CustomerQuery, 'search' | 'level' | 'category_id'>) {
@@ -151,6 +151,7 @@ export interface CustomerDicts {
   customer_categories: { id: number; name: string }[]
   regions: RegionItem[]
   levels: string[]
+  customers: { id: number; name: string; parent_id: number | null }[]
 }
 
 export function fetchCustomerDicts() {

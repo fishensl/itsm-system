@@ -11,7 +11,9 @@
 
     <el-card shadow="never">
       <div v-loading="loading" class="region-tree">
-        <div v-for="city in cities" :key="city.id" class="city-block">
+        <div v-for="(city, cityIndex) in cities" :key="city.id" class="city-block"
+          :draggable="user.hasPerm('region:edit')" @dragstart="startRegionDrag(null, cityIndex)"
+          @dragover.prevent @drop="dropRegion(null, cityIndex)">
           <div class="city-row" @click="toggleCity(city.id)">
             <el-icon class="collapse-arrow" :class="{ expanded: isCityExpanded(city.id) }">
               <ArrowRight />
@@ -20,6 +22,10 @@
             <span class="city-name">{{ city.name }}</span>
             <el-tag v-if="city.children?.length" size="small" type="info">{{ city.children.length }} 区县</el-tag>
             <span class="row-actions" @click.stop>
+              <el-button v-if="user.hasPerm('region:edit')" size="small" link
+                :disabled="cityIndex === 0" @click="moveRegion(null, cityIndex, -1)">上移</el-button>
+              <el-button v-if="user.hasPerm('region:edit')" size="small" link
+                :disabled="cityIndex === cities.length - 1" @click="moveRegion(null, cityIndex, 1)">下移</el-button>
               <el-button v-if="user.hasPerm('region:add')" size="small" link type="primary"
                 @click="openCreate(city)">+ 区县</el-button>
               <el-button v-if="user.hasPerm('region:edit')" size="small" link type="primary"
@@ -29,10 +35,17 @@
             </span>
           </div>
           <div v-if="city.children?.length" v-show="isCityExpanded(city.id)" class="district-list">
-            <div v-for="d in city.children" :key="d.id" class="district-row">
+            <div v-for="(d, districtIndex) in city.children" :key="d.id" class="district-row"
+              :draggable="user.hasPerm('region:edit')" @dragstart.stop="startRegionDrag(city.id, districtIndex)"
+              @dragover.prevent @drop.stop="dropRegion(city.id, districtIndex)">
               <el-icon><Location /></el-icon>
               <span class="district-name">{{ d.name }}</span>
               <span class="row-actions">
+                <el-button v-if="user.hasPerm('region:edit')" size="small" link
+                  :disabled="districtIndex === 0" @click="moveRegion(city.id, districtIndex, -1)">上移</el-button>
+                <el-button v-if="user.hasPerm('region:edit')" size="small" link
+                  :disabled="districtIndex === city.children.length - 1"
+                  @click="moveRegion(city.id, districtIndex, 1)">下移</el-button>
                 <el-button v-if="user.hasPerm('region:edit')" size="small" link type="primary"
                   @click="openEdit(d)">编辑</el-button>
                 <el-button v-if="user.hasPerm('region:delete')" size="small" link type="danger"
@@ -56,9 +69,6 @@
             <el-option v-for="c in cities.filter((x) => x.id !== form.id)" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="form.id" :label="fieldLabel('sort_order', '排序', 'form')">
-          <el-input-number v-model="form.sort_order" :min="0" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -72,7 +82,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, onMounted } from 'vue'
 import { Plus, OfficeBuilding, Location, ArrowRight } from '@element-plus/icons-vue'
-import { fetchRegions, createRegion, updateRegion, deleteRegion, type RegionItem } from '@/api/regions'
+import { fetchRegions, createRegion, updateRegion, deleteRegion, reorderRegions, type RegionItem } from '@/api/regions'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
@@ -87,7 +97,8 @@ const loading = ref(false)
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
-const form = reactive<Record<string, unknown>>({ id: null, name: '', parent_id: null, sort_order: 0 })
+const form = reactive<Record<string, unknown>>({ id: null, name: '', parent_id: null })
+const regionDrag = ref<{ parentId: number | null; index: number } | null>(null)
 
 // 市级默认折叠，点击城市行展开/收起区县
 const expandedCityIds = ref<Set<number>>(new Set())
@@ -112,12 +123,12 @@ function load() {
 }
 
 function openCreate(parent: RegionItem | null) {
-  Object.assign(form, { id: null, name: '', parent_id: parent?.id ?? null, sort_order: 0 })
+  Object.assign(form, { id: null, name: '', parent_id: parent?.id ?? null })
   formVisible.value = true
 }
 
 function openEdit(row: RegionItem) {
-  Object.assign(form, { id: row.id, name: row.name, parent_id: row.parent_id, sort_order: row.sort_order })
+  Object.assign(form, { id: row.id, name: row.name, parent_id: row.parent_id })
   formVisible.value = true
 }
 
@@ -127,7 +138,7 @@ async function save() {
   try {
     if (form.id) {
       await updateRegion(form.id as number, {
-        name: String(form.name), parent_id: (form.parent_id as number | null) ?? null, sort_order: Number(form.sort_order || 0),
+        name: String(form.name), parent_id: (form.parent_id as number | null) ?? null,
       })
       ui.toast('已保存', 'success')
     } else {
@@ -140,6 +151,44 @@ async function save() {
     ui.toast((e as Error).message, 'error')
   } finally {
     saving.value = false
+  }
+}
+
+function startRegionDrag(parentId: number | null, index: number) {
+  regionDrag.value = { parentId, index }
+}
+
+async function dropRegion(parentId: number | null, targetIndex: number) {
+  const source = regionDrag.value
+  regionDrag.value = null
+  if (!source || source.parentId !== parentId || source.index === targetIndex) return
+  const list = parentId == null
+    ? cities.value
+    : (cities.value.find((item) => item.id === parentId)?.children || [])
+  const next = [...list]
+  const [moved] = next.splice(source.index, 1)
+  next.splice(targetIndex, 0, moved)
+  await persistRegionOrder(parentId, next)
+}
+
+async function moveRegion(parentId: number | null, index: number, delta: number) {
+  const list = parentId == null
+    ? cities.value
+    : (cities.value.find((item) => item.id === parentId)?.children || [])
+  const target = index + delta
+  if (target < 0 || target >= list.length) return
+  const next = [...list]
+  ;[next[index], next[target]] = [next[target], next[index]]
+  await persistRegionOrder(parentId, next)
+}
+
+async function persistRegionOrder(parentId: number | null, next: RegionItem[]) {
+  try {
+    await reorderRegions(parentId, next.map((item) => item.id))
+    ui.toast('排序已保存', 'success')
+    load()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
   }
 }
 

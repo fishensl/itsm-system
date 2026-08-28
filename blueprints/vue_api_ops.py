@@ -557,8 +557,9 @@ def api_fault_category_create():
             return fail('最多支持三级分类', 400)
     if _FT.query.filter_by(name=name, parent_id=parent_id).first():
         return fail('同级下已存在同名分类', 400)
-    t = _FT(name=name, parent_id=parent_id, level=level,
-            sort_order=int(data.get('sort_order') or 0))
+    from sqlalchemy import func
+    max_sort = db.session.query(func.max(_FT.sort_order)).filter_by(parent_id=parent_id).scalar() or 0
+    t = _FT(name=name, parent_id=parent_id, level=level, sort_order=max_sort + 10)
     db.session.add(t)
     db.session.commit()
     return ok({'id': t.id})
@@ -595,6 +596,25 @@ def api_fault_category_update(cat_id):
     if data.get('sort_order') is not None:
         t.sort_order = int(data['sort_order'])
     db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/fault-categories/reorder', methods=['PUT'])
+@login_required
+@require_permission('fault:edit')
+def api_fault_category_reorder():
+    from models import FaultType as _FT
+    from utils.reorder import reorder_siblings
+    data = request.get_json(silent=True) or {}
+    parent_id = int(data['parent_id']) if data.get('parent_id') else None
+    try:
+        old_ids, new_ids = reorder_siblings(_FT, data.get('ids'), parent_id)
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('fault-category:reorder', 'fault-category', parent_id,
+              f'父节点={parent_id}; 旧顺序={old_ids}; 新顺序={new_ids}')
     return ok(None)
 
 

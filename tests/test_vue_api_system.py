@@ -182,6 +182,26 @@ class TestDepartmentApi:
         with app.app_context():
             assert Department.query.get(did).head_id is None
 
+    def test_reorder_departments_cannot_cross_parent(self, admin_client, app):
+        with app.app_context():
+            parent = Department(name='排序部门')
+            other_parent = Department(name='其他部门')
+            db.session.add_all([parent, other_parent])
+            db.session.flush()
+            first = Department(name='排序科室一', parent_id=parent.id, sort_order=10)
+            second = Department(name='排序科室二', parent_id=parent.id, sort_order=20)
+            outsider = Department(name='其他科室', parent_id=other_parent.id, sort_order=10)
+            db.session.add_all([first, second, outsider])
+            db.session.commit()
+            parent_id = parent.id
+            first_id, second_id, outsider_id = first.id, second.id, outsider.id
+        assert admin_client.put('/api/departments/reorder', json={
+            'parent_id': parent_id, 'ids': [second_id, first_id],
+        }).status_code == 200
+        assert admin_client.put('/api/departments/reorder', json={
+            'parent_id': parent_id, 'ids': [first_id, outsider_id],
+        }).status_code == 400
+
 
 class TestAuditApi:
     def test_requires_admin(self, op_client):

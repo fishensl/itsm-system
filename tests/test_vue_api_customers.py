@@ -21,9 +21,12 @@ def seed(app):
                       level='核心', has_onsite=True, category_id=cat_a.id,
                       region_id=dist.id, city='杭州市', device_count=5,
                       extra_fields='[{"name": "客户经理", "value": "王五"}]')
+        db.session.add(c1)
+        db.session.flush()
         c2 = Customer(name='API客户B', contact_person='李四', phone='13800000002',
-                      level='常规', category_id=cat_b.id, region_id=city.id)
-        db.session.add_all([c1, c2])
+                      level='常规', category_id=cat_b.id, region_id=city.id,
+                      parent_id=c1.id)
+        db.session.add(c2)
         db.session.commit()
         yield {'c1': c1.id, 'c2': c2.id,
                'cat_a': cat_a.id, 'cat_b': cat_b.id,
@@ -45,36 +48,32 @@ class TestCustomerList:
                     'category_name', 'region_name']).issubset(item.keys())
 
     def test_tree_shape(self, admin_client, seed):
-        """客户树：市 → 客户 两级；区县客户并入市组并带 district"""
+        """客户树只按 parent_id；地区不参与推导层级。"""
         r = admin_client.get('/api/customers/tree')
         assert r.status_code == 200
         data = r.get_json()['data']
         assert data['total'] == 2
-        assert len(data['tree']) == 1  # 都是杭州市
-        city_group = data['tree'][0]
-        assert city_group['name'] == '杭州市'
-        assert city_group['customer_count'] == 2
-        by_name = {c['name']: c for c in city_group['children']}
-        assert by_name['API客户A']['district'] == '西湖区'  # 区县客户
-        assert by_name['API客户B']['district'] == ''       # 市级客户
-        assert by_name['API客户A']['device_count'] == 5
+        assert len(data['tree']) == 1
+        root = data['tree'][0]
+        assert root['name'] == 'API客户A'
+        assert root['region_name'] == '西湖区'
+        assert root['customer_count'] == 2
+        assert root['children'][0]['name'] == 'API客户B'
+        assert root['children'][0]['region_name'] == '杭州市'
+        assert root['device_count'] == 5
 
     def test_tree_filter_and_unassigned(self, admin_client, seed, app):
-        """树接口筛选 + 无地区客户归「未分配地区」"""
+        """筛选命中下级时带回可见祖先；无地区仍是独立根客户。"""
         with app.app_context():
             db.session.add(Customer(name='无地区客户', contact_person='王', level='常规'))
             db.session.commit()
         r = admin_client.get('/api/customers/tree', query_string={'level': '常规'})
         data = r.get_json()['data']
         assert data['total'] == 2  # API客户B(常规) + 无地区客户
-        # level=常规：API客户B + 无地区客户
+        # total 只统计命中项；树额外带回 API客户B 的祖先 API客户A。
         names = [g['name'] for g in data['tree']]
-        assert '杭州市' in names
-        assert '未分配地区' in names
-        unassigned = next(g for g in data['tree'] if g['name'] == '未分配地区')
-        assert unassigned['children'][0]['name'] == '无地区客户'
-        # 未分配地区组排最后
-        assert names[-1] == '未分配地区'
+        assert names == ['API客户A', '无地区客户']
+        assert data['tree'][0]['children'][0]['name'] == 'API客户B'
 
     def test_list_names_joined(self, admin_client, seed):
         data = admin_client.get('/api/customers').get_json()['data']
@@ -252,6 +251,7 @@ class TestCustomerCrud:
         """巡检任务 customer_id 为 NOT NULL（PG 无法置空）→ 删除须先处理任务，拒绝并明确提示"""
         from models import InspectionTask
         with app.app_context():
+            Customer.query.get(seed['c2']).parent_id = None
             db.session.add(InspectionTask(customer_id=seed['c1'], title='5月例行巡检'))
             db.session.commit()
         r = admin_client.delete(f"/api/customers/{seed['c1']}")
@@ -270,6 +270,7 @@ class TestCustomerCrud:
         """「设备数快照残留/幽灵设备」场景：解除残留引用后客户可删除"""
         from services.device_service import sync_customer_device_count
         with app.app_context():
+            Customer.query.get(seed['c2']).parent_id = None
             db.session.add(Device(customer_id=seed['c1'], device_name='幽灵设备'))
             db.session.commit()
             c = Customer.query.get(seed['c1'])

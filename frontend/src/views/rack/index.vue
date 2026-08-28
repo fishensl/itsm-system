@@ -71,9 +71,21 @@
               <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_label }}</div><div class="stat-label">已占用</div></div></el-col>
               <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_pct }}%</div><div class="stat-label">占用率</div></div></el-col>
               <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.install_count }}</div><div class="stat-label">安装数</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_w }}W</div><div class="stat-label">当前功耗</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_total_w }}W</div><div class="stat-label">PDU额定</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_w }} W</div><div class="stat-label">已知总额定功率</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.power_completeness }}%</div><div class="stat-label">功率完整率（缺 {{ detail.unknown_power_count }}）</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_total_w }} W</div><div class="stat-label">PDU 额定容量</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_remaining_w == null ? '-' : `${detail.pdu_remaining_w} W` }}</div><div class="stat-label">PDU 剩余容量</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_load_pct == null ? '-' : `${detail.pdu_load_pct}%` }}</div><div class="stat-label">PDU 已知负载率</div></div></el-col>
+              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.heat_btu_h }} BTU/h</div><div class="stat-label">已知设备热负荷</div></div></el-col>
             </el-row>
+            <el-alert v-if="detail.unknown_power_count" type="warning" :closable="false" show-icon
+              :title="`额定功率合计不完整：仍有 ${detail.unknown_power_count} 台设备未核实功率`" />
+            <el-alert v-if="detail.pdu_load_pct != null && detail.pdu_load_pct > 100" type="error"
+              :closable="false" show-icon title="已知额定功率已超过 PDU 额定容量，请复核供电方案" />
+            <div class="capacity-note">
+              热负荷仅按已知设备额定功率 × 3.412 换算，未包含人员、照明、环境和冗余；
+              UPS 建议容量须待功率因数、目标负载率和冗余系数确认后计算。
+            </div>
 
             <!-- U 位图 + 设备表（左右布局） -->
             <div class="rack-visual">
@@ -105,7 +117,7 @@
                   :query="{ rack_id: detail.id, revision: installRevision }"
                   row-key="id"
                   empty-text="暂无上架设备"
-                  :column-settings="{ storageKey: 'cols_rack_installs' }"
+                  :column-settings="{ storageKey: 'cols_rack_installs_v2' }"
                 />
               </div>
             </div>
@@ -203,8 +215,10 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="8">
-            <el-form-item :label="installLabel('rated_w', '功耗(W)', 'form')">
-              <el-input-number v-model="installForm.rated_w" :min="0" :step="50" class="w-full" />
+            <el-form-item :label="deviceLabel('rated_power_w', '额定功率', 'form')">
+              <el-input-number v-if="isManualPowerEditable" v-model="installForm.rated_w"
+                :min="0" :step="50" class="w-full" />
+              <span v-else>{{ linkedRatedPower == null ? '未核实（请到设备编辑中填写）' : `${linkedRatedPower} W` }}</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -248,18 +262,21 @@ function installLabel(key: string, fallback: string, profile = 'list') {
   return entityFieldLabel(metas.value.rack_install, key, fallback, profile)
 }
 
+function deviceLabel(key: string, fallback: string, profile = 'list') {
+  return entityFieldLabel(metas.value.device, key, fallback, profile)
+}
+
 const installRevision = ref(0)
 const installColumns = computed<DataColumn[]>(() => [
-  { key: 'u_range', label: `${installLabel('start_u', '起始U位')} / ${installLabel('occupy_u', '占用U数')}`,
-    width: 120, align: 'center', render: (row) =>
-      `${row.start_u}-${Number(row.start_u) + Number(row.occupy_u) - 1}U` },
-  { key: 'name', label: installLabel('name', '设备名称'), minWidth: 140, asTitle: true },
-  { key: 'brand_model', label: `${installLabel('brand', '品牌')} / ${installLabel('model', '型号')}`,
-    minWidth: 140, render: (row) => [row.brand, row.model].filter(Boolean).join(' ') || '-' },
-  { key: 'ip', label: installLabel('ip', 'IP'), minWidth: 110 },
-  { key: 'kind', label: installLabel('kind', '来源'), width: 70, type: 'tag', asTag: true,
-    tagMap: { 托管: 'primary', 手动: 'warning' } },
-  { key: 'rated_w', label: installLabel('rated_w', '功耗(W)'), width: 80, align: 'right' },
+  { key: 'start_u', label: deviceLabel('rack_slot', '起始U位'), width: 105, align: 'center',
+    render: (row) => Number(row.occupy_u) <= 1 ? `${row.start_u}U`
+      : `${row.start_u}U-${Number(row.start_u) + Number(row.occupy_u) - 1}U` },
+  { key: 'name', label: deviceLabel('device_name', '名称'), minWidth: 140, asTitle: true },
+  { key: 'brand', label: deviceLabel('brand', '品牌'), minWidth: 100 },
+  { key: 'model', label: deviceLabel('model', '型号'), minWidth: 110 },
+  { key: 'ip', label: deviceLabel('ip_address', 'IP'), minWidth: 110 },
+  { key: 'rated_power_w', label: deviceLabel('rated_power_w', '额定功率'), width: 105,
+    align: 'right', render: (row) => row.rated_power_w == null ? '' : `${row.rated_power_w} W` },
   { key: 'actions', label: '操作', width: 110, type: 'action', fixed: 'right', actions: [
     { label: '调整', type: 'primary', link: true, perm: 'device:edit',
       onClick: (row) => openAdjust(row as unknown as RackInstall) },
@@ -361,6 +378,13 @@ const installSaving = ref(false)
 const installMode = ref<'device' | 'manual'>('device')
 const devices = ref<RackDevice[]>([])
 const editingInstall = ref<RackInstall | null>(null)
+const linkedRatedPower = computed(() => {
+  if (editingInstall.value?.device_id) return editingInstall.value.rated_power_w
+  const selected = devices.value.find((item) => item.id === Number(installForm.device_id))
+  return selected?.rated_power_w ?? null
+})
+const isManualPowerEditable = computed(() =>
+  editingInstall.value ? !editingInstall.value.device_id : installMode.value === 'manual')
 const installFormRef = ref()
 const installForm = reactive<Record<string, unknown>>({
   id: null, rack_id: null, device_id: null,
@@ -409,9 +433,9 @@ async function saveInstall() {
       rack_id: installForm.rack_id,
       start_u: installForm.start_u,
       occupy_u: installForm.occupy_u,
-      rated_w: installForm.rated_w,
       remark: installForm.remark,
     }
+    if (isManualPowerEditable.value) payload.rated_w = installForm.rated_w
     if (installForm.id) {
       await updateInstall(installForm.id as number, payload)
     } else {
@@ -536,7 +560,7 @@ async function onDeleteRack() {
 onMounted(() => {
   fetchRackDicts().then((d) => (dicts.value = d))
   loadTree()
-  fetchEntityMetas(['rack', 'rack_install'])
+  fetchEntityMetas(['rack', 'rack_install', 'device'])
     .then((result) => { metas.value = result })
     .catch(() => { /* 兼容滚动发布期间的旧后端 */ })
 })
@@ -574,6 +598,7 @@ onMounted(() => {
   border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
 .stat-num { font-size: 15px; font-weight: 600; }
 .stat-label { color: var(--itsm-text-muted); font-size: 12px; }
+.capacity-note { margin: 8px 0 12px; color: var(--itsm-text-muted); font-size: 12px; line-height: 1.6; }
 
 /* U 位图 + 设备表左右布局 */
 .rack-visual { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }

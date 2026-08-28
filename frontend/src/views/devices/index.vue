@@ -47,14 +47,52 @@
       <div class="mb-2">
         <el-button size="small" link type="primary" @click="downloadTemplate">下载导入模板</el-button>
       </div>
+      <el-form label-width="92px" class="mb-2">
+        <el-form-item label="导入模式">
+          <el-radio-group v-model="importMode" @change="importPreview = null">
+            <el-radio-button value="create">仅新增</el-radio-button>
+            <el-radio-button value="update">仅更新</el-radio-button>
+            <el-radio-button value="upsert">新增并更新</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="空值处理">
+          <el-checkbox v-model="importClearEmpty" @change="importPreview = null">
+            允许空单元格清空原值（密码除外）
+          </el-checkbox>
+        </el-form-item>
+      </el-form>
       <el-upload ref="importUploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx,.xls"
         :on-change="onImportFileChange" :on-remove="() => importFile = null">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>
       </el-upload>
+      <el-card v-if="importPreview" shadow="never" class="mt-2">
+        <div class="import-summary">
+          <el-tag type="success">新增 {{ importPreview.create }}</el-tag>
+          <el-tag type="primary">更新 {{ importPreview.update }}</el-tag>
+          <el-tag type="info">无变化 {{ importPreview.unchanged }}</el-tag>
+          <el-tag type="warning">跳过 {{ importPreview.skipped }}</el-tag>
+          <el-tag type="danger">失败 {{ importPreview.failed }}</el-tag>
+        </div>
+        <el-form v-if="Object.keys(importPreview.unknown_network_types).length" label-width="120px" class="mt-2">
+          <el-alert type="warning" :closable="false" title="未知网络类型不会自动猜测，请确认本次映射后重新预检。" />
+          <el-form-item v-for="(rows, value) in importPreview.unknown_network_types"
+            :key="value" :label="String(value)">
+            <el-select v-model="networkMappings[String(value)]" clearable placeholder="选择系统网络类型"
+            >
+              <el-option v-for="option in networkTypes" :key="option" :label="option" :value="option" />
+            </el-select>
+            <span class="mapping-rows">第 {{ rows.join('、') }} 行</span>
+          </el-form-item>
+        </el-form>
+        <el-button v-if="importPreview.errors_file" class="mt-2" type="danger" plain size="small"
+          @click="downloadImportErrors(importPreview.errors_file)">下载完整错误明细</el-button>
+      </el-card>
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="doImport">开始导入</el-button>
+        <el-button type="primary" :loading="importing" @click="doImport">
+          {{ importPreview && !importPreview.failed ? '确认执行' : '上传并预检' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -69,6 +107,7 @@
             <el-option :label="fieldLabel('device', 'rack_name', '机柜号', 'form')" value="rack_name" />
             <el-option :label="fieldLabel('device', 'location', '安装位置', 'form')" value="location" />
             <el-option :label="fieldLabel('device', 'power_supply', '电源配置', 'form')" value="power_supply" />
+            <el-option :label="fieldLabel('device', 'rated_power_w', '额定功率', 'form')" value="rated_power_w" />
             <el-option :label="fieldLabel('device', 'network_type', '网络类型', 'form')" value="network_type" />
             <el-option :label="fieldLabel('device', 'brand', '品牌', 'form')" value="brand" />
             <el-option :label="fieldLabel('device', 'model', '型号', 'form')" value="model" />
@@ -114,6 +153,10 @@
         <el-form-item v-else-if="isDateBatchField" label="值">
           <el-date-picker v-model="batchForm.value" type="date" value-format="YYYY-MM-DD" class="w-full" />
         </el-form-item>
+        <el-form-item v-else-if="batchForm.type === 'rated_power_w'" label="值">
+          <el-input-number v-model="batchForm.value" :min="0" :max="10000000" :step="10"
+            controls-position="right" class="w-full" />
+        </el-form-item>
         <el-form-item v-else-if="batchChoiceOptions.length" label="值">
           <el-select v-model="batchForm.value" clearable class="w-full">
             <el-option v-for="option in batchChoiceOptions" :key="option" :label="option" :value="option" />
@@ -150,6 +193,11 @@
         <el-select v-if="mode === 'table'" v-model="query.customer_id" placeholder="客户" clearable filterable
           class="filter-item" @change="onCustomerFilterChange">
           <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-select v-model="query.room_locations" placeholder="机房位置" clearable filterable multiple collapse-tags
+          class="filter-item" @change="reload">
+          <el-option label="非机房 / 未设置" value="__non_room__" />
+          <el-option v-for="room in roomLocations" :key="room" :label="room" :value="room" />
         </el-select>
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
         <template v-if="mode === 'table'">
@@ -194,6 +242,8 @@
         <span class="batch-count">已选 {{ selectedRows.length }} 台设备</span>
         <el-button v-if="user.hasPerm('device:edit')" size="small" type="primary"
           @click="openBatchEdit">批量修改</el-button>
+        <el-button v-if="user.hasPerm('device:delete')" size="small" type="danger" plain
+          @click="doBatchDelete">批量删除</el-button>
         <el-button size="small" @click="clearSelection">取消选择</el-button>
       </div>
       <DataTable
@@ -231,6 +281,9 @@
         <el-descriptions-item :label="fieldLabel('device', 'location', '安装位置')">{{ detail.location || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'rack_slot', '起始U位')">{{ detail.rack_slot || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'power_supply', '电源配置')">{{ detail.power_supply || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="fieldLabel('device', 'rated_power_w', '额定功率')">
+          {{ detail.rated_power_w == null ? '-' : `${detail.rated_power_w} W` }}
+        </el-descriptions-item>
         <el-descriptions-item :label="fieldLabel('device', 'build_date', '建设时间')">{{ detail.build_date || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="`${fieldLabel('device', 'license_start', '授权开始')} / ${fieldLabel('device', 'license_expiry', '授权截止')}`">
           <span v-if="detailLicense.level" :class="['license-badge', `license-${detailLicense.level}`]">
@@ -455,11 +508,8 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="fieldLabel('device', 'login_method', '登录方式', 'form')">
-              <el-select v-model="form.login_method" allow-create clearable class="w-full">
-                <el-option label="SSH" value="SSH" />
-                <el-option label="Telnet" value="Telnet" />
-                <el-option label="Web" value="Web" />
-                <el-option label="SNMP" value="SNMP" />
+              <el-select v-model="form.login_method" clearable class="w-full">
+                <el-option v-for="method in loginMethods" :key="method" :label="method" :value="method" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -524,6 +574,12 @@
                 <el-option v-for="option in powerSupplies" :key="option"
                   :label="option" :value="option" />
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="fieldLabel('device', 'rated_power_w', '额定功率', 'form')">
+              <el-input-number v-model="form.rated_power_w" :min="0" :max="10000000"
+                :step="10" controls-position="right" class="w-full" placeholder="整机额定输入功率" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -629,6 +685,7 @@ import {
   type PasswordHistoryItem, type DeviceExportRequestItem,
   requestDeviceExport, fetchDeviceExportRequests, exportPasswordDownloadUrl,
   batchUpdateDevices,
+  previewBatchDeleteDevices, batchDeleteDevices,
   auditPasswordCopy,
 } from '@/api/devices'
 import { fetchRack, fetchRacks, type RackItem } from '@/api/rack'
@@ -647,13 +704,17 @@ const user = useUserStore()
 const ui = useUiStore()
 
 // 筛选 + 字典数据
-const query = reactive<Record<string, unknown>>({ search: '', brand: '', device_type: '', customer_id: undefined })
+const query = reactive<Record<string, unknown>>({
+  search: '', brand: '', device_type: '', customer_id: undefined, room_locations: [],
+})
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
 const networkTypes = ref<string[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
 const installationPositions = ref<string[]>(['正面', '背面'])
-const powerSupplies = ref<string[]>(['单电源', '双电源'])
+const powerSupplies = ref<string[]>(['单电源', '双电源', '四电源'])
+const loginMethods = ref<string[]>(['SSH', 'Telnet', 'Web', 'SNMP'])
+const roomLocations = ref<string[]>([])
 const rackOptions = ref<RackItem[]>([])
 const rackOptionsLoading = ref(false)
 const rackSelection = ref<number | string | null>(null)
@@ -758,6 +819,28 @@ async function openBatchEdit() {
   batchForm.startU = 1
   batchForm.occupyU = 1
   batchVisible.value = true
+}
+
+async function doBatchDelete() {
+  const ids = selectedRows.value.map((row) => Number(row.id))
+  if (!ids.length) return
+  try {
+    const impact = await previewBatchDeleteDevices(ids)
+    await ElMessageBox.confirm(
+      `将删除 ${impact.count} 台设备。\n` +
+      `关联工单 ${impact.tickets} 条、巡检任务 ${impact.inspection_tasks} 条、` +
+      `配置备份 ${impact.config_backups} 条、机柜安装 ${impact.rack_installs} 条。\n` +
+      '该批次会全部成功或全部回滚，是否继续？',
+      '批量删除确认', { type: 'warning', confirmButtonText: '确认删除' },
+    )
+    const result = await batchDeleteDevices(ids)
+    ui.toast(`已删除 ${result.count} 台设备`, 'success')
+    clearSelection()
+    reload()
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return
+    ui.toast((e as Error).message || '批量删除失败', 'error')
+  }
 }
 
 function batchCustomerId() {
@@ -875,6 +958,8 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'rack_slot', label: '起始U位', minWidth: 90, group: 'location',
       cellClass: () => 'cell-muted' },
     { key: 'power_supply', label: '电源配置', minWidth: 90 },
+    { key: 'rated_power_w', label: '额定功率', minWidth: 100, type: 'custom',
+      render: (r) => r.rated_power_w == null ? '' : `${r.rated_power_w} W` },
     { key: 'brand', label: '品牌', minWidth: 100,
       cellClass: () => 'cell-muted' },
     { key: 'model', label: '型号', minWidth: 120,
@@ -960,7 +1045,8 @@ onMounted(() => {
 const tree = ref<DeviceTreeGroup[]>([])
 const treeLoading = ref(false)
 const hasFilter = computed(() =>
-  Boolean(query.search || query.brand || query.device_type))
+  Boolean(query.search || query.brand || query.device_type ||
+    (query.room_locations as string[])?.length))
 
 async function loadTree() {
   treeLoading.value = true
@@ -969,6 +1055,7 @@ async function loadTree() {
       search: query.search as string || undefined,
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
+      room_locations: query.room_locations as string[] || undefined,
     })
     tree.value = res.tree
   } catch (e) {
@@ -983,8 +1070,15 @@ const importVisible = ref(false)
 const importing = ref(false)
 const importUploadRef = ref()
 const importFile = ref<File | null>(null)
+type ImportPreview = Awaited<ReturnType<typeof importDevices>>
+const importMode = ref<'create' | 'update' | 'upsert'>('create')
+const importClearEmpty = ref(false)
+const importPreview = ref<ImportPreview | null>(null)
+const networkMappings = reactive<Record<string, string>>({})
 
 function onImportFileChange(f: UploadFile) {
+  importPreview.value = null
+  Object.keys(networkMappings).forEach((key) => delete networkMappings[key])
   importFile.value = f.raw ?? null
 }
 
@@ -1012,6 +1106,11 @@ async function onExportSubmit(payload: Record<string, unknown>) {
         columns: payload.columns,
         customer_id: firstCustomerId(payload),
         search: query.search as string || undefined,
+        brand: query.brand as string || undefined,
+        device_type: query.device_type as string || undefined,
+        is_in_use: query.is_in_use as number | undefined,
+        room_locations: query.room_locations as string[] || undefined,
+        device_ids: selectedRows.value.map((row) => Number(row.id)),
       }
       await requestDeviceExport(filters, payload.reason as string || '')
       ui.toast('申请已提交，请等待管理员审核（通知将在通过后推送）', 'success')
@@ -1023,6 +1122,11 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       columns: payload.columns as string[] | undefined,
       customer_id: firstCustomerId(payload),
       search: query.search as string || undefined,
+      brand: query.brand as string || undefined,
+      device_type: query.device_type as string || undefined,
+      is_in_use: query.is_in_use as number | undefined,
+      room_locations: query.room_locations as string[] || undefined,
+      device_ids: selectedRows.value.map((row) => Number(row.id)),
     })
     handleExportResult(res, { close: () => { exportVisible.value = false } })
     ui.toast('导出成功', 'success')
@@ -1089,15 +1193,35 @@ async function doImport() {
   try {
     const fd = new FormData()
     fd.append('import_file', importFile.value)
+    fd.append('mode', importMode.value)
+    fd.append('clear_empty', importClearEmpty.value ? '1' : '0')
+    fd.append('network_mappings', JSON.stringify(networkMappings))
+    const execute = Boolean(importPreview.value && !importPreview.value.failed)
+    fd.append('dry_run', execute ? '0' : '1')
+    if (execute && importPreview.value?.batch_id) fd.append('batch_id', importPreview.value.batch_id)
     const res = await importDevices(fd)
-    const msg = `导入完成：成功 ${res.created} 条${res.total_errors ? `，失败 ${res.total_errors} 条` : ''}`
-    ui.toast(msg, res.total_errors ? 'warning' : 'success')
+    if (!execute) {
+      importPreview.value = res
+      for (const value of Object.keys(res.unknown_network_types)) {
+        if (!(value in networkMappings)) networkMappings[value] = ''
+      }
+      ui.toast(res.failed ? '预检完成，请处理失败项' : '预检通过，请确认执行', res.failed ? 'warning' : 'success')
+      if (res.errors.length) {
+        ElMessageBox.alert(res.errors.join('\n'), '预检明细', {
+          customStyle: { maxHeight: '70vh', overflow: 'auto', whiteSpace: 'pre-wrap' },
+        }).catch(() => {})
+      }
+      return
+    }
+    const msg = `导入完成：新增 ${res.create} 条，更新 ${res.update} 条，无变化 ${res.unchanged} 条`
+    ui.toast(msg, 'success')
     if (res.errors.length) {
       ElMessageBox.alert(res.errors.join('\n'), '导入错误明细', {
         customStyle: { maxHeight: '70vh', overflow: 'auto', whiteSpace: 'pre-wrap' },
       }).catch(() => {})
     }
     importVisible.value = false
+    importPreview.value = null
     loadTree()
   } catch (e) {
     ui.toast((e as Error).message, 'error')
@@ -1123,6 +1247,20 @@ function clearSensitiveValue() {
   sensitiveSeconds.value = 10
   if (detail.value) detail.value = { ...detail.value, password: undefined }
   pwdVisible.value = false
+}
+
+function downloadImportErrors(file: { filename: string; content: string }) {
+  const binary = atob(file.content)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = file.filename
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function showSensitiveValue(title: string, value: string) {
@@ -1360,7 +1498,7 @@ function blankForm(): DeviceForm & { id?: number } {
     serial_number: '', network_type: '', ip_address: '', port: 22, username: '', password: '',
     login_method: 'SSH', rack_location: '', rack_id: null, rack_custom_name: '',
     rack_start_u: 1, rack_occupy_u: 1,
-    location: '', power_supply: '', interface: [], os_version: '', rule_version: '',
+    location: '', power_supply: '', rated_power_w: null, interface: [], os_version: '', rule_version: '',
     is_maintenance: false, is_in_use: true, license_expiry: '', license_start: '',
     build_date: '', cert_expiry_date: '', remark: '',
   }
@@ -1396,6 +1534,7 @@ async function openEdit(d: Device) {
     rack_id: current.rack_id, rack_custom_name: '', rack_start_u: current.rack_start_u || 1,
     rack_occupy_u: current.rack_occupy_u || 1,
     location: current.location, power_supply: current.power_supply || '',
+    rated_power_w: current.rated_power_w,
     interface: [...current.interface], os_version: current.os_version,
     rule_version: current.rule_version, is_maintenance: current.is_maintenance,
     is_in_use: current.is_in_use, license_expiry: current.license_expiry,
@@ -1541,6 +1680,8 @@ fetchDeviceDicts().then((d) => {
   customers.value = d.customers
   if (d.installation_positions?.length) installationPositions.value = d.installation_positions
   if (d.power_supplies?.length) powerSupplies.value = d.power_supplies
+  if (d.login_methods?.length) loginMethods.value = d.login_methods
+  roomLocations.value = d.room_locations || []
   // ?customer_id=X 直达表格模式（全局搜索/书签跳转）
   const cid = Number(route.query.customer_id)
   if (cid && !Number.isNaN(cid) && cid > 0) {

@@ -17,16 +17,26 @@ from utils.permission import require_permission, has_permission
 topology_bp = Blueprint('topology', __name__)
 
 
+def _require_topology_customer(customer_id):
+    """拓扑在线编辑与 Vue 列表共用客户数据范围。"""
+    from utils.customer_scope import require_customer_access
+    require_customer_access(current_user, customer_id)
+
+
 TOPOLOGY_TEMPLATE_CATALOG = {
-    'template-network-topology.drawio': {
-        'name': '网络逻辑拓扑图',
-        'description': '按外网边界、上联边界、核心层、接入层和下联分支边界组织，展示路由与业务关系。',
-        'category': 'logical',
+    'standard-network-v1.drawio': {
+        'name': '网络拓扑图标准模板',
+        'description': '含标题栏、常用网络图形区和网线/光纤/WAN/堆叠/HA/无线标准图例。',
+        'category': 'network',
+        'template_type': 'network',
+        'template_version': 1,
     },
-    'template-network-physical-topology.drawio': {
-        'name': '网络物理连接拓扑图',
-        'description': '按机房、机柜、设备端口和链路介质组织，展示真实物理连接关系。',
-        'category': 'physical',
+    'standard-meeting-v1.drawio': {
+        'name': '会议拓扑图标准模板',
+        'description': '含会场/机柜绘图区、会议常用设备和视频/音频/控制/电源标准图例。',
+        'category': 'meeting',
+        'template_type': 'meeting',
+        'template_version': 1,
     },
 }
 
@@ -46,21 +56,22 @@ def topology_list():
 @require_permission('topology:add')
 def api_template_list():
     """在线拓扑模板列表（static/templates/*.drawio，编辑器下拉加载）"""
-    import glob
     tpl_dir = os.path.join(current_app.root_path, 'static', 'templates')
     items = []
     if os.path.isdir(tpl_dir):
-        for f in sorted(glob.glob(os.path.join(tpl_dir, '*.drawio'))):
-            fname = os.path.basename(f)
-            metadata = TOPOLOGY_TEMPLATE_CATALOG.get(fname, {})
-            items.append({
-                'name': metadata.get('name', fname[:-len('.drawio')]),
-                'description': metadata.get('description', ''),
-                'category': metadata.get('category', 'other'),
-                'file': fname,
-                'url': url_for('static', filename='templates/' + fname),
-            })
-    category_order = {'logical': 0, 'physical': 1, 'other': 2}
+        for fname, metadata in TOPOLOGY_TEMPLATE_CATALOG.items():
+            f = os.path.join(tpl_dir, fname)
+            if os.path.isfile(f):
+                items.append({
+                    'name': metadata['name'],
+                    'description': metadata['description'],
+                    'category': metadata['category'],
+                    'template_type': metadata['template_type'],
+                    'template_version': metadata['template_version'],
+                    'file': fname,
+                    'url': url_for('static', filename='templates/' + fname),
+                })
+    category_order = {'network': 0, 'meeting': 1}
     items.sort(key=lambda item: (category_order.get(item['category'], 2), item['name']))
     # 双契约兼容：Vue request() 解包 code/data；editor-shell 历史直连仍读取 ok/items。
     return jsonify({
@@ -82,6 +93,8 @@ def topology_editor(id):
     查询参数 import=<topo_id>：从已上传的 Visio/drawio/图片文件导入后在线编辑。
     """
     from flask import send_from_directory
+    if id:
+        _require_topology_customer(Topology.query.get_or_404(id).customer_id)
     return send_from_directory(
         os.path.join(current_app.root_path, 'static', 'topologies'),
         'editor-shell.html')
@@ -115,6 +128,7 @@ def api_editor_meta():
     import_topo_id = request.args.get('import', type=int)
     if import_topo_id:
         t = Topology.query.get_or_404(import_topo_id)
+        _require_topology_customer(t.customer_id)
         if t.file_path:
             fp_lower = (t.file_path or '').lower()
             if fp_lower.endswith(('.vsd', '.vsdx')):
@@ -144,6 +158,7 @@ def api_editor_meta():
         'can_add': has_permission('topology:add'),
         'can_edit': has_permission('topology:edit'),
         'template_param': request.args.get('template', ''),
+        'default_template': 'standard-network-v1.drawio',
         'import': import_info,
     })
 
@@ -154,6 +169,7 @@ def api_editor_meta():
 def api_diagram_load(id):
     """加载在线拓扑图 XML"""
     t = Topology.query.get_or_404(id)
+    _require_topology_customer(t.customer_id)
     if t.source != 'draw':
         return jsonify({'ok': False, 'error': '该拓扑图为上传文件，不支持在线编辑'}), 400
     return jsonify({
@@ -164,6 +180,8 @@ def api_diagram_load(id):
         'customer_id': t.customer_id,
         'region_id': t.region_id,
         'diagram_xml': t.diagram_xml or '',
+        'template_type': t.template_type or 'legacy',
+        'template_version': t.template_version or 1,
     })
 
 
@@ -185,14 +203,20 @@ def api_diagram_save():
     if not name:
         return jsonify({'ok': False, 'error': '名称不能为空'}), 400
     diagram_xml = data.get('diagram_xml') or ''
-    if not diagram_xml.strip():
-        return jsonify({'ok': False, 'error': '图内容为空'}), 400
+    from utils.topology_templates import (
+        TEMPLATE_VERSION, normalize_template_type, validate_topology_xml)
+    try:
+        validate_topology_xml(diagram_xml)
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
 
     customer_id = data.get('customer_id') or None
     region_id = data.get('region_id') or None
+    _require_topology_customer(customer_id)
 
     if topo_id:
         t = Topology.query.get_or_404(topo_id)
+        _require_topology_customer(t.customer_id)
         if t.source != 'draw':
             return jsonify({'ok': False, 'error': '该拓扑图为上传文件，不支持在线编辑'}), 400
         t.name = name
@@ -200,7 +224,20 @@ def api_diagram_save():
         t.customer_id = customer_id
         t.region_id = region_id
         t.diagram_xml = diagram_xml
+        if 'template_type' in data:
+            try:
+                incoming_type = normalize_template_type(data.get('template_type'))
+            except ValueError as exc:
+                return jsonify({'ok': False, 'error': str(exc)}), 400
+            # 旧图仅能通过显式“插入当前标准图例”升级，普通保存保持 legacy。
+            if (t.template_type or 'legacy') != 'legacy':
+                t.template_type = incoming_type
     else:
+        try:
+            template_type = normalize_template_type(
+                data.get('template_type') or 'network', allow_legacy=False)
+        except ValueError as exc:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         t = Topology(
             name=name,
             description=data.get('description', ''),
@@ -210,6 +247,8 @@ def api_diagram_save():
             source='draw',
             file_type='other',
             upload_by=current_user.username,
+            template_type=template_type,
+            template_version=TEMPLATE_VERSION,
         )
         db.session.add(t)
         db.session.flush()  # 拿到 id，供缩略图命名用
@@ -231,6 +270,7 @@ def api_diagram_export_file():
     topo_id = int(data.get('id') or 0)
     fmt = (data.get('format') or '').lower()
     t = Topology.query.get_or_404(topo_id)
+    _require_topology_customer(t.customer_id)
     if t.source != 'draw':
         return jsonify({'ok': False, 'error': '非在线图'}), 400
     if fmt not in ('pdf', 'vsdx', 'png', 'svg'):
@@ -331,6 +371,7 @@ def _svg_to_pdf(raw_svg, output_path):
 def regenerate_pdf(id):
     """用已保存的 SVG 重新生成 PDF（双引擎后备：cairosvg → svglib）"""
     t = Topology.query.get_or_404(id)
+    _require_topology_customer(t.customer_id)
     if t.source != 'draw':
         return jsonify({'ok': False, 'error': '非在线图'}), 400
     if not t.svg_path:
@@ -361,6 +402,7 @@ def download_drawio(id):
     from flask import Response
     from urllib.parse import quote
     t = Topology.query.get_or_404(id)
+    _require_topology_customer(t.customer_id)
     if t.source != 'draw' or not t.diagram_xml:
         flash('该拓扑图不支持 drawio 导出', 'warning')
         return redirect('/app/topologies')

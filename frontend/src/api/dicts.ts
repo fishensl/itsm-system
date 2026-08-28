@@ -7,6 +7,8 @@ export interface DeviceDicts {
   customers: { id: number; name: string }[]
   installation_positions: string[]
   power_supplies: string[]
+  login_methods: string[]
+  room_locations: string[]
 }
 
 /** 设备页统一字典（筛选 + 安装位置/电源配置表单枚举） */

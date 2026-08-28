@@ -593,6 +593,7 @@ def _device_payload(d, customer_map=None, rack_map=None, pwd_map=None):
         'login_method': d.login_method or '',
         'location': d.location or '',
         'power_supply': d.power_supply or '',
+        'rated_power_w': d.rated_power_w,
         'interface': iface,
         'os_version': d.os_version or '',
         'rule_version': d.rule_version or '',
@@ -629,33 +630,18 @@ def api_device_list():
 
     page = request.args.get('page', 1, type=int)
     page_size = min(request.args.get('page_size', 20, type=int), 100)
-    search = (request.args.get('search') or '').strip()
-    brand = (request.args.get('brand') or '').strip()
-    model = (request.args.get('model') or '').strip()
-    device_type = (request.args.get('device_type') or '').strip()
-    customer_id = request.args.get('customer_id', type=int)
-    is_in_use = request.args.get('is_in_use', type=int)
-
     q = _Device.query.options(
         _jl(_Device.customer).joinedload(_Customer.region_rel),
         _sil(_Device.rack_installs).joinedload(_RI.rack_rel),
     )
     from utils.customer_scope import apply_customer_scope
     q = apply_customer_scope(q, _Device, current_user)
-    if search:
-        q = q.filter(_Device.device_name.contains(search) |
-                     _Device.ip_address.contains(search) |
-                     _Device.brand.contains(search))
-    if brand:
-        q = q.filter(_Device.brand == brand)
-    if model:
-        q = q.filter(_Device.model == model)
-    if device_type:
-        q = q.filter(_Device.device_type == device_type)
-    if customer_id:
-        q = q.filter(_Device.customer_id == customer_id)
-    if is_in_use is not None:
-        q = q.filter(_Device.is_in_use == bool(is_in_use))
+    from utils.device_filters import apply_device_filters
+    q = apply_device_filters(q, _Device, _RI, {
+        **request.args,
+        'room_locations': request.args.getlist('room_locations[]') or
+        request.args.getlist('room_locations') or request.args.get('room_location'),
+    })
 
     total = q.count()
     rows = q.order_by(_Device.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -682,23 +668,15 @@ def api_device_tree():
     """
     from models import Device as _D, Customer as _C, Region as _R, RackInstall as _RI
     from sqlalchemy.orm import selectinload as _sil
-    search = (request.args.get('search') or '').strip()
-    brand = (request.args.get('brand') or '').strip()
-    device_type = (request.args.get('device_type') or '').strip()
-    is_in_use = request.args.get('is_in_use', type=int)
     q = _D.query.options(_sil(_D.rack_installs).joinedload(_RI.rack_rel))
     from utils.customer_scope import apply_customer_scope
     q = apply_customer_scope(q, _D, current_user)
-    if search:
-        q = q.filter(_D.device_name.contains(search) |
-                     _D.ip_address.contains(search) |
-                     _D.brand.contains(search))
-    if brand:
-        q = q.filter(_D.brand == brand)
-    if device_type:
-        q = q.filter(_D.device_type == device_type)
-    if is_in_use is not None:
-        q = q.filter(_D.is_in_use == bool(is_in_use))
+    from utils.device_filters import apply_device_filters
+    q = apply_device_filters(q, _D, _RI, {
+        **request.args,
+        'room_locations': request.args.getlist('room_locations[]') or
+        request.args.getlist('room_locations') or request.args.get('room_location'),
+    })
     devices = q.order_by(_D.id.desc()).all()
     visible_customer_ids = {d.customer_id for d in devices if d.customer_id}
     customers = {c.id: c for c in _C.query.filter(
@@ -766,18 +744,13 @@ def api_v2_device_export():
         return fail(str(e), 400)
     if 'password' in codes:
         return fail('设备密码导出需走审核流程，请点击"导出申请"提交（原因必填）', 400)
-    search = (data.get('search') or '').strip()
-    customer_id = data.get('customer_id')
     q = _D.query.options(
         _sil(_D.rack_installs).joinedload(_RI.rack_rel),
     )
     from utils.customer_scope import apply_customer_scope
     q = apply_customer_scope(q, _D, current_user)
-    if search:
-        q = q.filter(_D.device_name.contains(search) | _D.ip_address.contains(search) |
-                     _D.brand.contains(search))
-    if customer_id:
-        q = q.filter(_D.customer_id == int(customer_id))
+    from utils.device_filters import apply_device_filters
+    q = apply_device_filters(q, _D, _RI, data)
     devices = q.order_by(_D.id.desc()).all()
     visible_customer_ids = {d.customer_id for d in devices if d.customer_id}
     customer_map = {c.id: c.name for c in _C.query.filter(
@@ -786,7 +759,8 @@ def api_v2_device_export():
     rows = device_export_rows(devices, codes, customer_map,
                               build_rack_map(devices), build_pwd_map(devices))
     download_name = device_export_filename(
-        customer_map.get(int(customer_id)) if customer_id else '', data.get('preset') or '')
+        customer_map.get(int(data['customer_id'])) if data.get('customer_id') else '',
+        data.get('preset') or '')
     tmp_path, download_name = export_xlsx(headers, rows, download_name, sheet_name='设备信息')
     with open(tmp_path, 'rb') as fh:
         b64 = base64.b64encode(fh.read()).decode('ascii')
@@ -805,14 +779,11 @@ def api_v2_device_export():
 @login_required
 @require_permission('device:add')
 def api_v2_device_import():
-    """设备批量导入（multipart import_file；与 SSR 导入同字段映射）"""
+    """设备批量导入：同一端点支持预检与三种执行模式。"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
-    from services.device_service import (_parse_date, _sync_rack_placement,
-                                          normalize_device_choice)
-    from utils.crypto import encrypt_password as _ep
     from utils.import_templates import get_import_field_mapping
-    from utils.json_fields import dumps_json
-    from models import Device as _D, Customer as _C, NetworkType as _NT
+    from models import Device as _D, Customer as _C, DeviceImportBatch
+    from services.device_import_service import prepare_device_import, execute_device_import
     if 'import_file' not in request.files:
         return fail('请选择要导入的 Excel 文件', 400)
     f = request.files['import_file']
@@ -821,114 +792,126 @@ def api_v2_device_import():
     if not ok_flag:
         return fail(err, 400)
     tmp = save_temp_upload(f, suffix='.xlsx')
-    created = 0
-    errors = []
     try:
+        import hashlib
+        from uuid import uuid4
+        with open(tmp, 'rb') as uploaded:
+            file_sha256 = hashlib.sha256(uploaded.read()).hexdigest()
         wb, ws, err2 = open_excel(tmp, app=current_app)
         if err2:
             return fail(err2[0], 400)
-        header_row = [cell.value for cell in ws[1]]
-        col_map = {}
-        for idx, h in enumerate(header_row):
-            if h:
-                col_map[str(h).strip()] = idx
         field_mapping = get_import_field_mapping('device')
-        from utils.customer_scope import apply_customer_scope
+        col_map = {
+            field_mapping[str(cell.value).strip()]: index
+            for index, cell in enumerate(ws[1])
+            if cell.value and field_mapping.get(str(cell.value).strip())
+        }
+        if 'device_name' not in col_map:
+            return fail('导入文件缺少必需列「名称」', 400)
+        rows = []
+        for row_no in range(2, ws.max_row + 1):
+            row = {'_row': row_no, '_present': set(col_map)}
+            for field, index in col_map.items():
+                value = ws.cell(row=row_no, column=index + 1).value
+                row[field] = '' if value is None else str(value).strip()
+            if any(value for key, value in row.items() if not key.startswith('_')):
+                rows.append(row)
+
+        import json
+        try:
+            mappings = json.loads(request.form.get('network_mappings') or '{}')
+        except (TypeError, ValueError):
+            return fail('网络类型映射格式无效', 400)
+        mode = (request.form.get('mode') or 'create').strip()
+        dry_run = str(request.form.get('dry_run') or '').lower() in {'1', 'true', 'yes'}
+        clear_empty = str(request.form.get('clear_empty') or '').lower() in {'1', 'true', 'yes'}
+        batch_id = (request.form.get('batch_id') or '').strip() or uuid4().hex
+        if len(batch_id) > 64:
+            return fail('导入批次号过长', 400)
+        if not dry_run:
+            previous = DeviceImportBatch.query.filter_by(batch_id=batch_id).first()
+            if previous:
+                if (previous.user_id != current_user.id or previous.file_sha256 != file_sha256 or
+                        previous.mode != mode or bool(previous.clear_empty) != clear_empty):
+                    return fail('导入批次号已用于其他文件或参数', 409)
+                from utils.json_fields import parse_json
+                previous_result = parse_json(previous.result_json, default={})
+                previous_result['duplicate_submission'] = True
+                return ok(previous_result)
+        from utils.customer_scope import apply_customer_scope, has_full_customer_scope
         customers = {c.name: c for c in apply_customer_scope(
             _C.query, _C, current_user).all()}
-        from utils.customer_scope import has_full_customer_scope
         allow_unassigned = has_full_customer_scope(current_user)
-        network_types = {item.name for item in _NT.query.all()}
-        new_devices = []
-        for row_idx in range(2, ws.max_row + 1):
-            row_data = {}
-            for cn, idx in col_map.items():
-                val = ws.cell(row=row_idx, column=idx + 1).value
-                field = field_mapping.get(cn)
-                if field:
-                    row_data[field] = str(val).strip() if val else ''
-            device_name = row_data.get('device_name', '')
-            if not device_name:
-                errors.append(f'第{row_idx}行：设备名称为空，跳过')
-                continue
-            customer = customers.get(row_data.get('customer_name', '')) if row_data.get('customer_name') else None
-            if not row_data.get('customer_name') and not allow_unassigned:
-                errors.append(f'第{row_idx}行：受限数据范围用户必须填写可见客户，已跳过')
-                continue
-            if row_data.get('customer_name') and not customer:
-                errors.append(f'第{row_idx}行：客户 "{row_data["customer_name"]}" 不存在，已跳过')
-                continue
-            network_type = row_data.get('network_type', '')
-            if network_type and network_type not in network_types:
-                errors.append(
-                    f'第{row_idx}行：网络类型 "{network_type}" 不在网络类型设置中，已跳过')
-                continue
-            try:
-                with db.session.begin_nested():
-                    import re as _re
-                    plain_password = row_data.get('password', '')
-                    interfaces = [
-                        item.strip() for item in _re.split(
-                            r'[、,，;；\n]+', row_data.get('interface', ''))
-                        if item.strip()
-                    ]
-                    device = _D(
-                        customer_id=customer.id if customer else None,
-                        device_name=device_name, device_type=row_data.get('device_type', ''),
-                        brand=row_data.get('brand', ''), model=row_data.get('model', ''),
-                        serial_number=row_data.get('serial_number', ''),
-                        network_type=network_type,
-                        ip_address=row_data.get('ip_address', ''),
-                        port=int(row_data.get('port', 22)) if row_data.get('port') else 22,
-                        username=row_data.get('username', ''),
-                        password_encrypted=_ep(plain_password) if plain_password else '',
-                        login_method=row_data.get('login_method', ''),
-                        rack_location=row_data.get('rack_location', '')[:128],
-                        location=normalize_device_choice('location', row_data.get('location')),
-                        power_supply=normalize_device_choice(
-                            'power_supply', row_data.get('power_supply')),
-                        interface=dumps_json(interfaces) if interfaces else None,
-                        os_version=row_data.get('os_version', ''),
-                        rule_version=row_data.get('rule_version', ''),
-                        build_date=_parse_date(row_data.get('build_date')),
-                        license_expiry=_parse_date(row_data.get('license_expiry')),
-                        license_start=_parse_date(row_data.get('license_start')),
-                        cert_expiry_date=_parse_date(row_data.get('cert_expiry_date')),
-                        is_maintenance=row_data.get('is_maintenance', '') in
-                        ('是', '1', 'true', 'True', 'Y', 'y'),
-                        is_in_use=row_data.get('is_in_use', '') not in
-                        ('否', '0', 'false', 'False', 'N', 'n'),
-                        remark=row_data.get('remark', ''),
-                    )
-                    db.session.add(device)
-                    db.session.flush()
-                    _sync_rack_placement(device, {
-                        'rack_location': row_data.get('rack_location', ''),
-                        'rack_custom_name': row_data.get('rack_name', ''),
-                        'rack_start_u': row_data.get('rack_start_u', '') or 1,
-                        'rack_occupy_u': row_data.get('rack_occupy_u', '') or 1,
-                    })
-                    new_devices.append(device)
-            except Exception as e:
-                errors.append(f'第{row_idx}行（{device_name}）：{e}')
-        if new_devices:
-            try:
-                db.session.commit()
-                created = len(new_devices)
-            except Exception as e:
-                db.session.rollback()
-                current_app.logger.exception('设备批量导入(Vue)提交失败: %s', e)
-                errors.append(f'批量提交失败：{e}')
-            else:
-                # 刷新受影响客户 device_count/等级（导入路径此前漏刷新导致计数残留）
-                for cid in {d.customer_id for d in new_devices if d.customer_id}:
-                    try:
-                        _sync_device_count(cid)
-                    except Exception:
-                        current_app.logger.exception('设备导入后刷新客户 %s 设备数失败', cid)
+        accessible_ids = {item[0] for item in apply_customer_scope(
+            _D.query, _D, current_user).with_entities(_D.id).all()}
+        try:
+            prepared = prepare_device_import(
+                rows, customers, accessible_ids, allow_unassigned, mode, mappings, clear_empty)
+        except Exception as exc:
+            db.session.rollback()
+            return fail(str(exc) or '设备导入预检失败', 400)
+        response = {
+            **prepared['counts'],
+            # 兼容旧客户端/自动化脚本；新界面统一使用 create/update。
+            'created': prepared['counts']['create'],
+            'updated': prepared['counts']['update'],
+            'errors': prepared['errors'],
+            'total_errors': prepared['counts']['failed'],
+            'unknown_network_types': prepared['unknown_network_types'],
+            'network_type_options': prepared['network_type_options'],
+            'dry_run': dry_run,
+            'batch_id': batch_id,
+            'file_sha256': file_sha256,
+        }
+        if prepared['error_details']:
+            import base64
+            import io
+            import openpyxl
+            error_wb = openpyxl.Workbook()
+            error_ws = error_wb.active
+            error_ws.title = '导入错误'
+            error_ws.append(['Excel行号', '设备名称', '错误原因'])
+            for row_no, device_name, message in prepared['error_details']:
+                error_ws.append([row_no, device_name, message])
+            error_ws.freeze_panes = 'A2'
+            error_ws.column_dimensions['A'].width = 14
+            error_ws.column_dimensions['B'].width = 32
+            error_ws.column_dimensions['C'].width = 80
+            output = io.BytesIO()
+            error_wb.save(output)
+            response['errors_file'] = {
+                'filename': '设备导入错误明细.xlsx',
+                'content': base64.b64encode(output.getvalue()).decode('ascii'),
+            }
+        if dry_run or prepared['counts']['failed']:
+            db.session.rollback()
+            return ok(response)
+        try:
+            result = execute_device_import(
+                prepared, operator_name=current_user.realname or current_user.username)
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.exception('设备批量导入执行失败: %s', exc)
+            return fail(f'设备导入执行失败：{exc}', 400)
+        from utils.json_fields import dumps_json
+        db.session.add(DeviceImportBatch(
+            batch_id=batch_id, user_id=current_user.id, file_sha256=file_sha256,
+            mode=mode, clear_empty=clear_empty, result_json=dumps_json(response)))
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.exception('设备批量导入提交失败: %s', exc)
+            return fail(f'批量提交失败：{exc}', 400)
+        for customer_id in result['customer_ids']:
+            _sync_device_count(customer_id)
+        from blueprints.vue_api_sys import audit_log
+        audit_log('device:import', 'device', None,
+                  f'模式={mode}; 新增={response["create"]}; 更新={response["update"]}; '
+                  f'无变化={response["unchanged"]}; 密码更新={result["password_updates"]}')
+        return ok(response)
     finally:
         cleanup_temp_file(tmp)
-    return ok({'created': created, 'errors': errors[:20], 'total_errors': len(errors)})
 
 
 @vue_api_bp.route('/api/v2/devices/batch-update', methods=['POST'])
@@ -941,7 +924,7 @@ def api_v2_device_batch_update():
     机柜位置：{device_ids, rack_id, start_u, occupy_u} —— 迁移走旧上架记录后新建，
     机房位置/机柜号取目标机柜的 location/name；U 位范围与占用冲突校验（含批内互占），冲突整体回滚。
     """
-    from services.device_service import _parse_date, normalize_device_choice
+    from services.device_service import _parse_date, normalize_device_choice, normalize_rated_power
     from blueprints.vue_api_asset import _check_u_range, _check_u_conflict
     from models import Device as _D, Rack as _R, RackInstall as _RI
     data = request.get_json(silent=True) or {}
@@ -1042,6 +1025,7 @@ def api_v2_device_batch_update():
                    'device_type', 'remark'}
     BOOL_FIELDS = {'is_in_use', 'is_maintenance'}
     DATE_FIELDS = {'license_start', 'license_expiry', 'cert_expiry_date'}
+    NUMBER_FIELDS = {'rated_power_w'}
     if field == 'rack_location':
         # 机房位置：已上架设备更新所在机柜 Rack.location；未上架设备写入自身 rack_location。全部生效
         text = str(value or '').strip()
@@ -1058,13 +1042,15 @@ def api_v2_device_batch_update():
         audit_log('device:batch_update', 'device', None,
                   f'批量修改 {len(devices)} 台设备机房位置为「{text}」')
         return ok({'count': len(devices)})
-    if field not in TEXT_FIELDS | BOOL_FIELDS | DATE_FIELDS:
+    if field not in TEXT_FIELDS | BOOL_FIELDS | DATE_FIELDS | NUMBER_FIELDS:
         return fail('不支持的批量修改字段', 400)
     try:
         if field in BOOL_FIELDS:
             parsed = bool(value) if isinstance(value, bool) else str(value).strip().lower() in ('1', 'true', 'on', '是')
         elif field in DATE_FIELDS:
             parsed = _parse_date(value) if value else None
+        elif field == 'rated_power_w':
+            parsed = normalize_rated_power(value)
         elif field in {'location', 'power_supply'}:
             parsed = normalize_device_choice(field, value)
         else:
@@ -1210,6 +1196,60 @@ def api_device_delete(device_id):
         except Exception:
             current_app.logger.exception('设备删除后刷新客户 %s 设备数失败', cid)
     return ok(None)
+
+
+def _scoped_batch_devices(raw_ids):
+    from models import Device as _Device
+    try:
+        ids = list(dict.fromkeys(int(value) for value in (raw_ids or []) if value))
+    except (TypeError, ValueError):
+        return [], [], '设备 ID 参数无效'
+    if not ids or len(ids) > 500:
+        return [], ids, '请选择 1-500 台设备'
+    from utils.customer_scope import apply_customer_scope
+    devices = apply_customer_scope(
+        _Device.query.filter(_Device.id.in_(ids)), _Device, current_user).all()
+    if len(devices) != len(ids):
+        return [], ids, '部分设备不存在或不在当前数据范围'
+    by_id = {device.id: device for device in devices}
+    return [by_id[item_id] for item_id in ids], ids, ''
+
+
+@vue_api_bp.route('/api/v2/devices/batch-delete/preview', methods=['POST'])
+@login_required
+@require_permission('device:delete')
+def api_v2_device_batch_delete_preview():
+    from services.device_service import preview_device_delete
+    data = request.get_json(silent=True) or {}
+    devices, _ids, error = _scoped_batch_devices(data.get('device_ids'))
+    if error:
+        return fail(error, 400)
+    return ok(preview_device_delete(devices))
+
+
+@vue_api_bp.route('/api/v2/devices/batch-delete', methods=['POST'])
+@login_required
+@require_permission('device:delete')
+def api_v2_device_batch_delete():
+    from services.device_service import delete_devices, preview_device_delete
+    data = request.get_json(silent=True) or {}
+    devices, ids, error = _scoped_batch_devices(data.get('device_ids'))
+    if error:
+        return fail(error, 400)
+    impact = preview_device_delete(devices)
+    try:
+        customer_ids = delete_devices(devices)
+    except Exception as exc:
+        current_app.logger.exception('设备批量删除失败: %s', exc)
+        return fail(f'批量删除失败：{exc}', 400)
+    for customer_id in customer_ids:
+        _sync_device_count(customer_id)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:batch_delete', 'device', None,
+              f'批量删除 {len(ids)} 台设备；IDs={ids}; '
+              f'工单={impact["tickets"]}; 巡检任务={impact["inspection_tasks"]}; '
+              f'配置备份={impact["config_backups"]}; 机柜={impact["rack_installs"]}')
+    return ok({'count': len(ids)})
 
 
 @vue_api_bp.route('/api/v2/devices/<int:device_id>/reveal-password', methods=['POST'])
@@ -2345,23 +2385,43 @@ def api_ticket_dicts():
 @login_required
 @require_permission('device:view')
 def api_device_dicts():
-    from models import Device as _Device, DeviceType as _DT, NetworkType as _NT
-    from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_POWER_SUPPLIES
-    from utils.customer_scope import customer_dropdown_options
-    brands = [r[0] for r in db.session.query(_Device.brand).distinct()
-              .filter(_Device.brand != '').order_by(_Device.brand).all()]
+    from models import (Device as _Device, DeviceType as _DT, NetworkType as _NT,
+                        Brand as _Brand, RackInstall as _RI)
+    from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_LOGIN_METHODS
+    from services.device_service import get_power_supply_choices
+    from utils.customer_scope import customer_dropdown_options, apply_customer_scope
+    brands = [item.name for item in _Brand.query.order_by(_Brand.sort_order, _Brand.id).all()]
     types = [{'name': t.name} for t in _DT.query.order_by(_DT.sort_order, _DT.id).all()]
     network_types = [
         t.name for t in _NT.query.order_by(_NT.sort_order, _NT.id).all()
     ]
     customers = customer_dropdown_options(current_user)
+    from sqlalchemy.orm import selectinload as _selectinload
+    visible_devices = apply_customer_scope(
+        _Device.query.options(_selectinload(_Device.rack_installs).joinedload(_RI.rack_rel)),
+        _Device, current_user,
+    ).all()
+    room_locations = sorted({
+        location
+        for device in visible_devices
+        for location in (
+            str(device.rack_location or '').strip(),
+            *(
+                str(install.rack_rel.location or '').strip()
+                for install in (device.rack_installs or []) if install.rack_rel
+            ),
+        )
+        if location
+    })
     return ok({
         'brands': brands,
         'device_types': types,
         'network_types': network_types,
         'customers': customers,
         'installation_positions': list(DEVICE_INSTALLATION_POSITIONS),
-        'power_supplies': list(DEVICE_POWER_SUPPLIES),
+        'power_supplies': list(get_power_supply_choices()),
+        'login_methods': list(DEVICE_LOGIN_METHODS),
+        'room_locations': room_locations,
     })
 
 
@@ -2380,9 +2440,19 @@ def _serialize_extra_fields(raw):
     return dumps_json(pairs) if pairs else ''
 
 
-def _customer_payload(c, region_map=None, category_map=None):
+def _customer_payload(c, region_map=None, category_map=None, customer_map=None):
     from services.customer_service import parse_extra_fields
     from utils.customer_contract import contract_status, contract_remaining_days
+    customer_map = customer_map or {}
+    parent = customer_map.get(c.parent_id)
+    path = [c.name]
+    seen = {c.id}
+    cursor = parent
+    while cursor and cursor.id not in seen:
+        path.append(cursor.name)
+        seen.add(cursor.id)
+        cursor = customer_map.get(cursor.parent_id)
+    path.reverse()
     return {
         'id': c.id,
         'name': c.name,
@@ -2404,6 +2474,8 @@ def _customer_payload(c, region_map=None, category_map=None):
         'region_id': c.region_id,
         'category_id': c.category_id,
         'parent_id': c.parent_id,
+        'parent_name': parent.name if parent else '',
+        'hierarchy_path': ' / '.join(path),
         'has_onsite': bool(c.has_onsite),
         'has_onsite_label': '有' if c.has_onsite else '无',
         'onsite_contact': c.onsite_contact or '',
@@ -2445,6 +2517,8 @@ def api_v2_customer_export():
     if date_to:
         q = q.filter(_C.created_at <= date_to + ' 23:59:59')
     customers = q.all()
+    customer_map = {item.id: item for item in apply_customer_scope(
+        _C.query, _C, current_user).all()}
     customer_ids = [item.id for item in customers]
     device_counts = dict(db.session.query(_D.customer_id, func.count(_D.id))
                          .filter(_D.customer_id.in_(customer_ids))
@@ -2466,8 +2540,11 @@ def api_v2_customer_export():
     headers = [dict(CUSTOMER_EXPORT_COLUMNS)[code] for code in codes]
     rows = []
     for c in customers:
+        hierarchy = _customer_payload(c, customer_map=customer_map)
         vals = {
             'name': c.name,
+            'parent_name': hierarchy['parent_name'],
+            'hierarchy_path': hierarchy['hierarchy_path'],
             'contact_person': c.contact_person or '',
             'phone': c.phone or '',
             'email': c.email or '',
@@ -2531,6 +2608,7 @@ def api_v2_customer_import():
     success = 0
     unknown_categories = set()
     imported_customers = []
+    pending_parents = []
     try:
         wb, ws, err2 = open_excel(tmp, app=current_app)
         if err2:
@@ -2591,7 +2669,29 @@ def api_v2_customer_import():
             )
             db.session.add(customer)
             imported_customers.append(customer)
+            pending_parents.append((r, customer, row_data.get('parent_name', '')))
             success += 1
+        db.session.flush()
+        from utils.customer_scope import apply_customer_scope
+        visible_parent_map = {item.name: item for item in apply_customer_scope(
+            _C.query, _C, current_user).all()}
+        visible_parent_map.update({item.name: item for item in imported_customers})
+        parent_errors = []
+        from services.customer_service import _resolve_parent_id
+        for row_no, customer, parent_name in pending_parents:
+            if not parent_name:
+                continue
+            parent = visible_parent_map.get(parent_name)
+            if not parent:
+                parent_errors.append(f'第{row_no}行：上级单位「{parent_name}」不存在或不在当前数据范围')
+                continue
+            try:
+                customer.parent_id = _resolve_parent_id(parent.id, self_id=customer.id)
+            except Exception as exc:  # noqa: BLE001
+                parent_errors.append(f'第{row_no}行：{exc}')
+        if parent_errors:
+            db.session.rollback()
+            return fail('；'.join(parent_errors[:20]), 400)
         from utils.customer_scope import has_full_customer_scope
         if imported_customers and not has_full_customer_scope(current_user):
             current_user.customers.extend(imported_customers)
@@ -2632,7 +2732,9 @@ def api_customer_list():
     rows = q.order_by(_C.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     region_map = {r.id: r.name for r in _R.query.all()}
     category_map = {cc.id: cc.name for cc in _CC.query.all()}
-    return ok({'items': [_customer_payload(c, region_map, category_map) for c in rows],
+    visible_customers = apply_customer_scope(_C.query, _C, current_user).all()
+    customer_map = {item.id: item for item in visible_customers}
+    return ok({'items': [_customer_payload(c, region_map, category_map, customer_map) for c in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -2640,16 +2742,15 @@ def api_customer_list():
 @login_required
 @require_permission('customer:view')
 def api_customer_tree():
-    """客户两级折叠树：市 → 客户（区县客户并入市组，行内附 district 区县名）
-
-    与列表接口共用筛选参数（search/level/category_id），筛选结果仍按市分组。
-    """
+    """客户业务层级树：parent_id 是唯一真源，地区只是展示属性。"""
     from models import Customer as _C, Region as _R, CustomerCategory as _CC
     search = (request.args.get('search') or '').strip()
     level = (request.args.get('level') or '').strip()
     category_id = request.args.get('category_id', type=int)
     from utils.customer_scope import apply_customer_scope
-    q = apply_customer_scope(_C.query, _C, current_user)
+    visible = apply_customer_scope(_C.query, _C, current_user).order_by(_C.name).all()
+    visible_map = {item.id: item for item in visible}
+    q = _C.query.filter(_C.id.in_(visible_map))
     if search:
         q = q.filter(_C.name.contains(search) |
                      _C.contact_person.contains(search) |
@@ -2658,33 +2759,37 @@ def api_customer_tree():
         q = q.filter(_C.level == level)
     if category_id:
         q = q.filter(_C.category_id == category_id)
-    customers = q.order_by(_C.id.desc()).all()
-    regions = {r.id: r for r in _R.query.all()}
+    matched = q.order_by(_C.name).all()
     region_map = {r.id: r.name for r in _R.query.all()}
     category_map = {cc.id: cc.name for cc in _CC.query.all()}
+    include_ids = {item.id for item in matched}
+    for item in matched:
+        cursor = visible_map.get(item.parent_id)
+        seen = {item.id}
+        while cursor and cursor.id not in seen:
+            include_ids.add(cursor.id)
+            seen.add(cursor.id)
+            cursor = visible_map.get(cursor.parent_id)
+    children_by_parent = {}
+    for item_id in include_ids:
+        item = visible_map[item_id]
+        parent_id = item.parent_id if item.parent_id in include_ids else None
+        children_by_parent.setdefault(parent_id, []).append(item)
 
-    groups = {}
-    for c in customers:
-        city, district = '', ''
-        r = regions.get(c.region_id)
-        if r:
-            if r.parent_id:
-                p = regions.get(r.parent_id)
-                city = p.name if p else r.name
-                district = r.name
-            else:
-                city = r.name
-        elif c.city:
-            city = c.city  # 冗余字段兜底
-        payload = _customer_payload(c, region_map, category_map)
-        payload['district'] = district
-        groups.setdefault(city, []).append(payload)
+    def build_node(customer, ancestry):
+        payload = _customer_payload(customer, region_map, category_map, visible_map)
+        if customer.id in ancestry:
+            payload['children'] = []
+            return payload
+        children = sorted(children_by_parent.get(customer.id, []), key=lambda item: item.name)
+        payload['children'] = [build_node(child, ancestry | {customer.id}) for child in children]
+        payload['customer_count'] = 1 + sum(child.get('customer_count', 1)
+                                            for child in payload['children'])
+        return payload
 
-    tree = [{'id': None, 'name': name or '未分配地区', 'region': True,
-             'customer_count': len(items), 'children': items}
-            for name, items in groups.items()]
-    tree.sort(key=lambda g: (g['name'] == '未分配地区', g['name']))
-    return ok({'tree': tree, 'total': len(customers)})
+    roots = sorted(children_by_parent.get(None, []), key=lambda item: item.name)
+    tree = [build_node(root, set()) for root in roots]
+    return ok({'tree': tree, 'total': len(matched)})
 
 
 @vue_api_bp.route('/api/customers/<int:customer_id>', methods=['GET'])
@@ -2697,7 +2802,10 @@ def api_customer_get(customer_id):
     require_customer_access(current_user, c.id)
     region_map = {r.id: r.name for r in _R.query.all()}
     category_map = {cc.id: cc.name for cc in _CC.query.all()}
-    payload = _customer_payload(c, region_map, category_map)
+    from utils.customer_scope import apply_customer_scope
+    visible_customers = apply_customer_scope(_C.query, _C, current_user).all()
+    customer_map = {item.id: item for item in visible_customers}
+    payload = _customer_payload(c, region_map, category_map, customer_map)
     payload['inspection_count'] = _count_by('inspections', 'customer_id', c.id)
     payload['ticket_count'] = _count_by('tickets', 'customer_id', c.id)
     return ok(payload)
@@ -2788,12 +2896,16 @@ def api_customer_delete(customer_id):
 @login_required
 @require_permission('customer:view')
 def api_customer_dicts():
-    from models import CustomerCategory as _CC, Region as _R
+    from models import CustomerCategory as _CC, Region as _R, Customer as _C
     categories = [{'id': cc.id, 'name': cc.name}
                   for cc in _CC.query.order_by(_CC.sort_order, _CC.id).all()]
     regions = [{'id': r.id, 'name': r.name, 'parent_id': r.parent_id}
                for r in _R.query.order_by(_R.sort_order, _R.id).all()]
-    return ok({'customer_categories': categories, 'regions': regions,
+    from utils.customer_scope import apply_customer_scope
+    customers = [{'id': item.id, 'name': item.name, 'parent_id': item.parent_id}
+                 for item in apply_customer_scope(_C.query, _C, current_user)
+                 .order_by(_C.name).all()]
+    return ok({'customer_categories': categories, 'regions': regions, 'customers': customers,
                'levels': ['auto', '核心', '重点', '常规']})
 
 
@@ -3666,8 +3778,28 @@ def api_region_update(rid):
         return fail('不能将地区挂到自身')
     r.name = name
     r.parent_id = parent_id
-    r.sort_order = int(data.get('sort_order') or 0)
+    if 'sort_order' in data:
+        r.sort_order = int(data.get('sort_order') or 0)
     db.session.commit()
+    return ok(None)
+
+
+@vue_api_bp.route('/api/regions/reorder', methods=['PUT'])
+@login_required
+@require_permission('region:edit')
+def api_region_reorder():
+    from models import Region
+    from utils.reorder import reorder_siblings
+    data = request.get_json(silent=True) or {}
+    parent_id = int(data['parent_id']) if data.get('parent_id') else None
+    try:
+        old_ids, new_ids = reorder_siblings(Region, data.get('ids'), parent_id)
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('region:reorder', 'region', parent_id,
+              f'父节点={parent_id}; 旧顺序={old_ids}; 新顺序={new_ids}')
     return ok(None)
 
 
@@ -3705,10 +3837,30 @@ def api_category_add():
         return fail('类别名称不能为空')
     if CustomerCategory.query.filter_by(name=name).first():
         return fail('类别名称已存在')
-    cat = CustomerCategory(name=name, sort_order=int(data.get('sort_order') or 0))
+    from sqlalchemy import func
+    max_sort = db.session.query(func.max(CustomerCategory.sort_order)).scalar() or 0
+    cat = CustomerCategory(name=name, sort_order=max_sort + 10)
     db.session.add(cat)
     db.session.commit()
     return ok({'id': cat.id})
+
+
+@vue_api_bp.route('/api/customer-categories/reorder', methods=['PUT'])
+@login_required
+@require_permission('category:edit')
+def api_category_reorder():
+    from models import CustomerCategory
+    from utils.reorder import reorder_all
+    data = request.get_json(silent=True) or {}
+    try:
+        old_ids, new_ids = reorder_all(CustomerCategory, data.get('ids'))
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    db.session.commit()
+    from blueprints.vue_api_sys import audit_log
+    audit_log('customer-category:reorder', 'customer-category', None,
+              f'旧顺序={old_ids}; 新顺序={new_ids}')
+    return ok(None)
 
 
 @vue_api_bp.route('/api/customer-categories/<int:cid>', methods=['PUT'])
@@ -3721,7 +3873,8 @@ def api_category_update(cid):
     name = (data.get('name') or '').strip()
     if name:
         cat.name = name
-    cat.sort_order = int(data.get('sort_order', cat.sort_order or 0))
+    if 'sort_order' in data:
+        cat.sort_order = int(data.get('sort_order') or 0)
     db.session.commit()
     return ok(None)
 

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """P2 设备 Vue API：列表/筛选/增删改/密码 reveal/字典"""
+import io
 from datetime import date
 
 import pytest
 
-from models import db, Customer, Device, User
+from models import db, Customer, Device, User, Brand
 from utils.crypto import encrypt_password
 
 
@@ -33,6 +34,9 @@ def seed(app):
         if not NetworkType.query.first():
             db.session.add(NetworkType(name='内网', sort_order=1))
             db.session.add(NetworkType(name='外网', sort_order=2))
+        if not Brand.query.first():
+            db.session.add(Brand(name='华为', sort_order=1))
+            db.session.add(Brand(name='深信服', sort_order=2))
         db.session.commit()
         yield {'c1': c1.id, 'c2': c2.id, 'd1': d1.id, 'd2': d2.id}
 
@@ -76,6 +80,35 @@ class TestDeviceList:
         assert data['total'] == 1
         assert data['items'][0]['is_in_use'] is True
 
+    def test_room_filter_uses_rack_for_installed_and_device_field_for_uninstalled(
+            self, op_client, seed, app):
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='A-01', location='生产机房')
+            db.session.add(rack)
+            db.session.flush()
+            installed = Device.query.get(seed['d1'])
+            installed.rack_location = '过期机房值'
+            db.session.add(RackInstall(
+                rack_id=rack.id, device_id=installed.id, start_u=1, occupy_u=1))
+            db.session.commit()
+        actual = op_client.get('/api/devices', query_string={'room_location': '生产机房'})
+        assert [item['id'] for item in actual.get_json()['data']['items']] == [seed['d1']]
+        stale = op_client.get('/api/devices', query_string={'room_location': '过期机房值'})
+        assert stale.get_json()['data']['total'] == 0
+        non_room = op_client.get('/api/devices', query_string={
+            'room_location': '__non_room__'})
+        assert [item['id'] for item in non_room.get_json()['data']['items']] == [seed['d2']]
+
+    def test_location_scope_room_and_non_room(self, op_client, seed, app):
+        with app.app_context():
+            Device.query.get(seed['d1']).rack_location = '二楼机房'
+            db.session.commit()
+        rooms = op_client.get('/api/devices', query_string={'location_scope': 'room'})
+        assert [item['id'] for item in rooms.get_json()['data']['items']] == [seed['d1']]
+        other = op_client.get('/api/devices', query_string={'location_scope': 'non_room'})
+        assert [item['id'] for item in other.get_json()['data']['items']] == [seed['d2']]
+
     def test_pagination(self, op_client, seed):
         r = op_client.get('/api/devices', query_string={'page': 1, 'page_size': 1})
         data = r.get_json()['data']
@@ -84,6 +117,18 @@ class TestDeviceList:
 
 
 class TestDeviceCrud:
+    def test_name_is_unique_within_customer_but_reusable_across_customers(
+            self, op_client, seed):
+        payload = {
+            'customer_id': seed['c2'], 'device_name': 'SW-A',
+            'device_type': '交换机', 'is_in_use': True,
+        }
+        first = op_client.post('/api/devices', json=payload)
+        assert first.status_code == 200
+        duplicate = op_client.post('/api/devices', json=payload)
+        assert duplicate.status_code == 400
+        assert '当前客户' in duplicate.get_json()['message']
+
     def test_create_with_custom_rack_is_atomic(self, op_client, seed, app):
         from models import Rack, RackInstall
 
@@ -476,6 +521,45 @@ class TestDeviceBatchUpdate:
             assert RackInstall.query.filter_by(rack_id=rack_id).count() == 1  # 仅原占用，未新增
 
 
+class TestDeviceBatchDelete:
+    def test_preview_and_delete_preserve_rack_snapshot_and_audit(
+            self, admin_client, seed, app):
+        from models import AuditLog, Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='删除预览柜', location='机房')
+            db.session.add(rack)
+            db.session.flush()
+            install = RackInstall(
+                rack_id=rack.id, device_id=seed['d1'], start_u=5, occupy_u=2)
+            db.session.add(install)
+            db.session.commit()
+            install_id = install.id
+        preview = admin_client.post('/api/v2/devices/batch-delete/preview', json={
+            'device_ids': [seed['d1'], seed['d2']],
+        })
+        assert preview.status_code == 200
+        assert preview.get_json()['data']['rack_installs'] == 1
+        deleted = admin_client.post('/api/v2/devices/batch-delete', json={
+            'device_ids': [seed['d1'], seed['d2']],
+        })
+        assert deleted.status_code == 200
+        assert deleted.get_json()['data']['count'] == 2
+        with app.app_context():
+            assert Device.query.filter(Device.id.in_([seed['d1'], seed['d2']])).count() == 0
+            snapshot = RackInstall.query.get(install_id)
+            assert snapshot.device_id is None
+            assert snapshot.manual_name == 'SW-A'
+            assert AuditLog.query.filter_by(action='device:batch_delete').count() == 1
+
+    def test_invalid_member_rolls_back_whole_batch(self, admin_client, seed, app):
+        response = admin_client.post('/api/v2/devices/batch-delete', json={
+            'device_ids': [seed['d1'], 999999],
+        })
+        assert response.status_code == 400
+        with app.app_context():
+            assert Device.query.get(seed['d1']) is not None
+
+
 class TestDeviceImportSync:
     def _make_xlsx(self, rows):
         import io
@@ -483,7 +567,7 @@ class TestDeviceImportSync:
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(['所属客户', '设备名称', '设备类型', 'IP地址', '是否在用',
-                   '安装位置', '电源配置'])
+                   '安装位置', '电源配置', '额定功率'])
         for row in rows:
             ws.append(row)
         bio = io.BytesIO()
@@ -512,7 +596,7 @@ class TestDeviceImportSync:
 
     def test_import_persists_installation_and_power_choices(self, op_client, seed, app):
         xlsx = self._make_xlsx([
-            ['设备API客户A', 'SW-POWER', '交换机', '10.0.0.6', '是', '背面', '双电源'],
+            ['设备API客户A', 'SW-POWER', '交换机', '10.0.0.6', '是', '背面', '四电源', 480],
         ])
         r = op_client.post('/api/v2/devices/import', data={
             'import_file': (xlsx, 'devices.xlsx')},
@@ -522,7 +606,44 @@ class TestDeviceImportSync:
         with app.app_context():
             device = Device.query.filter_by(device_name='SW-POWER').one()
             assert device.location == '背面'
-            assert device.power_supply == '双电源'
+            assert device.power_supply == '四电源'
+            assert device.rated_power_w == 480
+
+    def test_import_batch_id_is_idempotent(self, op_client, seed, app):
+        raw = self._make_xlsx([
+            ['设备API客户A', 'SW-IDEMPOTENT', '交换机', '10.0.0.7', '是'],
+        ]).getvalue()
+        form = {
+            'import_file': (io.BytesIO(raw), 'devices.xlsx'),
+            'batch_id': 'batch-idempotency-001',
+        }
+        first = op_client.post('/api/v2/devices/import', data=form,
+                               content_type='multipart/form-data')
+        assert first.status_code == 200
+        assert first.get_json()['data']['created'] == 1
+        second = op_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(raw), 'devices.xlsx'),
+            'batch_id': 'batch-idempotency-001',
+        }, content_type='multipart/form-data')
+        assert second.status_code == 200
+        assert second.get_json()['data']['duplicate_submission'] is True
+        with app.app_context():
+            assert Device.query.filter_by(device_name='SW-IDEMPOTENT').count() == 1
+
+    def test_import_rejects_duplicate_target_rows_atomically(self, op_client, seed, app):
+        xlsx = self._make_xlsx([
+            ['设备API客户A', 'SW-DUP-ROW', '交换机', '10.0.0.8', '是'],
+            ['设备API客户A', 'SW-DUP-ROW', '交换机', '10.0.0.9', '是'],
+        ])
+        response = op_client.post('/api/v2/devices/import', data={
+            'import_file': (xlsx, 'duplicates.xlsx'),
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        data = response.get_json()['data']
+        assert data['failed'] == 1
+        assert '指向同一设备' in data['errors'][0]
+        with app.app_context():
+            assert Device.query.filter_by(device_name='SW-DUP-ROW').count() == 0
 
 
 class TestRevealPassword:
@@ -550,7 +671,7 @@ class TestDeviceDicts:
         assert data['network_types'] == ['内网', '外网']
         assert len(data['customers']) >= 2
         assert data['installation_positions'] == ['正面', '背面']
-        assert data['power_supplies'] == ['单电源', '双电源']
+        assert data['power_supplies'] == ['单电源', '双电源', '四电源']
 
     def test_tree_three_levels(self, admin_client, seed, app):
         """设备树：市 → 客户 → 设备 三级；未关联客户设备独立成组

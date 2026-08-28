@@ -69,6 +69,19 @@ class TestRolesApi:
         assert op_client.get('/api/roles').status_code == 403  # operator 也无 permission:view
         assert op_client.post('/api/roles', json={'code': 'x', 'name': 'y'}).status_code == 403
 
+    def test_reorder_roles_requires_complete_set(self, admin_client, app):
+        with app.app_context():
+            roles = Role.query.order_by(Role.sort_order, Role.id).all()
+            old_ids = [role.id for role in roles]
+        new_ids = list(reversed(old_ids))
+        assert admin_client.put('/api/roles/reorder', json={'ids': new_ids}).status_code == 200
+        with app.app_context():
+            assert [role.id for role in Role.query.order_by(
+                Role.sort_order, Role.id).all()] == new_ids
+        assert admin_client.put('/api/roles/reorder', json={
+            'ids': new_ids[:-1],
+        }).status_code == 400
+
 
 class TestUserOverrideApi:
     def test_get_save(self, admin_client, app):

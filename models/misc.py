@@ -57,6 +57,8 @@ class Topology(db.Model):
     # V20: 在线拓扑（drawio 集成）
     diagram_xml = db.Column(db.Text, default='')             # mxGraph XML（在线图源数据；上传图为空）
     source = db.Column(db.String(16), default='upload')      # upload | draw
+    template_type = db.Column(db.String(16), nullable=False, default='legacy')
+    template_version = db.Column(db.Integer, nullable=False, default=1)
     thumbnail_path = db.Column(db.String(512), default='')   # 在线图缩略图 PNG（列表预览用）
     pdf_path = db.Column(db.String(512), default='')         # 在线图自动导出的 PDF（快速下载）
     vsdx_path = db.Column(db.String(512), default='')        # 在线图自动导出的 VSDX（快速下载）
@@ -172,5 +174,4 @@ class ExportFile(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     creator_rel = db.relationship('User', backref='export_files')
-
 

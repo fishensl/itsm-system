@@ -10,7 +10,8 @@ from models.user import (  # noqa: F401
 from models.customer import Region, Customer  # noqa: F401
 from models.device import (  # noqa: F401
     Device, DeviceFirmware, DeviceCredential, DeviceInterface, CustomField,
-    PasswordHistory, DeviceExportRequest, DeviceType, DeviceSubType, NetworkType, Brand)
+    PasswordHistory, DeviceExportRequest, DeviceType, DeviceSubType, NetworkType, Brand,
+    DevicePowerConfig, DeviceImportBatch)
 from models.inspection import (  # noqa: F401
     task_device_template_link, InspectionDeviceTemplate, InspectionTaskTemplate,
     InspectionTemplate, Inspector, InspectionTask, Inspection)

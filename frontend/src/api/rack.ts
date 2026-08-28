@@ -15,6 +15,11 @@ export interface RackItem {
   color: string
   pdu_total_w: number
   used_w: number
+  unknown_power_count: number
+  power_completeness: number
+  pdu_remaining_w: number | null
+  pdu_load_pct: number | null
+  heat_btu_h: number
   remark: string
   install_count: number
 }
@@ -31,6 +36,7 @@ export interface RackInstall {
   start_u: number
   occupy_u: number
   rated_w: number
+  rated_power_w: number | null
   remark: string
 }
 
@@ -55,6 +61,7 @@ export interface RackDevice {
   model: string
   ip: string
   installed: boolean
+  rated_power_w: number | null
 }
 
 export interface InstallForm {

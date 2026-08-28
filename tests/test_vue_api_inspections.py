@@ -5,7 +5,8 @@ import os
 
 import pytest
 
-from models import db, Customer, Inspection, InspectionTask, User, SubmissionVersion, Device
+from models import (db, Customer, Inspection, InspectionTask, User, SubmissionVersion,
+                    Device, RackInstall)
 
 
 @pytest.fixture()
@@ -717,7 +718,8 @@ class TestTaskSubmissionAssets:
         assert body['config_backups'] == 2  # zip + 文本配置
         assert body['topologies'] == 1
         assert body['asset_import']['created'] == 1  # 新服务器B
-        assert body['asset_import']['updated'] == 1  # 核心交换机A
+        assert body['asset_import']['updated'] == 0
+        assert body['asset_import']['skipped'] == 1  # 核心交换机A 内容未变化
         with app.app_context():
             i = Inspection.query.filter_by(task_id=tid).first()
             v = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).first()
@@ -806,7 +808,7 @@ class TestTaskSubmissionAssets:
                 ['字典客户', '9楼机房', '4', '正面', '27U-30U', '双电源',
                  '核心交换机A', '核心交换机', '华为', 'S12700', 'SN-001',
                  '10.0.0.10', '2026-01-02', '否', '是', '资产表更新'],
-                ['字典客户', '9楼机房', '', '背面', '5U', '单电源',
+                ['字典客户', '9楼机房', '', '背面', '', '单电源',
                  '补传服务器', '服务器', '浪潮', 'NF5180', 'SN-002',
                  '10.0.0.11', '2026-02-03', '否', '是', ''],
             ]), '设备资产表.xlsx'),
@@ -815,12 +817,17 @@ class TestTaskSubmissionAssets:
         assert supplement.get_json()['data']['asset_import'] == {
             'created': 1, 'updated': 1, 'skipped': 0, 'errors': [],
             'filename': '设备资产表.xlsx',
+            'password_updates': 0,
         }
 
         with app.app_context():
             existing = db.session.get(Device, did)
             assert existing.ip_address == '10.0.0.10'
-            assert existing.rack_location == '9楼机房'
+            # 已上架设备的机房位置从 Rack.location 单一派生，设备自身字段必须清空。
+            assert existing.rack_location == ''
+            install = RackInstall.query.filter_by(device_id=did).one()
+            assert install.rack_rel.location == '9楼机房'
+            assert (install.start_u, install.occupy_u) == (27, 4)
             assert existing.brand == '华为'
             assert existing.build_date.isoformat() == '2026-01-02'
             assert existing.username == 'keep-user'

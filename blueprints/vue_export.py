@@ -66,6 +66,8 @@ def _device_cell(d, code, customer_map, rack_map, pwd_map):
         return d.location or ''
     if code == 'power_supply':
         return d.power_supply or ''
+    if code == 'rated_power_w':
+        return d.rated_power_w if d.rated_power_w is not None else ''
     if code == 'name':
         return d.device_name
     if code == 'type':

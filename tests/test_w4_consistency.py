@@ -156,11 +156,8 @@ class TestDeviceImportBatch:
             'import_file': (xlsx, 'devices.xlsx')},
             content_type='multipart/form-data')
         assert r.status_code == 200
+        # 有任一坏行时整批只返回预检结果，不部分落库。
         assert r.get_json()['data']['created'] == 2
+        assert r.get_json()['data']['failed'] == 1
         with app.app_context():
-            devs = Device.query.filter_by(device_type='交换机').all()
-            assert len(devs) == 2
-            # 是否在用列不再被忽略
-            by_name = {d.device_name: d for d in devs}
-            assert by_name['SW-A'].is_in_use is True
-            assert by_name['SW-B'].is_in_use is False
+            assert Device.query.filter_by(device_type='交换机').count() == 0

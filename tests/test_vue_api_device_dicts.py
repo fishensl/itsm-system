@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Vue API：设备字典（类型/品牌/网络类型/自定义字段 CRUD）"""
-from models import db, DeviceType, Brand, NetworkType, CustomField
+from models import db, Device, DeviceType, Brand, NetworkType, CustomField
 
 
 def _seed(app):
@@ -69,3 +69,39 @@ class TestDeviceDictApi:
             db.session.commit()
         r = admin_client.get('/api/device-dicts/network-types')
         assert [i['name'] for i in r.get_json()['data']] == ['内网', '外网']
+
+    def test_reorder_requires_complete_unique_ids(self, admin_client, app):
+        _seed(app)
+        with app.app_context():
+            items = DeviceType.query.order_by(DeviceType.sort_order).all()
+            first_id, second_id = items[0].id, items[1].id
+        response = admin_client.put('/api/device-dicts/types/reorder', json={
+            'ids': [second_id, first_id],
+        })
+        assert response.status_code == 200
+        with app.app_context():
+            assert [item.id for item in DeviceType.query.order_by(
+                DeviceType.sort_order, DeviceType.id).all()] == [second_id, first_id]
+
+        assert admin_client.put('/api/device-dicts/types/reorder', json={
+            'ids': [first_id],
+        }).status_code == 400
+        assert admin_client.put('/api/device-dicts/types/reorder', json={
+            'ids': [first_id, first_id],
+        }).status_code == 400
+
+    def test_rename_updates_devices_and_referenced_value_cannot_delete(
+            self, admin_client, app):
+        _seed(app)
+        with app.app_context():
+            item = DeviceType.query.filter_by(name='交换机').one()
+            db.session.add(Device(device_name='字典引用设备', device_type=item.name))
+            db.session.commit()
+            item_id = item.id
+        response = admin_client.put(f'/api/device-dicts/types/{item_id}', json={
+            'name': '核心交换机',
+        })
+        assert response.status_code == 200
+        with app.app_context():
+            assert Device.query.filter_by(device_name='字典引用设备').one().device_type == '核心交换机'
+        assert admin_client.delete(f'/api/device-dicts/types/{item_id}').status_code == 400

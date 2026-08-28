@@ -9,7 +9,8 @@ import os
 
 import pytest
 
-from models import db, Customer, Device, Rack, RackInstall, Topology
+from models import db, Customer, Device, Rack, RackInstall, Topology, User
+from models.user import customer_engineers
 
 
 @pytest.fixture()
@@ -19,8 +20,14 @@ def seed(app):
         c2 = Customer(name='机柜API客户B')
         db.session.add_all([c1, c2])
         db.session.flush()
+        # 机柜设备上架会执行客户数据范围校验，显式授权工程师访问客户 A。
+        op = User.query.filter_by(username='op').one()
+        db.session.execute(customer_engineers.insert(), [
+            {'customer_id': c1.id, 'engineer_id': op.id},
+            {'customer_id': c2.id, 'engineer_id': op.id},
+        ])
         d1 = Device(customer_id=c1.id, device_name='SW-A', brand='华为',
-                    model='S5720', ip_address='10.0.0.1')
+                    model='S5720', ip_address='10.0.0.1', rated_power_w=300)
         d2 = Device(customer_id=c2.id, device_name='FW-B', brand='深信服',
                     model='AF-1000', ip_address='10.0.0.2')
         db.session.add_all([d1, d2])
@@ -36,7 +43,8 @@ def seed(app):
         db.session.add_all([i1, i2])
         t1 = Topology(name='核心网络', customer_id=c1.id, file_type='image', upload_by='admin')
         t2 = Topology(name='核心网络', customer_id=c1.id, file_type='pdf', upload_by='admin')
-        t3 = Topology(name='新建在线图', customer_id=c1.id, source='draw', file_type='other')
+        t3 = Topology(name='新建在线图', customer_id=c1.id, source='draw', file_type='other',
+                      diagram_xml='<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>')
         db.session.add_all([t1, t2, t3])
         db.session.commit()
         yield {'c1': c1.id, 'c2': c2.id, 'd1': d1.id, 'd2': d2.id,
@@ -88,6 +96,13 @@ class TestRackList:
     def test_requires_login(self, client, seed):
         assert client.get('/api/v2/rack/cabinets').status_code == 401
 
+    def test_customer_scope_hides_unassigned_racks(self, viewer_client, seed):
+        response = viewer_client.get('/api/v2/rack/cabinets')
+        assert response.status_code == 200
+        assert response.get_json()['data']['total'] == 0
+        assert viewer_client.get(
+            f"/api/v2/rack/cabinets/{seed['r1']}").status_code == 404
+
 
 class TestRackCrud:
     def test_create(self, op_client, seed, app):
@@ -122,6 +137,13 @@ class TestRackCrud:
             'name': 'X', 'customer_id': seed['c1'], 'total_u': 'abc'})
         assert r.status_code == 400
 
+    def test_create_rejects_negative_pdu_capacity(self, op_client, seed):
+        response = op_client.post('/api/v2/rack/cabinets', json={
+            'name': '负功率柜', 'customer_id': seed['c1'],
+            'total_u': 42, 'pdu_total_w': -1,
+        })
+        assert response.status_code == 400
+
     def test_update(self, op_client, seed, app):
         r = op_client.put(f"/api/v2/rack/cabinets/{seed['r1']}", json={
             'name': 'A-01-改', 'total_u': 48, 'pdu_total_w': 9000, 'remark': 'x'})
@@ -135,6 +157,19 @@ class TestRackCrud:
     def test_update_blank_name(self, op_client, seed):
         r = op_client.put(f"/api/v2/rack/cabinets/{seed['r1']}", json={'name': '  '})
         assert r.status_code == 400
+
+    def test_update_rejects_shrinking_below_installed_u(self, op_client, seed):
+        response = op_client.put(f"/api/v2/rack/cabinets/{seed['r1']}", json={
+            'total_u': 9,
+        })
+        assert response.status_code == 400
+        assert '10U' in response.get_json()['message']
+
+    def test_update_rejects_customer_change_with_installs(self, op_client, seed):
+        response = op_client.put(f"/api/v2/rack/cabinets/{seed['r1']}", json={
+            'customer_id': seed['c2'],
+        })
+        assert response.status_code == 400
 
     def test_delete_cascades_installs(self, admin_client, seed, app):
         r = admin_client.delete(f"/api/v2/rack/cabinets/{seed['r1']}")
@@ -150,15 +185,22 @@ class TestRackCrud:
 
 class TestRackInstall:
     def test_create_managed(self, op_client, seed, app):
+        with app.app_context():
+            device = Device(customer_id=seed['c1'], device_name='SW-C', brand='华为',
+                            model='S5735', ip_address='10.0.0.3', rated_power_w=200)
+            db.session.add(device)
+            db.session.commit()
+            device_id = device.id
         r = op_client.post('/api/v2/rack/installs', json={
-            'rack_id': seed['r1'], 'device_id': seed['d2'], 'start_u': 20,
+            'rack_id': seed['r1'], 'device_id': device_id, 'start_u': 20,
             'occupy_u': 2, 'rated_w': 200})
         assert r.status_code == 200
         assert r.get_json()['data']['id']
         with app.app_context():
             inst = RackInstall.query.get(r.get_json()['data']['id'])
-            assert inst.device_id == seed['d2']
+            assert inst.device_id == device_id
             assert inst.start_u == 20
+            assert inst.rated_w in (None, 0)
 
     def test_create_manual(self, op_client, seed, app):
         r = op_client.post('/api/v2/rack/installs', json={
@@ -174,6 +216,13 @@ class TestRackInstall:
         r = op_client.post('/api/v2/rack/installs',
                            json={'rack_id': seed['r1'], 'start_u': 5, 'occupy_u': 1})
         assert r.status_code == 400
+
+    def test_manual_power_must_be_nonnegative(self, op_client, seed):
+        response = op_client.post('/api/v2/rack/installs', json={
+            'rack_id': seed['r1'], 'manual_name': '负功率设备',
+            'start_u': 20, 'occupy_u': 1, 'rated_w': -1,
+        })
+        assert response.status_code == 400
 
     def test_create_out_of_range(self, op_client, seed):
         r = op_client.post('/api/v2/rack/installs', json={
@@ -195,7 +244,9 @@ class TestRackInstall:
             inst = RackInstall.query.get(seed['i1'])
             assert inst.start_u == 5
             assert inst.occupy_u == 1
-            assert inst.rated_w == 400
+            # 托管设备功率只允许在设备主数据维护，机柜调整不能改第二份值。
+            assert inst.rated_w == 300
+            assert Device.query.get(seed['d1']).rated_power_w == 300
 
     def test_update_conflict_excludes_self(self, op_client, seed):
         """移动到原位置重叠区间：排除自身后不冲突"""
@@ -331,6 +382,12 @@ class TestTopologyList:
     def test_requires_login(self, client, seed):
         assert client.get('/api/topologies').status_code == 401
 
+    def test_customer_scope_hides_unassigned_topologies(self, viewer_client, seed):
+        response = viewer_client.get('/api/topologies')
+        assert response.status_code == 200
+        assert response.get_json()['data']['total'] == 0
+        assert viewer_client.get(f"/api/topologies/{seed['t1']}").status_code == 404
+
 
 class TestTopologyDetail:
     def test_detail_upload_group(self, op_client, seed):
@@ -361,7 +418,8 @@ class TestTopologyDetail:
 class TestTopologyCrud:
     def test_create_draw(self, admin_client, seed, app):
         r = admin_client.post('/api/topologies', json={
-            'name': '新建在线图2', 'customer_id': seed['c2'], 'source': 'draw'})
+            'name': '新建在线图2', 'customer_id': seed['c2'], 'source': 'draw',
+            'template_type': 'meeting'})
         assert r.status_code == 200
         assert r.get_json()['code'] == 0
         with app.app_context():
@@ -369,6 +427,23 @@ class TestTopologyCrud:
             assert t.name == '新建在线图2'
             assert t.source == 'draw'
             assert t.customer_id == seed['c2']
+            assert t.template_type == 'meeting'
+            assert t.template_version == 1
+            assert '会议拓扑图' in t.diagram_xml
+
+    def test_insert_standard_legend_is_explicit(self, admin_client, seed, app):
+        r = admin_client.post(
+            f"/api/topologies/{seed['t3']}/insert-standard-legend",
+            json={'template_type': 'network'})
+        assert r.status_code == 200
+        with app.app_context():
+            topology = Topology.query.get(seed['t3'])
+            assert topology.template_type == 'network'
+            assert '标准图例' in topology.diagram_xml
+        again = admin_client.post(
+            f"/api/topologies/{seed['t3']}/insert-standard-legend",
+            json={'template_type': 'network'})
+        assert again.status_code == 400
 
     def test_create_missing_name(self, admin_client, seed):
         r = admin_client.post('/api/topologies', json={'customer_id': seed['c1']})
@@ -414,32 +489,44 @@ class TestTopologyDicts:
 
 
 class TestTopologyTemplates:
-    def test_chinese_logical_and_physical_templates(self, admin_client, app):
+    def test_network_and_meeting_standard_templates(self, admin_client, app):
         response = admin_client.get('/api/topologies/templates')
         assert response.status_code == 200
         body = response.get_json()
         assert body['ok'] is True
         assert body['code'] == 0
         assert body['data']['items'] == body['items']
-        assert [item['name'] for item in body['items'][:2]] == [
-            '网络逻辑拓扑图', '网络物理连接拓扑图']
+        assert [item['name'] for item in body['items']] == [
+            '网络拓扑图标准模板', '会议拓扑图标准模板']
         by_name = {item['name']: item for item in body['data']['items']}
-        assert {'网络逻辑拓扑图', '网络物理连接拓扑图'} <= set(by_name)
-        assert by_name['网络逻辑拓扑图']['category'] == 'logical'
-        assert by_name['网络物理连接拓扑图']['category'] == 'physical'
+        assert by_name['网络拓扑图标准模板']['template_type'] == 'network'
+        assert by_name['会议拓扑图标准模板']['template_type'] == 'meeting'
+        assert all(item['template_version'] == 1 for item in body['items'])
 
         template_dir = os.path.join(app.root_path, 'static', 'templates')
-        with open(os.path.join(template_dir, by_name['网络逻辑拓扑图']['file']),
+        with open(os.path.join(template_dir, by_name['网络拓扑图标准模板']['file']),
                   encoding='utf-8') as source:
-            logical_xml = source.read()
-        assert all(label in logical_xml for label in ('外网边界', '上联边界', '接入层', '下联边界'))
-        assert 'id="access-a"' in logical_xml and 'parent="zone-access"' in logical_xml
-        assert 'id="branch"' in logical_xml and 'parent="zone-downlink"' in logical_xml
+            network_xml = source.read()
+        assert all(label in network_xml for label in (
+            '标准图例', '网线', '光纤', '专线 / WAN', '堆叠 / MLAG', 'HA / 备份'))
+        assert 'strokeColor=#ED7D31' in network_xml and 'edge="1"' in network_xml
 
-        with open(os.path.join(template_dir, by_name['网络物理连接拓扑图']['file']),
+        with open(os.path.join(template_dir, by_name['会议拓扑图标准模板']['file']),
                   encoding='utf-8') as source:
-            physical_xml = source.read()
-        assert all(label in physical_xml for label in ('网络物理连接拓扑图', '机柜', '端口'))
+            meeting_xml = source.read()
+        assert all(label in meeting_xml for label in (
+            '会议拓扑图', '视频会议终端', 'HDMI/DP', 'SDI', '音频', 'RS-232'))
+        assert 'edge="1"' in meeting_xml
+        assert all(color in meeting_xml for color in (
+            '#7030A0', '#C00000', '#70AD47', '#ED7D31', '#404040'))
+
+    def test_topology_xml_security_validation(self, admin_client):
+        response = admin_client.post('/topologies/api/diagram', json={
+            'name': '恶意图', 'template_type': 'network',
+            'diagram_xml': '<mxGraphModel onload="alert(1)"><root/></mxGraphModel>',
+        })
+        assert response.status_code == 400
+        assert '不安全属性' in response.get_json()['error']
 
     def test_template_list_requires_login(self, client):
         assert client.get('/api/topologies/templates').status_code == 401

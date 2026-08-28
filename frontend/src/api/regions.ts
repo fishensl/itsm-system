@@ -22,8 +22,12 @@ export function createRegion(payload: { name: string; parent_id?: number | null 
   return request<{ id: number }>({ url: '/api/regions', method: 'POST', data: payload })
 }
 
-export function updateRegion(id: number, payload: { name: string; parent_id?: number | null; sort_order: number }) {
+export function updateRegion(id: number, payload: { name: string; parent_id?: number | null }) {
   return request<null>({ url: `/api/regions/${id}`, method: 'PUT', data: payload })
+}
+
+export function reorderRegions(parent_id: number | null, ids: number[]) {
+  return request<null>({ url: '/api/regions/reorder', method: 'PUT', data: { parent_id, ids } })
 }
 
 export function deleteRegion(id: number) {
@@ -34,12 +38,16 @@ export function fetchCategories() {
   return request<CategoryItem[]>({ url: '/api/customer-categories', method: 'GET' })
 }
 
-export function createCategory(payload: { name: string; sort_order: number }) {
+export function createCategory(payload: { name: string }) {
   return request<{ id: number }>({ url: '/api/customer-categories', method: 'POST', data: payload })
 }
 
-export function updateCategory(id: number, payload: { name: string; sort_order: number }) {
+export function updateCategory(id: number, payload: { name: string }) {
   return request<null>({ url: `/api/customer-categories/${id}`, method: 'PUT', data: payload })
+}
+
+export function reorderCategories(ids: number[]) {
+  return request<null>({ url: '/api/customer-categories/reorder', method: 'PUT', data: { ids } })
 }
 
 export function deleteCategory(id: number) {

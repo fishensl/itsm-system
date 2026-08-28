@@ -110,6 +110,12 @@ export function exportFaults(params: Record<string, unknown>) {
   })
 }
 
+export function reorderFaultCategories(parent_id: number | null, ids: number[]) {
+  return request<null>({
+    url: '/api/fault-categories/reorder', method: 'PUT', data: { parent_id, ids },
+  })
+}
+
 export function importFaults(formData: FormData) {
   return request<{ message: string; success: number; skipped: number; errors: string[] }>({
     url: '/api/faults/import',

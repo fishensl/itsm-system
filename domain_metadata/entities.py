@@ -17,7 +17,9 @@ DEVICE_FIELDS = (
       value_map={'正面': '正面', '背面': '背面'}),
     F('rack_slot', '起始U位', min_width=90, group='location'),
     F('power_supply', '电源配置', min_width=90,
-      value_map={'单电源': '单电源', '双电源': '双电源'}),
+      value_map={'单电源': '单电源', '双电源': '双电源', '四电源': '四电源'}),
+    F('rated_power_w', '额定功率', data_type='number', min_width=100,
+      group='power'),
     F('brand', '品牌', min_width=100, filterable=True),
     F('model', '型号', min_width=120, filterable=True),
     F('serial_number', '序列号', export_key='sn', min_width=130),
@@ -52,21 +54,21 @@ DEVICE_FIELDS = (
 )
 
 DEVICE_LIST = ('device_name', 'device_type', 'customer_name', 'rack_location', 'rack_name',
-               'location', 'rack_slot', 'power_supply', 'brand', 'model', 'serial_number',
+               'location', 'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model', 'serial_number',
                'ip_address', 'network_type', 'port', 'login_method', 'username',
                'has_password', 'interface', 'os_version', 'rule_version', 'build_date',
                'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
                'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at')
 DEVICE_DETAIL = tuple(item.key for item in DEVICE_FIELDS if item.key != 'password')
-DEVICE_FORM = ('device_name', 'customer_name', 'device_type', 'brand', 'model', 'serial_number',
-               'ip_address', 'network_type', 'port', 'username', 'password', 'login_method',
-               'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
+DEVICE_FORM = ('device_name', 'customer_name', 'device_type', 'rack_location', 'rack_name',
+               'location', 'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model',
+               'serial_number', 'ip_address', 'network_type', 'port', 'username', 'password', 'login_method',
                'interface', 'os_version', 'rule_version', 'build_date',
                'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
                'is_in_use', 'remark')
 DEVICE_EXPORT_DEFAULT = (
     'device_name', 'device_type', 'customer_name', 'rack_location', 'rack_name', 'location',
-    'rack_slot', 'power_supply', 'brand', 'model', 'serial_number', 'ip_address',
+    'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model', 'serial_number', 'ip_address',
     'network_type', 'port', 'login_method', 'username', 'password', 'interface', 'os_version',
     'rule_version', 'build_date', 'license_start', 'license_expiry', 'cert_expiry_date',
     'is_maintenance', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at',
@@ -74,16 +76,16 @@ DEVICE_EXPORT_DEFAULT = (
 DEVICE_EXPORT_AVAILABLE = DEVICE_EXPORT_DEFAULT
 DEVICE_EXPORT_PRESETS = {
     'asset': ('customer_name', 'rack_location', 'rack_name', 'location', 'rack_slot',
-              'power_supply', 'device_name', 'device_type', 'brand', 'model', 'serial_number',
+              'power_supply', 'rated_power_w', 'device_name', 'device_type', 'brand', 'model', 'serial_number',
               'ip_address', 'build_date',
               'is_maintenance', 'is_in_use', 'remark'),
     'password': ('customer_name', 'rack_location', 'rack_name', 'location', 'rack_slot',
-                 'power_supply', 'device_name', 'device_type', 'brand', 'model',
+                 'power_supply', 'rated_power_w', 'device_name', 'device_type', 'brand', 'model',
                  'serial_number', 'ip_address', 'port',
                  'login_method', 'username', 'password', 'is_in_use', 'pwd_changed_by',
                  'pwd_changed_at', 'remark'),
     'version': ('customer_name', 'rack_location', 'rack_name', 'location', 'rack_slot',
-                'power_supply', 'device_name', 'device_type', 'brand', 'model',
+                'power_supply', 'rated_power_w', 'device_name', 'device_type', 'brand', 'model',
                 'serial_number', 'ip_address', 'build_date',
                 'os_version', 'rule_version', 'license_start', 'license_expiry', 'is_in_use',
                 'remark'),
@@ -232,6 +234,8 @@ SPARE_EXPORT_AVAILABLE = tuple(dict.fromkeys(SPARE_EXPORT_DEFAULT + SPARE_DETAIL
 
 CUSTOMER_FIELDS = (
     F('name', '客户名称', required=True, min_width=180, sortable=True),
+    F('parent_name', '上级单位', min_width=180, group='hierarchy'),
+    F('hierarchy_path', '层级路径', min_width=240, group='hierarchy'),
     F('contact_person', '联系人', min_width=100),
     F('phone', '电话', min_width=120),
     F('email', '邮箱', min_width=160),
@@ -259,15 +263,16 @@ CUSTOMER_FIELDS = (
     F('remark', '备注', min_width=140),
     F('created_at', '创建时间', data_type='datetime', width=130, group='audit'),
 )
-CUSTOMER_LIST = ('name', 'region_name', 'city', 'level', 'contract_status', 'device_count')
+CUSTOMER_LIST = ('name', 'parent_name', 'hierarchy_path', 'region_name', 'city', 'level',
+                 'contract_status', 'device_count')
 CUSTOMER_DETAIL = tuple(item.key for item in CUSTOMER_FIELDS)
-CUSTOMER_FORM = ('name', 'contact_person', 'phone', 'email', 'region_name', 'city', 'address',
+CUSTOMER_FORM = ('name', 'parent_name', 'contact_person', 'phone', 'email', 'region_name', 'city', 'address',
                  'category_name', 'level', 'office_room', 'map_location', 'has_onsite',
                  'onsite_contact', 'onsite_phone', 'onsite_office', 'has_drill',
                  'inspection_frequency', 'source', 'contract_start_date', 'contract_end_date',
                  'remark')
 # Keep the legacy default export stable; richer detail fields are opt-in through export_available.
-CUSTOMER_EXPORT_DEFAULT = ('name', 'contact_person', 'phone', 'email', 'region_name', 'city',
+CUSTOMER_EXPORT_DEFAULT = ('name', 'parent_name', 'hierarchy_path', 'contact_person', 'phone', 'email', 'region_name', 'city',
                            'address', 'category_name', 'level', 'office', 'has_onsite',
                            'onsite_contact', 'onsite_phone', 'onsite_office', 'has_drill',
                            'inspection_frequency', 'source', 'remark', 'created_at')

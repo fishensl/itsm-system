@@ -7,10 +7,11 @@
 """
 import re
 from datetime import datetime
-from models import db, Device, Customer, SparePart, SpareStock
+from models import db, Device, Customer, SparePart, SpareStock, DevicePowerConfig
 from utils.crypto import encrypt_password
 from utils.json_fields import dumps_json
-from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_POWER_SUPPLIES
+from utils.constants import (DEVICE_INSTALLATION_POSITIONS, DEVICE_POWER_SUPPLIES,
+                             DEVICE_LOGIN_METHODS)
 from .base import ServiceError, transaction
 
 
@@ -19,19 +20,48 @@ IPV4_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
 
 DEVICE_CHOICE_FIELDS = {
     'location': ('安装位置', DEVICE_INSTALLATION_POSITIONS),
-    'power_supply': ('电源配置', DEVICE_POWER_SUPPLIES),
+    'login_method': ('登录方式', DEVICE_LOGIN_METHODS),
 }
+
+
+def get_power_supply_choices():
+    """从字典读取当前可用电源配置；新建库未种子时回退内置值。"""
+    try:
+        values = [item.name for item in DevicePowerConfig.query.filter_by(is_active=True).order_by(
+            DevicePowerConfig.sort_order, DevicePowerConfig.id).all()]
+    except Exception:
+        values = []
+    return tuple(values) or DEVICE_POWER_SUPPLIES
 
 
 def normalize_device_choice(field, value, current_value=None):
     """规范设备枚举字段；更新时允许原样保留尚未清洗的历史值。"""
     text = str(value or '').strip()
-    label, choices = DEVICE_CHOICE_FIELDS[field]
+    if field == 'power_supply':
+        label, choices = '电源配置', get_power_supply_choices()
+    else:
+        label, choices = DEVICE_CHOICE_FIELDS[field]
     if text and text not in choices:
         if current_value is not None and text == str(current_value or '').strip():
             return text
         raise ServiceError(f'{label}仅支持：{"、".join(choices)}')
     return text
+
+
+def normalize_rated_power(value):
+    """额定功率以整机输入瓦数保存；空值表示未核实。"""
+    if value in (None, ''):
+        return None
+    if isinstance(value, bool):
+        raise ServiceError('额定功率必须为非负整数（W）')
+    text = str(value).strip()
+    try:
+        number = float(text)
+    except (TypeError, ValueError) as exc:
+        raise ServiceError('额定功率必须为非负整数（W）') from exc
+    if not number.is_integer() or number < 0 or number > 10_000_000:
+        raise ServiceError('额定功率必须为 0-10000000 之间的整数（W）')
+    return int(number)
 
 
 def _sync_rack_placement(device, form):
@@ -139,8 +169,6 @@ def create_device_from_form(form):
     name = (form.get('device_name') or '').strip()
     if not name:
         raise ServiceError('设备名称不能为空')
-    if Device.query.filter_by(device_name=name).first():
-        raise ServiceError(f'设备 "{name}" 已存在')
 
     customer_id = form.get('customer_id')
     if customer_id:
@@ -148,6 +176,10 @@ def create_device_from_form(form):
             customer_id = int(customer_id)
         except (TypeError, ValueError):
             customer_id = None
+    else:
+        customer_id = None
+    if Device.query.filter_by(customer_id=customer_id, device_name=name).first():
+        raise ServiceError(f'当前客户下设备 "{name}" 已存在')
 
     plain_password = form.get('password', '')
     encrypted = encrypt_password(plain_password) if plain_password else ''
@@ -165,11 +197,12 @@ def create_device_from_form(form):
         username=form.get('username', ''),
         password_encrypted=encrypted,
         serial_number=form.get('serial_number', ''),
-        login_method=form.get('login_method', ''),
+        login_method=normalize_device_choice('login_method', form.get('login_method')),
         location=normalize_device_choice('location', form.get('location')),
         rack_location=str(form.get('rack_location') or '').strip()[:128],
         interface=dumps_json(interfaces) if interfaces else None,
         power_supply=normalize_device_choice('power_supply', form.get('power_supply')),
+        rated_power_w=normalize_rated_power(form.get('rated_power_w')),
         os_version=form.get('os_version', ''),
         rule_version=form.get('rule_version', ''),
         network_type=form.get('network_type', ''),
@@ -207,6 +240,12 @@ def update_device_from_form(device_id, form):
     else:
         customer_id = d.customer_id
 
+    duplicate = Device.query.filter_by(
+        customer_id=customer_id, device_name=name,
+    ).filter(Device.id != d.id).first()
+    if duplicate:
+        raise ServiceError(f'当前客户下设备 "{name}" 已存在')
+
     d.device_name = name
     d.customer_id = customer_id
     d.region_id = int(form['region_id']) if form.get('region_id') else d.region_id
@@ -230,11 +269,12 @@ def update_device_from_form(device_id, form):
             db.session.add(history)
         d.password_encrypted = encrypt_password(plain_password)
     d.serial_number = form.get('serial_number', '')
-    d.login_method = form.get('login_method', '')
+    d.login_method = normalize_device_choice('login_method', form.get('login_method'), d.login_method)
     d.location = normalize_device_choice('location', form.get('location'), d.location)
     interfaces = [v.strip() for v in form.getlist('interface') if v.strip()] if hasattr(form, 'getlist') else []
     d.interface = dumps_json(interfaces) if interfaces else None
     d.power_supply = normalize_device_choice('power_supply', form.get('power_supply'))
+    d.rated_power_w = normalize_rated_power(form.get('rated_power_w'))
     d.os_version = form.get('os_version', '')
     d.rule_version = form.get('rule_version', '')
     d.network_type = form.get('network_type', '')
@@ -253,6 +293,12 @@ def update_device_from_form(device_id, form):
 def delete_device(device_id):
     """删除设备（清理关联的密码历史、凭据、接口、配置备份、采集任务；置空工单/上架的设备引用）"""
     d = Device.query.get_or_404(device_id)
+    return _delete_device_no_commit(d)
+
+
+def _delete_device_no_commit(d):
+    """单设备删除内核，不提交，供单删与批量删除共用。"""
+    device_id = d.id
     from models import (PasswordHistory, DeviceCredential, DeviceInterface,
                         DeviceConfigBackup, DeviceCollectTask, Ticket, RackInstall,
                         InspectionTask)
@@ -275,6 +321,8 @@ def delete_device(device_id):
             ri.manual_model = d.model or ''
         if not ri.manual_ip:
             ri.manual_ip = d.ip_address or ''
+        if not ri.rated_w and d.rated_power_w is not None:
+            ri.rated_w = d.rated_power_w
     # 巡检任务 device_ids_json 剔除该设备 id
     for t in InspectionTask.query.filter(InspectionTask.device_ids_json.isnot(None)).all():
         try:
@@ -286,6 +334,39 @@ def delete_device(device_id):
     cid = d.customer_id
     db.session.delete(d)
     return cid
+
+
+def preview_device_delete(devices):
+    """返回批量删除会处理的依赖摘要（不改数据）。"""
+    from models import DeviceConfigBackup, Ticket, RackInstall, InspectionTask
+    from utils.json_fields import parse_json
+    ids = {device.id for device in devices}
+    inspection_tasks = 0
+    for task in InspectionTask.query.filter(InspectionTask.device_ids_json.isnot(None)).all():
+        values = parse_json(task.device_ids_json, [], 'task.device_ids_json')
+        if isinstance(values, list) and ids.intersection(
+                int(value) for value in values if str(value).isdigit()):
+            inspection_tasks += 1
+    return {
+        'count': len(devices),
+        'tickets': Ticket.query.filter(Ticket.related_device_id.in_(ids)).count(),
+        'inspection_tasks': inspection_tasks,
+        'config_backups': DeviceConfigBackup.query.filter(
+            DeviceConfigBackup.device_id.in_(ids)).count(),
+        'rack_installs': RackInstall.query.filter(RackInstall.device_id.in_(ids)).count(),
+        'names': [device.device_name for device in devices],
+    }
+
+
+@transaction
+def delete_devices(devices):
+    """批次全部成功或全部回滚，与单设备删除共用同一内核。"""
+    customer_ids = set()
+    for device in devices:
+        customer_id = _delete_device_no_commit(device)
+        if customer_id:
+            customer_ids.add(customer_id)
+    return customer_ids
 
 
 def sync_customer_device_count(customer_id):
@@ -315,8 +396,6 @@ def create_device(data):
     name = (data.get('device_name') or '').strip()
     if not name:
         raise ServiceError('设备名称不能为空')
-    if Device.query.filter_by(device_name=name).first():
-        raise ServiceError(f'设备 "{name}" 已存在')
 
     customer = None
     cust_name = (data.get('customer_name') or '').strip()
@@ -324,6 +403,9 @@ def create_device(data):
         customer = Customer.query.filter_by(name=cust_name).first()
         if not customer:
             raise ServiceError(f'客户 "{cust_name}" 不存在')
+    if Device.query.filter_by(
+            customer_id=customer.id if customer else None, device_name=name).first():
+        raise ServiceError(f'当前客户下设备 "{name}" 已存在')
 
     plain_password = data.get('password', '')
     encrypted = encrypt_password(plain_password) if plain_password else ''
@@ -339,9 +421,10 @@ def create_device(data):
         port=int(data.get('port') or 22),
         username=data.get('username', ''),
         password_encrypted=encrypted,
-        login_method=data.get('login_method', ''),
+        login_method=normalize_device_choice('login_method', data.get('login_method')),
         location=normalize_device_choice('location', data.get('location')),
         power_supply=normalize_device_choice('power_supply', data.get('power_supply')),
+        rated_power_w=normalize_rated_power(data.get('rated_power_w')),
         os_version=data.get('os_version', ''),
         rule_version=data.get('rule_version', ''),
         is_maintenance=_to_bool(data.get('is_maintenance')),

@@ -15,6 +15,9 @@
         <el-tab-pane label="网络类型" name="network-types">
           <DictTable resource="network-types" :show-type="false" />
         </el-tab-pane>
+        <el-tab-pane label="电源配置" name="power-configs">
+          <DictTable resource="power-configs" :show-type="false" :show-active="true" />
+        </el-tab-pane>
         <el-tab-pane label="自定义字段" name="custom-fields">
           <DictTable resource="custom-fields" :show-type="true" />
         </el-tab-pane>
@@ -34,7 +37,7 @@ const activeTab = ref('types')
 watch(
   () => route.query.tab,
   (t) => {
-    if (t && ['types', 'brands', 'network-types', 'custom-fields'].includes(String(t))) {
+    if (t && ['types', 'brands', 'network-types', 'power-configs', 'custom-fields'].includes(String(t))) {
       activeTab.value = String(t)
     }
   },

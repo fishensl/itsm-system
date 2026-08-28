@@ -18,6 +18,7 @@ export interface Device {
   login_method: string
   location: string
   power_supply: string
+  rated_power_w: number | null
   interface: string[]
   os_version: string
   rule_version: string
@@ -65,6 +66,7 @@ export interface DeviceForm {
   rack_occupy_u?: number
   location: string
   power_supply: string
+  rated_power_w?: number | null
   interface: string[]
   os_version: string
   rule_version: string
@@ -85,6 +87,7 @@ export interface DeviceQuery {
   model?: string
   device_type?: string
   customer_id?: number
+  room_locations?: string[]
   is_in_use?: number
 }
 
@@ -108,7 +111,7 @@ export interface DeviceTreeGroup {
   children: DeviceTreeCustomer[] | Device[]
 }
 
-export function fetchDeviceTree(params?: Pick<DeviceQuery, 'search' | 'brand' | 'device_type' | 'is_in_use'>) {
+export function fetchDeviceTree(params?: Pick<DeviceQuery, 'search' | 'brand' | 'device_type' | 'is_in_use' | 'room_locations'>) {
   return request<{ tree: DeviceTreeGroup[]; total: number }>({
     url: '/api/devices/tree',
     method: 'GET',
@@ -186,7 +189,14 @@ export interface DeviceExportParams {
   preset?: string
   columns?: string[]
   search?: string
+  brand?: string
+  model?: string
+  device_type?: string
+  is_in_use?: number
   customer_id?: number
+  room_locations?: string[]
+  location_scope?: 'room' | 'non_room'
+  device_ids?: number[]
   date_from?: string
   date_to?: string
 }
@@ -235,7 +245,22 @@ export function exportPasswordDownloadUrl(token: string) {
 }
 
 export function importDevices(formData: FormData) {
-  return request<{ created: number; errors: string[]; total_errors: number }>({
+  return request<{
+    create: number
+    update: number
+    unchanged: number
+    skipped: number
+    failed: number
+    errors: string[]
+    total_errors: number
+    unknown_network_types: Record<string, number[]>
+    network_type_options: string[]
+    dry_run: boolean
+    batch_id: string
+    file_sha256: string
+    duplicate_submission?: boolean
+    errors_file?: { filename: string; content: string }
+  }>({
     url: '/api/v2/devices/import',
     method: 'POST',
     data: formData,
@@ -254,6 +279,27 @@ export function batchUpdateDevices(data: {
   occupy_u?: number
 }) {
   return request<{ count: number }>({ url: '/api/v2/devices/batch-update', method: 'POST', data })
+}
+
+export interface DeviceDeleteImpact {
+  count: number
+  tickets: number
+  inspection_tasks: number
+  config_backups: number
+  rack_installs: number
+  names: string[]
+}
+
+export function previewBatchDeleteDevices(device_ids: number[]) {
+  return request<DeviceDeleteImpact>({
+    url: '/api/v2/devices/batch-delete/preview', method: 'POST', data: { device_ids },
+  })
+}
+
+export function batchDeleteDevices(device_ids: number[]) {
+  return request<{ count: number }>({
+    url: '/api/v2/devices/batch-delete', method: 'POST', data: { device_ids },
+  })
 }
 
 export function createConfigBackup(deviceId: number, formData: FormData) {

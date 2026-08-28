@@ -189,6 +189,10 @@ export function deleteDepartment(id: number) {
   return request<null>({ url: `/api/departments/${id}`, method: 'DELETE' })
 }
 
+export function reorderDepartments(parent_id: number | null, ids: number[]) {
+  return request<null>({ url: '/api/departments/reorder', method: 'PUT', data: { parent_id, ids } })
+}
+
 export interface SidebarCustomGroup {
   key: string
   title: string
@@ -327,6 +331,10 @@ export function updateRole(id: number, data: Record<string, unknown>) {
 
 export function deleteRole(id: number) {
   return request<null>({ url: `/api/roles/${id}`, method: 'DELETE' })
+}
+
+export function reorderRoles(ids: number[]) {
+  return request<null>({ url: '/api/roles/reorder', method: 'PUT', data: { ids } })
 }
 
 export function saveRolePermissions(id: number, codes: string[]) {

@@ -3,6 +3,7 @@
     <div class="page-header">
       <h2 class="page-title">权限管理</h2>
       <div class="header-actions">
+        <el-button v-if="user.hasPerm('permission:edit')" @click="openRoleSort">拖动排序</el-button>
         <el-button v-if="user.hasPerm('permission:edit')" type="primary" :icon="Plus" @click="openRoleCreate">
           新增角色
         </el-button>
@@ -126,9 +127,6 @@
         <el-form-item label="描述">
           <el-input v-model="roleForm.description" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="排序">
-          <el-input-number v-model="roleForm.sort_order" :min="0" />
-        </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="roleForm.is_active" active-text="启用" />
         </el-form-item>
@@ -136,6 +134,23 @@
       <template #footer>
         <el-button @click="roleFormVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingRole" @click="saveRole">保存</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="roleSortVisible" title="拖动角色顺序" width="460px">
+      <div class="sort-list">
+        <div v-for="(role, index) in roleSortItems" :key="role.id" class="sort-item"
+          draggable="true" @dragstart="roleDragIndex = index" @dragover.prevent @drop="dropRole(index)">
+          <span class="drag-handle">☰</span><span>{{ role.name }}</span><code>{{ role.code }}</code>
+          <span class="sort-actions">
+            <el-button size="small" link :disabled="index === 0" @click="moveRole(index, -1)">上移</el-button>
+            <el-button size="small" link :disabled="index === roleSortItems.length - 1"
+              @click="moveRole(index, 1)">下移</el-button>
+          </span>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="roleSortVisible = false">取消</el-button>
+        <el-button type="primary" :loading="roleSortSaving" @click="saveRoleSort">保存排序</el-button>
       </template>
     </el-dialog>
   </div>
@@ -148,7 +163,7 @@ import { Plus, CircleCheck } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import {
-  fetchRoles, createRole, updateRole, deleteRole, saveRolePermissions,
+  fetchRoles, createRole, updateRole, deleteRole, reorderRoles, saveRolePermissions,
   fetchUserPermissions, saveUserPermissions, fetchUsers,
   type RoleListData, type RoleItem, type UserPermissionOverride,
 } from '@/api/system'
@@ -222,8 +237,12 @@ const roleFormVisible = ref(false)
 const savingRole = ref(false)
 const roleFormRef = ref()
 const roleForm = reactive<Record<string, unknown>>({
-  id: null, code: '', name: '', description: '', sort_order: 0, is_active: true,
+  id: null, code: '', name: '', description: '', is_active: true,
 })
+const roleSortVisible = ref(false)
+const roleSortSaving = ref(false)
+const roleSortItems = ref<RoleItem[]>([])
+const roleDragIndex = ref<number | null>(null)
 
 const users = ref<Array<{ id: number; name: string; username: string }>>([])
 const overrideUserId = ref<number | null>(null)
@@ -256,14 +275,14 @@ async function togglePerm(role: RoleItem, code: string, on: boolean) {
 }
 
 function openRoleCreate() {
-  Object.assign(roleForm, { id: null, code: '', name: '', description: '', sort_order: 0, is_active: true })
+  Object.assign(roleForm, { id: null, code: '', name: '', description: '', is_active: true })
   roleFormVisible.value = true
 }
 
 function openRoleEdit(role: RoleItem) {
   Object.assign(roleForm, {
     id: role.id, code: role.code, name: role.name, description: role.description || '',
-    sort_order: role.sort_order, is_active: !!role.is_active,
+    is_active: !!role.is_active,
   })
   roleFormVisible.value = true
 }
@@ -290,7 +309,7 @@ async function saveRole() {
   try {
     const payload = {
       code: String(roleForm.code), name: String(roleForm.name),
-      description: String(roleForm.description || ''), sort_order: Number(roleForm.sort_order || 0),
+      description: String(roleForm.description || ''),
       is_active: !!roleForm.is_active,
     }
     if (roleForm.id) {
@@ -306,6 +325,43 @@ async function saveRole() {
     ui.toast((e as Error).message, 'error')
   } finally {
     savingRole.value = false
+  }
+}
+
+async function openRoleSort() {
+  roleSortItems.value = [...(await fetchRoles()).roles]
+  roleSortVisible.value = true
+}
+
+function dropRole(target: number) {
+  if (roleDragIndex.value == null || roleDragIndex.value === target) return
+  const next = [...roleSortItems.value]
+  const [moved] = next.splice(roleDragIndex.value, 1)
+  next.splice(target, 0, moved)
+  roleSortItems.value = next
+  roleDragIndex.value = null
+}
+
+function moveRole(index: number, delta: number) {
+  const target = index + delta
+  if (target < 0 || target >= roleSortItems.value.length) return
+  const next = [...roleSortItems.value]
+  ;[next[index], next[target]] = [next[target], next[index]]
+  roleSortItems.value = next
+}
+
+async function saveRoleSort() {
+  roleSortSaving.value = true
+  try {
+    await reorderRoles(roleSortItems.value.map((role) => role.id))
+    ui.toast('排序已保存', 'success')
+    roleSortVisible.value = false
+    roleTableRef.value?.refresh()
+    load()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    roleSortSaving.value = false
   }
 }
 
@@ -379,4 +435,8 @@ onMounted(() => {
 .filter-row { display: flex; gap: 8px; align-items: center; }
 .mt-3 { margin-top: 12px; }
 .ml-2 { margin-left: 8px; }
+.sort-list { display: grid; gap: 8px; }
+.sort-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--itsm-border); border-radius: 6px; cursor: grab; }
+.sort-actions { margin-left: auto; white-space: nowrap; }
+.drag-handle { color: var(--itsm-text-muted); }
 </style>

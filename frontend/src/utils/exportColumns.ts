@@ -14,6 +14,7 @@ export const DEVICE_EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'location', label: '安装位置' },
   { key: 'rack_slot', label: '起始U位' },
   { key: 'power_supply', label: '电源配置' },
+  { key: 'rated_power_w', label: '额定功率' },
   { key: 'brand', label: '品牌' },
   { key: 'model', label: '型号' },
   { key: 'sn', label: '序列号' },
@@ -43,14 +44,14 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
   {
     key: 'asset',
     label: '设备资产表',
-    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
+    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply', 'rated_power_w',
       'name', 'type', 'brand',
       'model', 'sn', 'ip', 'build_date', 'is_maintenance', 'is_in_use', 'remark'],
   },
   {
     key: 'password',
     label: '设备密码表',
-    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
+    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply', 'rated_power_w',
       'name', 'type', 'brand',
       'model', 'sn', 'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
       'pwd_changed_by', 'pwd_changed_at', 'remark'],
@@ -58,7 +59,7 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
   {
     key: 'version',
     label: '网络安全版本控制表',
-    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
+    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply', 'rated_power_w',
       'name', 'type', 'brand',
       'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
       'license_expiry', 'is_in_use', 'remark'],
