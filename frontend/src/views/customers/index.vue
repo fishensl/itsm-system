@@ -4,6 +4,7 @@
       <h2 class="page-title">客户管理</h2>
       <div class="header-actions">
         <el-button v-if="user.hasPerm('customer:export')" :icon="Download" plain @click="exportVisible = true">导出</el-button>
+        <el-button v-if="user.hasPerm('customer:add')" :icon="Download" plain @click="downloadTemplate">导入模板</el-button>
         <el-button v-if="user.hasPerm('customer:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('customer:add')" type="primary" :icon="Plus" @click="openCreate">
           新建客户
@@ -333,6 +334,7 @@ import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { handleExportResult } from '@/utils/export'
+import { downloadImportTemplate } from '@/utils/importTemplate'
 import {
   fetchCustomer, createCustomer, updateCustomer, deleteCustomer,
   fetchCustomerDicts, fetchCustomerTree, exportCustomers, importCustomers,
@@ -360,7 +362,7 @@ function onImportFileChange(f: UploadFile) {
 }
 
 function downloadTemplate() {
-  window.open('/exports/download-template/customer', '_blank')
+  downloadImportTemplate('customer')
 }
 
 // V24 导出筛选：列选择 + 创建时间范围

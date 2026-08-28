@@ -133,3 +133,24 @@ def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
     assert ':disabled="!form.rack_id"' not in source
     assert 'v-if="form.id && !changePasswordEnabled"' in source
     assert 'if (form.id && !changePasswordEnabled.value) delete payload.password' in source
+
+
+def test_all_batch_import_pages_expose_template_and_import_actions():
+    """所有已有批量导入后端的表格页同时提供显式模板与导入入口。"""
+    expected = {
+        'devices/index.vue': ("downloadImportTemplate('device')", 'importVisible = true'),
+        'customers/index.vue': ("downloadImportTemplate('customer')", 'importVisible = true'),
+        'inspections/index.vue': ("downloadImportTemplate('inspection')", ':import-request="importInspections"'),
+        'faults/index.vue': ("downloadImportTemplate('fault')", ':import-request="importFaults"'),
+        'spare/index.vue': (
+            "downloadImportTemplate('spare')",
+            "downloadImportTemplate('stock')",
+            ':import-request="importSpareParts"',
+            ':import-request="importSpareStocks"',
+        ),
+        'taskSchedule/index.vue': ('>导入模板</el-button>', '>批量导入</el-button>'),
+    }
+    for page, markers in expected.items():
+        source = _view_source(page)
+        for marker in markers:
+            assert marker in source, f'{page} 缺少入口：{marker}'

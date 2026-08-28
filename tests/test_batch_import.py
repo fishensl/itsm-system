@@ -3,6 +3,7 @@
 import io
 
 from models import (db, Customer, SparePart, SpareStock, Inspection, Fault)
+from utils.import_templates import IMPORT_TEMPLATES
 
 
 def _xlsx(headers, rows):
@@ -16,6 +17,36 @@ def _xlsx(headers, rows):
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+class TestImportTemplates:
+    def test_every_batch_import_has_downloadable_template(self, admin_client):
+        """全部现有批量导入模块都能下载同口径 xlsx 模板。"""
+        import openpyxl
+
+        for module, definition in IMPORT_TEMPLATES.items():
+            response = admin_client.get(f'/exports/download-template/{module}')
+            assert response.status_code == 200, module
+            assert response.mimetype == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            workbook = openpyxl.load_workbook(io.BytesIO(response.data), read_only=True)
+            sheet = workbook.active
+            headers = [cell.value for cell in sheet[1]]
+            assert headers == definition['headers'], module
+            assert any(cell.value not in (None, '') for cell in sheet[2]), module
+
+    def test_template_permission_matches_import_permission(self, op_client, sales_client,
+                                                           viewer_client):
+        assert op_client.get('/exports/download-template/device').status_code == 200
+        assert op_client.get('/exports/download-template/inspection').status_code == 200
+        assert op_client.get('/exports/download-template/fault').status_code == 200
+        assert op_client.get('/exports/download-template/spare').status_code == 200
+        assert op_client.get('/exports/download-template/stock').status_code == 200
+        assert sales_client.get('/exports/download-template/customer').status_code == 200
+        assert sales_client.get('/exports/download-template/device').status_code == 403
+        assert viewer_client.get('/exports/download-template/device').status_code == 403
+
+    def test_unknown_template_is_404(self, admin_client):
+        assert admin_client.get('/exports/download-template/not-exists').status_code == 404
 
 
 class TestSpareImport:

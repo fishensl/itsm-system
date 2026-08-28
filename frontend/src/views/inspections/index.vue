@@ -5,6 +5,10 @@
       <div class="header-actions">
         <el-button :icon="Download" plain @click="doExport('excel')">导出记录</el-button>
         <el-button :icon="FolderOpened" plain @click="doExport('zip')">导出报告包</el-button>
+        <el-button v-if="user.hasPerm('inspection:add')" :icon="Download" plain
+          @click="downloadImportTemplate('inspection')">导入模板</el-button>
+        <el-button v-if="user.hasPerm('inspection:add')" :icon="Upload" plain
+          @click="importVisible = true">批量导入</el-button>
         <el-button v-if="user.hasPerm('inspection:add')" type="primary" :icon="Plus" @click="openCreate">
           新建巡检
         </el-button>
@@ -16,6 +20,9 @@
       @submit="onExcelSubmit" />
     <ExportDialog v-model="bundleExportVisible" module="inspection" mode="bundle"
       title="导出巡检资料包" @submit="onBundleSubmit" />
+    <BatchImportDialog v-model="importVisible" title="批量导入巡检记录" module="inspection"
+      hint="请先下载导入模板，客户名称须已存在；按模板列填写后上传 Excel"
+      :import-request="importInspections" @success="onBatchImportSuccess" />
 
     <!-- 筛选 -->
     <el-card shadow="never" class="filter-card">
@@ -220,8 +227,9 @@
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, Download, FolderOpened, UploadFilled, MagicStick } from '@element-plus/icons-vue'
+import { Plus, Search, Download, FolderOpened, Upload, UploadFilled, MagicStick } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import BatchImportDialog from '@/components/BatchImportDialog.vue'
 import InspectionExpandRow from './InspectionExpandRow.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
@@ -231,7 +239,7 @@ import {
   submitInspection, reviewInspection, analyzeInspectionAI, fetchInspectionDicts, fetchInspectionVersions,
   fetchReviewChecklist,
   versionReportUrl, formalReportUrl,
-  exportInspections, exportInspectionBundle,
+  exportInspections, exportInspectionBundle, importInspections,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type InspectionDicts,
   type InspectionTaskOption, type SubmissionVersion, type ReviewChecklistItem,
 } from '@/api/inspections'
@@ -239,6 +247,7 @@ import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import { OVERALL_STATUS, REVIEW_STATUS, TASK_STATUS } from '@/utils/status'
+import { downloadImportTemplate } from '@/utils/importTemplate'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -261,6 +270,11 @@ const query = reactive<Record<string, unknown>>({
 const dateRange = ref<[string, string] | null>(null)
 const incompleteOnly = ref(false)
 const tableRef = ref()
+const importVisible = ref(false)
+
+function onBatchImportSuccess() {
+  tableRef.value?.refresh()
+}
 
 const listFieldMeta = ref<EntityFieldMeta[]>([])
 const columns = computed<DataColumn[]>(() => mergeFieldMeta([

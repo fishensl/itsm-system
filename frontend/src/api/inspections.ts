@@ -240,3 +240,11 @@ export function exportInspectionBundle(params: Record<string, unknown>) {
     data: params,
   })
 }
+
+export function importInspections(formData: FormData) {
+  return request<{ message: string; success: number; skipped: number; errors: string[] }>({
+    url: '/api/inspections/import',
+    method: 'POST',
+    data: formData,
+  })
+}

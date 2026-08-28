@@ -5,6 +5,7 @@
       <div class="header-actions">
         <el-button :icon="Download" plain @click="openExport">导出</el-button>
         <el-button :icon="Document" plain @click="loadMyRequests">我的导出申请</el-button>
+        <el-button v-if="user.hasPerm('device:add')" :icon="Download" plain @click="downloadTemplate">导入模板</el-button>
         <el-button v-if="user.hasPerm('device:add')" :icon="Upload" plain @click="importVisible = true">导入</el-button>
         <el-button v-if="user.hasPerm('device:add')" type="primary" :icon="Plus" @click="openCreate">
           新增设备
@@ -614,6 +615,7 @@ import {
 } from '@/api/meta'
 import { copySensitiveText } from '@/utils/secureClipboard'
 import { DEVICE_PRESETS } from '@/utils/exportColumns'
+import { downloadImportTemplate } from '@/utils/importTemplate'
 
 const route = useRoute()
 const user = useUserStore()
@@ -888,7 +890,7 @@ function onImportFileChange(f: UploadFile) {
 }
 
 function downloadTemplate() {
-  window.open('/exports/download-template/device', '_blank')
+  downloadImportTemplate('device')
 }
 
 // ---- V24 导出筛选：列选择 + 三预设 + 密码审核流 ----

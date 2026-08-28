@@ -4,6 +4,10 @@
       <h2 class="page-title">故障记录</h2>
       <div class="header-actions">
         <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
+        <el-button v-if="user.hasPerm('fault:add')" :icon="Download" plain
+          @click="downloadImportTemplate('fault')">导入模板</el-button>
+        <el-button v-if="user.hasPerm('fault:add')" :icon="Upload" plain
+          @click="importVisible = true">批量导入</el-button>
         <el-button v-if="user.hasPerm('fault:edit')" plain @click="catVisible = true">分类管理</el-button>
         <el-button v-if="user.hasPerm('fault:add')" type="primary" :icon="Plus" @click="openCreate">
           新建故障
@@ -14,6 +18,9 @@
     <!-- V24 导出筛选 -->
     <ExportDialog v-model="exportVisible" module="fault" title="导出故障记录"
       @submit="onExportSubmit" />
+    <BatchImportDialog v-model="importVisible" title="批量导入故障记录" module="fault"
+      hint="请先下载导入模板，客户名称须已存在；按模板列填写后上传 Excel"
+      :import-request="importFaults" @success="onBatchImportSuccess" />
 
     <!-- 故障分类管理（三级） -->
     <el-dialog v-model="catVisible" title="故障分类管理" width="720px" top="5vh" destroy-on-close>
@@ -132,16 +139,18 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, Download } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
+import BatchImportDialog from '@/components/BatchImportDialog.vue'
 import FaultExpandRow from './FaultExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { handleExportResult } from '@/utils/export'
+import { downloadImportTemplate } from '@/utils/importTemplate'
 import {
   fetchFaults, fetchFault, createFault, updateFault, deleteFault, convertFaultToTicket,
-  fetchFaultDicts, exportFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts, type FaultCategoryNode,
+  fetchFaultDicts, exportFaults, importFaults, FAULT_RESULT_TAG, type Fault, type FaultDicts, type FaultCategoryNode,
 } from '@/api/faults'
 import FaultCategories from './FaultCategories.vue'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
@@ -153,6 +162,7 @@ const listFieldMeta = ref<EntityFieldMeta[]>([])
 
 // V24 导出筛选
 const exportVisible = ref(false)
+const importVisible = ref(false)
 
 async function onExportSubmit(payload: Record<string, unknown>) {
   try {
@@ -184,6 +194,10 @@ const regionCustomers = computed(() => {
 const query = reactive<Record<string, unknown>>({ search: '', category_l1: '', result: '' })
 const tableRef = ref()
 const catVisible = ref(false)
+
+function onBatchImportSuccess() {
+  tableRef.value?.refresh()
+}
 
 /** 一级分类（筛选用） */
 const l1Categories = computed(() => dicts.value?.fault_types || [])

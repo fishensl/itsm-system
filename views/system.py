@@ -3,10 +3,10 @@
 import os
 from datetime import date
 from flask import (request, redirect, url_for,
-                   flash, jsonify, current_app)
+                   flash, jsonify, current_app, abort)
 from flask_login import (login_required, current_user)
 from models import db, UserDashboardPreference
-from utils.permission import require_permission, admin_required
+from utils.permission import admin_required, has_permission
 from utils.compat import deprecated_endpoint
 
 
@@ -140,7 +140,6 @@ def dashboard_reports():
 
 
 @login_required
-@require_permission('report:view')
 def download_template(module):
     """下载批量导入模板 Excel"""
     import openpyxl
@@ -152,43 +151,12 @@ def download_template(module):
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                          top=Side(style='thin'), bottom=Side(style='thin'))
 
-    templates = {
-        'customer': {
-            'name': '客户导入模板',
-            'headers': ['客户名称', '联系人', '电话', '邮箱', '所属地区', '地市', '地址',
-                        '单位类别', '客户等级',
-                        '办公室', '有无驻场', '驻场联系人', '驻场联系方式', '驻场办公室',
-                        '有无攻防演练', '巡检频率',
-                        '来源', '备注'],
-        },
-        'device': {
-            'name': '设备导入模板',
-            'headers': ['所属客户', '设备名称', '设备类型', '品牌', '型号', '序列号', 'IP地址', '端口',
-                        '登录用户名', '登录密码', '登录方式', '安装位置', '电源配置', '系统版本',
-                        '授权开始日期', '授权截止日期', '规则库版本', '是否维修', '是否在用', '备注'],
-        },
-        'inspection': {
-            'name': '巡检记录导入模板',
-            'headers': ['客户名称', '标题', '巡检人员', '巡检日期', '巡检地点', '总体状态', '结论', '备注'],
-        },
-        'fault': {
-            'name': '故障记录导入模板',
-            'headers': ['客户名称', '标题', '处理人', '故障时间', '故障类型', '故障描述', '故障原因', '解决方案', '处理结果'],
-        },
-        'spare': {
-            'name': '备件导入模板',
-            'headers': ['编码', '名称', '分类', '规格', '单位', '最低库存', '备注'],
-        },
-        'stock': {
-            'name': '库存导入模板',
-            'headers': ['备件名称', '位置', '数量', '单价'],
-        },
-    }
-
-    tpl = templates.get(module)
+    from utils.import_templates import get_import_template
+    tpl = get_import_template(module)
     if not tpl:
-        flash('不支持的导入模板类型', 'danger')
-        return redirect(url_for('index'))
+        abort(404)
+    if not has_permission(tpl['permission']):
+        abort(403)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -201,6 +169,11 @@ def download_template(module):
         cell.alignment = header_align
         cell.border = thin_border
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = max(len(h) * 2.5, 18)
+
+    for col_idx, value in enumerate(tpl.get('example') or [], 1):
+        cell = ws.cell(row=2, column=col_idx, value=value)
+        cell.alignment = Alignment(vertical='center')
+        cell.border = thin_border
 
     import tempfile
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')

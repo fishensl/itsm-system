@@ -109,3 +109,11 @@ export function exportFaults(params: Record<string, unknown>) {
     data: params,
   })
 }
+
+export function importFaults(formData: FormData) {
+  return request<{ message: string; success: number; skipped: number; errors: string[] }>({
+    url: '/api/faults/import',
+    method: 'POST',
+    data: formData,
+  })
+}

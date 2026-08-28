@@ -18,15 +18,24 @@
               </el-select>
               <el-button type="primary" plain :icon="Search" @click="reload('part')">查询</el-button>
             </div>
-            <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
-            <el-button v-if="user.hasPerm('spare:add')" type="primary" :icon="Plus" @click="openPartCreate">
-              新增备件
-            </el-button>
+            <div class="toolbar-actions">
+              <el-button :icon="Download" plain @click="exportVisible = true">导出</el-button>
+              <el-button v-if="user.hasPerm('spare:add')" :icon="Download" plain
+                @click="downloadImportTemplate('spare')">导入模板</el-button>
+              <el-button v-if="user.hasPerm('spare:add')" :icon="Upload" plain
+                @click="partImportVisible = true">批量导入</el-button>
+              <el-button v-if="user.hasPerm('spare:add')" type="primary" :icon="Plus" @click="openPartCreate">
+                新增备件
+              </el-button>
+            </div>
           </div>
 
           <!-- V24 导出筛选 -->
           <ExportDialog v-model="exportVisible" module="spare" title="导出备件档案"
             @submit="onExportSubmit" />
+          <BatchImportDialog v-model="partImportVisible" title="批量导入备件档案" module="spare"
+            hint="请先下载导入模板；编码或名称重复的备件将自动跳过"
+            :import-request="importSpareParts" @success="onPartImportSuccess" />
 
           <DataTable
             ref="partTableRef"
@@ -134,10 +143,20 @@
                 @keyup.enter="reload('stock')" @clear="reload('stock')" />
               <el-button type="primary" plain :icon="Search" @click="reload('stock')">查询</el-button>
             </div>
-            <el-button v-if="user.hasPerm('spare:add')" type="primary" :icon="Plus" @click="openStockCreate">
-              新增库存
-            </el-button>
+            <div class="toolbar-actions">
+              <el-button v-if="user.hasPerm('spare:add')" :icon="Download" plain
+                @click="downloadImportTemplate('stock')">导入模板</el-button>
+              <el-button v-if="user.hasPerm('spare:add')" :icon="Upload" plain
+                @click="stockImportVisible = true">批量导入</el-button>
+              <el-button v-if="user.hasPerm('spare:add')" type="primary" :icon="Plus" @click="openStockCreate">
+                新增库存
+              </el-button>
+            </div>
           </div>
+
+          <BatchImportDialog v-model="stockImportVisible" title="批量导入库存" module="stock"
+            hint="请先下载导入模板；备件名称须已存在，同一备件与库位的数量将累加"
+            :import-request="importSpareStocks" @success="onStockImportSuccess" />
 
           <DataTable ref="stockTableRef" :columns="stockColumns" :fetch-data="fetchSpareStocks" :column-settings="{ storageKey: 'cols_spare_stocks' }"
             :query="stockQuery" row-key="id" />
@@ -323,8 +342,9 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Plus, Search, Download } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
+import BatchImportDialog from '@/components/BatchImportDialog.vue'
 import PartExpandRow from './PartExpandRow.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
@@ -334,12 +354,13 @@ import {
   fetchPurchaseOrders, createPurchaseOrder, deletePurchaseOrder,
   fetchSalesOrders, createSalesOrder, deleteSalesOrder,
   fetchSpareBorrows, createSpareBorrow, returnSpareBorrow,
-  fetchSpareDicts, exportSpareParts,
+  fetchSpareDicts, exportSpareParts, importSpareParts, importSpareStocks,
   type SparePart, type SpareStock, type PurchaseOrderItem, type SalesOrderItem,
   type SpareBorrow, type SpareDicts,
 } from '@/api/spare'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { handleExportResult } from '@/utils/export'
+import { downloadImportTemplate } from '@/utils/importTemplate'
 import { fetchEntityMeta, fetchEntityMetas, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 
 const user = useUserStore()
@@ -348,6 +369,8 @@ const dicts = ref<SpareDicts | null>(null)
 
 // V24 导出筛选
 const exportVisible = ref(false)
+const partImportVisible = ref(false)
+const stockImportVisible = ref(false)
 
 async function onExportSubmit(payload: Record<string, unknown>) {
   try {
@@ -394,6 +417,16 @@ function reload(kind: 'part' | 'stock' | 'purchase' | 'sales' | 'borrows') {
   const refs = { part: partTableRef, stock: stockTableRef, purchase: purchaseTableRef,
     sales: salesTableRef, borrows: borrowTableRef }
   refs[kind].value?.refresh()
+}
+
+function onPartImportSuccess() {
+  reload('part')
+  fetchSpareDicts().then((data) => (dicts.value = data))
+}
+
+function onStockImportSuccess() {
+  reload('stock')
+  reload('part')
 }
 
 // ==================== 档案 ====================
@@ -848,6 +881,7 @@ onMounted(() => {
 .tabs-card { border-radius: 10px; }
 .module-tabs { padding: 0 4px; }
 .tab-toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .filter-search { width: 220px; max-width: 100%; }
 .filter-item { width: 130px; max-width: 100%; }

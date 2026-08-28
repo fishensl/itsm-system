@@ -152,6 +152,22 @@ export function exportSpareParts(params: Record<string, unknown>) {
   })
 }
 
+export function importSpareParts(formData: FormData) {
+  return request<{ message: string; success: number; skipped: number; errors: string[] }>({
+    url: '/api/spare-parts/import',
+    method: 'POST',
+    data: formData,
+  })
+}
+
+export function importSpareStocks(formData: FormData) {
+  return request<{ message: string; success: number; skipped: number; errors: string[] }>({
+    url: '/api/spare-stocks/import',
+    method: 'POST',
+    data: formData,
+  })
+}
+
 // ==================== 借用 / 归还 ====================
 export interface SpareBorrow {
   id: number
