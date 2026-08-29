@@ -239,13 +239,13 @@ GITHUB_RELEASE_BASE="${GITHUB_RELEASE_URL#https://github.com/}"
 # ---- 4. 确认代码版本 ----
 echo "[4/6] 当前代码: $(git rev-parse --short HEAD)"
 
-# ---- 4.5 设备覆盖导入发布门禁（只读） ----
-# 同客户同名设备会令无 ID 的覆盖导入匹配不唯一；在依赖、前端和迁移变更前停止。
-echo "[4.5/6] 检查设备重复数据与机柜功率冲突..."
+# ---- 4.5 设备覆盖导入发布检查（只读） ----
+# 同客户同名设备是允许的真实资产；报告用于提示覆盖导入携带设备 ID，不阻断发布。
+echo "[4.5/6] 检查同名设备与机柜功率冲突..."
 if ! ITSM_DATABASE_URI="$(awk -F= '$1 == "ITSM_DATABASE_URI" {sub(/^[^=]*=/, ""); print; exit}' "${APP_DIR}/.env")" \
     "${VENV}/bin/python" "${APP_DIR}/scripts/preflight_device_release.py" \
     --output "${APP_DIR}/backups/device-release-preflight-${TIMESTAMP}.json"; then
-    echo "[FATAL] 同客户同名设备门禁未通过；请按报告清理重复记录后重跑" >&2
+    echo "[FATAL] 设备发布只读检查执行失败；请按报告排查数据库连接或结构" >&2
     exit 1
 fi
 

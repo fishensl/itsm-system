@@ -12,7 +12,6 @@ class Device(db.Model):
     """网络设备"""
     __tablename__ = 'devices'
     __table_args__ = (
-        db.UniqueConstraint('customer_id', 'device_name', name='uq_devices_customer_name'),
         db.CheckConstraint(
             'rated_power_w IS NULL OR rated_power_w >= 0',
             name='ck_devices_rated_power_nonnegative'),

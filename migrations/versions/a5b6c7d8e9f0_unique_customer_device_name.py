@@ -1,4 +1,4 @@
-"""unique customer device name
+"""retired customer device name uniqueness attempt
 
 Revision ID: a5b6c7d8e9f0
 Revises: f4a5b6c7d8e9
@@ -26,10 +26,23 @@ def _has_constraint(bind):
     )
 
 
+def _has_duplicate_names(bind):
+    return bool(bind.execute(sa.text("""
+        SELECT 1
+          FROM devices
+         WHERE customer_id IS NOT NULL
+         GROUP BY customer_id, device_name
+        HAVING COUNT(*) > 1
+         LIMIT 1
+    """)).first())
+
+
 def upgrade():
     bind = op.get_bind()
-    if not _has_constraint(bind):
-        # PostgreSQL/SQLite 对 NULL customer_id 均允许多行；未归属设备更新仍必须带 ID。
+    # 此迁移在首次生产发布前发现业务上允许同一客户存在多台同名设备。
+    # 对无重复数据的已建开发库保留原行为，由后续迁移统一撤销；生产存在真实
+    # 同名资产时跳过错误约束，避免升级中断或迫使删除合法设备。
+    if not _has_constraint(bind) and not _has_duplicate_names(bind):
         with op.batch_alter_table('devices', schema=None) as batch_op:
             batch_op.create_unique_constraint(
                 CONSTRAINT_NAME, ['customer_id', 'device_name'])

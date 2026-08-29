@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""设备批量治理发布前只读门禁。
+"""设备批量治理发布前只读检查。
 
 检查：
-1. 已归属客户的 ``(customer_id, device_name)`` 是否重复；存在重复时退出码 2，
-   防止无设备 ID 的覆盖导入匹配到多行。
+1. 已归属客户的 ``(customer_id, device_name)`` 重名组；这是允许的真实业务数据，
+   仅提示覆盖导入必须携带设备 ID，不阻断发布。
 2. 同一设备在旧机柜上架记录中是否存在多个不同正功率；仅报告，不猜测回填值。
 
 脚本不修改数据库。生产可显式传 ``--database-uri``，未传时读取环境变量或项目
@@ -88,7 +88,8 @@ def collect_report(database_uri: str) -> dict:
         return {
             'duplicate_customer_device_names': [dict(row) for row in duplicate_rows],
             'rack_power_conflicts': power_conflicts,
-            'gate_passed': not duplicate_rows,
+            'overwrite_requires_device_id': bool(duplicate_rows),
+            'gate_passed': True,
         }
     finally:
         engine.dispose()
@@ -110,7 +111,7 @@ def main() -> int:
         output = Path(args.output).resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered + '\n', encoding='utf-8')
-    return 0 if report['gate_passed'] else 2
+    return 0
 
 
 if __name__ == '__main__':
