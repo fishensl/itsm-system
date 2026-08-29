@@ -240,11 +240,16 @@ def update_device_from_form(device_id, form):
     else:
         customer_id = d.customer_id
 
-    duplicate = Device.query.filter_by(
-        customer_id=customer_id, device_name=name,
-    ).filter(Device.id != d.id).first()
-    if duplicate:
-        raise ServiceError(f'当前客户下设备 "{name}" 已存在')
+    # 历史数据中同一客户可能存在真实的同名设备。仅修改密码、
+    # 品牌等非身份字段时，不能因为另一条历史同名记录而拒绝更新。
+    # 只在所属客户或设备名称真正变更时阻止制造新的同名冲突。
+    identity_changed = customer_id != d.customer_id or name != d.device_name
+    if identity_changed:
+        duplicate = Device.query.filter_by(
+            customer_id=customer_id, device_name=name,
+        ).filter(Device.id != d.id).first()
+        if duplicate:
+            raise ServiceError(f'当前客户下设备 "{name}" 已存在')
 
     d.device_name = name
     d.customer_id = customer_id

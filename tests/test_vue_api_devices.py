@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from models import db, Customer, Device, User, Brand
-from utils.crypto import encrypt_password
+from utils.crypto import decrypt_password, encrypt_password
 
 
 @pytest.fixture()
@@ -233,6 +233,42 @@ class TestDeviceCrud:
         assert r.status_code == 200, r.get_json()
         with app.app_context():
             assert Device.query.get(seed['d1']).location == '旧安装描述'
+
+    def test_password_update_allows_preexisting_same_customer_duplicate(
+            self, op_client, seed, app):
+        """历史合法同名设备不得阻断当前设备的密码更新。"""
+        with app.app_context():
+            original = Device.query.get(seed['d1'])
+            db.session.add(Device(
+                customer_id=original.customer_id,
+                device_name=original.device_name,
+                device_type='交换机',
+                is_in_use=True,
+            ))
+            db.session.commit()
+
+        response = op_client.put(f"/api/devices/{seed['d1']}", json={
+            'device_name': 'SW-A',
+            'customer_id': seed['c1'],
+            'password': 'Updated#Duplicate123',
+            'is_in_use': True,
+        })
+
+        assert response.status_code == 200, response.get_json()
+        with app.app_context():
+            device = Device.query.get(seed['d1'])
+            assert decrypt_password(device.password_encrypted) == 'Updated#Duplicate123'
+
+    def test_update_still_rejects_new_same_customer_name_collision(
+            self, op_client, seed):
+        response = op_client.put(f"/api/devices/{seed['d2']}", json={
+            'device_name': 'SW-A',
+            'customer_id': seed['c1'],
+            'is_in_use': True,
+        })
+
+        assert response.status_code == 400
+        assert '当前客户' in response.get_json()['message']
 
     def test_update(self, op_client, seed, app):
         r = op_client.put(f"/api/devices/{seed['d1']}", json={
