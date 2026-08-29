@@ -26,14 +26,20 @@ def _require_topology_customer(customer_id):
 TOPOLOGY_TEMPLATE_CATALOG = {
     'standard-network-v1.drawio': {
         'name': '网络拓扑图标准模板',
-        'description': '含标题栏、常用网络图形区和网线/光纤/WAN/堆叠/HA/无线标准图例。',
+        'description': (
+            '含标题栏、常用网络图形区和业务网线/光纤/WAN/VLAN/'
+            '设备管理口线/HA/无线标准图例。'
+        ),
         'category': 'network',
         'template_type': 'network',
         'template_version': 1,
     },
     'standard-meeting-v1.drawio': {
         'name': '会议拓扑图标准模板',
-        'description': '含会场/机柜绘图区、会议常用设备和视频/音频/控制/电源标准图例。',
+        'description': (
+            '含会场/机柜绘图区、会议常用设备和网络/HDMI/DP/VGA/SDI/'
+            '音频/控制/电源标准图例。'
+        ),
         'category': 'meeting',
         'template_type': 'meeting',
         'template_version': 1,

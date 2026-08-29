@@ -508,14 +508,22 @@ class TestTopologyTemplates:
                   encoding='utf-8') as source:
             network_xml = source.read()
         assert all(label in network_xml for label in (
-            '标准图例', '网线', '光纤', '专线 / WAN', '堆叠 / MLAG', 'HA / 备份'))
+            '标准图例', '业务网线', '光纤', '专线 / WAN', 'VLAN',
+            '设备管理口线', 'HA / 备份'))
+        assert '堆叠 / MLAG' not in network_xml
+        assert 'id="line-management"' in network_xml
+        assert 'strokeColor=#70AD47' in network_xml
+        assert 'dashPattern=4 4' in network_xml
         assert 'strokeColor=#ED7D31' in network_xml and 'edge="1"' in network_xml
 
         with open(os.path.join(template_dir, by_name['会议拓扑图标准模板']['file']),
                   encoding='utf-8') as source:
             meeting_xml = source.read()
         assert all(label in meeting_xml for label in (
-            '会议拓扑图', '视频会议终端', 'HDMI/DP', 'SDI', '音频', 'RS-232'))
+            '会议拓扑图', '视频会议终端', 'HDMI/DP', 'VGA 线缆',
+            'SDI', '音频', 'RS-232'))
+        assert 'id="line-vga"' in meeting_xml
+        assert 'strokeColor=#00B0F0' in meeting_xml
         assert 'edge="1"' in meeting_xml
         assert all(color in meeting_xml for color in (
             '#7030A0', '#C00000', '#70AD47', '#ED7D31', '#404040'))
