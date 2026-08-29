@@ -33,8 +33,8 @@ export const DEVICE_EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'cert_expiry_date', label: '证书到期日期' },
   { key: 'is_maintenance', label: '是否维修' },
   { key: 'is_in_use', label: '是否在用' },
-  { key: 'pwd_changed_by', label: '上次修改密码账号' },
-  { key: 'pwd_changed_at', label: '上次修改密码时间' },
+  { key: 'pwd_changed_by', label: '上次修改账号' },
+  { key: 'pwd_changed_at', label: '上次修改时间' },
   { key: 'remark', label: '备注' },
   { key: 'created_at', label: '创建时间' },
 ]
@@ -51,7 +51,7 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
   {
     key: 'password',
     label: '设备密码表',
-    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply', 'rated_power_w',
+    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot',
       'name', 'type', 'brand',
       'model', 'sn', 'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
       'pwd_changed_by', 'pwd_changed_at', 'remark'],

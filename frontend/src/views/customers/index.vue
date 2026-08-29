@@ -58,9 +58,14 @@
         badge-key="customer_count"
         :default-expanded="hasFilter || !!route.params.id ? 2 : 0"
       >
-        <template #leaf="{ node }">
+        <template #leaf="{ node, hasChildren, expanded, toggle }">
           <div class="cust-leaf-wrap">
             <div class="tree-block cust-leaf" @click="toggleDetail(node as Customer)">
+              <el-icon
+                class="hierarchy-arrow"
+                :class="{ expanded, hidden: !hasChildren }"
+                @click.stop="hasChildren && toggle?.()"
+              ><ArrowRight /></el-icon>
               <el-icon color="var(--itsm-primary)"><Location /></el-icon>
               <span class="tree-name">{{ node.name }}</span>
               <span v-if="node.region_name" class="tree-district">{{ node.region_name }}</span>
@@ -342,7 +347,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Search, Download, Upload, UploadFilled, Location } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, UploadFilled, Location, ArrowRight } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
@@ -689,6 +694,11 @@ onMounted(() => {
   border-radius: 8px; margin-bottom: 8px;
 }
 .cust-leaf:hover { background: var(--el-fill-color-light); }
+.hierarchy-arrow {
+  color: var(--itsm-text-muted); font-size: 13px; transition: transform 0.2s;
+}
+.hierarchy-arrow.expanded { transform: rotate(90deg); }
+.hierarchy-arrow.hidden { visibility: hidden; }
 .cust-detail {
   border: 1px solid var(--itsm-border);
   border-top: 2px solid var(--el-color-primary);

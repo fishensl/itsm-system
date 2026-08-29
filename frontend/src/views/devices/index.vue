@@ -642,10 +642,10 @@
               <el-descriptions-item :label="fieldLabel('device', 'license_remaining_days', '授权剩余天数')">
                 {{ editingSnapshot.license_remaining_days ?? '-' }}
               </el-descriptions-item>
-              <el-descriptions-item :label="fieldLabel('device', 'pwd_changed_by', '上次修改密码账号')">
+              <el-descriptions-item :label="fieldLabel('device', 'pwd_changed_by', '上次修改账号')">
                 {{ editingSnapshot.pwd_changed_by || '-' }}
               </el-descriptions-item>
-              <el-descriptions-item :label="fieldLabel('device', 'pwd_changed_at', '上次修改密码时间')">
+              <el-descriptions-item :label="fieldLabel('device', 'pwd_changed_at', '上次修改时间')">
                 {{ editingSnapshot.pwd_changed_at || '-' }}
               </el-descriptions-item>
               <el-descriptions-item :label="fieldLabel('device', 'created_at', '创建时间')" :span="2">

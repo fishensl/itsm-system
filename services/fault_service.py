@@ -2,6 +2,7 @@
 """Fault 故障业务服务"""
 from datetime import datetime
 from models import db, Fault
+from utils.constants import FAULT_OBSERVING, FAULT_RESOLVED
 from .base import ServiceError, transaction
 from .fault_category_service import resolve_fault_category_path
 
@@ -78,6 +79,64 @@ def update_fault(fault_id, data):
             data.get('category_l3', f.fault_category_level3))
         f.fault_category_level1, f.fault_category_level2, f.fault_category_level3 = category_path
     return f
+
+
+def sync_fault_from_ticket(ticket, current_user_name, *, resolved=True):
+    """将工单处置结果幂等同步到故障记录。
+
+    故障转工单时会预先存在 ``Fault.ticket_id``，此时更新原记录；普通工单
+    首次关闭时创建记录。重开工单保留历史记录，但将结果改为待观察并清空恢复时间。
+    本函数不独立提交事务，由工单状态迁移事务统一 commit/rollback。
+    """
+    fault = (Fault.query.filter_by(ticket_id=ticket.id)
+             .order_by(Fault.id.asc()).first())
+    if fault is None:
+        fault = Fault(
+            ticket_id=ticket.id,
+            title=ticket.title or f'工单 {ticket.number}',
+            customer_id=ticket.customer_id,
+            fault_time=ticket.created_at or ticket.started_at or datetime.utcnow(),
+            created_at=datetime.utcnow(),
+        )
+        db.session.add(fault)
+
+    fault.title = ticket.title or fault.title
+    fault.customer_id = ticket.customer_id
+    fault.handler = ticket.assigned_to or current_user_name or fault.handler
+    fault.fault_description = ticket.description or fault.fault_description
+    fault.fault_cause = ticket.diagnosis or fault.fault_cause
+    fault.solution = ticket.solution or fault.solution
+    fault.impact_range = ticket.impact_scope or fault.impact_range
+    fault.report_file = ticket.report_file or fault.report_file
+
+    category = (
+        ticket.fault_category_level3
+        or ticket.fault_category_level2
+        or ticket.fault_category_level1
+        or ''
+    )
+    if category:
+        fault.fault_type = category
+    fault.fault_category_level1 = ticket.fault_category_level1 or ''
+    fault.fault_category_level2 = ticket.fault_category_level2 or ''
+    fault.fault_category_level3 = ticket.fault_category_level3 or ''
+    fault.symptoms_json = ticket.symptoms_json or '[]'
+    fault.affected_components_json = ticket.affected_components_json or '[]'
+    fault.resolution_steps_json = ticket.resolution_steps_json or '[]'
+    fault.root_cause_category = ticket.root_cause_category or ''
+    fault.severity_level = ticket.severity_level or ''
+    fault.impact_scope = ticket.impact_scope or ''
+    fault.normalized_tags = ticket.normalized_tags or ''
+
+    if resolved:
+        fault.result = FAULT_RESOLVED
+        fault.recovery_time = (
+            ticket.completed_at or ticket.accept_at or datetime.utcnow()
+        )
+    else:
+        fault.result = FAULT_OBSERVING
+        fault.recovery_time = None
+    return fault
 
 
 @transaction

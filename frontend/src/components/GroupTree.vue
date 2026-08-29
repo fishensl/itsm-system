@@ -2,8 +2,18 @@
   <div class="group-tree">
     <template v-for="node in nodes" :key="nodeKey(node)">
       <template v-if="renderAllNodes">
-        <slot name="leaf" :node="node" />
-        <div v-if="node.children?.length" class="tree-children all-node-children">
+        <slot
+          name="leaf"
+          :node="node"
+          :has-children="!!node.children?.length"
+          :expanded="isExpanded(nodeKey(node))"
+          :toggle="() => toggle(nodeKey(node))"
+        />
+        <div
+          v-if="node.children?.length"
+          v-show="isExpanded(nodeKey(node))"
+          class="tree-children all-node-children"
+        >
           <GroupTree
             :nodes="node.children"
             :depth="depth + 1"
@@ -12,7 +22,7 @@
             :default-expanded="defaultExpanded"
             render-all-nodes
           >
-            <template #leaf="scope"><slot name="leaf" :node="scope.node" /></template>
+            <template #leaf="scope"><slot name="leaf" v-bind="scope" /></template>
             <template #actions="scope"><slot name="actions" :node="scope.node" /></template>
           </GroupTree>
         </div>
@@ -41,7 +51,7 @@
             :default-expanded="defaultExpanded"
           >
             <template #leaf="scope">
-              <slot name="leaf" :node="scope.node" />
+              <slot name="leaf" v-bind="scope" />
             </template>
             <template #actions="scope">
               <slot name="actions" :node="scope.node" />
@@ -68,7 +78,12 @@ interface TreeNode {
 }
 
 defineSlots<{
-  leaf(props: { node: any }): unknown
+  leaf(props: {
+    node: any
+    hasChildren?: boolean
+    expanded?: boolean
+    toggle?: () => void
+  }): unknown
   actions(props: { node: any }): unknown
 }>()
 /* eslint-enable @typescript-eslint/no-explicit-any */

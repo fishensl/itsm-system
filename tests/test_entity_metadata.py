@@ -52,10 +52,16 @@ def test_device_location_power_and_export_profiles_share_one_contract():
         assert keys[start:start + 4] == location_block
         assert keys[start + 4] == 'power_supply'
 
-    for preset in schema.export_presets.values():
+    for preset_name, preset in schema.export_presets.items():
         start = preset.index('rack_location')
         assert list(preset[start:start + 4]) == location_block
-        assert preset[start + 4] == 'power_supply'
+        if preset_name == 'password':
+            # 密码表只保留凭据/审计相关资产定位，不携带供电容量字段。
+            assert preset[start + 4] == 'device_name'
+            assert 'power_supply' not in preset
+            assert 'rated_power_w' not in preset
+        else:
+            assert preset[start + 4] == 'power_supply'
 
     # 明文密码是唯一安全例外；列表以 has_password 替代，其余导出字段均有同名列表列。
     export_fields = set(_keys(schema, 'export_available')) - {'password'}

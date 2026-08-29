@@ -48,6 +48,12 @@ TICKET_TRANSITIONS = {
     TICKET_CONTRACT_REVIEW: {TICKET_PENDING_ASSIGN, TICKET_CLOSED},
 }
 
+# ==================== 故障处理结果 ====================
+FAULT_RESOLVED = '已解决'
+FAULT_OBSERVING = '待观察'
+FAULT_UNRESOLVED = '未解决'
+FAULT_RESULTS = (FAULT_RESOLVED, FAULT_OBSERVING, FAULT_UNRESOLVED)
+
 # ==================== 巡检任务状态 ====================
 TASK_PENDING = '待执行'
 TASK_SCHEDULED = '已安排'

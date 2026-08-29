@@ -2,7 +2,7 @@
 """工单 / 故障模型"""
 from datetime import datetime
 from models.base import db
-from utils.constants import TICKET_PENDING_ASSIGN
+from utils.constants import FAULT_RESOLVED, TICKET_PENDING_ASSIGN
 
 
 # ============================
@@ -166,7 +166,7 @@ class Fault(db.Model):
     impact_range = db.Column(db.String(256), default='')
     fault_cause = db.Column(db.Text, default='')
     solution = db.Column(db.Text, default='')
-    result = db.Column(db.String(32), default='已解决')
+    result = db.Column(db.String(32), default=FAULT_RESOLVED)
     recovery_time = db.Column(db.DateTime, nullable=True)
     report_file = db.Column(db.String(256), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -183,4 +183,3 @@ class Fault(db.Model):
     normalized_tags = db.Column(db.String(256), default='')
 
     customer_rel = db.relationship('Customer', backref='faults')
-

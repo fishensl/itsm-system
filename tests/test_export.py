@@ -111,8 +111,8 @@ class TestDevicePresets:
         # 预设定义本身含密码列且顺序正确
         cols = DEVICE_PRESETS['password']
         assert cols == ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot',
-                        'power_supply', 'rated_power_w', 'name', 'type',
-                        'brand', 'model', 'sn', 'ip', 'port', 'login_method', 'username',
+                        'name', 'type', 'brand', 'model', 'sn', 'ip', 'port',
+                        'login_method', 'username',
                         'password', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark']
 
     def test_preset_version_columns(self, op_client, seed):
@@ -127,11 +127,11 @@ class TestDevicePresets:
         r = op_client.post('/api/v2/devices/export', json={
             'columns': ['name', 'sn', 'pwd_changed_by', 'pwd_changed_at', 'remark']})
         header, rows = _decode_xlsx(r)
-        assert header == ['名称', '序列号', '上次修改密码账号', '上次修改密码时间', '备注']
+        assert header == ['名称', '序列号', '上次修改账号', '上次修改时间', '备注']
         by_name = {dict(zip(header, row))['名称']: dict(zip(header, row)) for row in rows}
         row1 = by_name['核心交换机']
-        assert row1['上次修改密码账号'] == 'op'
-        assert row1['上次修改密码时间']
+        assert row1['上次修改账号'] == 'op'
+        assert row1['上次修改时间']
 
     def test_custom_columns_with_password_rejected(self, op_client, seed):
         r = op_client.post('/api/v2/devices/export', json={

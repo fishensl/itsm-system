@@ -2,7 +2,7 @@
 """工单状态机：合法转换全覆盖 + 非法转换拒绝 + 日志原子性"""
 import pytest
 
-from models import Ticket, TicketLog
+from models import Fault, Ticket, TicketLog
 from services.base import ServiceError
 from services import ticket_service
 
@@ -43,6 +43,13 @@ class TestTicketLifecycle:
 
         ticket_service.accept_check_ticket(t.id, 'admin', approved=True)
         assert Ticket.query.get(t.id).status == '已关闭'
+        fault = Fault.query.filter_by(ticket_id=t.id).one()
+        assert fault.title == '核心交换机离线'
+        assert fault.handler == 'op'
+        assert fault.fault_cause == '光模块故障'
+        assert fault.solution == '更换模块'
+        assert fault.result == '已解决'
+        assert fault.recovery_time is not None
 
         # 全流程日志完整
         logs = TicketLog.query.filter_by(ticket_id=t.id).all()
@@ -112,12 +119,32 @@ class TestIllegalTransitions:
         t = _create(ctx)
         ticket_service.close_ticket(t.id, 'admin')
         assert Ticket.query.get(t.id).status == '已关闭'
+        fault_id = Fault.query.filter_by(ticket_id=t.id).one().id
         ticket_service.reopen_ticket(t.id, 'admin', remark='误关重开')
         tk = Ticket.query.get(t.id)
         assert tk.status == '处理中'
+        fault = Fault.query.get(fault_id)
+        assert fault.result == '待观察'
+        assert fault.recovery_time is None
         # 重开后仍可继续走处理流程
         ticket_service.submit_ticket(t.id, 'admin')
         assert Ticket.query.get(t.id).status == '待审核'
+
+    def test_close_updates_existing_fault_without_duplicate(self, ctx):
+        """故障转工单后关闭时更新原故障，不再新增第二条记录。"""
+        t = _create(ctx, '原故障关联工单')
+        fault = Fault(ticket_id=t.id, title='原故障', result='未解决')
+        from models import db
+        db.session.add(fault)
+        db.session.commit()
+        fault_id = fault.id
+
+        ticket_service.close_ticket(t.id, 'admin')
+
+        assert Fault.query.filter_by(ticket_id=t.id).count() == 1
+        synced = Fault.query.get(fault_id)
+        assert synced.title == '原故障关联工单'
+        assert synced.result == '已解决'
 
     def test_reopen_non_closed_rejected(self, ctx):
         """非已关闭工单不可重开"""

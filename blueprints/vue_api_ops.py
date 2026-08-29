@@ -518,10 +518,11 @@ def _fault_category_tree():
 @require_permission('fault:view')
 def api_fault_dicts():
     from utils.customer_scope import customer_dropdown_options
+    from utils.constants import FAULT_RESULTS
     fault_types = _fault_category_tree()
     customers = customer_dropdown_options(current_user)
-    results = ['已解决', '待观察', '未解决']
-    return ok({'fault_types': fault_types, 'customers': customers, 'results': results})
+    return ok({'fault_types': fault_types, 'customers': customers,
+               'results': list(FAULT_RESULTS)})
 
 
 # ==================== 故障分类字典 CRUD（三级分级） ====================

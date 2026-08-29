@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from models import db, Customer, Ticket, TicketLog, SubmissionVersion
+from models import db, Customer, Fault, Ticket, TicketLog, SubmissionVersion
 
 
 @pytest.fixture()
@@ -67,6 +67,12 @@ class TestTicketStateMachine:
             assert Ticket.query.get(seed['t']).status == '已关闭'
             # 5 次状态流转日志（fixture 直插无"创建"日志）
             assert TicketLog.query.filter_by(ticket_id=seed['t']).count() >= 5
+            fault = Fault.query.filter_by(ticket_id=seed['t']).one()
+            assert fault.result == '已解决'
+        fault_response = op_client.get('/api/faults', query_string={'search': '测试工单'})
+        fault_items = fault_response.get_json()['data']['items']
+        assert len(fault_items) == 1
+        assert fault_items[0]['ticket_number'] == 'WO-TEST-001'
 
     def test_illegal_transition_rejected(self, op_client, seed):
         """待派单直接提交审核 → 400"""

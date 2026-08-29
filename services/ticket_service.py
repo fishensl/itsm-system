@@ -276,6 +276,11 @@ def accept_check_ticket(ticket_id, current_user_name, remark='', approved=True):
     if remark:
         t.accept_comment = remark
     _transition(t, target, current_user_name, remark or ('客户验收通过' if approved else '客户验收退回'))
+    if approved:
+        if t.completed_at is None:
+            t.completed_at = datetime.utcnow()
+        from .fault_service import sync_fault_from_ticket
+        sync_fault_from_ticket(t, current_user_name, resolved=True)
     return t
 
 
@@ -294,7 +299,11 @@ def unassign_ticket(ticket_id, current_user_name, remark=''):
 def close_ticket(ticket_id, current_user_name, remark=''):
     """关闭工单"""
     t = Ticket.query.get_or_404(ticket_id)
+    if t.completed_at is None:
+        t.completed_at = datetime.utcnow()
     _transition(t, TICKET_CLOSED, current_user_name, remark or '关闭工单')
+    from .fault_service import sync_fault_from_ticket
+    sync_fault_from_ticket(t, current_user_name, resolved=True)
     return t
 
 
@@ -308,6 +317,8 @@ def reopen_ticket(ticket_id, current_user_name, remark=''):
     if t.status != TICKET_CLOSED:
         raise ServiceError(f'仅已关闭工单可重开（当前状态 "{t.status}"）')
     _transition(t, TICKET_PROCESSING, current_user_name, remark or '重开工单')
+    from .fault_service import sync_fault_from_ticket
+    sync_fault_from_ticket(t, current_user_name, resolved=False)
     return t
 
 

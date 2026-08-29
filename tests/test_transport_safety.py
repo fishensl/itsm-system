@@ -36,6 +36,43 @@ def test_https_guard_accepts_forwarded_https(client, app, monkeypatch):
     assert response.status_code == 401
 
 
+def test_device_password_write_allows_trusted_internal_http_and_blocks_external(
+        admin_client, app, monkeypatch):
+    from models import Customer, Device, db
+    from utils import access_control
+
+    with app.app_context():
+        customer = Customer(name='内网设备凭据客户')
+        db.session.add(customer)
+        db.session.flush()
+        device = Device(customer_id=customer.id, device_name='内网设备凭据测试')
+        db.session.add(device)
+        db.session.commit()
+        customer_id, device_id = customer.id, device.id
+
+    monkeypatch.setitem(app.config, 'TESTING', False)
+    app.config['FORCE_HTTPS'] = True
+    monkeypatch.setattr(access_control, 'get_trusted_networks', lambda: ['10.0.0.0/8'])
+    payload = {
+        'customer_id': customer_id,
+        'device_name': '内网设备凭据测试',
+        'password': 'InternalOnlySecret123!',
+        'is_in_use': True,
+    }
+
+    internal = admin_client.put(
+        f'/api/devices/{device_id}', json=payload,
+        headers={'X-Real-IP': '10.20.30.40'},
+    )
+    assert internal.status_code == 200
+
+    external = admin_client.put(
+        f'/api/devices/{device_id}', json=payload,
+        headers={'X-Real-IP': '203.0.113.40'},
+    )
+    assert external.status_code == 403
+
+
 def test_redaction_handles_nested_and_inline_secrets():
     value = redact_mapping({
         'message': 'failed',
