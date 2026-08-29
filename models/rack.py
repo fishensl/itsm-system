@@ -37,6 +37,7 @@ class RackInstall(db.Model):
     manual_ip = db.Column(db.String(64), default='')
     start_u = db.Column(db.Integer, default=1)              # 起始 U 位（从 1 开始）
     occupy_u = db.Column(db.Integer, default=1)             # 占用 U 数
+    install_side = db.Column(db.String(16), nullable=False, default='')  # 正面/背面
     rated_w = db.Column(db.Integer, default=0)              # 额定功耗（W）
     remark = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

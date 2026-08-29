@@ -35,6 +35,7 @@ export interface RackInstall {
   kind: '托管' | '手动'
   start_u: number
   occupy_u: number
+  install_side: '' | '正面' | '背面'
   rated_w: number
   rated_power_w: number | null
   remark: string
@@ -73,6 +74,7 @@ export interface InstallForm {
   manual_ip?: string
   start_u: number
   occupy_u: number
+  install_side: '' | '正面' | '背面'
   rated_w: number
   remark?: string
 }

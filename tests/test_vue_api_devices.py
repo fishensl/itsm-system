@@ -668,20 +668,113 @@ class TestDeviceImportSync:
         with app.app_context():
             assert Device.query.filter_by(device_name='SW-IDEMPOTENT').count() == 1
 
-    def test_import_rejects_duplicate_target_rows_atomically(self, op_client, seed, app):
+    def test_import_creates_distinct_same_name_rows(self, op_client, seed, app):
+        """Excel 一行代表一台设备；同客户同名但 IP 不同不能被误合并。"""
         xlsx = self._make_xlsx([
             ['设备API客户A', 'SW-DUP-ROW', '交换机', '10.0.0.8', '是'],
             ['设备API客户A', 'SW-DUP-ROW', '交换机', '10.0.0.9', '是'],
         ])
         response = op_client.post('/api/v2/devices/import', data={
             'import_file': (xlsx, 'duplicates.xlsx'),
+            'mode': 'upsert',
         }, content_type='multipart/form-data')
         assert response.status_code == 200
         data = response.get_json()['data']
-        assert data['failed'] == 1
-        assert '指向同一设备' in data['errors'][0]
+        assert data['failed'] == 0
+        assert data['created'] == 2
         with app.app_context():
-            assert Device.query.filter_by(device_name='SW-DUP-ROW').count() == 0
+            devices = Device.query.filter_by(device_name='SW-DUP-ROW').all()
+            assert {item.ip_address for item in devices} == {'10.0.0.8', '10.0.0.9'}
+
+    def test_import_reclaims_deleted_device_rack_snapshot(
+            self, admin_client, seed, app):
+        """删除后保留的机柜快照应回接新设备，不能误报 U 位冲突。"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='12', location='中心机房')
+            db.session.add(rack)
+            db.session.flush()
+            device = Device.query.get(seed['d1'])
+            device.location = '背面'
+            device.model = 'S5720'
+            db.session.add(RackInstall(
+                rack_id=rack.id, device_id=device.id, start_u=19, occupy_u=2,
+                install_side='背面'))
+            db.session.commit()
+            rack_id = rack.id
+            install_id = RackInstall.query.filter_by(device_id=device.id).one().id
+
+        deleted = admin_client.post('/api/v2/devices/batch-delete', json={
+            'device_ids': [seed['d1']],
+        })
+        assert deleted.status_code == 200
+
+        headers = [
+            '所属客户', '设备名称', '品牌', '型号', 'IP地址', '安装位置',
+            '机房位置', '机柜号', '起始U位', '占用U数', '是否在用',
+        ]
+        raw = self._make_xlsx([[
+            '设备API客户A', 'SW-A', '华为', 'S5720', '10.0.0.1', '背面',
+            '中心机房', '12', 19, 2, '是',
+        ]], headers).getvalue()
+        preview = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(raw), 'reclaim.xlsx'),
+            'dry_run': '1',
+        }, content_type='multipart/form-data')
+        preview_data = preview.get_json()['data']
+        assert preview.status_code == 200
+        assert preview_data['failed'] == 0
+        assert preview_data['create'] == 1
+
+        execute = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(raw), 'reclaim.xlsx'),
+            'batch_id': preview_data['batch_id'],
+        }, content_type='multipart/form-data')
+        assert execute.status_code == 200, execute.get_json()
+        with app.app_context():
+            new_device = Device.query.filter_by(
+                customer_id=seed['c1'], device_name='SW-A').one()
+            install = RackInstall.query.get(install_id)
+            assert install.rack_id == rack_id
+            assert install.device_id == new_device.id
+            assert install.install_side == '背面'
+            assert RackInstall.query.filter_by(rack_id=rack_id).count() == 1
+
+    def test_import_allows_same_u_on_opposite_sides(self, admin_client, seed, app):
+        """同 U 的旧快照可按工作簿正反面分别回接。"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='13', location='中心机房')
+            db.session.add(rack)
+            db.session.flush()
+            db.session.add_all([
+                RackInstall(rack_id=rack.id, manual_name='正面设备',
+                            manual_ip='10.0.1.1', start_u=23, occupy_u=1),
+                RackInstall(rack_id=rack.id, manual_name='背面设备',
+                            manual_ip='10.0.1.2', start_u=23, occupy_u=1),
+            ])
+            db.session.commit()
+            rack_id = rack.id
+        headers = [
+            '所属客户', '设备名称', 'IP地址', '安装位置', '机房位置', '机柜号',
+            '起始U位', '占用U数', '是否在用',
+        ]
+        xlsx = self._make_xlsx([
+            ['设备API客户A', '正面设备', '10.0.1.1', '正面', '中心机房', '13', 23, 1, '是'],
+            ['设备API客户A', '背面设备', '10.0.1.2', '背面', '中心机房', '13', 23, 1, '是'],
+        ], headers)
+        response = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (xlsx, 'opposite-sides.xlsx'),
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200, response.get_json()
+        result = response.get_json()['data']
+        assert result['failed'] == 0
+        assert result['created'] == 2
+        with app.app_context():
+            installs = RackInstall.query.filter_by(rack_id=rack_id, start_u=23).all()
+            assert len(installs) == 2
+            assert all(item.device_id for item in installs)
+            assert {item.install_side for item in installs} == {'正面', '背面'}
 
     def test_update_mode_does_not_reject_unmatched_same_name_rows(self, op_client, seed):
         """仅更新时，不存在的同名行都应跳过，不能在匹配前误判为同一设备。"""

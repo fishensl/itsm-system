@@ -624,6 +624,8 @@ RACK_FIELDS = (
 RACK_INSTALL_FIELDS = (
     F('start_u', '起始U位', data_type='number', width=90),
     F('occupy_u', '占用U数', data_type='number', width=90),
+    F('install_side', '安装位置', width=90,
+      value_map={'正面': '正面', '背面': '背面'}),
     F('name', '设备名称', min_width=140, required=True),
     F('brand', '品牌', width=100),
     F('model', '型号', width=110),

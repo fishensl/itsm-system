@@ -64,6 +64,22 @@ def normalize_rated_power(value):
     return int(number)
 
 
+def _rack_side(value):
+    side = str(value or '').strip()
+    return side if side in {'正面', '背面'} else ''
+
+
+def _rack_install_side(install):
+    if install.install_side:
+        return _rack_side(install.install_side)
+    return _rack_side(install.device_rel.location if install.device_rel else '')
+
+
+def _rack_sides_conflict(left, right):
+    left_side, right_side = _rack_side(left), _rack_side(right)
+    return not (left_side and right_side and left_side != right_side)
+
+
 def _sync_rack_placement(device, form):
     """按设备表单同步机柜位置；与设备字段共用当前事务。
 
@@ -121,6 +137,7 @@ def _sync_rack_placement(device, form):
 
     default_start = current.start_u if current and current.rack_id == rack.id else 1
     default_occupy = current.occupy_u if current else 1
+    install_side = _rack_side(data.get('rack_install_side') or device.location)
     try:
         start_u = int(data.get('rack_start_u') or default_start)
         occupy_u = int(data.get('rack_occupy_u') or default_occupy)
@@ -138,7 +155,8 @@ def _sync_rack_placement(device, form):
             continue
         other_start = other.start_u or 1
         other_end = other_start + (other.occupy_u or 1) - 1
-        if not (new_end < other_start or start_u > other_end):
+        if (not (new_end < other_start or start_u > other_end)
+                and _rack_sides_conflict(install_side, _rack_install_side(other))):
             raise ServiceError(f'U 位冲突：{other_start}U-{other_end}U 已被占用')
 
     if current:
@@ -146,10 +164,11 @@ def _sync_rack_placement(device, form):
         current.rack_rel = rack
         current.start_u = start_u
         current.occupy_u = occupy_u
+        current.install_side = install_side
     else:
         current = RackInstall(
             rack_id=rack.id, device_id=device.id,
-            start_u=start_u, occupy_u=occupy_u,
+            start_u=start_u, occupy_u=occupy_u, install_side=install_side,
         )
         db.session.add(current)
     for stale in installs[1:]:
@@ -318,16 +337,12 @@ def _delete_device_no_commit(d):
     # 上架记录：快照设备信息，机柜仍保留占位（避免渲染为"(未命名)"）
     for ri in RackInstall.query.filter_by(device_id=device_id).all():
         ri.device_id = None
-        if not ri.manual_name:
-            ri.manual_name = d.device_name
-        if not ri.manual_brand:
-            ri.manual_brand = d.brand or ''
-        if not ri.manual_model:
-            ri.manual_model = d.model or ''
-        if not ri.manual_ip:
-            ri.manual_ip = d.ip_address or ''
-        if not ri.rated_w and d.rated_power_w is not None:
-            ri.rated_w = d.rated_power_w
+        ri.manual_name = d.device_name
+        ri.manual_brand = d.brand or ''
+        ri.manual_model = d.model or ''
+        ri.manual_ip = d.ip_address or ''
+        ri.install_side = _rack_side(d.location)
+        ri.rated_w = d.rated_power_w
     # 巡检任务 device_ids_json 剔除该设备 id
     for t in InspectionTask.query.filter(InspectionTask.device_ids_json.isnot(None)).all():
         try:

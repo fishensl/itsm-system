@@ -37,9 +37,10 @@ def seed(app):
         r2 = Rack(customer_id=c2.id, name='B-02', total_u=42)
         db.session.add_all([r1, r2])
         db.session.flush()
-        i1 = RackInstall(rack_id=r1.id, device_id=d1.id, start_u=1, occupy_u=2, rated_w=300)
+        i1 = RackInstall(rack_id=r1.id, device_id=d1.id, start_u=1, occupy_u=2,
+                         install_side='正面', rated_w=300)
         i2 = RackInstall(rack_id=r1.id, manual_name='手动小机', manual_brand='IBM',
-                         start_u=10, occupy_u=1, rated_w=100)
+                         start_u=10, occupy_u=1, install_side='正面', rated_w=100)
         db.session.add_all([i1, i2])
         t1 = Topology(name='核心网络', customer_id=c1.id, file_type='image', upload_by='admin')
         t2 = Topology(name='核心网络', customer_id=c1.id, file_type='pdf', upload_by='admin')
@@ -235,6 +236,21 @@ class TestRackInstall:
             'rack_id': seed['r1'], 'manual_name': 'x', 'start_u': 1, 'occupy_u': 2})
         assert r.status_code == 400
         assert '冲突' in r.get_json()['message']
+
+    def test_opposite_side_can_share_u_and_capacity_is_not_double_counted(
+            self, op_client, seed, app):
+        response = op_client.post('/api/v2/rack/installs', json={
+            'rack_id': seed['r1'], 'manual_name': '背面配线设备',
+            'start_u': 1, 'occupy_u': 2, 'install_side': '背面',
+        })
+        assert response.status_code == 200, response.get_json()
+        with app.app_context():
+            install = RackInstall.query.get(response.get_json()['data']['id'])
+            assert install.install_side == '背面'
+        rack = op_client.get(f"/api/v2/rack/cabinets/{seed['r1']}").get_json()['data']
+        assert rack['used_u'] == 3
+        assert rack['install_count'] == 3
+        assert {item['install_side'] for item in rack['installs']} == {'正面', '背面'}
 
     def test_update_move(self, op_client, seed, app):
         r = op_client.put(f"/api/v2/rack/installs/{seed['i1']}", json={

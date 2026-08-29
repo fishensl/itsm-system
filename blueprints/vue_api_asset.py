@@ -27,8 +27,27 @@ _U_OCCUPY_LEVEL = ((1.0, '已满', 'danger'), (0.8, '高', 'warning'),
                    (0.5, '中', 'primary'), (0.0, '低', 'info'))
 
 
+def _rack_side(value):
+    side = str(value or '').strip()
+    return side if side in {'正面', '背面'} else ''
+
+
+def _install_side(install):
+    if install.install_side:
+        return _rack_side(install.install_side)
+    return _rack_side(install.device_rel.location if install.device_rel else '')
+
+
+def _sides_conflict(left, right):
+    left_side, right_side = _rack_side(left), _rack_side(right)
+    return not (left_side and right_side and left_side != right_side)
+
+
 def _rack_payload(r):
-    used = sum(i.occupy_u or 0 for i in r.installs)
+    # 正反面同一编号仍只算一个物理 U 位，避免容量超过机柜总 U 数。
+    used = len({u for i in r.installs
+                for u in range(i.start_u or 1,
+                               (i.start_u or 1) + (i.occupy_u or 1))})
     used_pct = round(used * 100 / r.total_u, 1) if r.total_u else 0
     power_values = [
         i.device_rel.rated_power_w if i.device_id and i.device_rel else i.rated_w
@@ -131,6 +150,7 @@ def api_rack_cabinet_detail(rack_id):
             'kind': kind,
             'start_u': i.start_u,
             'occupy_u': i.occupy_u,
+            'install_side': _install_side(i),
             'rated_w': i.rated_w,
             'rated_power_w': rated_power_w,
             'remark': i.remark or '',
@@ -243,14 +263,15 @@ def _check_u_range(rack, start_u, occupy_u):
         raise ValueError(f'U 位超出范围（机柜共 {rack.total_u}U）')
 
 
-def _check_u_conflict(installs, start_u, occupy_u, exclude_id=None):
+def _check_u_conflict(installs, start_u, occupy_u, install_side='', exclude_id=None):
     """U 位冲突校验（exclude_id 用于调整位置时排除自身）"""
     for other in installs:
         if exclude_id is not None and other.id == exclude_id:
             continue
         s, e = other.start_u, other.start_u + other.occupy_u - 1
         ns, ne = start_u, start_u + occupy_u - 1
-        if not (ne < s or ns > e):
+        if (not (ne < s or ns > e)
+                and _sides_conflict(install_side, _install_side(other))):
             raise ValueError(f'U 位冲突：{s}U-{e}U 已被占用')
 
 
@@ -278,6 +299,7 @@ def api_rack_install_create():
     if rated_w < 0:
         return fail('额定功率不能为负数', 400)
     device_id = data.get('device_id')
+    install_side = _rack_side(data.get('install_side'))
     manual_name = (data.get('manual_name') or '').strip()
     if not device_id and not manual_name:
         return fail('请选择设备或填写手动设备名称', 400)
@@ -287,10 +309,12 @@ def api_rack_install_create():
         require_device_access(current_user, device)
         if device.customer_id != r.customer_id:
             return fail('设备与机柜必须属于同一客户', 400)
+        if not install_side:
+            install_side = _rack_side(device.location)
         rated_w = 0  # 关联设备的功率只读 Device.rated_power_w
     try:
         _check_u_range(r, start_u, occupy_u)
-        _check_u_conflict(r.installs, start_u, occupy_u)
+        _check_u_conflict(r.installs, start_u, occupy_u, install_side)
     except ValueError as e:
         return fail(str(e), 400)
     inst = _RI(rack_id=r.id,
@@ -299,7 +323,8 @@ def api_rack_install_create():
                manual_brand=data.get('manual_brand') or '',
                manual_model=data.get('manual_model') or '',
                manual_ip=data.get('manual_ip') or '',
-               start_u=start_u, occupy_u=occupy_u, rated_w=rated_w,
+               start_u=start_u, occupy_u=occupy_u, install_side=install_side,
+               rated_w=rated_w,
                remark=data.get('remark') or '')
     db.session.add(inst)
     db.session.commit()
@@ -324,13 +349,17 @@ def api_rack_install_update(install_id):
     if new_occupy < 1:
         return fail('占用 U 数必须大于 0', 400)
     r = inst.rack_rel
+    install_side = (_rack_side(data.get('install_side'))
+                    if 'install_side' in data else _install_side(inst))
     try:
         _check_u_range(r, new_start, new_occupy)
-        _check_u_conflict(r.installs, new_start, new_occupy, exclude_id=inst.id)
+        _check_u_conflict(r.installs, new_start, new_occupy, install_side,
+                          exclude_id=inst.id)
     except ValueError as e:
         return fail(str(e), 400)
     inst.start_u = new_start
     inst.occupy_u = new_occupy
+    inst.install_side = install_side
     if 'rated_w' in data and not inst.device_id:
         try:
             rated_w = int(data['rated_w'] or 0)

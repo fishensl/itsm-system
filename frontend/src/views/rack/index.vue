@@ -91,6 +91,12 @@
             <div class="rack-visual">
               <div class="rack-frame">
                 <div class="rack-frame-header" :style="{ background: detail.color }">{{ detail.name }}</div>
+                <div class="rack-side-switch">
+                  <el-radio-group v-model="rackViewSide" size="small">
+                    <el-radio-button value="正面">正面</el-radio-button>
+                    <el-radio-button value="背面">背面</el-radio-button>
+                  </el-radio-group>
+                </div>
                 <div class="rack-u">
                   <div v-for="row in uRows" :key="row.u" class="u-row"
                     :class="{ empty: !row.install, installed: !!row.install }"
@@ -203,6 +209,12 @@
             <span v-if="editingInstall">{{ editingInstall.name }}（{{ editingInstall.kind }}）</span>
           </el-form-item>
         </template>
+        <el-form-item :label="installLabel('install_side', '安装位置', 'form')" prop="install_side">
+          <el-radio-group v-model="installForm.install_side">
+            <el-radio-button value="正面">正面</el-radio-button>
+            <el-radio-button value="背面">背面</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
         <el-row :gutter="12">
           <el-col :xs="12" :sm="8">
             <el-form-item :label="installLabel('start_u', '起始U位', 'form')" prop="start_u">
@@ -344,6 +356,7 @@ function onTreeClick(node: TreeNode) {
 
 // ==================== 内联详情 + U 位可视化 ====================
 const detail = ref<RackDetail | null>(null)
+const rackViewSide = ref<'正面' | '背面'>('正面')
 
 async function selectRack(id: number) {
   try {
@@ -361,7 +374,7 @@ const uRows = computed<URow[]>(() => {
   const d = detail.value
   if (!d) return []
   const map = new Map<number, RackInstall>()
-  for (const inst of d.installs) {
+  for (const inst of d.installs.filter((item) => (item.install_side || '正面') === rackViewSide.value)) {
     for (let u = inst.start_u; u < inst.start_u + inst.occupy_u; u++) map.set(u, inst)
   }
   const rows: URow[] = []
@@ -389,13 +402,14 @@ const installFormRef = ref()
 const installForm = reactive<Record<string, unknown>>({
   id: null, rack_id: null, device_id: null,
   manual_name: '', manual_brand: '', manual_model: '', manual_ip: '',
-  start_u: 1, occupy_u: 1, rated_w: 0, remark: '',
+  start_u: 1, occupy_u: 1, install_side: '正面', rated_w: 0, remark: '',
 })
 const installFormRules = {
   device_id: [{ required: true, message: '请选择设备', trigger: 'change' }],
   manual_name: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
   start_u: [{ required: true, message: '请输入起始U位', trigger: 'change' }],
   occupy_u: [{ required: true, message: '请输入占用U数', trigger: 'change' }],
+  install_side: [{ required: true, message: '请选择安装位置', trigger: 'change' }],
 }
 
 async function openInstall(startU = 1) {
@@ -403,7 +417,7 @@ async function openInstall(startU = 1) {
   Object.assign(installForm, {
     id: null, rack_id: detail.value.id, device_id: null,
     manual_name: '', manual_brand: '', manual_model: '', manual_ip: '',
-    start_u: startU, occupy_u: 1, rated_w: 0, remark: '',
+    start_u: startU, occupy_u: 1, install_side: rackViewSide.value, rated_w: 0, remark: '',
   })
   editingInstall.value = null
   installMode.value = 'device'
@@ -419,7 +433,7 @@ function openAdjust(inst: RackInstall) {
     id: inst.id, rack_id: inst.rack_id, device_id: inst.device_id,
     manual_name: inst.name, manual_brand: inst.brand, manual_model: inst.model,
     manual_ip: inst.ip, start_u: inst.start_u, occupy_u: inst.occupy_u,
-    rated_w: inst.rated_w, remark: inst.remark,
+    install_side: inst.install_side || '正面', rated_w: inst.rated_w, remark: inst.remark,
   })
   editingInstall.value = inst
   installVisible.value = true
@@ -433,6 +447,7 @@ async function saveInstall() {
       rack_id: installForm.rack_id,
       start_u: installForm.start_u,
       occupy_u: installForm.occupy_u,
+      install_side: installForm.install_side,
       remark: installForm.remark,
     }
     if (isManualPowerEditable.value) payload.rated_w = installForm.rated_w
@@ -606,6 +621,7 @@ onMounted(() => {
   border-radius: 8px; padding: 8px; }
 .rack-frame-header { color: var(--itsm-text-inverse); text-align: center; font-size: 13px; padding: 4px 0;
   border-radius: 4px 4px 0 0; }
+.rack-side-switch { display: flex; justify-content: center; padding-top: 8px; }
 .rack-u { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
 .u-row { height: 20px; font-size: 12px; padding: 0 4px; display: flex; align-items: center;
   border-left: 3px solid var(--itsm-border); cursor: default; border-radius: 2px; }
