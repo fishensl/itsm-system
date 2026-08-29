@@ -123,6 +123,13 @@ class TestDevicePresets:
             'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
             'license_expiry', 'is_in_use', 'remark']
 
+    def test_update_preset_contains_stable_device_id(self, op_client, seed):
+        r = op_client.post('/api/v2/devices/export', json={'preset': 'update'})
+        header, rows = _decode_xlsx(r)
+        assert header[-1] == '设备ID'
+        assert {row[-1] for row in rows} == {seed['d1'], seed['d2']}
+        assert '登录密码' not in header
+
     def test_custom_columns_no_password(self, op_client, seed):
         r = op_client.post('/api/v2/devices/export', json={
             'columns': ['name', 'sn', 'pwd_changed_by', 'pwd_changed_at', 'remark']})

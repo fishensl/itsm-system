@@ -597,13 +597,15 @@ class TestDeviceBatchDelete:
 
 
 class TestDeviceImportSync:
-    def _make_xlsx(self, rows):
+    def _make_xlsx(self, rows, headers=None):
         import io
         import openpyxl
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(['所属客户', '设备名称', '设备类型', 'IP地址', '是否在用',
-                   '安装位置', '电源配置', '额定功率'])
+        ws.append(headers or [
+            '所属客户', '设备名称', '设备类型', 'IP地址', '是否在用',
+            '安装位置', '电源配置', '额定功率',
+        ])
         for row in rows:
             ws.append(row)
         bio = io.BytesIO()
@@ -680,6 +682,70 @@ class TestDeviceImportSync:
         assert '指向同一设备' in data['errors'][0]
         with app.app_context():
             assert Device.query.filter_by(device_name='SW-DUP-ROW').count() == 0
+
+    def test_update_mode_does_not_reject_unmatched_same_name_rows(self, op_client, seed):
+        """仅更新时，不存在的同名行都应跳过，不能在匹配前误判为同一设备。"""
+        xlsx = self._make_xlsx([
+            ['设备API客户A', '尚未入库服务器', '服务器', '', '是'],
+            ['设备API客户A', '尚未入库服务器', '服务器', '', '是'],
+        ])
+        response = op_client.post('/api/v2/devices/import', data={
+            'import_file': (xlsx, 'update-unmatched.xlsx'),
+            'mode': 'update',
+            'dry_run': '1',
+        }, content_type='multipart/form-data')
+        data = response.get_json()['data']
+        assert response.status_code == 200
+        assert data['failed'] == 0
+        assert data['skipped'] == 2
+
+    def test_update_legacy_duplicate_names_by_rack_position(self, op_client, seed, app):
+        """旧模板无设备ID时，用机柜号+起始U位精确更新真实同名设备。"""
+        from models import Rack, RackInstall
+        with app.app_context():
+            rack = Rack(customer_id=seed['c1'], name='12', location='中心机房')
+            db.session.add(rack)
+            db.session.flush()
+            first = Device(customer_id=seed['c1'], device_name='防汛二期服务器',
+                           device_type='服务器', model='旧型号-1')
+            second = Device(customer_id=seed['c1'], device_name='防汛二期服务器',
+                            device_type='服务器', model='旧型号-2')
+            db.session.add_all([first, second])
+            db.session.flush()
+            first_id, second_id = first.id, second.id
+            db.session.add_all([
+                RackInstall(rack_id=rack.id, device_id=first.id, start_u=19, occupy_u=2),
+                RackInstall(rack_id=rack.id, device_id=second.id, start_u=16, occupy_u=2),
+            ])
+            db.session.commit()
+        headers = [
+            '所属客户', '设备名称', '设备类型', '型号', '机房位置', '机柜号',
+            '起始U位', '占用U数', '是否在用',
+        ]
+        raw = self._make_xlsx([
+            ['设备API客户A', '防汛二期服务器', '服务器', '新型号-19U',
+             '中心机房', '12', 19, 2, '是'],
+            ['设备API客户A', '防汛二期服务器', '服务器', '新型号-16U',
+             '中心机房', '12', 16, 2, '是'],
+        ], headers).getvalue()
+        preview = op_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(raw), 'legacy-update.xlsx'),
+            'mode': 'update',
+            'dry_run': '1',
+        }, content_type='multipart/form-data')
+        preview_data = preview.get_json()['data']
+        assert preview.status_code == 200
+        assert preview_data['failed'] == 0
+        assert preview_data['update'] == 2
+        execute = op_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(raw), 'legacy-update.xlsx'),
+            'mode': 'update',
+            'batch_id': preview_data['batch_id'],
+        }, content_type='multipart/form-data')
+        assert execute.status_code == 200
+        with app.app_context():
+            assert db.session.get(Device, first_id).model == '新型号-19U'
+            assert db.session.get(Device, second_id).model == '新型号-16U'
 
 
 class TestRevealPassword:

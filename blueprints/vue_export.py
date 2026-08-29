@@ -54,6 +54,8 @@ def device_export_rows(devices, codes, customer_map=None, rack_map=None, pwd_map
 
 
 def _device_cell(d, code, customer_map, rack_map, pwd_map):
+    if code == 'device_id':
+        return d.id
     if code == 'customer':
         return customer_map.get(d.customer_id, '')
     if code == 'rack_location':

@@ -128,6 +128,7 @@ IMPORT_TEMPLATE_HEADER_ALIASES = {
         '设备名称': 'device_name',
         '设备类型': 'device_type',
         'IP地址': 'ip_address',
+        '设备ID': 'device_id',
     },
 }
 

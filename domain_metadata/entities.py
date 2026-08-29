@@ -7,6 +7,8 @@ def F(key, label, **kwargs):
 
 
 DEVICE_FIELDS = (
+    F('id', '设备ID', export_key='device_id', data_type='number', default_visible=False,
+      group='audit'),
     F('device_name', '名称', export_key='name', min_width=160, required=True, sortable=True),
     F('device_type', '类型', export_key='type', width=90, filterable=True),
     F('customer_name', '客户', export_key='customer', min_width=100, filterable=True,
@@ -58,7 +60,7 @@ DEVICE_LIST = ('device_name', 'device_type', 'customer_name', 'rack_location', '
                'ip_address', 'network_type', 'port', 'login_method', 'username',
                'has_password', 'interface', 'os_version', 'rule_version', 'build_date',
                'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
-               'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at')
+               'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at', 'id')
 DEVICE_DETAIL = tuple(item.key for item in DEVICE_FIELDS if item.key != 'password')
 DEVICE_FORM = ('device_name', 'customer_name', 'device_type', 'rack_location', 'rack_name',
                'location', 'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model',
@@ -71,7 +73,7 @@ DEVICE_EXPORT_DEFAULT = (
     'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model', 'serial_number', 'ip_address',
     'network_type', 'port', 'login_method', 'username', 'password', 'interface', 'os_version',
     'rule_version', 'build_date', 'license_start', 'license_expiry', 'cert_expiry_date',
-    'is_maintenance', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at',
+    'is_maintenance', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark', 'created_at', 'id',
 )
 DEVICE_EXPORT_AVAILABLE = DEVICE_EXPORT_DEFAULT
 DEVICE_EXPORT_PRESETS = {
@@ -89,11 +91,18 @@ DEVICE_EXPORT_PRESETS = {
                 'serial_number', 'ip_address', 'build_date',
                 'os_version', 'rule_version', 'license_start', 'license_expiry', 'is_in_use',
                 'remark'),
+    'update': ('customer_name', 'device_name', 'device_type', 'rack_location', 'rack_name',
+               'location', 'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model',
+               'serial_number', 'ip_address', 'network_type', 'port', 'login_method',
+               'username', 'interface', 'os_version', 'rule_version', 'build_date',
+               'license_start', 'license_expiry', 'cert_expiry_date', 'is_maintenance',
+               'is_in_use', 'remark', 'id'),
 }
 DEVICE_EXPORT_PRESET_LABELS = {
     'asset': '设备资产表',
     'password': '设备密码表',
     'version': '网络安全版本控制表',
+    'update': '设备批量更新表',
 }
 
 

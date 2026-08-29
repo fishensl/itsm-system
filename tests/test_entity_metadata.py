@@ -78,6 +78,7 @@ def test_device_edit_covers_every_business_field_from_list_and_export():
     list_and_export = set(_keys(schema, 'list')) | set(_keys(schema, 'export_available'))
     readonly = {
         'has_password', 'license_remaining_days', 'pwd_changed_by', 'pwd_changed_at', 'created_at',
+        'id',
     }
     form_keys = set(_keys(schema, 'form'))
     assert list_and_export - readonly <= form_keys
@@ -92,7 +93,7 @@ def test_device_edit_covers_every_business_field_from_list_and_export():
     for key in form_keys:
         bound_key = form_binding.get(key, key)
         assert f'form.{bound_key}' in source, f'设备编辑框缺少字段绑定：{key}'
-    for key in readonly:
+    for key in readonly - {'id'}:
         assert f"fieldLabel('device', '{key}'" in source, f'设备编辑框缺少只读说明：{key}'
 
 
@@ -125,6 +126,7 @@ def test_existing_export_codes_are_derived_without_contract_breakage():
     assert TICKET_EXPORT_AVAILABLE_COLUMNS == get_entity_schema('ticket').export_columns('export_available')
     assert FAULT_EXPORT_AVAILABLE_COLUMNS == get_entity_schema('fault').export_columns('export_available')
     assert dict(DEVICE_EXPORT_COLUMNS)['name'] == '名称'
+    assert dict(DEVICE_EXPORT_COLUMNS)['device_id'] == '设备ID'
     assert dict(TICKET_EXPORT_COLUMNS)['number'] == '工单号'
     assert dict(FAULT_EXPORT_COLUMNS)['fault_time'] == '故障时间'
 

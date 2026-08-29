@@ -37,6 +37,7 @@ export const DEVICE_EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'pwd_changed_at', label: '上次修改时间' },
   { key: 'remark', label: '备注' },
   { key: 'created_at', label: '创建时间' },
+  { key: 'device_id', label: '设备ID' },
 ]
 
 /** 设备三预设（默认列集合，字段顺序按业务要求） */
@@ -63,6 +64,15 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
       'name', 'type', 'brand',
       'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
       'license_expiry', 'is_in_use', 'remark'],
+  },
+  {
+    key: 'update',
+    label: '设备批量更新表',
+    columns: ['customer', 'name', 'type', 'rack_location', 'rack_name', 'location',
+      'rack_slot', 'power_supply', 'rated_power_w', 'brand', 'model', 'sn', 'ip',
+      'network_type', 'port', 'login_method', 'username', 'interface', 'os_version',
+      'rule_version', 'build_date', 'license_start', 'license_expiry', 'cert_expiry_date',
+      'is_maintenance', 'is_in_use', 'remark', 'device_id'],
   },
 ]
 

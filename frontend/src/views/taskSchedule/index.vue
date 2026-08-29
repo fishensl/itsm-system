@@ -131,7 +131,20 @@
               任务期限 {{ taskDeadlineText(t) }}
             </div>
             <div v-if="expandedId === t.id" class="task-timing">
-              <span>合同时效：{{ fullRangeText(t.planned_start, t.planned_end) }}</span>
+              <div class="task-schedule-editor">
+                <span>合同时效：</span>
+                <div class="inline-schedule-dates">
+                  <el-date-picker v-model="inlineContractRange[0]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineContractChanged = true" />
+                  <span class="inline-schedule-separator">至</span>
+                  <el-date-picker v-model="inlineContractRange[1]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineContractChanged = true" />
+                </div>
+              </div>
               <div class="task-schedule-editor">
                 <span>任务期限：</span>
                 <div class="inline-schedule-dates">
@@ -224,7 +237,20 @@
               任务期限 {{ taskDeadlineText(t) }}
             </div>
             <div v-if="expandedId === t.id" class="task-timing">
-              <span>合同时效：{{ fullRangeText(t.planned_start, t.planned_end) }}</span>
+              <div class="task-schedule-editor">
+                <span>合同时效：</span>
+                <div class="inline-schedule-dates">
+                  <el-date-picker v-model="inlineContractRange[0]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineContractChanged = true" />
+                  <span class="inline-schedule-separator">至</span>
+                  <el-date-picker v-model="inlineContractRange[1]" type="date" value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
+                    @change="inlineContractChanged = true" />
+                </div>
+              </div>
               <div class="task-schedule-editor">
                 <span>任务期限：</span>
                 <div class="inline-schedule-dates">
@@ -527,6 +553,8 @@ const inlineForm = reactive<{
   status: string
   assignee_id: number | null
 }>({ status: '', assignee_id: null })
+const inlineContractRange = ref<string[]>([])
+const inlineContractChanged = ref(false)
 const inlineScheduleRange = ref<string[]>([])
 const inlineScheduleChanged = ref(false)
 const detail = ref<TaskScheduleItem | null>(null)
@@ -654,13 +682,6 @@ function taskDeadlineText(t: TaskScheduleItem) {
   return compactRangeText(t.scheduled_start || '', t.scheduled_end || '')
 }
 
-function fullRangeText(start: string, end: string) {
-  if (start && end) return `${start} 至 ${end}`
-  if (start) return `${start} 起`
-  if (end) return `${end} 止`
-  return '未设置'
-}
-
 function reload() {
   const params: Record<string, unknown> = { ...query }
   if (onlyOverdue.value) params.overdue = '1'
@@ -754,6 +775,10 @@ function openInline(t: TaskScheduleItem) {
   inlineForm.status = t.status
   inlineForm.assignee_id = t.assignee_id
   const today = todayString()
+  const contractStart = t.planned_start || t.planned_end || today
+  const contractEnd = t.planned_end || t.planned_start || today
+  inlineContractRange.value = [contractStart, contractEnd]
+  inlineContractChanged.value = !t.planned_start || !t.planned_end
   const start = t.scheduled_start || t.scheduled_end || today
   const end = t.scheduled_end || t.scheduled_start || today
   inlineScheduleRange.value = [start, end]
@@ -764,6 +789,8 @@ function openInline(t: TaskScheduleItem) {
 function cancelInline() {
   expandedId.value = null
   detail.value = null
+  inlineContractRange.value = []
+  inlineContractChanged.value = false
   inlineScheduleRange.value = []
   inlineScheduleChanged.value = false
   record.value = null
@@ -772,6 +799,11 @@ function cancelInline() {
 
 async function saveInline() {
   if (!detail.value) return
+  const contractRange = inlineContractRange.value || []
+  const plannedStart = inlineContractChanged.value
+    ? (contractRange[0] || '') : detail.value.planned_start
+  const plannedEnd = inlineContractChanged.value
+    ? (contractRange[1] || '') : detail.value.planned_end
   const scheduleRange = inlineScheduleRange.value || []
   const scheduledStart = inlineScheduleChanged.value
     ? (scheduleRange[0] || '') : detail.value.scheduled_start
@@ -779,6 +811,10 @@ async function saveInline() {
     ? (scheduleRange[1] || '') : detail.value.scheduled_end
   if (inlineForm.status === TASK_STATUS.SCHEDULED && !inlineForm.assignee_id) {
     ui.toast('变更为「已安排」前请选择负责人', 'warning')
+    return
+  }
+  if (plannedStart && plannedEnd && plannedStart > plannedEnd) {
+    ui.toast('合同时效开始日期不能晚于结束日期', 'warning')
     return
   }
   if (inlineForm.status === TASK_STATUS.SCHEDULED &&
@@ -793,6 +829,12 @@ async function saveInline() {
   const patch: Record<string, unknown> = {}
   if (inlineForm.status !== detail.value.status) patch.status = inlineForm.status
   if (inlineForm.assignee_id !== detail.value.assignee_id) patch.assignee_id = inlineForm.assignee_id
+  if (inlineContractChanged.value && plannedStart !== detail.value.planned_start) {
+    patch.planned_start = plannedStart
+  }
+  if (inlineContractChanged.value && plannedEnd !== detail.value.planned_end) {
+    patch.planned_end = plannedEnd
+  }
   if (inlineScheduleChanged.value && scheduledStart !== detail.value.scheduled_start) {
     patch.scheduled_start = scheduledStart
   }

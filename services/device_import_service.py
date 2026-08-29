@@ -33,7 +33,67 @@ def _present(row, field, clear_empty=False):
     return field in row.get('_present', set()) and (clear_empty or row.get(field) not in ('', None))
 
 
-def _resolve_match(row, customer, accessible_device_ids):
+def _identity_value(value):
+    """Normalize identity fields without changing their stored/display value."""
+    return str(value or '').strip().casefold()
+
+
+def _rack_identity_matches(row, candidates):
+    """Return candidate ids matching the supplied rack number and start U."""
+    rack_name = _identity_value(row.get('rack_name'))
+    raw_start = str(row.get('rack_start_u') or '').strip()
+    if not rack_name or not raw_start:
+        return set()
+    try:
+        start_number = float(raw_start)
+    except (TypeError, ValueError):
+        return set()
+    if not start_number.is_integer():
+        return set()
+    start_u = int(start_number)
+    room = _identity_value(row.get('rack_location'))
+    candidate_ids = {item.id for item in candidates}
+    installs = (RackInstall.query.join(Rack, Rack.id == RackInstall.rack_id)
+                .filter(RackInstall.device_id.in_(candidate_ids))
+                .order_by(RackInstall.id.desc()).all())
+    latest = {}
+    for install in installs:
+        latest.setdefault(install.device_id, install)
+    matched = set()
+    for device_id, install in latest.items():
+        rack = install.rack_rel
+        if not rack or _identity_value(rack.name) != rack_name or install.start_u != start_u:
+            continue
+        if room and _identity_value(rack.location) != room:
+            continue
+        matched.add(device_id)
+    return matched
+
+
+def _resolve_duplicate_name(row, candidates):
+    """Resolve a legacy duplicate name only when supplied identity is unique."""
+    unique_matches = []
+    for field in ('serial_number', 'ip_address'):
+        expected = _identity_value(row.get(field))
+        if not expected:
+            continue
+        matched = {item.id for item in candidates
+                   if _identity_value(getattr(item, field)) == expected}
+        if len(matched) == 1:
+            unique_matches.append((field, next(iter(matched))))
+    rack_matches = _rack_identity_matches(row, candidates)
+    if len(rack_matches) == 1:
+        unique_matches.append(('rack', next(iter(rack_matches))))
+    if not unique_matches:
+        return None
+    resolved_ids = {device_id for _field, device_id in unique_matches}
+    if len(resolved_ids) != 1:
+        raise ServiceError('序列号、IP 与机柜位置指向不同设备，请核对后再导入')
+    resolved_id = next(iter(resolved_ids))
+    return next(item for item in candidates if item.id == resolved_id)
+
+
+def _resolve_match(row, customer, accessible_device_ids, mode='create'):
     raw_id = str(row.get('device_id') or '').strip()
     if raw_id:
         try:
@@ -53,7 +113,15 @@ def _resolve_match(row, customer, accessible_device_ids):
     ).all()
     visible = [item for item in matches if item.id in accessible_device_ids]
     if len(visible) > 1:
-        raise ServiceError('同一客户存在多条同名设备，请先清理重复数据或填写设备ID')
+        resolved = _resolve_duplicate_name(row, visible)
+        if resolved:
+            return resolved
+        if mode == 'create':
+            # 仅新增不会改动已有记录；任取一条只用于表达“已存在并跳过”。
+            return visible[0]
+        raise ServiceError(
+            f'同一客户有 {len(visible)} 台同名设备，无法确定更新目标；'
+            '请填写设备ID，或保留可唯一定位的序列号、IP、机柜号和起始U位')
     return visible[0] if visible else None
 
 
@@ -232,17 +300,6 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
             error_details.append((row_no, name, message))
             counts['failed'] += 1
             continue
-        raw_device_id = str(row.get('device_id') or '').strip()
-        target_key = ('id', raw_device_id) if raw_device_id else (
-            'name', customer.id if customer else None, name)
-        if target_key in seen_targets:
-            message = (f'第{row_no}行（{name}）：与第{seen_targets[target_key]}行指向同一设备，'
-                       '请合并为一行')
-            errors.append(message)
-            error_details.append((row_no, name, message))
-            counts['failed'] += 1
-            continue
-        seen_targets[target_key] = row_no
         network = str(row.get('network_type') or '').strip()
         if network and network not in valid_networks:
             mapped = network_mappings.get(network)
@@ -252,28 +309,36 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
                 unknown.setdefault(network, []).append(row_no)
                 continue
         try:
-            existing = _resolve_match(row, customer, accessible_device_ids)
+            _normalize_rack_slot(row)
+            existing = _resolve_match(row, customer, accessible_device_ids, mode)
             if not customer and existing is None and str(row.get('device_id') or '').strip():
                 raise ServiceError('未找到可更新的设备')
             if not customer and existing is None and mode != 'create':
                 raise ServiceError('未归属客户的设备更新必须填写设备ID')
-            _normalize_rack_slot(row)
+            if existing and mode == 'create':
+                counts['skipped'] += 1
+                plan.append({'action': 'skip', 'row': row, 'device': existing})
+                continue
+            if existing:
+                target_key = ('id', existing.id)
+            elif mode == 'update':
+                counts['skipped'] += 1
+                plan.append({'action': 'skip', 'row': row, 'device': None})
+                continue
+            else:
+                target_key = ('name', customer.id if customer else None, name)
+            if target_key in seen_targets:
+                raise ServiceError(
+                    f'与第{seen_targets[target_key]}行指向同一设备，请合并为一行')
+            seen_targets[target_key] = row_no
             values, password = _normalized_values(row, existing, clear_empty)
             if existing:
-                if mode == 'create':
-                    counts['skipped'] += 1
-                    plan.append({'action': 'skip', 'row': row, 'device': existing})
-                    continue
                 location_changed = _validate_rack_placement(
                     row, customer, existing, clear_empty, planned_slots)
                 changed = (any(getattr(existing, key) != value for key, value in values.items()) or
                            bool(password) or location_changed)
                 action = 'update' if changed else 'unchanged'
             else:
-                if mode == 'update':
-                    counts['skipped'] += 1
-                    plan.append({'action': 'skip', 'row': row, 'device': None})
-                    continue
                 _validate_rack_placement(
                     row, customer, existing, clear_empty, planned_slots)
                 action = 'create'

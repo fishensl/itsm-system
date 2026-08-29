@@ -92,12 +92,16 @@ def test_task_schedule_separates_contract_deadline_and_execution_timing():
     assert 'v-model="inlineScheduleRange" type="daterange"' not in source
     assert source.count('v-model="inlineScheduleRange[0]" type="date"') == 2
     assert source.count('v-model="inlineScheduleRange[1]" type="date"') == 2
-    assert source.count('合同时效：{{ fullRangeText(t.planned_start, t.planned_end) }}') == 2
+    assert source.count('v-model="inlineContractRange[0]" type="date"') == 2
+    assert source.count('v-model="inlineContractRange[1]" type="date"') == 2
+    assert source.count('@change="inlineContractChanged = true"') == 4
+    assert 'patch.planned_start = plannedStart' in source
+    assert 'patch.planned_end = plannedEnd' in source
     assert source.count('任务期限 {{ taskDeadlineText(t) }}') == 2
     assert source.count('class="task-period-label">实施时效') == 2
     assert source.count('开始：{{ t.actual_start }}') == 2
     assert 'grid-template-columns: minmax(0, 1fr)' in source
-    assert source.count('class="inline-schedule-date" style="width: 95px"') == 4
+    assert source.count('class="inline-schedule-date" style="width: 95px"') == 8
     assert 'flex: 0 0 95px' in source
     assert 'width: 95px !important' in source
     # 最窄 310px 看板列中，任务期限标签独占一行，日期区仍有 250px。
@@ -108,10 +112,10 @@ def test_task_schedule_separates_contract_deadline_and_execution_timing():
     assert inline_schedule_style is not None
     assert 'overflow' not in inline_schedule_style.group(1)
     assert source.count(':shortcuts="rangeDateShortcuts"') == 1
-    assert source.count(':shortcuts="dateShortcuts"') == 8
+    assert source.count(':shortcuts="dateShortcuts"') == 12
     assert "planned_start: today, planned_end: today" in source
     assert "scheduled_start: today, scheduled_end: today" in source
-    assert source.count('popper-class="task-date-today-popper"') == 9
+    assert source.count('popper-class="task-date-today-popper"') == 13
     assert ':global(.task-date-today-popper .el-picker-panel__sidebar)' in source
     assert 'inset: 8px 72px auto auto' in source
     assert source.count('grid-template-columns: minmax(0, 1fr)') >= 2

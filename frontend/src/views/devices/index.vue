@@ -43,7 +43,7 @@
     <!-- 导入弹窗 -->
     <el-dialog v-model="importVisible" title="批量导入设备" width="520px" destroy-on-close>
       <el-alert type="info" :closable="false" class="mb-2" show-icon
-        title="请先下载导入模板（Excel），按列填写后上传；客户名须已存在，导入后自动刷新客户设备数" />
+        title="新增可用空白模板；更新建议从“导出”选择设备批量更新表（含设备ID）。旧模板会用序列号、IP或机柜号+起始U位精确匹配同名设备。" />
       <div class="mb-2">
         <el-button size="small" link type="primary" @click="downloadTemplate">下载导入模板</el-button>
       </div>
