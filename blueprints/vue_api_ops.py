@@ -1282,6 +1282,15 @@ def api_device_check_template_delete(tid):
     return ok(None)
 
 # ==================== 任务安排（Vue 看板） ====================
+@vue_api_bp.route('/api/task-schedule/work-calendar', methods=['GET'])
+@login_required
+@require_permission('task:schedule')
+def api_task_schedule_work_calendar():
+    """任务日期选择与实施耗时共用的法定工作日历。"""
+    from utils.work_calendar import work_calendar_payload
+    return ok(work_calendar_payload())
+
+
 @vue_api_bp.route('/api/task-schedule', methods=['GET'])
 @login_required
 @require_permission('task:schedule')
@@ -1297,12 +1306,34 @@ def api_task_schedule_board():
     tasks = query.all()
     today = __import__('datetime').date.today()
 
-    # 看板排序：逾期最前 → 执行中 → 待执行 → 已完成 → 已取消；同级按截止时间升序，最后 id 降序
-    from datetime import date as _date
+    # 看板先按逾期/状态归组；同一状态使用该阶段真正关心的“开始时间”：
+    # 待执行/合同审批看合同时效，已安排看任务期限，实施阶段看实际启动时间。
+    def as_sort_datetime(value):
+        if isinstance(value, datetime):
+            return value
+        if value:
+            return datetime.combine(value, datetime.min.time())
+        return None
+
+    def stage_start(t):
+        if t.status == _const.TASK_SCHEDULED:
+            candidates = (t.scheduled_start, t.planned_start, t.actual_start)
+        elif t.status in (
+                _const.TASK_RUNNING, _const.TASK_REVIEWING, _const.TASK_DONE):
+            candidates = (t.actual_start, t.scheduled_start, t.planned_start)
+        else:
+            candidates = (t.planned_start, t.scheduled_start, t.actual_start)
+        primary = as_sort_datetime(candidates[0])
+        if primary:
+            return 0, primary
+        fallback = next((value for value in map(as_sort_datetime, candidates[1:])
+                         if value), datetime.max)
+        return 1, fallback
+
     tasks = sorted(tasks, key=lambda t: (
         0 if is_overdue(t, today) else 1,
         _const.TASK_SORT_PRIORITY.get(t.status, 9),
-        t.planned_end or _date.max,
+        *stage_start(t),
         -t.id,
     ))
 

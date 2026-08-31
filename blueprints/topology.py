@@ -59,9 +59,9 @@ def topology_list():
 # ============================ 在线编辑（drawio 集成） ============================
 @topology_bp.route('/api/topologies/templates')
 @login_required
-@require_permission('topology:add')
+@require_permission('topology:view')
 def api_template_list():
-    """在线拓扑模板列表（static/templates/*.drawio，编辑器下拉加载）"""
+    """在线拓扑模板列表（只读资源，具有拓扑查看权限即可加载）。"""
     tpl_dir = os.path.join(current_app.root_path, 'static', 'templates')
     items = []
     if os.path.isdir(tpl_dir):

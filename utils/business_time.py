@@ -9,6 +9,12 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from utils.work_calendar import (
+    BUSINESS_CALENDAR_VERSION,
+    HOLIDAYS,
+    MAKEUP_WORKDAYS,
+)
+
 
 UTC = timezone.utc
 BEIJING = ZoneInfo('Asia/Shanghai')
@@ -23,11 +29,21 @@ class BusinessCalendar:
         (time(8, 30), time(12, 0)),
         (time(13, 30), time(17, 30)),
     )
-    version: int = 1
+    holidays: frozenset = HOLIDAYS
+    makeup_workdays: frozenset = MAKEUP_WORKDAYS
+    version: int = BUSINESS_CALENDAR_VERSION
 
     @property
     def timezone(self):
         return ZoneInfo(self.timezone_name)
+
+    def is_workday(self, value):
+        """按法定节假日、调休覆盖和基础周历判定是否计入工时。"""
+        if value in self.makeup_workdays:
+            return True
+        if value in self.holidays:
+            return False
+        return value.weekday() in self.weekdays
 
 
 DEFAULT_CALENDAR = BusinessCalendar()
@@ -81,7 +97,7 @@ def _business_seconds_without_exclusions(start_utc, end_utc, calendar):
     current_day = start_local.date()
     end_day = end_local.date()
     while current_day <= end_day:
-        if current_day.weekday() in calendar.weekdays:
+        if calendar.is_workday(current_day):
             for period_start, period_end in calendar.periods:
                 window_start = datetime.combine(
                     current_day, period_start, tzinfo=calendar.timezone)
@@ -99,7 +115,8 @@ def business_seconds(start_utc, end_utc, calendar=None, exclusions=()):
     """计算 UTC 边界之间的北京工作时间秒数，并扣除排除区间。
 
     ``exclusions`` 使用相同 UTC 语义，重叠区间会先合并，避免重复扣除。
-    当前日历不处理法定节假日；历史快照通过 ``calendar.version`` 固定口径。
+    当前日历使用已发布的中国法定节假日及调休安排；未覆盖年份按基础周历
+    处理。历史快照通过 ``calendar.version`` 固定口径。
     """
     calendar = calendar or DEFAULT_CALENDAR
     start, end = _as_utc(start_utc), _as_utc(end_utc)

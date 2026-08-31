@@ -22,7 +22,8 @@
           <div class="date-with-today w-full">
             <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
               start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
-              :shortcuts="rangeDateShortcuts" popper-class="task-date-today-popper"
+              :shortcuts="rangeDateShortcuts" :cell-class-name="taskCalendarCellClass"
+              popper-class="task-date-today-popper"
               clearable class="w-full" />
           </div>
         </el-form-item>
@@ -66,6 +67,13 @@
         </el-select>
         <el-checkbox v-model="onlyOverdue" size="small" @change="toggleOverdue">仅逾期</el-checkbox>
         <el-button type="primary" plain size="small" :icon="Search" @click="reload">查询</el-button>
+      </div>
+      <div class="task-calendar-legend" :title="workCalendar.source || '法定节假日日历尚未加载'">
+        <span><i class="legend-dot legend-workday" />工作日</span>
+        <span><i class="legend-dot legend-weekend" />周末</span>
+        <span><i class="legend-dot legend-holiday" />法定节假日</span>
+        <span><i class="legend-dot legend-makeup" />调休上班</span>
+        <em>{{ workCalendar.covered_years.length ? `${workCalendar.covered_years.join('、')} 年法定安排` : '法定日历加载中' }}</em>
       </div>
     </el-card>
 
@@ -136,11 +144,13 @@
                 <div class="inline-schedule-dates">
                   <el-date-picker v-model="inlineContractRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineContractChanged = true" />
                   <span class="inline-schedule-separator">至</span>
                   <el-date-picker v-model="inlineContractRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineContractChanged = true" />
                 </div>
@@ -150,15 +160,20 @@
                 <div class="inline-schedule-dates">
                   <el-date-picker v-model="inlineScheduleRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineScheduleChanged = true" />
                   <span class="inline-schedule-separator">至</span>
                   <el-date-picker v-model="inlineScheduleRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineScheduleChanged = true" />
                 </div>
               </div>
+              <span v-if="inlineScheduleSummary" class="task-calendar-summary">
+                日历：{{ inlineScheduleSummary }}
+              </span>
               <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
@@ -242,11 +257,13 @@
                 <div class="inline-schedule-dates">
                   <el-date-picker v-model="inlineContractRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineContractChanged = true" />
                   <span class="inline-schedule-separator">至</span>
                   <el-date-picker v-model="inlineContractRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineContractChanged = true" />
                 </div>
@@ -256,15 +273,20 @@
                 <div class="inline-schedule-dates">
                   <el-date-picker v-model="inlineScheduleRange[0]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="开始日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineScheduleChanged = true" />
                   <span class="inline-schedule-separator">至</span>
                   <el-date-picker v-model="inlineScheduleRange[1]" type="date" value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD" placeholder="结束日期" :shortcuts="dateShortcuts" size="small"
+                    :cell-class-name="taskCalendarCellClass"
                     popper-class="task-date-today-popper" class="inline-schedule-date" style="width: 95px"
                     @change="inlineScheduleChanged = true" />
                 </div>
               </div>
+              <span v-if="inlineScheduleSummary" class="task-calendar-summary">
+                日历：{{ inlineScheduleSummary }}
+              </span>
               <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
@@ -321,7 +343,8 @@
             <el-form-item label="合同时效开始">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.planned_start" type="date" value-format="YYYY-MM-DD"
-                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
+                  :shortcuts="dateShortcuts" :cell-class-name="taskCalendarCellClass"
+                  popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
           </el-col>
@@ -329,7 +352,8 @@
             <el-form-item label="合同时效结束">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.planned_end" type="date" value-format="YYYY-MM-DD"
-                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
+                  :shortcuts="dateShortcuts" :cell-class-name="taskCalendarCellClass"
+                  popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
           </el-col>
@@ -339,7 +363,8 @@
             <el-form-item label="任务期限开始">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.scheduled_start" type="date" value-format="YYYY-MM-DD"
-                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
+                  :shortcuts="dateShortcuts" :cell-class-name="taskCalendarCellClass"
+                  popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
           </el-col>
@@ -347,11 +372,15 @@
             <el-form-item label="任务期限结束">
               <div class="date-with-today w-full">
                 <el-date-picker v-model="createForm.scheduled_end" type="date" value-format="YYYY-MM-DD"
-                  :shortcuts="dateShortcuts" popper-class="task-date-today-popper" style="width: 100%" />
+                  :shortcuts="dateShortcuts" :cell-class-name="taskCalendarCellClass"
+                  popper-class="task-date-today-popper" style="width: 100%" />
               </div>
             </el-form-item>
           </el-col>
         </el-row>
+        <div v-if="createScheduleSummary" class="create-calendar-summary">
+          任务期限日历：{{ createScheduleSummary }}
+        </div>
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="优先级">
@@ -516,7 +545,7 @@ import { Plus, Search, Download, Upload, UploadFilled, Delete } from '@element-p
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
   batchTaskSchedule, fetchImportTemplate, importTaskSchedule, downloadBase64,
-  fetchRequiredAssets, reviewTaskContract, exportTaskSchedule,
+  fetchRequiredAssets, reviewTaskContract, exportTaskSchedule, fetchTaskWorkCalendar,
   type TaskScheduleData, type TaskScheduleItem,
 } from '@/api/taskSchedule'
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
@@ -526,6 +555,12 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { TASK_STATUS, REVIEW_STATUS } from '@/utils/status'
 import { handleExportResult } from '@/utils/export'
+import {
+  EMPTY_WORK_CALENDAR,
+  workCalendarCellClass,
+  workCalendarRangeSummary,
+  type WorkCalendarData,
+} from '@/utils/workCalendar'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -563,12 +598,39 @@ const importInput = ref<HTMLInputElement>()
 const exportVisible = ref(false)
 const exporting = ref(false)
 const exportDateRange = ref<string[]>([])
+const workCalendar = ref<WorkCalendarData>({
+  ...EMPTY_WORK_CALENDAR,
+  covered_years: [],
+  holidays: [],
+  makeup_workdays: [],
+})
 
 const dateShortcuts = [{ text: '今天', value: () => new Date() }]
 const rangeDateShortcuts = [{ text: '今天', value: () => {
   const today = new Date()
   return [today, today]
 } }]
+
+const inlineScheduleSummary = computed(() => workCalendarRangeSummary(
+  inlineScheduleRange.value?.[0] || '',
+  inlineScheduleRange.value?.[1] || '',
+  workCalendar.value,
+))
+const createScheduleSummary = computed(() => workCalendarRangeSummary(
+  String(createForm.scheduled_start || ''),
+  String(createForm.scheduled_end || ''),
+  workCalendar.value,
+))
+
+function taskCalendarCellClass(value: Date) {
+  return workCalendarCellClass(value, workCalendar.value)
+}
+
+function loadWorkCalendar() {
+  fetchTaskWorkCalendar()
+    .then((calendar) => { workCalendar.value = calendar })
+    .catch(() => { /* 周历兜底，页面继续可用 */ })
+}
 
 // V21/V22: 关联巡检记录 + 上传全套资料
 const record = ref<Inspection | null>(null)
@@ -1102,7 +1164,10 @@ async function onImportFile() {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  reload()
+  loadWorkCalendar()
+})
 </script>
 
 <style scoped>
@@ -1228,6 +1293,30 @@ onMounted(reload)
 .date-with-today {
   min-width: 0; width: 100%; max-width: 100%;
 }
+.task-calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: var(--itsm-text-muted);
+  font-size: 12px;
+}
+.task-calendar-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.task-calendar-legend > em { margin-left: auto; font-style: normal; opacity: .78; }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.legend-workday { background: var(--el-text-color-regular); }
+.legend-weekend { background: var(--el-color-warning); }
+.legend-holiday { background: var(--el-color-danger); }
+.legend-makeup { background: var(--el-color-primary); }
+.task-calendar-summary,
+.create-calendar-summary {
+  color: var(--el-color-warning);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.create-calendar-summary { margin: -8px 0 12px 90px; }
 .inline-schedule-dates {
   display: flex;
   align-items: center;
@@ -1288,6 +1377,31 @@ onMounted(reload)
 }
 :global(.task-date-today-popper .el-picker-panel__body) {
   margin-left: 0 !important;
+}
+:global(.task-date-today-popper .el-picker-panel__body-wrapper::after) {
+  display: block;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  content: '工作日（默认） · 周末（橙） · 法定节假日（红） · 调休上班（蓝）';
+}
+:global(.task-date-today-popper td.task-calendar-weekend .el-date-table-cell__text) {
+  color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+}
+:global(.task-date-today-popper td.task-calendar-holiday .el-date-table-cell__text) {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  font-weight: 700;
+}
+:global(.task-date-today-popper td.task-calendar-makeup-workday .el-date-table-cell__text) {
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  box-shadow: inset 0 0 0 1px var(--el-color-primary-light-5);
+  font-weight: 700;
 }
 /* 第二行编辑态：负责人/状态下拉 + 时间右置 */
 .ie-select { width: calc(50% - 4px); min-width: 0; }

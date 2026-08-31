@@ -222,6 +222,15 @@
           <el-button size="small" text type="primary" :icon="Back" @click="backToTree">返回</el-button>
         </template>
       </div>
+      <div v-if="mode === 'table'" class="device-view-switch">
+        <span class="device-view-label">表格视图</span>
+        <el-button-group>
+          <el-button v-for="preset in deviceViewPresets" :key="preset.key" size="small" type="primary"
+            :plain="activeDeviceView !== preset.key" @click="applyDeviceView(preset.key)">
+            {{ preset.label }}
+          </el-button>
+        </el-button-group>
+      </div>
     </el-card>
 
     <!-- 树模式：按地区折叠（市 → 客户），点击客户进入表格模式 -->
@@ -268,7 +277,18 @@
         :column-settings="{ storageKey: 'device-table-columns-v3', presets: deviceColumnPresets }"
         @row-click="openDetail"
         @selection-change="onSelectionChange"
-      />
+      >
+        <template #cell-password="{ row }">
+          <div class="password-cell" @click.stop>
+            <code>{{ inlinePassword.displayValue(Number(row.id), Boolean(row.has_password)) }}</code>
+            <el-button v-if="row.has_password && user.hasPerm('device:reveal')" size="small" link
+              type="primary" :loading="inlinePassword.loadingId.value === Number(row.id)"
+              @click.stop="toggleInlinePassword(row)">
+              {{ inlinePassword.deviceId.value === Number(row.id) ? '隐藏' : '显示' }}
+            </el-button>
+          </div>
+        </template>
+      </DataTable>
     </template>
 
     <!-- 详情弹窗 -->
@@ -714,6 +734,7 @@ import { downloadImportTemplate } from '@/utils/importTemplate'
 import {
   deviceImportNoActionMessage, hasExecutableDeviceImport, type DeviceImportMode,
 } from '@/utils/deviceImport'
+import { createInlinePasswordReveal, DEVICE_VIEW_KEYS } from './inlinePasswordReveal'
 
 const route = useRoute()
 const user = useUserStore()
@@ -762,6 +783,9 @@ const mode = ref<'tree' | 'table'>('tree')
 const tableCustomer = ref<{ id: number | null; name: string } | null>(null)
 const tableTotal = ref(0)
 const tableRef = ref()
+type DeviceViewKey = typeof DEVICE_VIEW_KEYS[number]
+const activeDeviceView = ref<DeviceViewKey | ''>('asset')
+const inlinePassword = createInlinePasswordReveal(revealPassword)
 
 function enterTable(node: Record<string, unknown>) {
   const id = node.id as number | null ?? null
@@ -770,10 +794,14 @@ function enterTable(node: Record<string, unknown>) {
   mode.value = 'table'
   tableTotal.value = Number(node.device_count) || 0
   // DataTable 首次挂载后刷新
-  setTimeout(() => tableRef.value?.refresh(), 0)
+  setTimeout(() => {
+    applyDeviceView(activeDeviceView.value || 'asset')
+    tableRef.value?.refresh()
+  }, 0)
 }
 
 function backToTree() {
+  inlinePassword.clear()
   mode.value = 'tree'
   query.customer_id = undefined
   tableCustomer.value = null
@@ -781,6 +809,7 @@ function backToTree() {
 }
 
 function openColSettings() {
+  activeDeviceView.value = ''
   tableRef.value?.openColumnSettings?.()
 }
 
@@ -987,6 +1016,8 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'port', label: '端口', width: 70, cellClass: () => 'cell-muted' },
     { key: 'login_method', label: '登录方式', width: 90 },
     { key: 'username', label: '登录用户名', minWidth: 100, cellClass: () => 'cell-muted' },
+    { key: 'password', label: fieldLabel('device', 'password', '登录密码', 'form'),
+      minWidth: 130, defaultVisible: false, ellipsis: false },
     { key: 'has_password', label: '已设置密码', width: 100, defaultVisible: false,
       valueMap: { 'true': '是', 'false': '否' } },
     { key: 'interface', label: '接口', minWidth: 140, defaultVisible: false,
@@ -1032,17 +1063,36 @@ const deviceColumnPresets = computed<DataColumnPreset[]>(() => {
   )
   const aliases: Record<string, string> = {
     customer: 'customer_name', name: 'device_name', type: 'device_type',
-    sn: 'serial_number', ip: 'ip_address', password: 'has_password',
+    sn: 'serial_number', ip: 'ip_address',
   }
   const available = new Set(columns.value.map((column) => column.key))
   return presets.map((preset) => ({
     key: preset.key,
     label: preset.label,
     columns: preset.columns
-      .map((code) => code === 'password' ? 'has_password' : (exportToField.get(code) || aliases[code] || code))
+      .map((code) => exportToField.get(code) || aliases[code] || code)
       .filter((key) => available.has(key)),
   }))
 })
+
+const deviceViewPresets = computed(() => deviceColumnPresets.value
+  .filter((preset) => DEVICE_VIEW_KEYS.includes(preset.key as DeviceViewKey)))
+
+function applyDeviceView(key: string) {
+  const preset = deviceViewPresets.value.find((item) => item.key === key)
+  if (!preset) return
+  inlinePassword.clear()
+  activeDeviceView.value = key as DeviceViewKey
+  tableRef.value?.applyColumnPreset?.(preset)
+}
+
+async function toggleInlinePassword(row: Record<string, unknown>) {
+  try {
+    await inlinePassword.toggle(Number(row.id))
+  } catch (e) {
+    ui.toast((e as Error).message || '密码查看失败', 'error')
+  }
+}
 
 onMounted(() => {
   fetchEntityMetas([
@@ -1320,6 +1370,7 @@ function clearSensitiveWhenHidden() {
   if (document.hidden) {
     sensitiveVisible.value = false
     clearSensitiveValue()
+    inlinePassword.clear()
   }
 }
 
@@ -1327,6 +1378,7 @@ onMounted(() => document.addEventListener('visibilitychange', clearSensitiveWhen
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', clearSensitiveWhenHidden)
   clearSensitiveValue()
+  inlinePassword.clear()
 })
 /** 今日 YYYY-MM-DD（证书到期比较） */
 const todayStr = new Date().toISOString().slice(0, 10)
@@ -1699,6 +1751,7 @@ async function onDelete(d: Device) {
 
 function reload() {
   if (mode.value === 'table') {
+    inlinePassword.clear()
     tableRef.value?.refresh()
   } else {
     loadTree()
@@ -1728,7 +1781,10 @@ fetchDeviceDicts().then((d) => {
     tableCustomer.value = { id: cid, name: c?.name || `客户 #${cid}` }
     query.customer_id = cid
     mode.value = 'table'
-    setTimeout(() => tableRef.value?.refresh(), 0)
+    setTimeout(() => {
+      applyDeviceView(activeDeviceView.value || 'asset')
+      tableRef.value?.refresh()
+    }, 0)
   } else {
     loadTree()
   }
@@ -1782,6 +1838,26 @@ fetchDeviceDicts().then((d) => {
 .filter-item {
   width: 140px;
   max-width: 100%;
+}
+.device-view-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.device-view-label {
+  color: var(--itsm-text-muted);
+  font-size: 12px;
+}
+.password-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.password-cell code {
+  min-width: 48px;
 }
 .header-actions {
   display: flex;

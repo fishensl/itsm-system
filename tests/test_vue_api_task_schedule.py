@@ -5,6 +5,18 @@ from datetime import date, datetime, timedelta
 from models import db, Customer, InspectionTask, Inspector, User
 
 
+def test_task_work_calendar_uses_published_holiday_source(admin_client):
+    response = admin_client.get('/api/task-schedule/work-calendar')
+    assert response.status_code == 200
+    data = response.get_json()['data']
+    assert data['version'] == 'cn-gov-2026-v1'
+    assert data['covered_years'] == [2026]
+    holidays = {item['date']: item['name'] for item in data['holidays']}
+    workdays = {item['date']: item['name'] for item in data['makeup_workdays']}
+    assert holidays['2026-06-19'] == '端午节'
+    assert workdays['2026-02-14'] == '春节调休上班'
+
+
 def test_task_timing_payload_uses_workday_execution_to_approval_window():
     from services.task_schedule_service import task_timing_payload
 
@@ -300,7 +312,7 @@ class TestTaskScheduleApi:
         assert '不允许' in r.get_json()['message']
 
     def test_board_sort_order(self, admin_client, app):
-        """看板排序：逾期最前 → 执行中 → 待执行 → 已完成（同级按截止时间升序）"""
+        """看板排序：逾期最前 → 执行中 → 待执行 → 已完成。"""
         cid, op_id = _seed(app)
         with app.app_context():
             t_overdue_running = InspectionTask(
@@ -329,6 +341,57 @@ class TestTaskScheduleApi:
         r = admin_client.get('/api/task-schedule?view=engineer')
         d = r.get_json()['data']
         assert [t['title'] for t in d['engineer_groups'][str(op_id)]] == titles
+
+    def test_board_uses_stage_specific_start_time_within_each_status(
+            self, admin_client, app):
+        cid, op_id = _seed(app)
+        future_end = date.today() + timedelta(days=180)
+        with app.app_context():
+            tasks = [
+                InspectionTask(
+                    title='排期后', customer_id=cid, status='已安排',
+                    assigned_to_user_id=op_id,
+                    planned_start=date(2026, 7, 1), planned_end=future_end,
+                    scheduled_start=date(2026, 9, 7), scheduled_end=date(2026, 9, 11)),
+                InspectionTask(
+                    title='排期前', customer_id=cid, status='已安排',
+                    assigned_to_user_id=op_id,
+                    planned_start=date(2026, 8, 1), planned_end=future_end,
+                    scheduled_start=date(2026, 8, 31), scheduled_end=date(2026, 9, 4)),
+                InspectionTask(
+                    title='排期缺失', customer_id=cid, status='已安排',
+                    assigned_to_user_id=op_id,
+                    planned_start=date(2026, 6, 1), planned_end=future_end),
+                InspectionTask(
+                    title='合同后', customer_id=cid, status='待执行',
+                    assigned_to_user_id=op_id,
+                    planned_start=date(2026, 8, 1), planned_end=future_end),
+                InspectionTask(
+                    title='合同前', customer_id=cid, status='待执行',
+                    assigned_to_user_id=op_id,
+                    planned_start=date(2026, 7, 1), planned_end=future_end),
+                InspectionTask(
+                    title='实施后', customer_id=cid, status='已完成',
+                    assigned_to_user_id=op_id,
+                    actual_start=datetime(2026, 9, 7, 8, 30),
+                    actual_end=datetime(2026, 9, 7, 17, 30)),
+                InspectionTask(
+                    title='实施前', customer_id=cid, status='已完成',
+                    assigned_to_user_id=op_id,
+                    actual_start=datetime(2026, 8, 31, 8, 30),
+                    actual_end=datetime(2026, 8, 31, 17, 30)),
+            ]
+            db.session.add_all(tasks)
+            db.session.commit()
+
+        groups = admin_client.get(
+            '/api/task-schedule?period=&view=status').get_json()['data']['status_groups']
+        assert [item['title'] for item in groups['已安排'] if item['title'].startswith('排期')] == [
+            '排期前', '排期后', '排期缺失']
+        assert [item['title'] for item in groups['待执行'] if item['title'].startswith('合同')] == [
+            '合同前', '合同后']
+        assert [item['title'] for item in groups['已完成'] if item['title'].startswith('实施')] == [
+            '实施前', '实施后']
 
     def test_engineer_view(self, admin_client, app):
         _, op_id = _seed(app)

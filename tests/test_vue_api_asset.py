@@ -555,6 +555,19 @@ class TestTopologyTemplates:
     def test_template_list_requires_login(self, client):
         assert client.get('/api/topologies/templates').status_code == 401
 
+    def test_template_and_stencils_available_with_view_permission(self, viewer_client):
+        templates = viewer_client.get('/api/topologies/templates')
+        assert templates.status_code == 200
+        assert len(templates.get_json()['data']['items']) == 2
+
+        metadata = viewer_client.get('/api/topologies/editor-meta')
+        assert metadata.status_code == 200
+        body = metadata.get_json()
+        assert len(body['stencil_urls']) == 2
+        assert body['clibs']
+        assert body['can_add'] is False
+        assert body['can_edit'] is False
+
 
 class TestTopologyUpload:
     def _remove_uploaded(self, app, tid):

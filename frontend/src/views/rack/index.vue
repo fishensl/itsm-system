@@ -66,25 +66,32 @@
             </div>
 
             <!-- 统计 -->
-            <el-row :gutter="8" class="stat-row">
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.total_u }}U</div><div class="stat-label">总U位</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_label }}</div><div class="stat-label">已占用</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_pct }}%</div><div class="stat-label">占用率</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.install_count }}</div><div class="stat-label">安装数</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.used_w }} W</div><div class="stat-label">已知总额定功率</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.power_completeness }}%</div><div class="stat-label">功率完整率（缺 {{ detail.unknown_power_count }}）</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_total_w }} W</div><div class="stat-label">PDU 额定容量</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_remaining_w == null ? '-' : `${detail.pdu_remaining_w} W` }}</div><div class="stat-label">PDU 剩余容量</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.pdu_load_pct == null ? '-' : `${detail.pdu_load_pct}%` }}</div><div class="stat-label">PDU 已知负载率</div></div></el-col>
-              <el-col :xs="12" :sm="8"><div class="stat-card"><div class="stat-num">{{ detail.heat_btu_h }} BTU/h</div><div class="stat-label">已知设备热负荷</div></div></el-col>
-            </el-row>
-            <el-alert v-if="detail.unknown_power_count" type="warning" :closable="false" show-icon
-              :title="`额定功率合计不完整：仍有 ${detail.unknown_power_count} 台设备未核实功率`" />
-            <el-alert v-if="detail.pdu_load_pct != null && detail.pdu_load_pct > 100" type="error"
-              :closable="false" show-icon title="已知额定功率已超过 PDU 额定容量，请复核供电方案" />
-            <div class="capacity-note">
-              热负荷仅按已知设备额定功率 × 3.412 换算，未包含人员、照明、环境和冗余；
-              UPS 建议容量须待功率因数、目标负载率和冗余系数确认后计算。
+            <div class="rack-summary">
+              <div class="stat-card"><span class="stat-num">{{ detail.total_u }}U</span><span class="stat-label">总U位</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.used_label }}</span><span class="stat-label">已占用</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.used_pct }}%</span><span class="stat-label">占用率</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.install_count }}</span><span class="stat-label">安装数</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.used_w }} W</span><span class="stat-label">已知总额定功率</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.power_completeness }}%</span><span class="stat-label">功率完整率（缺 {{ detail.unknown_power_count }}）</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.pdu_total_w }} W</span><span class="stat-label">PDU 额定容量</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.pdu_remaining_w == null ? '-' : `${detail.pdu_remaining_w} W` }}</span><span class="stat-label">PDU 剩余容量</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.pdu_load_pct == null ? '-' : `${detail.pdu_load_pct}%` }}</span><span class="stat-label">PDU 已知负载率</span></div>
+              <div class="stat-card"><span class="stat-num">{{ detail.heat_btu_h }} BTU/h</span><span class="stat-label">已知设备热负荷</span></div>
+            </div>
+            <div class="capacity-status">
+              <span v-if="detail.unknown_power_count" class="capacity-warning">
+                仍有 {{ detail.unknown_power_count }} 台设备未核实额定功率
+              </span>
+              <span v-if="detail.pdu_load_pct != null && detail.pdu_load_pct > 100" class="capacity-danger">
+                已知额定功率已超过 PDU 额定容量
+              </span>
+              <el-tooltip placement="top" :show-after="250">
+                <template #content>
+                  热负荷按已知设备额定功率 × 3.412 换算，不含人员、照明、环境和冗余。<br>
+                  UPS 建议容量需结合功率因数、目标负载率和冗余系数计算。
+                </template>
+                <span class="capacity-help"><el-icon><InfoFilled /></el-icon>容量口径</span>
+              </el-tooltip>
             </div>
 
             <!-- U 位图 + 设备表（左右布局） -->
@@ -249,7 +256,7 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus, Refresh, Edit, Delete, Collection } from '@element-plus/icons-vue'
+import { Plus, Refresh, Edit, Delete, Collection, InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -608,36 +615,47 @@ onMounted(() => {
 .rack-name { font-size: 16px; }
 .rack-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .color-dot { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
-.stat-row { margin-bottom: 4px; }
+.rack-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px; margin-bottom: 6px; }
 .stat-card { background: var(--itsm-card-bg); border: 1px solid var(--itsm-border);
-  border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
-.stat-num { font-size: 15px; font-weight: 600; }
-.stat-label { color: var(--itsm-text-muted); font-size: 12px; }
-.capacity-note { margin: 8px 0 12px; color: var(--itsm-text-muted); font-size: 12px; line-height: 1.6; }
+  border-radius: 6px; min-height: 36px; padding: 4px 6px; display: flex;
+  align-items: baseline; justify-content: center; gap: 5px; min-width: 0; }
+.stat-num { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.stat-label { color: var(--itsm-text-muted); font-size: 11px; line-height: 1.2;
+  min-width: 0; }
+.capacity-status { min-height: 22px; margin-bottom: 6px; display: flex; align-items: center;
+  gap: 12px; flex-wrap: wrap; font-size: 11px; }
+.capacity-warning { color: var(--el-color-warning); }
+.capacity-danger { color: var(--el-color-danger); font-weight: 600; }
+.capacity-help { color: var(--itsm-text-muted); display: inline-flex; align-items: center;
+  gap: 3px; cursor: help; margin-left: auto; white-space: nowrap; }
 
 /* U 位图 + 设备表左右布局 */
-.rack-visual { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-.rack-frame { width: 280px; flex-shrink: 0; border: 1px solid var(--itsm-border);
-  border-radius: 8px; padding: 8px; }
-.rack-frame-header { color: var(--itsm-text-inverse); text-align: center; font-size: 13px; padding: 4px 0;
+.rack-visual { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.rack-frame { width: 230px; flex-shrink: 0; border: 1px solid var(--itsm-border);
+  border-radius: 8px; padding: 6px; }
+.rack-frame-header { color: var(--itsm-text-inverse); text-align: center; font-size: 12px; padding: 3px 0;
   border-radius: 4px 4px 0 0; }
-.rack-side-switch { display: flex; justify-content: center; padding-top: 8px; }
-.rack-u { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
-.u-row { height: 20px; font-size: 12px; padding: 0 4px; display: flex; align-items: center;
+.rack-side-switch { display: flex; justify-content: center; padding-top: 5px; }
+.rack-u { display: flex; flex-direction: column; gap: 1px; padding: 3px 0; }
+.u-row { height: 15px; font-size: 10px; padding: 0 3px; display: flex; align-items: center;
   border-left: 3px solid var(--itsm-border); cursor: default; border-radius: 2px; }
 .u-row.empty { background: var(--el-fill-color-light); color: var(--itsm-text-muted); cursor: pointer; }
 .u-row.empty:hover { border-left-color: var(--el-color-primary); }
 .u-row.installed { color: var(--itsm-text-inverse); cursor: pointer; }
 .u-row.installed:hover { filter: brightness(0.9); }
-.u-row .u-label { width: 34px; flex-shrink: 0; opacity: 0.75; font-family: var(--font-mono, monospace); }
+.u-row .u-label { width: 30px; flex-shrink: 0; opacity: 0.75; font-family: var(--font-mono, monospace); }
 .u-row .u-content { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .u-sub { margin-left: 6px; opacity: 0.85; }
-.rack-frame-hint { text-align: center; font-size: 12px; padding-top: 4px; }
+.rack-frame-hint { text-align: center; font-size: 11px; padding-top: 3px; }
 .install-table-wrap { flex: 1; min-width: 420px; overflow-x: auto; }
 
 /* S7-6 窄屏：U 位图占满宽，设备表不强制最小宽（横向滚动） */
 @media (max-width: 767px) {
+  .rack-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat-card { justify-content: flex-start; }
   .rack-frame { width: 100%; }
+  .u-row { height: 19px; }
   .install-table-wrap { min-width: 0; }
 }
 </style>

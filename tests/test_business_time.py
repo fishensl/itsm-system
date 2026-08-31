@@ -32,6 +32,24 @@ def test_business_seconds_skips_weekend_and_merges_exclusions():
     assert business_seconds(start, end, exclusions=exclusions) == 13.5 * 3600
 
 
+def test_business_seconds_uses_statutory_holidays_and_makeup_workdays():
+    # 2026-06-19（周五）是端午节，不应计入实施耗时。
+    assert business_seconds_local(
+        datetime(2026, 6, 19, 8, 30),
+        datetime(2026, 6, 19, 17, 30),
+    ) == 0
+    # 2026-02-14（周六）为春节调休上班日，应按正常工作时段计入。
+    assert business_seconds_local(
+        datetime(2026, 2, 14, 8, 30),
+        datetime(2026, 2, 14, 17, 30),
+    ) == 7.5 * 3600
+    # 尚无正式年度安排时仍按基础周历，不能臆造调休。
+    assert business_seconds_local(
+        datetime(2027, 2, 13, 8, 30),
+        datetime(2027, 2, 13, 17, 30),
+    ) == 0
+
+
 def test_local_compatibility_matches_existing_task_semantics():
     assert business_seconds_local(
         datetime(2026, 8, 24, 8, 30),

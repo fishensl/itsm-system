@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import type { WorkCalendarData } from '@/utils/workCalendar'
 
 export interface TaskScheduleItem {
   id: number
@@ -76,6 +77,13 @@ export function updateTaskSchedule(id: number, data: Record<string, unknown>) {
 
 export function deleteTaskSchedule(id: number) {
   return request<null>({ url: `/api/task-schedule/${id}`, method: 'DELETE' })
+}
+
+export function fetchTaskWorkCalendar() {
+  return request<WorkCalendarData>({
+    url: '/api/task-schedule/work-calendar',
+    method: 'GET',
+  })
 }
 
 export function reviewTaskContract(id: number, approved: boolean, comment = '') {
