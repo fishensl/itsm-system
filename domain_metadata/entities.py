@@ -114,6 +114,7 @@ TICKET_FIELDS = (
     F('customer_name', '客户', export_key='customer', min_width=100, filterable=True),
     F('reporter', '报修人', width=100),
     F('reporter_phone', '报修人电话', min_width=120),
+    F('fault_location', '故障地点', min_width=160),
     F('related_device_name', '关联设备', min_width=140),
     F('fault_category', '故障分类', min_width=150, filterable=True),
     F('source_type', '来源', width=100, filterable=True),
@@ -130,6 +131,7 @@ TICKET_FIELDS = (
     F('sla_deadline', 'SLA截止时间', data_type='datetime', min_width=130, group='sla'),
     F('created_at', '创建时间', data_type='datetime', width=130, sortable=True),
     F('reported_at', '报障时间', data_type='datetime', width=130, group='timing'),
+    F('visit_at', '前往时间', data_type='datetime', width=130, group='timing'),
     F('assigned_at', '派单时间', data_type='datetime', width=130),
     F('accepted_at', '接单时间', data_type='datetime', width=130),
     F('completed_at', '完成时间', data_type='datetime', width=130),
@@ -146,7 +148,8 @@ TICKET_LIST = ('title', 'number', 'status', 'priority', 'severity_level', 'custo
                'created_at')
 TICKET_DETAIL = tuple(item.key for item in TICKET_FIELDS)
 TICKET_FORM = ('title', 'priority', 'severity_level', 'customer_name', 'reporter',
-               'reporter_phone', 'related_device_name', 'fault_category', 'description',
+               'reporter_phone', 'fault_location', 'reported_at', 'visit_at',
+               'related_device_name', 'fault_category', 'description',
                'diagnosis', 'solution', 'source_type', 'contract_exception_reason')
 TICKET_EXPORT_DEFAULT = ('number', 'title', 'priority', 'status', 'customer_name', 'reporter',
                          'assigned_to', 'created_by', 'reported_at', 'handling_started_at',
@@ -548,6 +551,7 @@ INSPECTION_TASK_FIELDS = (
     F('planned_end', '合同时效结束', data_type='date', width=120),
     F('scheduled_start', '任务期限开始', data_type='date', width=120),
     F('scheduled_end', '任务期限结束', data_type='date', width=120),
+    F('visit_at', '前往时间', data_type='datetime', width=140),
     F('actual_start', '实施开始', data_type='datetime', width=140),
     F('actual_end', '实施结束', data_type='datetime', width=140),
     F('actual_duration_text', '实施耗时', width=120),

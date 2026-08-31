@@ -91,15 +91,25 @@ class TestGlobalSearch:
 
 
 class TestTicketActionNotifiesAssignee:
-    def test_assign_sends_notification(self, op_client, admin_client, seed, app):
+    def test_assign_sends_notification(self, op_client, admin_client, seed, app, monkeypatch):
         """admin 派单给 op → op 收到通知"""
+        sent = []
+        monkeypatch.setattr(
+            'utils.wecom_notify.wecom_broadcast',
+            lambda event, title, content='', link='', target_user_ids=None,
+            mode='text', file_path=None: sent.append({
+                'event': event, 'title': title, 'content': content,
+                'link': link, 'target_user_ids': target_user_ids, 'mode': mode,
+            }) or (1, 0))
         with app.app_context():
-            t = Ticket(number='WO-NOTIFY-1', title='通知测试工单', status='待派单')
+            t = Ticket(number='WO-NOTIFY-1', title='通知测试工单', status='待派单',
+                       customer_id=seed['c'], reporter='黄思琪',
+                       description='服务器无法挂载存储', fault_location='西区机房')
             db.session.add(t)
             db.session.commit()
             tid = t.id
         r = admin_client.post(f'/api/tickets/{tid}/action', json={
-            'action': 'assign', 'assignee': 'op'})
+            'action': 'assign', 'assignee': 'op', 'visit_at': '2026-08-31T08:55'})
         assert r.status_code == 200
         with app.app_context():
             op = User.query.filter_by(username='op').first()
@@ -108,3 +118,10 @@ class TestTicketActionNotifiesAssignee:
             assert n is not None
             assert '派' in n.title
             assert n.link == f'/app/tickets/{tid}'
+        assert sent
+        assert sent[-1]['title'] == '工单 WO-NOTIFY-1 已派发给 op'
+        assert '**报修联系人：**黄思琪' in sent[-1]['content']
+        assert '**故障地点：**西区机房' in sent[-1]['content']
+        assert '**前往时间：**2026年08月31日 08:55' in sent[-1]['content']
+        assert '**跟进工程师：**op' in sent[-1]['content']
+        assert sent[-1]['mode'] == 'markdown'

@@ -11,6 +11,7 @@ EVENT_TICKET_ASSIGN = 'ticket_assign'              # 工单派发（通知被指
 EVENT_TICKET_COMPLETED = 'ticket_completed'        # 工单完成（主管+销售+老板；markdown 摘要）
 EVENT_TICKET_REVIEW_PENDING = 'ticket_review_pending'  # 工单提交审核（部门主管）
 EVENT_TICKET_SUSPENDED_TIMEOUT = 'ticket_suspended_timeout'  # 工单挂起超时（工程师+主管+销售）
+EVENT_TICKET_PROGRESS = 'ticket_progress'              # 工单处置进展（群通知）
 EVENT_INSPECTION_ASSIGN = 'inspection_assign'      # 巡检任务派发（被指派人）
 EVENT_INSPECTION_REVIEW_PENDING = 'inspection_review_pending'  # 巡检报告待审核（部门主管）
 EVENT_CONTRACT_EXPIRING = 'contract_expiring'      # 客户合同到期提醒（关联工程师+销售+admin）
@@ -24,6 +25,7 @@ EVENT_LABELS = {
     EVENT_TICKET_COMPLETED: '工单完成',
     EVENT_TICKET_REVIEW_PENDING: '工单提交审核',
     EVENT_TICKET_SUSPENDED_TIMEOUT: '工单挂起超时',
+    EVENT_TICKET_PROGRESS: '工单处理进展',
     EVENT_INSPECTION_ASSIGN: '巡检任务派发',
     EVENT_INSPECTION_REVIEW_PENDING: '巡检报告待审核',
     EVENT_CONTRACT_EXPIRING: '客户合同到期提醒',
@@ -39,6 +41,7 @@ DEFAULT_RULES = {
     EVENT_TICKET_COMPLETED: {'roles': ['sales']},
     EVENT_TICKET_REVIEW_PENDING: {'roles': []},
     EVENT_TICKET_SUSPENDED_TIMEOUT: {'roles': ['sales']},
+    EVENT_TICKET_PROGRESS: {'roles': ['sales']},
     EVENT_INSPECTION_ASSIGN: {'roles': []},
     EVENT_INSPECTION_REVIEW_PENDING: {'roles': []},
     EVENT_CONTRACT_EXPIRING: {'roles': ['sales']},
@@ -54,6 +57,84 @@ DEFAULT_CHANNELS = (
     ('dingtalk', '钉钉', 2),
     ('feishu', '飞书', 3),
 )
+
+
+def notification_link(link):
+    """将站内相对路径转换为通知客户端可直接访问的完整地址。"""
+    value = str(link or '').strip()
+    if not value or value.startswith(('https://', 'http://')):
+        return value
+    if not value.startswith('/'):
+        value = '/' + value
+    try:
+        from flask import current_app, has_request_context, request
+        base = (request.host_url.rstrip('/') if has_request_context()
+                else current_app.config.get('NOTIFICATION_BASE_URL', '').rstrip('/'))
+    except RuntimeError:
+        base = ''
+    return f'{base}{value}' if base else value
+
+
+def _line(label, value):
+    value = str(value or '').strip()
+    return f'> **{label}：**{value}' if value else ''
+
+
+def _format_utc(value):
+    if not value:
+        return ''
+    from utils.business_time import format_beijing
+    return format_beijing(value, '%Y年%m月%d日 %H:%M')
+
+
+def ticket_notification_content(ticket, actor='', assignee='', progress=''):
+    """构造群通知中的工单详情；空字段不输出，避免无意义占位。"""
+    customer = getattr(ticket, 'customer_rel', None)
+    customer_name = ((getattr(customer, 'name', '') if customer else '') or
+                     getattr(ticket, 'customer_name_text', '') or '')
+    customer_location = ''
+    if customer:
+        customer_location = (getattr(customer, 'office_room', '') or
+                             getattr(customer, 'map_location', '') or
+                             getattr(customer, 'address', '') or
+                             getattr(customer, 'office', '') or '')
+    reporter = getattr(ticket, 'reporter', '') or ''
+    reporter_phone = getattr(ticket, 'reporter_phone', '') or ''
+    if reporter and reporter_phone:
+        reporter = f'{reporter}（{reporter_phone}）'
+    elif reporter_phone:
+        reporter = reporter_phone
+    lines = [
+        _line('用户', customer_name),
+        _line('报修联系人', reporter),
+        _line('故障时间', _format_utc(getattr(ticket, 'reported_at', None))),
+        _line('故障现象', getattr(ticket, 'description', '') or getattr(ticket, 'title', '')),
+        _line('故障地点', getattr(ticket, 'fault_location', '') or customer_location),
+        _line('前往时间', _format_utc(getattr(ticket, 'visit_at', None))),
+        _line('跟进工程师', assignee or getattr(ticket, 'assigned_to', '')),
+        _line('处理进展', progress),
+        _line('操作人', actor),
+    ]
+    return '\n'.join(line for line in lines if line)
+
+
+def inspection_notification_content(task, assignee_name=''):
+    """构造巡检派发详情。前往时间未填写时保留任务期限，避免误报具体时刻。"""
+    customer = getattr(task, 'customer_rel', None)
+    assignee = getattr(task, 'assignee_rel', None)
+    lines = [
+        _line('巡检地点', getattr(customer, 'name', '') if customer else ''),
+        _line('前往时间', _format_utc(getattr(task, 'visit_at', None))),
+        _line('巡检工程师', assignee_name or (
+            (getattr(assignee, 'realname', '') or getattr(assignee, 'username', ''))
+            if assignee else '')),
+    ]
+    if not getattr(task, 'visit_at', None):
+        start = getattr(task, 'scheduled_start', None)
+        end = getattr(task, 'scheduled_end', None)
+        if start or end:
+            lines.append(_line('任务期限', f'{start or "-"} 至 {end or "-"}'))
+    return '\n'.join(line for line in lines if line)
 
 
 def seed_default_notify_channels():
@@ -94,7 +175,7 @@ def wecom_broadcast(event_type, title, content='', link='', target_user_ids=None
     """便捷入口：多渠道分发（内部再套一层 try，绝不让通知影响主流程）"""
     from utils.notify_channels import send_all_channels
     try:
-        return send_all_channels(event_type, title, content, link, target_user_ids,
+        return send_all_channels(event_type, title, content, notification_link(link), target_user_ids,
                                  mode=mode, file_path=file_path)
     except Exception:
         from flask import current_app

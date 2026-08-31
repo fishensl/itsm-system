@@ -132,6 +132,18 @@ class TestChannelDispatch:
         n, failed = wecom_broadcast(EVENT_TICKET_SUSPENDED_TIMEOUT, 't', 'c')
         assert n == 0 and failed == 0
 
+    def test_broadcast_expands_relative_link_from_current_request(self, app, monkeypatch):
+        captured = []
+        monkeypatch.setattr(
+            'utils.notify_channels.send_all_channels',
+            lambda *args, **kwargs: captured.append((args, kwargs)) or (1, 0))
+        with app.test_request_context(
+                '/api/tickets/1/action', base_url='http://172.16.123.124:5000'):
+            wecom_broadcast(
+                EVENT_TICKET_ASSIGN, '标题', '正文', '/app/tickets/1',
+                target_user_ids=[1], mode='markdown')
+        assert captured[0][0][3] == 'http://172.16.123.124:5000/app/tickets/1'
+
 
 class TestChannelConfigApi:
     def test_channel_crud(self, app, admin_client, monkeypatch):
@@ -178,6 +190,39 @@ class TestChannelConfigApi:
         with app.app_context():
             rule = NotifyRule.query.filter_by(event_type=EVENT_TICKET_COMPLETED).first()
             assert 'sales' in rule.recipients_json and '"users"' in rule.recipients_json
+
+    def test_rules_list_returns_chinese_role_options(self, admin_client):
+        response = admin_client.get('/api/notify/rules')
+        assert response.status_code == 200
+        labels = {item['code']: item['name']
+                  for item in response.get_json()['data']['role_options']}
+        assert labels['admin'] == '系统管理员'
+        assert labels['operator'] == '运维工程师'
+
+    def test_rules_batch_save_is_atomic(self, app, admin_client):
+        response = admin_client.put('/api/notify/rules', json={'rules': [
+            {'event_type': EVENT_TICKET_COMPLETED, 'is_enabled': False,
+             'roles': ['sales'], 'users': []},
+            {'event_type': EVENT_TICKET_ASSIGN, 'is_enabled': True,
+             'roles': ['operator'], 'users': []},
+        ]})
+        assert response.status_code == 200
+        assert response.get_json()['data']['count'] == 2
+        with app.app_context():
+            completed = NotifyRule.query.filter_by(event_type=EVENT_TICKET_COMPLETED).one()
+            assert completed.is_enabled is False
+            before = completed.recipients_json
+        rejected = admin_client.put('/api/notify/rules', json={'rules': [
+            {'event_type': EVENT_TICKET_COMPLETED, 'is_enabled': True,
+             'roles': ['sales'], 'users': []},
+            {'event_type': 'unknown_event', 'is_enabled': True,
+             'roles': [], 'users': []},
+        ]})
+        assert rejected.status_code == 400
+        with app.app_context():
+            completed = NotifyRule.query.filter_by(event_type=EVENT_TICKET_COMPLETED).one()
+            assert completed.is_enabled is False
+            assert completed.recipients_json == before
 
     def test_rules_invalid_type(self, app, admin_client):
         r = admin_client.post('/api/notify/rules', json={'event_type': 'not_exist'})
@@ -276,7 +321,7 @@ class TestWecomWebhookAdapter:
         assert calls[0][0] == webhook
         assert calls[0][1] == {
             'msgtype': 'text',
-            'text': {'content': '标题\n正文\n/app/tickets/1'},
+            'text': {'content': '标题\n正文\n查看详情：/app/tickets/1'},
         }
         assert calls[1][1]['msgtype'] == 'markdown'
         assert '**标题2**' in calls[1][1]['markdown']['content']

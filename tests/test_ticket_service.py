@@ -73,6 +73,23 @@ class TestTicketLifecycle:
             # 允许少量构建耗时误差（<2 分钟）
             assert abs(delta.total_seconds() - hours * 3600) < 120, prio
 
+    def test_contact_location_and_visit_time_are_persisted(self, ctx):
+        t = ticket_service.create_ticket({
+            'title': '存储无法挂载', 'priority': '高', 'source_type': '客户报修',
+            'reporter': '黄思琪', 'reporter_phone': '13800000000',
+            'reported_at': '2026-08-25T14:00', 'fault_location': '西区机房',
+        }, 'admin')
+        ticket_service.assign_ticket(
+            t.id, 'op', 'admin', visit_at='2026-08-25T14:30')
+        saved = Ticket.query.get(t.id)
+        assert saved.source_type == '客户报修'
+        assert saved.reporter == '黄思琪'
+        assert saved.reporter_phone == '13800000000'
+        assert saved.fault_location == '西区机房'
+        # 北京时间按 UTC naive 入库。
+        assert saved.reported_at.strftime('%Y-%m-%d %H:%M') == '2026-08-25 06:00'
+        assert saved.visit_at.strftime('%Y-%m-%d %H:%M') == '2026-08-25 06:30'
+
     def test_number_advances_after_delete(self, ctx):
         """删除工单后新单号按「剩余最大序号 + 1」推进：不回退、不与存续工单重号"""
         from models import db, TicketLog

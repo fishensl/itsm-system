@@ -63,6 +63,9 @@ class Config:
         raise RuntimeError('[FATAL] ITSM_CREDENTIAL_ENVELOPE_MODE 仅支持 off/optional/required')
     CREDENTIAL_ENVELOPE_PURPOSES = os.environ.get(
         'ITSM_CREDENTIAL_ENVELOPE_PURPOSES', '').strip()
+    # 通知中的站内相对地址转完整 URL。请求内发送时优先使用当前访问地址；
+    # 定时任务等无请求上下文的通知使用此配置。
+    NOTIFICATION_BASE_URL = os.environ.get('ITSM_NOTIFICATION_BASE_URL', '').strip().rstrip('/')
     ENVELOPE_WRAP_KEY = os.environ.get('ITSM_ENVELOPE_WRAP_KEY', '').strip()
     ENVELOPE_PREVIOUS_WRAP_KEY = os.environ.get(
         'ITSM_ENVELOPE_PREVIOUS_WRAP_KEY', '').strip()

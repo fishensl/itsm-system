@@ -64,6 +64,33 @@ class TestRolesApi:
         r = admin_client.put(f'/api/roles/{rid}/permissions', json={'codes': []})
         assert r.status_code == 400
 
+    def test_permissions_batch_save_is_atomic(self, admin_client, app):
+        with app.app_context():
+            operator = Role.query.filter_by(code='operator').one()
+            viewer = Role.query.filter_by(code='viewer').one()
+            role_ids = {'operator': operator.id, 'viewer': viewer.id}
+        response = admin_client.put('/api/roles/permissions', json={'roles': [
+            {'id': role_ids['operator'], 'codes': ['device:view', 'ticket:view']},
+            {'id': role_ids['viewer'], 'codes': ['dashboard:view']},
+        ]})
+        assert response.status_code == 200
+        assert response.get_json()['data']['count'] == 2
+        with app.app_context():
+            operator = db.session.get(Role, role_ids['operator'])
+            viewer = db.session.get(Role, role_ids['viewer'])
+            assert {item.permission_code for item in operator.role_perms} == {
+                'device:view', 'ticket:view'}
+            assert {item.permission_code for item in viewer.role_perms} == {'dashboard:view'}
+        rejected = admin_client.put('/api/roles/permissions', json={'roles': [
+            {'id': role_ids['operator'], 'codes': ['customer:view']},
+            {'id': role_ids['viewer'], 'codes': ['not:a:permission']},
+        ]})
+        assert rejected.status_code == 400
+        with app.app_context():
+            operator = db.session.get(Role, role_ids['operator'])
+            assert {item.permission_code for item in operator.role_perms} == {
+                'device:view', 'ticket:view'}
+
     def test_permissions(self, op_client, viewer_client):
         assert viewer_client.get('/api/roles').status_code == 403  # 无 permission:view
         assert op_client.get('/api/roles').status_code == 403  # operator 也无 permission:view

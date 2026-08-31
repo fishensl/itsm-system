@@ -27,6 +27,13 @@
       <!-- 角色权限矩阵 -->
       <el-tab-pane label="角色权限" name="matrix">
         <el-card shadow="never">
+          <div class="matrix-toolbar">
+            <span>勾选所需权限后统一保存，未保存前不会影响其他用户。</span>
+            <el-button v-if="user.hasPerm('permission:edit')" type="primary"
+              :loading="saving" :disabled="dirtyRoleIds.size === 0" @click="saveMatrix">
+              保存权限矩阵
+            </el-button>
+          </div>
           <div v-loading="loading" class="matrix-scroll">
             <table class="perm-table">
               <thead>
@@ -163,7 +170,7 @@ import { Plus, CircleCheck } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import {
-  fetchRoles, createRole, updateRole, deleteRole, reorderRoles, saveRolePermissions,
+  fetchRoles, createRole, updateRole, deleteRole, reorderRoles, saveRolePermissionsBatch,
   fetchUserPermissions, saveUserPermissions, fetchUsers,
   type RoleListData, type RoleItem, type UserPermissionOverride,
 } from '@/api/system'
@@ -176,7 +183,8 @@ const ui = useUiStore()
 const activeTab = ref('matrix')
 const data = ref<RoleListData | null>(null)
 const loading = ref(false)
-const saving = ref(new Set<string>())
+const saving = ref(false)
+const dirtyRoleIds = ref(new Set<number>())
 const roleTableRef = ref()
 const roleFieldMeta = ref<EntityFieldMeta[]>([])
 
@@ -253,24 +261,32 @@ const savingOverrides = ref(false)
 function load() {
   loading.value = true
   fetchRoles()
-    .then((d) => { data.value = d })
+    .then((d) => { data.value = d; dirtyRoleIds.value = new Set() })
     .catch(() => { /* toast */ })
     .finally(() => { loading.value = false })
 }
 
-async function togglePerm(role: RoleItem, code: string, on: boolean) {
-  const key = `${role.id}:${code}`
-  if (saving.value.has(key)) return
-  saving.value.add(key)
-  const prev = [...role.permissions]
-  role.permissions = on ? [...prev, code] : prev.filter((c) => c !== code)
+function togglePerm(role: RoleItem, code: string, on: boolean) {
+  role.permissions = on
+    ? [...new Set([...role.permissions, code])]
+    : role.permissions.filter((value) => value !== code)
+  dirtyRoleIds.value = new Set([...dirtyRoleIds.value, role.id])
+}
+
+async function saveMatrix() {
+  const roles = activeRoles.value
+    .filter((role) => role.code !== 'admin' && dirtyRoleIds.value.has(role.id))
+    .map((role) => ({ id: role.id, codes: [...role.permissions] }))
+  if (!roles.length) return
+  saving.value = true
   try {
-    await saveRolePermissions(role.id, role.permissions)
+    const result = await saveRolePermissionsBatch(roles)
+    ui.toast(`权限矩阵已保存，更新 ${result.count} 个角色`, 'success')
+    load()
   } catch (e) {
-    role.permissions = prev
     ui.toast((e as Error).message, 'error')
   } finally {
-    saving.value.delete(key)
+    saving.value = false
   }
 }
 
@@ -421,6 +437,7 @@ onMounted(() => {
 
 <style scoped>
 .matrix-scroll { overflow-x: auto; }
+.matrix-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; color: var(--itsm-text-muted); font-size: 12px; }
 .perm-table { border-collapse: collapse; width: 100%; }
 .perm-table th, .perm-table td {
   border: 1px solid var(--itsm-border); padding: 5px 8px; font-size: 12px;

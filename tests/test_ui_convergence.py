@@ -188,3 +188,26 @@ def test_wecom_notification_channel_uses_group_webhook():
     users_source = _view_source('system/users.vue')
     assert 'wecom_account' not in users_source
     assert '企业微信账号' not in users_source
+
+
+def test_notification_and_permission_matrices_use_unified_save():
+    notify_source = _view_source('system/notifyRules.vue')
+    assert '保存全部规则' in notify_source
+    assert 'saveNotifyRules(rules.value)' in notify_source
+    assert ':label="r.name" :value="r.code"' in notify_source
+    permission_source = _view_source('system/permissions.vue')
+    assert '保存权限矩阵' in permission_source
+    assert 'saveRolePermissionsBatch(roles)' in permission_source
+    assert 'saveRolePermissions(role.id' not in permission_source
+
+
+def test_topology_standard_resources_visible_with_view_permission():
+    source = _view_source('topology/index.vue')
+    assert 'v-if="user.hasPerm(\'topology:view\')" plain :icon="Files"' in source
+    assert '标准模板与图标' in source
+
+
+def test_report_file_rows_group_business_record_files():
+    source = _view_source('reports/index.vue')
+    assert 'row.report_files?.length' in source
+    assert "row.type === 'ticket' ? `/app/tickets/${row.id}` : ''" in source

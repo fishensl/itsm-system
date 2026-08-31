@@ -390,6 +390,12 @@ export function saveRolePermissions(id: number, codes: string[]) {
   return request<null>({ url: `/api/roles/${id}/permissions`, method: 'PUT', data: { codes } })
 }
 
+export function saveRolePermissionsBatch(roles: Array<{ id: number; codes: string[] }>) {
+  return request<{ count: number }>({
+    url: '/api/roles/permissions', method: 'PUT', data: { roles },
+  })
+}
+
 export interface UserPermissionOverride {
   grant_type: string
   expire_at: string
@@ -516,7 +522,12 @@ export interface NotifyRuleItem {
 }
 
 export function fetchNotifyRules() {
-  return request<{ rules: NotifyRuleItem[]; event_types: { key: string; label: string }[] }>({
+  return request<{
+    rules: NotifyRuleItem[]
+    event_types: { key: string; label: string }[]
+    role_options: { code: string; name: string }[]
+    user_options: { id: number; name: string }[]
+  }>({
     url: '/api/notify/rules',
     method: 'GET',
   })
@@ -524,4 +535,10 @@ export function fetchNotifyRules() {
 
 export function saveNotifyRule(data: Record<string, unknown>) {
   return request<null>({ url: '/api/notify/rules', method: 'POST', data })
+}
+
+export function saveNotifyRules(rules: NotifyRuleItem[]) {
+  return request<{ count: number }>({
+    url: '/api/notify/rules', method: 'PUT', data: { rules },
+  })
 }

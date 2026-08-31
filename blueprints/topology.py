@@ -6,6 +6,7 @@
 """
 import os
 import base64
+import hashlib
 
 from flask import (Blueprint, request, redirect, url_for,
                    flash, jsonify, current_app)
@@ -124,8 +125,12 @@ def api_editor_meta():
     clibs = ''
     stencil_urls = []
     if os.path.isdir(stencil_dir):
-        stencil_urls = [url_for('static', filename='stencils/' + os.path.basename(f))
-                        for f in sorted(glob.glob(os.path.join(stencil_dir, '*.drawio.xml')))]
+        stencil_urls = []
+        for file_path in sorted(glob.glob(os.path.join(stencil_dir, '*.drawio.xml'))):
+            with open(file_path, 'rb') as source:
+                version = hashlib.sha256(source.read()).hexdigest()[:12]
+            stencil_urls.append(url_for(
+                'static', filename='stencils/' + os.path.basename(file_path), v=version))
         base = request.host_url.rstrip('/')
         clibs = ';'.join('U' + quote(base + u, safe='') for u in stencil_urls)
 
@@ -161,6 +166,8 @@ def api_editor_meta():
         'regions': regions,
         'clibs': clibs,
         'stencil_urls': stencil_urls,
+        'stencil_resource_version': hashlib.sha256(
+            '|'.join(stencil_urls).encode('utf-8')).hexdigest()[:12],
         'can_add': has_permission('topology:add'),
         'can_edit': has_permission('topology:edit'),
         'template_param': request.args.get('template', ''),

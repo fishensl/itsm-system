@@ -406,6 +406,7 @@ class TestTaskScheduleApi:
             'title': '新增任务X', 'customer_id': cid, 'assignee_id': op_id,
             'planned_start': '2026-08-01', 'planned_end': '2026-08-31', 'priority': '高',
             'estimated_effort': 1.5, 'task_type': '计划',
+            'visit_at': '2026-08-31T08:55',
         })
         assert r.get_json()['code'] == 0
         tid = r.get_json()['data']['id']
@@ -421,6 +422,7 @@ class TestTaskScheduleApi:
             assert t.actual_start is not None
             assert t.actual_effort is None
             assert t.actual_end is None
+            assert t.visit_at.strftime('%Y-%m-%d %H:%M') == '2026-08-31 00:55'
             t.actual_start = datetime(2026, 8, 24, 9, 0)
             t.actual_end = datetime(2026, 8, 24, 10, 0)
             t.actual_effort = 0.13

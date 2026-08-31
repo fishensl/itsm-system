@@ -9,8 +9,8 @@
         <el-button v-if="user.hasPerm('topology:add')" type="primary" :icon="EditPen" @click="newDraw">
           在线绘制
         </el-button>
-        <el-button v-if="user.hasPerm('topology:add')" plain :icon="Files" @click="openTemplateDialog">
-          从模板新建
+        <el-button v-if="user.hasPerm('topology:view')" plain :icon="Files" @click="openTemplateDialog">
+          标准模板与图标
         </el-button>
         <el-button :icon="Fold" @click="activeNames = []">收起全部</el-button>
       </div>
@@ -135,7 +135,7 @@
     </el-dialog>
 
     <!-- 从模板新建弹窗 -->
-    <el-dialog v-model="tplDialogVisible" title="从模板新建拓扑图" width="620px" top="10vh" destroy-on-close>
+    <el-dialog v-model="tplDialogVisible" title="标准拓扑模板与规范图标" width="620px" top="10vh" destroy-on-close>
       <div v-loading="tplLoading" class="tpl-list">
         <div v-for="t in templates" :key="t.file" class="tpl-item" @click="openFromTemplate(t)">
           <div :class="['tpl-icon', `tpl-icon-${t.category}`]">
@@ -150,7 +150,7 @@
             </div>
             <span class="tpl-description">{{ t.description || '在线拓扑图模板' }}</span>
           </div>
-          <span class="tpl-use">使用模板</span>
+          <span class="tpl-use">{{ user.hasPerm('topology:add') ? '使用模板' : '查看模板与图标' }}</span>
         </div>
         <el-empty v-if="!tplLoading && !templates.length" description="暂无模板" :image-size="50" />
       </div>

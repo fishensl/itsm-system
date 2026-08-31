@@ -1062,12 +1062,18 @@ def api_roles_delete(rid):
 @require_permission('permission:edit')
 def api_roles_permissions_save(rid):
     from models import Role, RolePermission
-    from utils.permission import bump_role_cache_version, invalidate_role
+    from utils.permission import PERMISSION_MAP, bump_role_cache_version, invalidate_role
     role = Role.query.get_or_404(rid)
     if role.code == 'admin':
         return fail('admin 角色拥有系统全部权限，无需配置', 400)
     data = request.get_json(silent=True) or {}
-    target = set(data.get('codes') or [])
+    codes = data.get('codes')
+    if not isinstance(codes, list):
+        return fail('权限代码必须为数组', 400)
+    target = {str(code) for code in codes}
+    unknown = sorted(target - set(PERMISSION_MAP))
+    if unknown:
+        return fail(f'未知权限代码：{", ".join(unknown)}', 400)
     existing = {rp.permission_code for rp in role.role_perms}
     for code in target - existing:
         db.session.add(RolePermission(role_id=role.id, permission_code=code))
@@ -1081,6 +1087,66 @@ def api_roles_permissions_save(rid):
     audit_log('role:permissions', 'role', role.id,
               f'更新角色 {role.code} 权限矩阵：{len(existing)} → {len(target)} 项')
     return ok(None)
+
+
+@vue_api_bp.route('/api/roles/permissions', methods=['PUT'])
+@login_required
+@require_permission('permission:edit')
+def api_roles_permissions_batch_save():
+    """一次事务保存权限矩阵；先完整校验，再统一写入和刷新多 worker 缓存。"""
+    from models import Role, RolePermission
+    from utils.permission import PERMISSION_MAP, bump_role_cache_version, invalidate_role
+    payload = (request.get_json(silent=True) or {}).get('roles')
+    if not isinstance(payload, list) or not payload:
+        return fail('角色权限矩阵不能为空', 400)
+    normalized = []
+    seen = set()
+    valid_codes = set(PERMISSION_MAP)
+    for item in payload:
+        if not isinstance(item, dict):
+            return fail('角色权限数据格式不正确', 400)
+        try:
+            role_id = int(item.get('id'))
+        except (TypeError, ValueError):
+            return fail('角色 ID 格式不正确', 400)
+        if role_id in seen:
+            return fail(f'角色 ID {role_id} 重复', 400)
+        seen.add(role_id)
+        codes = item.get('codes')
+        if not isinstance(codes, list):
+            return fail(f'角色 ID {role_id} 的权限代码必须为数组', 400)
+        target = {str(code) for code in codes}
+        unknown = sorted(target - valid_codes)
+        if unknown:
+            return fail(f'未知权限代码：{", ".join(unknown)}', 400)
+        role = db.session.get(Role, role_id)
+        if role is None:
+            return fail(f'角色 ID {role_id} 不存在', 400)
+        if role.code == 'admin':
+            return fail('admin 角色拥有系统全部权限，无需配置', 400)
+        normalized.append((role, target))
+
+    changed = []
+    for role, target in normalized:
+        existing = {rp.permission_code for rp in role.role_perms}
+        if existing == target:
+            continue
+        for code in target - existing:
+            db.session.add(RolePermission(role_id=role.id, permission_code=code))
+        for row in list(role.role_perms):
+            if row.permission_code not in target:
+                db.session.delete(row)
+        changed.append((role, len(existing), len(target)))
+    if changed:
+        bump_role_cache_version()
+    db.session.commit()
+    for role, _before, _after in changed:
+        invalidate_role(role.code)
+    audit_log('role:permissions', 'role', None,
+              '批量更新权限矩阵：' + ('；'.join(
+                  f'{role.code} {_before}→{_after} 项'
+                  for role, _before, _after in changed) or '无变化'))
+    return ok({'count': len(changed)})
 
 
 @vue_api_bp.route('/api/users/<int:uid>/permissions', methods=['GET'])
@@ -1339,7 +1405,7 @@ def api_notify_channel_test(channel_type):
 @login_required
 @require_permission('notify:view')
 def api_notify_rules_list():
-    from models import NotifyRule
+    from models import NotifyRule, User
     from utils.json_fields import parse_json
     from utils.wecom_notify import EVENT_LABELS
     rows = NotifyRule.query.order_by(NotifyRule.id).all()
@@ -1355,37 +1421,102 @@ def api_notify_rules_list():
         })
     # 补未种子的事件类型（默认关闭），保证前端能看到全部可配项
     existing = {r.event_type for r in rows}
+    role_rows = Role.query.filter_by(is_active=True).order_by(Role.sort_order, Role.id).all()
+    user_rows = User.query.filter_by(is_active=True).order_by(User.id).all()
     return ok({'rules': rules,
                'event_types': [{'key': k, 'label': v}
-                               for k, v in EVENT_LABELS.items() if k not in existing]})
+                               for k, v in EVENT_LABELS.items() if k not in existing],
+               'role_options': [{'code': role.code, 'name': role.name}
+                                for role in role_rows],
+               'user_options': [{'id': user.id,
+                                 'name': user.realname or user.username}
+                                for user in user_rows]})
+
+
+def _normalize_notify_rule(data):
+    from models import User
+    from utils.wecom_notify import EVENT_LABELS
+    event_type = str(data.get('event_type') or '').strip()
+    if event_type not in EVENT_LABELS:
+        raise ValueError(f'未知通知类型：{event_type}')
+    valid_roles = {role.code for role in Role.query.filter_by(is_active=True).all()}
+    roles = list(dict.fromkeys(str(value).strip() for value in (data.get('roles') or [])
+                              if str(value).strip()))
+    unknown_roles = [code for code in roles if code not in valid_roles]
+    if unknown_roles:
+        raise ValueError(f'角色不存在或已停用：{", ".join(unknown_roles)}')
+    users = []
+    for value in data.get('users') or []:
+        try:
+            users.append(int(value))
+        except (TypeError, ValueError) as exc:
+            raise ValueError('接收用户格式不正确') from exc
+    users = list(dict.fromkeys(users))
+    if users:
+        valid_users = {row[0] for row in db.session.query(User.id).filter(
+            User.id.in_(users), User.is_active.is_(True)).all()}
+        missing = [str(uid) for uid in users if uid not in valid_users]
+        if missing:
+            raise ValueError(f'用户不存在或已停用：{", ".join(missing)}')
+    return {
+        'event_type': event_type,
+        'is_enabled': bool(data.get('is_enabled', True)),
+        'roles': roles,
+        'users': users,
+    }
+
+
+def _apply_notify_rule(data):
+    from models import NotifyRule
+    from utils.json_fields import dumps_json
+    from utils.wecom_notify import EVENT_LABELS
+    event_type = data['event_type']
+    row = NotifyRule.query.filter_by(event_type=event_type).first()
+    if not row:
+        row = NotifyRule(event_type=event_type, label=EVENT_LABELS[event_type])
+        db.session.add(row)
+    row.is_enabled = data['is_enabled']
+    row.recipients_json = dumps_json({
+        'roles': data['roles'], 'users': data['users']})
+    return row
 
 
 @vue_api_bp.route('/api/notify/rules', methods=['POST'])
 @login_required
 @require_permission('notify:edit')
 def api_notify_rule_save():
-    from models import NotifyRule
-    from utils.json_fields import dumps_json
-    from utils.wecom_notify import EVENT_LABELS
     data = request.get_json(silent=True) or {}
-    event_type = (data.get('event_type') or '').strip()
-    if event_type not in EVENT_LABELS:
-        return fail(f'未知通知类型：{event_type}', 400)
-    row = NotifyRule.query.filter_by(event_type=event_type).first()
-    if not row:
-        row = NotifyRule(event_type=event_type, label=EVENT_LABELS[event_type])
-        db.session.add(row)
-    if 'is_enabled' in data:
-        row.is_enabled = bool(data.get('is_enabled'))
-    roles = [str(x) for x in (data.get('roles') or []) if x]
-    users = []
-    for x in (data.get('users') or []):
-        try:
-            users.append(int(x))
-        except (TypeError, ValueError):
-            pass
-    row.recipients_json = dumps_json({'roles': roles, 'users': users})
+    try:
+        normalized = _normalize_notify_rule(data)
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    row = _apply_notify_rule(normalized)
     db.session.commit()
     audit_log('notify:rule_save', 'notify_rule', row.id,
-              f'保存通知规则 {event_type}：角色 {len(roles)} 个、用户 {len(users)} 个')
+              f'保存通知规则 {normalized["event_type"]}：'
+              f'角色 {len(normalized["roles"])} 个、用户 {len(normalized["users"])} 个')
     return ok(None)
+
+
+@vue_api_bp.route('/api/notify/rules', methods=['PUT'])
+@login_required
+@require_permission('notify:edit')
+def api_notify_rules_batch_save():
+    """一次事务保存整张通知规则表，任一规则非法则全部拒绝。"""
+    data = request.get_json(silent=True) or {}
+    payload = data.get('rules')
+    if not isinstance(payload, list) or not payload:
+        return fail('通知规则不能为空', 400)
+    try:
+        normalized = [_normalize_notify_rule(item if isinstance(item, dict) else {})
+                      for item in payload]
+    except ValueError as exc:
+        return fail(str(exc), 400)
+    event_types = [item['event_type'] for item in normalized]
+    if len(event_types) != len(set(event_types)):
+        return fail('通知规则中存在重复事件', 400)
+    rows = [_apply_notify_rule(item) for item in normalized]
+    db.session.commit()
+    audit_log('notify:rule_save', 'notify_rule', None,
+              f'批量保存通知规则 {len(rows)} 条')
+    return ok({'count': len(rows)})

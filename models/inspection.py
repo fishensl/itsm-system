@@ -228,6 +228,7 @@ class InspectionTask(db.Model):
     # 任务期限：部门主管安排的执行窗口；进入「已安排」必须填写，但不会启动计时。
     scheduled_start = db.Column(db.Date, nullable=True)
     scheduled_end = db.Column(db.Date, nullable=True)
+    visit_at = db.Column(db.DateTime, nullable=True)  # 计划前往巡检地点时间（UTC naive）
     # 实施时效：进入「执行中」开始，巡检审核通过后结束。
     actual_start = db.Column(db.DateTime, nullable=True)
     actual_end = db.Column(db.DateTime, nullable=True)

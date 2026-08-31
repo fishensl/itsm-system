@@ -76,6 +76,11 @@
             <el-option v-for="u in assignUsers" :key="u.id" :label="u.name" :value="u.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="前往时间">
+          <el-date-picker v-model="assignVisitAt" type="datetime"
+            value-format="YYYY-MM-DDTHH:mm" format="YYYY-MM-DD HH:mm"
+            placeholder="选择计划前往时间" class="w-full" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="assignVisible = false">取消</el-button>
@@ -226,6 +231,28 @@
               <el-select v-model="form.source_type" class="w-full">
                 <el-option v-for="s in TICKET_SOURCE_TYPES" :key="s" :label="s" :value="s" />
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="报修联系人">
+              <el-input v-model="form.reporter" placeholder="姓名" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="联系电话">
+              <el-input v-model="form.reporter_phone" placeholder="手机号或座机" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="故障时间">
+              <el-date-picker v-model="form.reported_at" type="datetime"
+                value-format="YYYY-MM-DDTHH:mm" format="YYYY-MM-DD HH:mm"
+                placeholder="选择故障发生时间" class="w-full" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="故障地点">
+              <el-input v-model="form.fault_location" placeholder="如：西区机房" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
@@ -399,11 +426,13 @@ const assignVisible = ref(false)
 const assigning = ref(false)
 const assignTarget = ref<Ticket | null>(null)
 const assignUserId = ref<number | null>(null)
+const assignVisitAt = ref('')
 const assignUsers = ref<{ id: number; name: string }[]>([])
 
 async function openAssignDialog(row: Ticket) {
   assignTarget.value = row
   assignUserId.value = null
+  assignVisitAt.value = currentDateTime()
   if (!assignUsers.value.length) {
     try {
       const d = await fetchDepartments()
@@ -421,7 +450,19 @@ async function doAssign() {
   const name = assignUsers.value.find((u) => u.id === assignUserId.value)?.name || ''
   if (!name) return
   assignVisible.value = false
-  await doAction(assignTarget.value, 'assign', name)
+  actionRow.value = assignTarget.value
+  assigning.value = true
+  try {
+    await ticketAction(assignTarget.value.id, {
+      action: 'assign', assignee: name, visit_at: assignVisitAt.value || undefined,
+    })
+    ui.toast(`已派发给 ${name}`, 'success')
+    tableRef.value?.refresh()
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    assigning.value = false
+  }
 }
 
 async function openAudit(row: Ticket, approved: boolean) {
@@ -621,8 +662,15 @@ const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', customer_id: null, customer_name: '', priority: '中', source_type: '手动创建',
   category_path: [], severity_level: '', related_device_id: null, description: '', dispatch_mode: 'pending',
+  reporter: '', reporter_phone: '', reported_at: '', fault_location: '', visit_at: '',
   contract_exception_reason: '',
 })
+
+function currentDateTime() {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
 function isCompleteCategoryPath(value: unknown): value is string[] {
   if (!Array.isArray(value) || value.length !== 3 || value.some((item) => !String(item || '').trim())) {
     return false
@@ -658,6 +706,7 @@ const cascadeOptions = computed(() => {
 function openCreate() {
   Object.assign(form, { id: null, title: '', customer_id: null, customer_name: '', priority: '中',
     source_type: '手动创建', category_path: [], severity_level: '', related_device_id: null, description: '',
+    reporter: '', reporter_phone: '', reported_at: currentDateTime(), fault_location: '', visit_at: '',
     dispatch_mode: 'pending', contract_exception_reason: '' })
   // 驻场工程师：默认选中负责区域的第一个客户（无负责区域用户不受影响）
   const first = regionCustomers.value[0]
@@ -675,6 +724,9 @@ function openEdit(t: Ticket) {
     category_path: isCompleteCategoryPath(path) ? path : [],
     severity_level: t.severity_level || '',
     related_device_id: t.related_device_id, description: t.description, dispatch_mode: 'pending',
+    reporter: t.reporter || '', reporter_phone: t.reporter_phone || '',
+    reported_at: t.reported_at ? t.reported_at.replace(' ', 'T') : '',
+    fault_location: t.fault_location || '', visit_at: t.visit_at ? t.visit_at.replace(' ', 'T') : '',
     contract_exception_reason: t.contract_exception_reason || '',
   })
   formVisible.value = true

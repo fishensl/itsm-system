@@ -565,6 +565,8 @@ class TestTopologyTemplates:
         body = metadata.get_json()
         assert len(body['stencil_urls']) == 2
         assert body['clibs']
+        assert body['stencil_resource_version']
+        assert all('?v=' in url for url in body['stencil_urls'])
         assert body['can_add'] is False
         assert body['can_edit'] is False
 

@@ -24,6 +24,8 @@
           <span v-else>-</span>
         </el-descriptions-item>
         <el-descriptions-item :label="label('assigned_to', '处理人')">{{ detail.assigned_to || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('fault_location', '故障地点')">{{ detail.fault_location || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('visit_at', '前往时间')">{{ detail.visit_at || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('fault_category', '故障分类')">{{ detail.fault_category || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('created_by', '创建人')">{{ detail.created_by || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('created_at', '创建时间')">{{ detail.created_at }}</el-descriptions-item>

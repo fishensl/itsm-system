@@ -182,6 +182,12 @@
               <span v-if="inlineScheduleSummary" class="task-calendar-summary">
                 日历：{{ inlineScheduleSummary }}
               </span>
+              <div class="task-schedule-editor">
+                <span>前往时间：</span>
+                <el-date-picker v-model="inlineVisitAt" type="datetime"
+                  value-format="YYYY-MM-DDTHH:mm" format="YYYY-MM-DD HH:mm"
+                  placeholder="选择时间" size="small" class="inline-visit-at" />
+              </div>
               <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
@@ -296,6 +302,12 @@
               <span v-if="inlineScheduleSummary" class="task-calendar-summary">
                 日历：{{ inlineScheduleSummary }}
               </span>
+              <div class="task-schedule-editor">
+                <span>前往时间：</span>
+                <el-date-picker v-model="inlineVisitAt" type="datetime"
+                  value-format="YYYY-MM-DDTHH:mm" format="YYYY-MM-DD HH:mm"
+                  placeholder="选择时间" size="small" class="inline-visit-at" />
+              </div>
               <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
               <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
@@ -390,6 +402,11 @@
         <div v-if="createScheduleSummary" class="create-calendar-summary">
           任务期限日历：{{ createScheduleSummary }}
         </div>
+        <el-form-item label="前往时间">
+          <el-date-picker v-model="createForm.visit_at" type="datetime"
+            value-format="YYYY-MM-DDTHH:mm" format="YYYY-MM-DD HH:mm"
+            placeholder="选择计划前往时间" style="width: 100%" />
+        </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="优先级">
@@ -588,6 +605,7 @@ const createFormRef = ref()
 const createForm = reactive<Record<string, unknown>>({
   title: '', customer_id: undefined, assignee_id: null,
   planned_start: '', planned_end: '', scheduled_start: '', scheduled_end: '',
+  visit_at: '',
   priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
 })
 
@@ -601,6 +619,7 @@ const inlineContractRange = ref<string[]>([])
 const inlineContractChanged = ref(false)
 const inlineScheduleRange = ref<string[]>([])
 const inlineScheduleChanged = ref(false)
+const inlineVisitAt = ref('')
 const detail = ref<TaskScheduleItem | null>(null)
 const deleting = ref(false)
 const importInput = ref<HTMLInputElement>()
@@ -833,6 +852,7 @@ function openCreate() {
   Object.assign(createForm, {
     title: '', customer_id: undefined, assignee_id: null,
     planned_start: today, planned_end: today, scheduled_start: today, scheduled_end: today,
+    visit_at: currentDateTime(),
     priority: '中', estimated_effort: null, task_type: '计划', remark: '', contract_exception_reason: '',
   })
   createVisible.value = true
@@ -872,6 +892,7 @@ function openInline(t: TaskScheduleItem) {
   const end = t.scheduled_end || t.scheduled_start || today
   inlineScheduleRange.value = [start, end]
   inlineScheduleChanged.value = !t.scheduled_start || !t.scheduled_end
+  inlineVisitAt.value = t.visit_at ? t.visit_at.replace(' ', 'T') : ''
   loadRecord()
 }
 
@@ -882,6 +903,7 @@ function cancelInline() {
   inlineContractChanged.value = false
   inlineScheduleRange.value = []
   inlineScheduleChanged.value = false
+  inlineVisitAt.value = ''
   record.value = null
   versions.value = []
 }
@@ -930,6 +952,8 @@ async function saveInline() {
   if (inlineScheduleChanged.value && scheduledEnd !== detail.value.scheduled_end) {
     patch.scheduled_end = scheduledEnd
   }
+  const existingVisitAt = detail.value.visit_at ? detail.value.visit_at.replace(' ', 'T') : ''
+  if (inlineVisitAt.value !== existingVisitAt) patch.visit_at = inlineVisitAt.value
   if (!Object.keys(patch).length) {
     ui.toast('无改动', 'info')
     return
@@ -949,6 +973,12 @@ function formatLocalDate(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, '0')
   const day = String(value.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function currentDateTime() {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
 }
 
 function todayString() {

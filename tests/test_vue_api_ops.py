@@ -677,6 +677,37 @@ class TestReports:
             if os.path.exists(full):
                 os.remove(full)
 
+    def test_formal_and_uploaded_reports_group_into_one_record_row(
+            self, op_client, report_seed, app, report_dirs):
+        formal_name = '巡检报告_报告客户A_正式.docx'
+        formal_full = os.path.join(report_dirs['reports'], formal_name)
+        uploaded_rel = 'uploads/inspection_reports/grouped/现场总结.docx'
+        uploaded_full = os.path.join(report_dirs['uploads'], 'inspection_reports',
+                                     'grouped', '现场总结.docx')
+        os.makedirs(os.path.dirname(uploaded_full), exist_ok=True)
+        with open(formal_full, 'wb') as fp:
+            fp.write(b'formal')
+        with open(uploaded_full, 'wb') as fp:
+            fp.write(b'uploaded')
+        try:
+            with app.app_context():
+                inspection = Inspection.query.get(report_seed['insp'])
+                inspection.report_file = formal_name
+                inspection.submitted_report = uploaded_rel
+                db.session.commit()
+            data = op_client.get('/api/reports', query_string={'tab': 'file'}).get_json()['data']
+            rows = [row for row in data['items']
+                    if row['id'] == f'inspection:{report_seed["insp"]}']
+            assert len(rows) == 1
+            assert rows[0]['title'] == '近期巡检'
+            assert {item['name'] for item in rows[0]['report_files']} == {
+                formal_name, '现场总结.docx'}
+            assert rows[0]['status'] == '巡检报告 · 2 个文件'
+        finally:
+            for path in (formal_full, uploaded_full):
+                if os.path.exists(path):
+                    os.remove(path)
+
     def test_download_ok(self, op_client, report_dirs):
         full = os.path.join(report_dirs['uploads'], 'inspection_reports', 'down', 'ok.docx')
         os.makedirs(os.path.dirname(full), exist_ok=True)

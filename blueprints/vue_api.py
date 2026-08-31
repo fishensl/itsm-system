@@ -15,6 +15,7 @@ from models import db, User
 from utils.permission import get_user_permissions, has_permission, require_permission
 from utils.operation_token import require_op_token
 from utils.json_fields import dumps_json, parse_json
+from utils.business_time import format_beijing
 from utils.sidebar_config import get_user_sidebar_groups
 from utils import constants as _const
 from app import csrf, limiter
@@ -1955,6 +1956,7 @@ def _ticket_payload(t, customer_map=None, timing=None):
         'customer': customer_min,
         'reporter': t.reporter or '',
         'reporter_phone': t.reporter_phone or '',
+        'fault_location': t.fault_location or '',
         'related_device_id': None if external else t.related_device_id,
         'related_device_name': '' if external else (related_device.device_name if related_device else ''),
         'assigned_to': t.assigned_to or '',
@@ -1988,6 +1990,7 @@ def _ticket_payload(t, customer_map=None, timing=None):
         'sla_overdue': bool(t.sla_deadline and t.status != _const.TICKET_CLOSED
                             and t.sla_deadline < datetime.utcnow()),
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
+        'visit_at': format_beijing(t.visit_at) if t.visit_at else '',
         'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
         'completed_at': t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '',
         'reported_at': timing['reported_at'],
@@ -2142,7 +2145,8 @@ def api_ticket_create():
         t = create_ticket(data, me)
         # 自接单：录单+派单+接单一体
         if data.get('dispatch_mode') == 'self_accept':
-            assign_ticket(t.id, me, me, remark='录单时自行接单')
+            assign_ticket(t.id, me, me, remark='录单时自行接单',
+                          visit_at=data.get('visit_at'))
             accept_ticket(t.id, me, remark='录单即开工')
         db.session.commit()
     except Exception as e:
@@ -2151,10 +2155,11 @@ def api_ticket_create():
     # V28: 工单新建 → 多渠道通知（规则接收人：如销售）
     try:
         from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_NEW
-        wecom_broadcast(EVENT_TICKET_NEW,
-                        f'新建工单 {t.number}',
-                        f'{me} 创建了工单「{t.title}」，请关注处理进度',
-                        f'/app/tickets/{t.id}')
+        from utils.wecom_notify import ticket_notification_content
+        wecom_broadcast(
+            EVENT_TICKET_NEW, f'新建工单 {t.number} · {t.title}',
+            ticket_notification_content(t, actor=me),
+            f'/app/tickets/{t.id}', mode='markdown')
     except Exception:
         current_app.logger.warning('工单新建多渠道通知失败 id=%s', t.id)
     from utils.constants import TICKET_CONTRACT_REVIEW
@@ -2327,7 +2332,9 @@ def api_ticket_action(ticket_id):
         if action == 'assign':
             if not data.get('assignee'):
                 return fail('请填写指派处理人', 400)
-            assign_ticket(ticket_id, data['assignee'], me, remark or f'派给 {data["assignee"]}')
+            assign_ticket(ticket_id, data['assignee'], me,
+                          remark or f'派给 {data["assignee"]}',
+                          visit_at=data.get('visit_at'))
         elif action == 'accept':
             accept_ticket(ticket_id, me, remark or '已接单，开始处理')
         elif action == 'submit':
@@ -2408,15 +2415,30 @@ def api_ticket_action(ticket_id):
                             f'/app/tickets/{t.id}')
         # 派发：多渠道通知被指派人
         if action == 'assign':
-            from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_ASSIGN
+            from utils.wecom_notify import (
+                EVENT_TICKET_ASSIGN, ticket_notification_content, wecom_broadcast)
             assign_target = _U2.query.filter(
                 (_U2.username == (data.get('assignee') or '')) |
                 (_U2.realname == (data.get('assignee') or ''))).first()
-            wecom_broadcast(EVENT_TICKET_ASSIGN,
-                            f'工单 {t.number} 派发给你',
-                            f'{me} 将工单「{t.title}」派给你处理',
-                            f'/app/tickets/{t.id}',
-                            target_user_ids=[assign_target.id] if assign_target else [])
+            assignee_name = ((assign_target.realname or assign_target.username)
+                             if assign_target else (data.get('assignee') or ''))
+            wecom_broadcast(
+                EVENT_TICKET_ASSIGN,
+                f'工单 {t.number} 已派发给 {assignee_name}',
+                ticket_notification_content(t, actor=me, assignee=assignee_name),
+                f'/app/tickets/{t.id}',
+                target_user_ids=[assign_target.id] if assign_target else [],
+                mode='markdown')
+        if action == 'add_progress':
+            from utils.wecom_notify import (
+                EVENT_TICKET_PROGRESS, ticket_notification_content, wecom_broadcast)
+            progress_text = (data.get('content') or data.get('remark') or '').strip()
+            wecom_broadcast(
+                EVENT_TICKET_PROGRESS,
+                f'工单 {t.number} 处置进展 · {t.title}',
+                ticket_notification_content(
+                    t, actor=me, assignee=t.assigned_to, progress=progress_text),
+                f'/app/tickets/{t.id}', mode='markdown')
         # 审核通过（已验收）：工单完成 → 多渠道 markdown 摘要通知（规则接收人）
         if action == 'audit' and data.get('approved'):
             from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_COMPLETED

@@ -38,12 +38,14 @@ class Ticket(db.Model):
     customer_name_text = db.Column(db.String(128), default='')  # 外网建单手填客户名（无客户主数据绑定）
     reporter = db.Column(db.String(64), default='')
     reporter_phone = db.Column(db.String(32), default='')
+    fault_location = db.Column(db.String(256), default='')
     related_inspection_id = db.Column(db.Integer, db.ForeignKey('inspections.id'), nullable=True)
     related_device_id = db.Column(db.Integer, db.ForeignKey('devices.id'), nullable=True)
     fault_category_id = db.Column(db.Integer, db.ForeignKey('fault_types.id'), nullable=True)
     assigned_to = db.Column(db.String(64), default='', index=True)
     assigned_by = db.Column(db.String(64), default='')
     assigned_at = db.Column(db.DateTime, nullable=True)
+    visit_at = db.Column(db.DateTime, nullable=True)  # 计划前往现场时间（UTC naive）
     reported_at = db.Column(db.DateTime, nullable=True)  # 用户填写的故障发生时间（UTC naive）
     accepted_at = db.Column(db.DateTime, nullable=True)
     started_at = db.Column(db.DateTime, nullable=True)

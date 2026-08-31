@@ -95,7 +95,7 @@ class WecomChannel(NotifyChannel):
         if content:
             text += f'\n{content}'
         if link:
-            text += f'\n{link}'
+            text += f'\n查看详情：{link}'
         self._send_payload({
             'msgtype': 'text',
             'text': {'content': text[:2048]},

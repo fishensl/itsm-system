@@ -38,6 +38,13 @@ def _leaf_fault_type_id(l1, l2, l3):
 # 状态集合单一真源在 utils/constants.py（此处保留别名兼容旧引用）
 TICKET_STATES = TICKET_STATUSES
 
+
+def _parse_optional_beijing(value, field_label):
+    parsed = parse_beijing_to_utc(value)
+    if value and parsed is None:
+        raise ServiceError(f'{field_label}格式不正确，应为 YYYY-MM-DD HH:mm')
+    return parsed
+
 def ticket_completeness(t):
     """工单资料完整性检查：报告为可选附件，返回 (complete, missing_fields)。"""
     missing = []
@@ -115,9 +122,13 @@ def create_ticket(data, current_user_name):
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         customer_name_text=(data.get('customer_name') or '').strip(),
         priority=priority,
+        source_type=(data.get('source_type') or '手动创建').strip() or '手动创建',
         description=data.get('description', ''),
+        reporter=(data.get('reporter') or '').strip(),
+        reporter_phone=(data.get('reporter_phone') or '').strip(),
+        fault_location=(data.get('fault_location') or '').strip(),
         assigned_to=data.get('assigned_to', ''),
-        reported_at=parse_beijing_to_utc(data.get('reported_at')),
+        reported_at=_parse_optional_beijing(data.get('reported_at'), '故障时间'),
         related_device_id=int(data['related_device_id']) if data.get('related_device_id') else None,
         created_by=current_user_name,
         status=initial_status,
@@ -163,7 +174,14 @@ def update_ticket(ticket_id, data, current_user_name):
     if data.get('customer_name') is not None:
         t.customer_name_text = (data.get('customer_name') or '').strip()
     t.priority = data.get('priority', t.priority)
+    t.source_type = (data.get('source_type') or t.source_type or '手动创建').strip()
     t.description = data.get('description', t.description)
+    if 'reporter' in data:
+        t.reporter = (data.get('reporter') or '').strip()
+    if 'reporter_phone' in data:
+        t.reporter_phone = (data.get('reporter_phone') or '').strip()
+    if 'fault_location' in data:
+        t.fault_location = (data.get('fault_location') or '').strip()
     t.assigned_to = data.get('assigned_to', t.assigned_to)
     if 'related_device_id' in data:
         t.related_device_id = int(data['related_device_id']) if data.get('related_device_id') else None
@@ -178,7 +196,7 @@ def update_ticket(ticket_id, data, current_user_name):
     if 'severity_level' in data:
         t.severity_level = (data.get('severity_level') or '').strip()
     if 'reported_at' in data:
-        t.reported_at = parse_beijing_to_utc(data.get('reported_at'))
+        t.reported_at = _parse_optional_beijing(data.get('reported_at'), '故障时间')
     _record_log(t, '编辑工单', current_user_name, '')
     return t
 
@@ -197,7 +215,7 @@ def _transition(ticket, target_state, current_user_name, remark=''):
 
 
 @transaction
-def assign_ticket(ticket_id, assignee, current_user_name, remark=''):
+def assign_ticket(ticket_id, assignee, current_user_name, remark='', visit_at=None):
     """派单"""
     t = Ticket.query.get_or_404(ticket_id)
     if not assignee:
@@ -205,6 +223,8 @@ def assign_ticket(ticket_id, assignee, current_user_name, remark=''):
     t.assigned_to = assignee
     t.assigned_by = current_user_name
     t.assigned_at = datetime.utcnow()
+    if visit_at is not None:
+        t.visit_at = _parse_optional_beijing(visit_at, '前往时间')
     _transition(t, TICKET_ASSIGNED, current_user_name, f'派给 {assignee}')
     return t
 
@@ -325,6 +345,7 @@ def unassign_ticket(ticket_id, current_user_name, remark=''):
     t.assigned_to = ''
     t.assigned_by = ''
     t.assigned_at = None
+    t.visit_at = None
     _transition(t, TICKET_PENDING_ASSIGN, current_user_name, remark or '撤回重派')
     return t
 

@@ -36,6 +36,10 @@ export interface Ticket {
   priority: string
   customer_id: number | null
   customer_name: string
+  reporter: string
+  reporter_phone: string
+  fault_location: string
+  visit_at: string
   /** 外网工单客户最小集（名称/办公室/门牌号/地图定位）；内网为 null */
   customer: { name: string; office: string; office_room: string; map_location: string } | null
   related_device_id: number | null
@@ -125,6 +129,7 @@ export interface TicketQuery {
 export interface TicketActionPayload {
   action: string
   assignee?: string
+  visit_at?: string
   remark?: string
   approved?: boolean
   diagnosis?: string

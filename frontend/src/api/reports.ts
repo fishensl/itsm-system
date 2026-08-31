@@ -19,6 +19,12 @@ export interface ReportRow {
   report_url: string
   has_report: boolean
   size_display: string
+  report_files?: Array<{
+    name: string
+    url: string
+    size_display: string
+    deletable: boolean
+  }>
 }
 
 export interface ReportStats {

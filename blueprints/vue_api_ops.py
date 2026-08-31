@@ -16,6 +16,7 @@ from sqlalchemy.orm import joinedload
 from blueprints.vue_api import vue_api_bp, ok, fail
 from models import db
 from utils import constants as _const
+from utils.business_time import format_beijing
 from utils.json_fields import dumps_json, parse_json
 from utils.permission import require_permission
 
@@ -778,20 +779,58 @@ def _scan_report_files(date_from, date_to, customer_id, search):
                     rel = os.path.relpath(full, UPLOADS_DIR).replace(os.sep, '/')
                     url = '/api/reports/file/' + quote(rel)
                 size = os.path.getsize(full)
+                if isinstance(rec, _I):
+                    record_key = f'inspection:{rec.id}'
+                    record_title = rec.title
+                    record_status = '巡检报告'
+                elif isinstance(rec, _T):
+                    record_key = f'ticket:{rec.id}'
+                    record_title = f'{rec.number} · {rec.title}'
+                    record_status = '故障报告'
+                elif isinstance(rec, _F):
+                    record_key = f'fault:{rec.id}'
+                    record_title = rec.title
+                    record_status = '故障报告'
+                else:
+                    record_key = f'file:{os.path.normcase(os.path.realpath(full))}'
+                    record_title = fname
+                    record_status = ftype + '报告' if ftype != '其他' else '其他'
                 out.append({
                     'customer_id': cid, 'customer_name': cname,
-                    'id': full, 'type': 'file',
-                    'title': fname,
+                    'id': record_key, 'type': 'file',
+                    'title': record_title,
                     'date': mtime.strftime('%Y-%m-%d %H:%M'),
-                    'status': ftype + '报告' if ftype != '其他' else '其他',
+                    'status': record_status,
                     'report_name': fname,
                     'report_url': url,
                     'has_report': True,
                     'size_display': f'{size / 1024:.1f} KB',
                     'deletable': d == REPORTS_DIR,
+                    'report_files': [{
+                        'name': fname, 'url': url,
+                        'size_display': f'{size / 1024:.1f} KB',
+                        'deletable': d == REPORTS_DIR,
+                    }],
                     '_sort_dt': mtime,
                 })
-    return out
+    # 同一巡检/工单可能同时有系统正式报告和人工上传报告。它们是两个真实文件，
+    # 但报告中心按业务记录归为一行，避免被误认为重复记录。
+    grouped = {}
+    for item in out:
+        key = item['id']
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = item
+            continue
+        current['report_files'].extend(item['report_files'])
+        if item['_sort_dt'] > current['_sort_dt']:
+            current['_sort_dt'] = item['_sort_dt']
+            current['date'] = item['date']
+        base_status = current['status'].split(' · ', 1)[0]
+        current['status'] = f'{base_status} · {len(current["report_files"])} 个文件'
+        current['size_display'] = f'{len(current["report_files"])} 个文件'
+        current['deletable'] = False
+    return list(grouped.values())
 
 
 @vue_api_bp.route('/api/reports/file/<path:rel_path>')
@@ -1359,6 +1398,7 @@ def api_task_schedule_board():
             'planned_end': t.planned_end.isoformat() if t.planned_end else '',
             'scheduled_start': t.scheduled_start.isoformat() if t.scheduled_start else '',
             'scheduled_end': t.scheduled_end.isoformat() if t.scheduled_end else '',
+            'visit_at': format_beijing(t.visit_at) if t.visit_at else '',
             'estimated_effort': t.estimated_effort,
             **timing,
             'overdue': is_overdue(t, today),
@@ -1447,6 +1487,10 @@ def api_task_schedule_quick_add():
         return fail('任务期限格式不正确，应为 YYYY-MM-DD', 400)
     if scheduled_start and scheduled_end and scheduled_start > scheduled_end:
         return fail('任务期限开始日期不能晚于结束日期', 400)
+    from utils.business_time import parse_beijing_to_utc
+    visit_at = parse_beijing_to_utc(data.get('visit_at'))
+    if data.get('visit_at') and visit_at is None:
+        return fail('前往时间格式不正确，应为 YYYY-MM-DD HH:mm', 400)
     # V28: 客户合同过期门禁 → 合同审批态（需部门主管审核放行）
     from utils.customer_contract import contract_expired as _ce
     from models import Customer as _C
@@ -1470,6 +1514,7 @@ def api_task_schedule_quick_add():
         planned_end=planned_end,
         scheduled_start=scheduled_start,
         scheduled_end=scheduled_end,
+        visit_at=visit_at,
         priority=(data.get('priority') or '中').strip() or '中',
         estimated_effort=float(data['estimated_effort']) if data.get('estimated_effort') is not None else None,
         assigned_to_user_id=data.get('assignee_id') or None,
@@ -1508,7 +1553,7 @@ def api_task_schedule_quick_add():
 @login_required
 @require_permission('task:schedule')
 def api_task_schedule_update(task_id):
-    from models import InspectionTask as _IT
+    from models import InspectionTask as _IT, User as _U
     from datetime import date as _date
     from blueprints.task_schedule import local_now
     t = _IT.query.get_or_404(task_id)
@@ -1537,6 +1582,12 @@ def api_task_schedule_update(task_id):
     except (TypeError, ValueError):
         db.session.rollback()
         return fail('任务期限格式不正确，应为 YYYY-MM-DD', 400)
+    if data.get('visit_at') is not None:
+        from utils.business_time import parse_beijing_to_utc
+        t.visit_at = parse_beijing_to_utc(data.get('visit_at'))
+        if data.get('visit_at') and t.visit_at is None:
+            db.session.rollback()
+            return fail('前往时间格式不正确，应为 YYYY-MM-DD HH:mm', 400)
     old_uid = t.assigned_to_user_id
     assignee_changed = 'assignee_id' in data
     if assignee_changed:
@@ -1567,13 +1618,18 @@ def api_task_schedule_update(task_id):
                        f'合同时效 {t.planned_start or "-"} ~ {t.planned_end or "-"}；'
                        f'任务期限 {t.scheduled_start or "-"} ~ {t.scheduled_end or "-"}，请及时处理',
                        '/app/task-schedule')
-                from utils.wecom_notify import wecom_broadcast, EVENT_INSPECTION_ASSIGN
-                wecom_broadcast(EVENT_INSPECTION_ASSIGN,
-                                f'巡检任务指派：{t.title}',
-                                f'合同时效 {t.planned_start or "-"} ~ {t.planned_end or "-"}；'
-                                f'任务期限 {t.scheduled_start or "-"} ~ {t.scheduled_end or "-"}，请及时处理',
-                                '/app/task-schedule',
-                                target_user_ids=[new_uid])
+                from utils.wecom_notify import (
+                    EVENT_INSPECTION_ASSIGN, inspection_notification_content,
+                    wecom_broadcast)
+                assignee = db.session.get(_U, new_uid)
+                assignee_name = ((assignee.realname or assignee.username)
+                                 if assignee else '')
+                wecom_broadcast(
+                    EVENT_INSPECTION_ASSIGN,
+                    f'巡检任务已安排给 {assignee_name}：{t.title}',
+                    inspection_notification_content(t, assignee_name),
+                    '/app/task-schedule', target_user_ids=[new_uid],
+                    mode='markdown')
             except Exception:
                 current_app.logger.warning('任务指派通知失败 task_id=%s', task_id)
     if data.get('estimated_effort') is not None:

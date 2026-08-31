@@ -83,20 +83,31 @@ const STATUS_TAG: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 
 
 function reportCell(row: Record<string, any>): string | VNode {
   if (!row.has_report || !row.report_url) return h('span', { class: 'report-none' }, '无')
-  return h('div', { class: 'report-cell' }, [
-    h('span', { class: 'report-name', title: row.report_name }, row.report_name),
-    h('span', { class: 'report-size' }, row.size_display ? `（${row.size_display}）` : ''),
-    h('a', { class: 'report-download', href: row.report_url, target: '_blank' }, '下载'),
-  ])
+  const files = row.report_files?.length
+    ? row.report_files
+    : [{ name: row.report_name, url: row.report_url, size_display: row.size_display }]
+  return h('div', { class: 'report-cell' }, files.map((file: Record<string, string>) =>
+    h('div', { class: 'report-file-item' }, [
+      h('span', { class: 'report-name', title: file.name }, file.name),
+      h('span', { class: 'report-size' }, file.size_display ? `（${file.size_display}）` : ''),
+      h('a', { class: 'report-download', href: file.url, target: '_blank' }, '下载'),
+    ])))
+}
+
+function titleCell(row: Record<string, any>): string | VNode {
+  const href = row.type === 'inspection'
+    ? `/app/inspections/${row.id}`
+    : (row.type === 'ticket' ? `/app/tickets/${row.id}` : '')
+  return href
+    ? h('a', { class: 'row-link', href }, row.title)
+    : h('span', row.title)
 }
 
 const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'type', label: '类型', width: 90, type: 'tag', asTag: true,
     tagMap: REPORT_TYPE_TAG, valueMap: REPORT_TYPE_MAP },
-  { key: 'title', label: '标题 / 文件名', minWidth: 200, asTitle: true, type: 'link',
-    link: (r) => (r.type === 'inspection'
-      ? `/app/inspections/${r.id}`
-      : (r.type === 'ticket' ? `/app/tickets/${r.id}` : '')) },
+  { key: 'title', label: '标题 / 文件名', minWidth: 200, asTitle: true,
+    type: 'custom', render: (row) => titleCell(row) },
   { key: 'customer_name', label: '客户', minWidth: 100 },
   { key: 'date', label: '日期', width: 140 },
   { key: 'status', label: '状态', width: 90, type: 'tag', valueMap: { '': '—' }, tagMap: STATUS_TAG },
@@ -166,7 +177,8 @@ onMounted(() => {
 .filter-search { width: 180px; max-width: 100%; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .report-tabs { margin-bottom: 8px; }
-.report-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.report-cell { display: grid; gap: 4px; }
+.report-file-item { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .report-name { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
 .report-size { color: var(--itsm-text-muted); font-size: 12px; }
 .report-download { color: var(--el-color-primary); font-size: 12px; }
