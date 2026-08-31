@@ -791,6 +791,10 @@ class TestDeviceImportSync:
         assert response.status_code == 200
         assert data['failed'] == 0
         assert data['skipped'] == 2
+        assert len(data['skip_details']) == 2
+        assert data['skip_details'][0]['row'] == 2
+        assert '系统中不存在可更新的正式设备' in data['skip_details'][0]['reason']
+        assert '仅新增' in data['skip_details'][0]['reason']
 
     def test_update_legacy_duplicate_names_by_rack_position(self, op_client, seed, app):
         """旧模板无设备ID时，用机柜号+起始U位精确更新真实同名设备。"""

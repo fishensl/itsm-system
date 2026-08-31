@@ -74,6 +74,17 @@
           <el-tag type="warning">跳过 {{ importPreview.skipped }}</el-tag>
           <el-tag type="danger">失败 {{ importPreview.failed }}</el-tag>
         </div>
+        <el-alert v-if="importNoActionMessage" class="mt-2" type="warning" :closable="false"
+          show-icon :title="importNoActionMessage" />
+        <el-collapse v-if="importPreview.skip_details?.length" class="mt-2">
+          <el-collapse-item :title="`查看跳过明细（${importPreview.skip_details.length} 条）`">
+            <div class="import-skip-details">
+              <div v-for="item in importPreview.skip_details" :key="`${item.row}-${item.device_name}`">
+                第 {{ item.row }} 行（{{ item.device_name || '未命名设备' }}）：{{ item.reason }}
+              </div>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
         <el-form v-if="Object.keys(importPreview.unknown_network_types).length" label-width="120px" class="mt-2">
           <el-alert type="warning" :closable="false" title="未知网络类型不会自动猜测，请确认本次映射后重新预检。" />
           <el-form-item v-for="(rows, value) in importPreview.unknown_network_types"
@@ -90,8 +101,9 @@
       </el-card>
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="doImport">
-          {{ importPreview && !importPreview.failed ? '确认执行' : '上传并预检' }}
+        <el-button type="primary" :loading="importing"
+          :disabled="Boolean(importPreview && !importPreview.failed && !importHasActions)" @click="doImport">
+          {{ importPreview && !importPreview.failed && importHasActions ? '确认执行' : '上传并预检' }}
         </el-button>
       </template>
     </el-dialog>
@@ -699,6 +711,9 @@ import {
 import { copySensitiveText } from '@/utils/secureClipboard'
 import { DEVICE_PRESETS } from '@/utils/exportColumns'
 import { downloadImportTemplate } from '@/utils/importTemplate'
+import {
+  deviceImportNoActionMessage, hasExecutableDeviceImport, type DeviceImportMode,
+} from '@/utils/deviceImport'
 
 const route = useRoute()
 const user = useUserStore()
@@ -1072,9 +1087,12 @@ const importing = ref(false)
 const importUploadRef = ref()
 const importFile = ref<File | null>(null)
 type ImportPreview = Awaited<ReturnType<typeof importDevicesEncrypted>>
-const importMode = ref<'create' | 'update' | 'upsert'>('create')
+const importMode = ref<DeviceImportMode>('create')
 const importClearEmpty = ref(false)
 const importPreview = ref<ImportPreview | null>(null)
+const importHasActions = computed(() => hasExecutableDeviceImport(importPreview.value))
+const importNoActionMessage = computed(() =>
+  deviceImportNoActionMessage(importPreview.value, importMode.value))
 const networkMappings = reactive<Record<string, string>>({})
 
 function onImportFileChange(f: UploadFile) {
@@ -1198,7 +1216,7 @@ async function doImport() {
   }
   importing.value = true
   try {
-    const execute = Boolean(importPreview.value && !importPreview.value.failed)
+    const execute = Boolean(importPreview.value && !importPreview.value.failed && importHasActions.value)
     const fields: Record<string, string> = {
       mode: importMode.value,
       clear_empty: importClearEmpty.value ? '1' : '0',
@@ -1212,7 +1230,10 @@ async function doImport() {
       for (const value of Object.keys(res.unknown_network_types)) {
         if (!(value in networkMappings)) networkMappings[value] = ''
       }
-      ui.toast(res.failed ? '预检完成，请处理失败项' : '预检通过，请确认执行', res.failed ? 'warning' : 'success')
+      const noActionMessage = deviceImportNoActionMessage(res, importMode.value)
+      if (res.failed) ui.toast('预检完成，请处理失败项', 'warning')
+      else if (noActionMessage) ui.toast(noActionMessage, 'warning')
+      else ui.toast('预检通过，请确认执行', 'success')
       if (res.errors.length) {
         ElMessageBox.alert(res.errors.join('\n'), '预检明细', {
           customStyle: { maxHeight: '70vh', overflow: 'auto', whiteSpace: 'pre-wrap' },
@@ -1736,6 +1757,17 @@ fetchDeviceDicts().then((d) => {
 }
 .mb-2 {
   margin-bottom: 8px;
+}
+.mt-2 {
+  margin-top: 8px;
+}
+.import-skip-details {
+  max-height: 220px;
+  overflow: auto;
+  color: var(--itsm-text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-word;
 }
 .filter-row {
   display: flex;

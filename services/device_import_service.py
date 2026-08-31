@@ -410,6 +410,7 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
         )
         name_occurrences[name_key] = name_occurrences.get(name_key, 0) + 1
     counts = {'create': 0, 'update': 0, 'unchanged': 0, 'skipped': 0, 'failed': 0}
+    skip_details = []
     for row in rows:
         row_no = row['_row']
         name = str(row.get('device_name') or '').strip()
@@ -454,12 +455,25 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
                 raise ServiceError('未归属客户的设备更新必须填写设备ID')
             if existing and mode == 'create':
                 counts['skipped'] += 1
+                skip_details.append({
+                    'row': row_no,
+                    'device_name': name,
+                    'reason': '仅新增模式：系统中已存在匹配的正式设备',
+                })
                 plan.append({'action': 'skip', 'row': row, 'device': existing})
                 continue
             if existing:
                 target_key = ('id', existing.id)
             elif mode == 'update':
                 counts['skipped'] += 1
+                skip_details.append({
+                    'row': row_no,
+                    'device_name': name,
+                    'reason': (
+                        '仅更新模式：系统中不存在可更新的正式设备；'
+                        '机柜手工记录不等于设备资产，请改用“仅新增”或“新增并更新”'
+                    ),
+                })
                 plan.append({'action': 'skip', 'row': row, 'device': None})
                 continue
             else:
@@ -504,7 +518,8 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
             error_details.append((row_no, row_name, f'网络类型「{value}」不在系统设置中'))
         counts['failed'] += len(row_numbers)
     return {'plan': plan, 'counts': counts, 'errors': errors,
-            'error_details': error_details, 'unknown_network_types': unknown,
+            'error_details': error_details, 'skip_details': skip_details,
+            'unknown_network_types': unknown,
             'network_type_options': sorted(valid_networks), 'clear_empty': clear_empty}
 
 

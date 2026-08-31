@@ -331,6 +331,7 @@ export function importDevices(formData: FormData) {
     skipped: number
     failed: number
     errors: string[]
+    skip_details: Array<{ row: number; device_name: string; reason: string }>
     total_errors: number
     unknown_network_types: Record<string, number[]>
     network_type_options: string[]

@@ -897,6 +897,7 @@ def api_v2_device_import():
             'created': prepared['counts']['create'],
             'updated': prepared['counts']['update'],
             'errors': prepared['errors'],
+            'skip_details': prepared['skip_details'],
             'total_errors': prepared['counts']['failed'],
             'unknown_network_types': prepared['unknown_network_types'],
             'network_type_options': prepared['network_type_options'],
