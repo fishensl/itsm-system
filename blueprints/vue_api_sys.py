@@ -1187,16 +1187,26 @@ def api_access_control_save():
 
 
 # ==================== 多渠道通知（渠道配置 / 通知规则，内网管理项） ====================
+_CHANNEL_SECRET_STORAGE = {
+    'secret': 'secret_encrypted',
+    'app_secret': 'app_secret_encrypted',
+    'webhook_url': 'webhook_url_encrypted',
+}
+_CHANNEL_SECRET_FIELDS = frozenset(_CHANNEL_SECRET_STORAGE)
+_CHANNEL_ENCRYPTED_FIELDS = frozenset(_CHANNEL_SECRET_STORAGE.values())
+
+
 def _channel_payload(c):
     """渠道序列化：敏感项仅输出 has_secret 标记，不回传密文"""
     cfg = __import__('utils.json_fields', fromlist=['parse_json']).parse_json(
         c.config_json or '', default={}, field_name='channel_config')
     if not isinstance(cfg, dict):
         cfg = {}
-    has_secret = bool(cfg.get('secret_encrypted') or cfg.get('app_secret_encrypted') or
-                      cfg.get('app_secret') or cfg.get('secret'))
+    expected_secret = ('webhook_url_encrypted' if c.channel_type == 'wecom'
+                       else 'app_secret_encrypted')
+    has_secret = bool(cfg.get(expected_secret))
     public = {k: v for k, v in cfg.items()
-              if k not in ('secret_encrypted', 'app_secret_encrypted', 'secret', 'app_secret')}
+              if k not in _CHANNEL_SECRET_FIELDS | _CHANNEL_ENCRYPTED_FIELDS}
     return {
         'id': c.id, 'channel_type': c.channel_type, 'name': c.name or c.channel_type,
         'is_enabled': bool(c.is_enabled), 'sort_order': c.sort_order or 0,
@@ -1219,15 +1229,23 @@ def api_notify_channels_list():
 @require_permission('notify:edit')
 @require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('credential_envelope')) or
                   any(bool(((request.get_json(silent=True) or {}).get('config') or {}).get(key))
-                      for key in ('secret', 'app_secret')))
+                      for key in _CHANNEL_SECRET_FIELDS))
 def api_notify_channel_save(channel_type):
-    """保存渠道配置（secret 留空=不修改，保持已存密文）"""
+    """保存渠道配置（敏感项留空=不修改，保持已存密文）。"""
     from models import NotifyChannelConfig
     from utils.json_fields import parse_json, dumps_json
     data = request.get_json(silent=True) or {}
     incoming = dict(data.get('config') or {})
+    if _CHANNEL_ENCRYPTED_FIELDS & incoming.keys():
+        return fail('通知凭据密文字段不得由客户端直接提交', 400)
     credential_envelope = data.pop('credential_envelope', None)
-    raw_secret = next((key for key in ('secret', 'app_secret') if incoming.get(key)), None)
+    allowed_secrets = ({'webhook_url'} if channel_type == 'wecom'
+                       else {'app_secret'} if channel_type in {'dingtalk', 'feishu'}
+                       else set())
+    submitted_secrets = {key for key in _CHANNEL_SECRET_FIELDS if incoming.get(key)}
+    if submitted_secrets - allowed_secrets:
+        return fail('该通知渠道的敏感配置字段不正确', 400)
+    raw_secret = next(iter(submitted_secrets), None)
     from services.credential_envelope_service import (
         consume_request_envelope, note_raw_credential_compat, purpose_required)
     if credential_envelope:
@@ -1242,7 +1260,7 @@ def api_notify_channel_save(channel_type):
             return fail(str(exc) or '通知凭据处理失败', 400)
         secret_key = consumed.payload.get('secret_key')
         secret_value = consumed.payload.get('secret')
-        if secret_key not in {'secret', 'app_secret'} or not isinstance(secret_value, str):
+        if secret_key not in allowed_secrets or not isinstance(secret_value, str):
             return fail('安全信封无效或已失效，请重新操作', 400)
         incoming[secret_key] = secret_value
     elif raw_secret and purpose_required('notification.credential.update'):
@@ -1261,15 +1279,28 @@ def api_notify_channel_save(channel_type):
     cfg = parse_json(row.config_json or '', default={}, field_name='channel_config')
     if not isinstance(cfg, dict):
         cfg = {}
+    if channel_type == 'wecom' and incoming.get('webhook_url'):
+        from utils.notify_channels.wecom import validate_webhook_url
+        try:
+            validate_webhook_url(incoming['webhook_url'])
+        except Exception as exc:
+            return fail(str(exc) or '企业微信 Webhook 地址无效', 400)
     # 敏感项加密存储
-    for k in ('secret', 'app_secret'):
+    for k in _CHANNEL_SECRET_FIELDS:
         if k in incoming and incoming[k]:
             from utils.crypto import encrypt_password
-            cfg[k.replace('secret', 'secret_encrypted')] = encrypt_password(str(incoming[k]))
+            cfg[_CHANNEL_SECRET_STORAGE[k]] = encrypt_password(str(incoming[k]))
     for k, v in incoming.items():
-        if k in ('secret', 'app_secret') or v is None:
+        if k in _CHANNEL_SECRET_FIELDS or v is None:
             continue
         cfg[str(k)] = v
+    if channel_type == 'wecom':
+        # 企业微信渠道已统一为群机器人，清除旧自建应用配置，避免双轨误导。
+        for legacy_key in ('corpid', 'corp_id', 'agent_id', 'address_by',
+                           'secret_encrypted'):
+            cfg.pop(legacy_key, None)
+        if row.is_enabled and not cfg.get('webhook_url_encrypted'):
+            return fail('启用企业微信通知前请先配置群机器人 Webhook', 400)
     row.config_json = dumps_json(cfg)
     db.session.commit()
     audit_log('notify:channel_save', 'notify_channel', row.id,
@@ -1281,20 +1312,20 @@ def api_notify_channel_save(channel_type):
 @login_required
 @require_permission('notify:edit')
 def api_notify_channel_test(channel_type):
-    """渠道连通性测试：向指定账号发送测试消息（text/markdown/file）"""
+    """渠道连通性测试：用户渠道按账号发送，群 Webhook 直接发送。"""
     from utils.notify_channels import channel_class
     from models import NotifyChannelConfig
     data = request.get_json(silent=True) or {}
     account = (data.get('account') or '').strip()
     mode = (data.get('mode') or 'text').strip()
-    if not account:
-        return fail('请填写接收测试消息的渠道账号（如企业微信 userid）', 400)
     row = NotifyChannelConfig.query.filter_by(channel_type=channel_type).first()
     if not row:
         return fail('渠道未配置', 400)
     cls = channel_class(channel_type)
     if cls is None:
         return fail(f'渠道类型 {channel_type} 未实现适配器', 400)
+    if getattr(cls, 'delivery_scope', 'user') != 'channel' and not account:
+        return fail('请填写接收测试消息的渠道账号', 400)
     from utils.json_fields import parse_json
     cfg = parse_json(row.config_json or '', default={}, field_name='channel_config')
     ch = cls({'channel_type': row.channel_type}, cfg if isinstance(cfg, dict) else {})

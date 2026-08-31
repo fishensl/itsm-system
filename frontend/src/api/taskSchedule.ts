@@ -56,6 +56,9 @@ export interface TaskScheduleQuery {
   period?: string
   start_from?: string
   start_to?: string
+  scheduled_from?: string
+  scheduled_to?: string
+  statuses?: string
   q?: string
   status?: string
   overdue?: string

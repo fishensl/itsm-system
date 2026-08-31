@@ -110,10 +110,10 @@ class TestDevicePresets:
         assert '审核流程' in r.get_json()['message']
         # 预设定义本身含密码列且顺序正确
         cols = DEVICE_PRESETS['password']
-        assert cols == ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot',
-                        'name', 'type', 'brand', 'model', 'sn', 'ip', 'port',
-                        'login_method', 'username',
-                        'password', 'is_in_use', 'pwd_changed_by', 'pwd_changed_at', 'remark']
+        assert cols == ['rack_location', 'name', 'type', 'brand', 'model',
+                        'ip', 'port', 'login_method', 'username', 'password',
+                        'is_in_use', 'pwd_changed_by', 'pwd_changed_at',
+                        'rack_name', 'location', 'rack_slot', 'sn']
 
     def test_preset_version_columns(self, op_client, seed):
         from blueprints.vue_export import DEVICE_PRESETS

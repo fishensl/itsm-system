@@ -52,10 +52,9 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
   {
     key: 'password',
     label: '设备密码表',
-    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot',
-      'name', 'type', 'brand',
-      'model', 'sn', 'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
-      'pwd_changed_by', 'pwd_changed_at', 'remark'],
+    columns: ['rack_location', 'name', 'type', 'brand', 'model',
+      'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
+      'pwd_changed_by', 'pwd_changed_at', 'rack_name', 'location', 'rack_slot', 'sn'],
   },
   {
     key: 'version',

@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import { createPinia } from 'pinia'
 import ExportDialog from '../ExportDialog.vue'
+import { DEVICE_PRESETS } from '@/utils/exportColumns'
 
 function mountDialog() {
   return mount(ExportDialog, {
@@ -43,17 +44,22 @@ describe('ExportDialog 设备预设自动勾选', () => {
     expect(labels).not.toContain('登录密码')
   })
 
-  it('点击「设备密码表」自动勾选 19 列且移除供电字段', async () => {
+  it('点击「设备密码表」按凭据操作顺序勾选 17 列且移除供电字段', async () => {
     const w = mountDialog()
     await w.vm.$nextTick()
     await clickPreset(w, 1)
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(19)
+    expect(labels).toHaveLength(17)
     expect(labels).toContain('登录密码')
     expect(labels).toContain('上次修改账号')
     expect(labels).toContain('上次修改时间')
     expect(labels).not.toContain('电源配置')
     expect(labels).not.toContain('额定功率')
+    expect(DEVICE_PRESETS.find((item) => item.key === 'password')?.columns).toEqual([
+      'rack_location', 'name', 'type', 'brand', 'model',
+      'ip', 'port', 'login_method', 'username', 'password', 'is_in_use',
+      'pwd_changed_by', 'pwd_changed_at', 'rack_name', 'location', 'rack_slot', 'sn',
+    ])
   })
 
   it('点击「安全版本控制表」自动勾选 20 列', async () => {
@@ -76,7 +82,7 @@ describe('ExportDialog 设备预设自动勾选', () => {
     await w.setProps({ modelValue: true })
     await w.vm.$nextTick()
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(19)
+    expect(labels).toHaveLength(17)
     expect(labels).toContain('登录密码')
   })
 })

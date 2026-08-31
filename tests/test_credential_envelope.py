@@ -6,7 +6,7 @@ import json
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from models import (CredentialEnvelopeChallenge, Device, DeviceExportRequest,
-                    ExportFile, User, db)
+                    ExportFile, NotifyChannelConfig, User, db)
 from utils.credential_envelope import (
     b64url_decode,
     canonical_json,
@@ -172,6 +172,43 @@ def test_required_mode_rejects_raw_password_and_non_mfa_session(admin_client, ap
     })
     assert challenge.status_code == 400
     assert 'MFA' in challenge.get_json()['message']
+
+
+def test_wecom_webhook_uses_notification_credential_envelope(admin_client, app):
+    app.config.update(
+        CREDENTIAL_ENVELOPE_MODE='required',
+        CREDENTIAL_ENVELOPE_PURPOSES='notification.credential.update',
+        ENVELOPE_WRAP_KEY='MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY',
+    )
+    _enable_mfa_session(admin_client)
+    webhook = ('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='
+               '12345678-1234-1234-1234-123456789012')
+    challenge, c2s, _ = _issue(
+        admin_client, 'notification.credential.update', target_id='wecom')
+    response = admin_client.put('/api/notify/channels/wecom', json={
+        'name': '企业微信群机器人',
+        'is_enabled': True,
+        'config': {},
+        'credential_envelope': _request_envelope(challenge, c2s, {
+            'secret_key': 'webhook_url',
+            'secret': webhook,
+        }),
+    })
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()['data']['has_secret'] is True
+    assert 'webhook_url' not in response.get_json()['data']['config']
+    with app.app_context():
+        row = NotifyChannelConfig.query.filter_by(channel_type='wecom').first()
+        assert row is not None and row.is_enabled
+        assert webhook not in row.config_json
+        assert 'webhook_url_encrypted' in row.config_json
+
+    raw = admin_client.put('/api/notify/channels/wecom', json={
+        'name': '企业微信群机器人',
+        'config': {'webhook_url': webhook},
+    })
+    assert raw.status_code == 400
+    assert '传输信封' in raw.get_json()['message']
 
 
 def test_envelope_rejects_ciphertext_tamper_and_cross_target(admin_client, app):

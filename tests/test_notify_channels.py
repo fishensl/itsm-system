@@ -4,7 +4,8 @@ import pytest
 
 from models import db, User, NotifyChannelConfig, NotifyRule
 from utils.notify_channels import send_all_channels
-from utils.wecom_notify import (seed_default_notify_rules, EVENT_TICKET_COMPLETED,
+from utils.wecom_notify import (seed_default_notify_rules, EVENT_TICKET_ASSIGN,
+                                EVENT_TICKET_COMPLETED,
                                 EVENT_TICKET_SUSPENDED_TIMEOUT, wecom_broadcast)
 
 
@@ -76,9 +77,9 @@ class TestChannelDispatch:
             db.session.commit()
 
     def test_send_all_channels_mock(self, app, seeded, monkeypatch):
-        """已启用渠道 + 规则 sales 用户（有企微账号）→ 触发推送"""
+        """企业微信群 Webhook 按渠道广播，同一事件只发送一次。"""
         self._enable_wecom(app,
-            '{"corpid":"ww123","agent_id":"1000002","secret_encrypted":"enc","address_by":"userid"}')
+            '{"webhook_url_encrypted":"enc"}')
         sent = []
         monkeypatch.setattr(
             'utils.notify_channels.wecom.WecomChannel.send_text',
@@ -88,12 +89,16 @@ class TestChannelDispatch:
             sales = User.query.filter_by(username='sales').first()
             sales.set_notify_accounts({'wecom': 'sales_wecom'})
             db.session.commit()
-        sent_count, failed = send_all_channels(EVENT_TICKET_COMPLETED, '测试', '内容', target_user_ids=[])
-        assert sent_count >= 1
-        assert (['sales_wecom'] + [a for a, _ in sent]).count('sales_wecom') >= 1
+        with app.app_context():
+            admin_id = User.query.filter_by(username='admin').first().id
+        sent_count, failed = send_all_channels(
+            EVENT_TICKET_COMPLETED, '测试', '内容', target_user_ids=[admin_id])
+        assert sent_count == 1 and failed == 0
+        assert sent == [('', '测试')]
 
-    def test_dispatch_no_account_skipped(self, app, seeded, monkeypatch):
-        self._enable_wecom(app, '{"corpid":"ww","agent_id":"1","secret_encrypted":"enc"}')
+    def test_wecom_group_webhook_does_not_require_user_account(
+            self, app, seeded, monkeypatch):
+        self._enable_wecom(app, '{"webhook_url_encrypted":"enc"}')
         sent = []
         monkeypatch.setattr(
             'utils.notify_channels.wecom.WecomChannel.send_text',
@@ -104,7 +109,20 @@ class TestChannelDispatch:
                 u.set_notify_accounts({})
             db.session.commit()
         n, failed = send_all_channels(EVENT_TICKET_COMPLETED, 't', 'c', target_user_ids=[])
+        assert n == 1 and failed == 0
+        assert sent == ['']
+
+    def test_wecom_group_webhook_skips_missing_target_user(
+            self, app, seeded, monkeypatch):
+        self._enable_wecom(app, '{"webhook_url_encrypted":"enc"}')
+        sent = []
+        monkeypatch.setattr(
+            'utils.notify_channels.wecom.WecomChannel.send_text',
+            lambda self, account, title, content, link='': sent.append(account))
+        n, failed = send_all_channels(
+            EVENT_TICKET_ASSIGN, 't', 'c', target_user_ids=[999999])
         assert n == 0 and failed == 0
+        assert sent == []
 
     def test_broadcast_wraps_exceptions(self, app, seeded, monkeypatch):
         """分发异常被 wecom_broadcast 吞掉，不向调用方抛"""
@@ -117,22 +135,36 @@ class TestChannelDispatch:
 
 class TestChannelConfigApi:
     def test_channel_crud(self, app, admin_client, monkeypatch):
-        # 保存配置（secret 加密入库，不回传明文）
+        # Webhook 加密入库，不回传明文。
+        webhook = ('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='
+                   '12345678-1234-1234-1234-123456789012')
         r = admin_client.put('/api/notify/channels/wecom', json={
             'name': '企业微信', 'is_enabled': True,
-            'config': {'corpid': 'ww123', 'agent_id': '1000002', 'secret': 'topsecret'}})
+            'config': {'webhook_url': webhook}})
         assert r.status_code == 200
         d = r.get_json()['data']
         assert d['has_secret'] is True
-        assert 'topsecret' not in d['config'].values() or 'secret' not in d['config']
+        assert 'webhook_url' not in d['config']
         with app.app_context():
             row = NotifyChannelConfig.query.filter_by(channel_type='wecom').first()
             assert row is not None and row.is_enabled
-            assert 'secret_encrypted' in row.config_json
-            assert 'topsecret' not in row.config_json  # 明文不入库
-        # 未配置账号测试 → 400
-        r2 = admin_client.post('/api/notify/channels/wecom/test', json={'account': 'xx', 'mode': 'text'})
-        assert r2.status_code == 200 or r2.status_code == 400  # 无网络时可能 400；此处仅验证路由可达
+            assert 'webhook_url_encrypted' in row.config_json
+            assert webhook not in row.config_json
+        monkeypatch.setattr(
+            'utils.notify_channels.wecom.WecomChannel.send_test',
+            lambda self, account, mode: (True, '发送成功'))
+        # 群机器人测试无需指定 userid。
+        r2 = admin_client.post(
+            '/api/notify/channels/wecom/test', json={'account': '', 'mode': 'text'})
+        assert r2.status_code == 200
+
+    def test_wecom_rejects_non_official_webhook(self, admin_client):
+        r = admin_client.put('/api/notify/channels/wecom', json={
+            'name': '企业微信', 'is_enabled': True,
+            'config': {'webhook_url': 'https://example.com/webhook?key=leak'},
+        })
+        assert r.status_code == 400
+        assert '企业微信群机器人' in r.get_json()['message']
 
     def test_requires_permission(self, app, op_client):
         assert op_client.get('/api/notify/channels').status_code == 403
@@ -224,3 +256,39 @@ class TestDingTalkFeishuAdapters:
                             lambda self, a, t, c, link='': None)
         n, _ = send_all_channels(EVENT_TICKET_COMPLETED, 't', 'c', target_user_ids=[])
         assert n == 0  # 无启用渠道 → 不发
+
+
+class TestWecomWebhookAdapter:
+    def test_text_and_markdown_use_group_robot_payload(self, monkeypatch):
+        from utils.notify_channels.wecom import WecomChannel
+        webhook = ('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='
+                   '12345678-1234-1234-1234-123456789012')
+        channel = WecomChannel({}, {'webhook_url_encrypted': 'encrypted'})
+        calls = []
+        monkeypatch.setattr(channel, '_webhook_url', lambda: webhook)
+        monkeypatch.setattr(
+            channel, '_request_json',
+            lambda url, payload=None, **kwargs: calls.append((url, payload)) or {})
+
+        channel.send_text('', '标题', '正文', '/app/tickets/1')
+        channel.send_markdown('', '标题2', '正文2')
+
+        assert calls[0][0] == webhook
+        assert calls[0][1] == {
+            'msgtype': 'text',
+            'text': {'content': '标题\n正文\n/app/tickets/1'},
+        }
+        assert calls[1][1]['msgtype'] == 'markdown'
+        assert '**标题2**' in calls[1][1]['markdown']['content']
+
+    @pytest.mark.parametrize('url', [
+        'http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x',
+        'https://example.com/cgi-bin/webhook/send?key=x',
+        'https://qyapi.weixin.qq.com/cgi-bin/webhook/send',
+        'https://qyapi.weixin.qq.com@evil.example/cgi-bin/webhook/send?key=x',
+    ])
+    def test_webhook_validation_blocks_unsafe_urls(self, url):
+        from utils.notify_channels.base import ChannelError
+        from utils.notify_channels.wecom import validate_webhook_url
+        with pytest.raises(ChannelError):
+            validate_webhook_url(url)

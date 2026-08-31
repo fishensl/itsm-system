@@ -119,9 +119,20 @@ def send_all_channels(event_type, title, content='', link='', target_user_ids=No
     if not uids:
         return 0, 0
     users = User.query.filter(User.id.in_(uids), User.is_active.is_(True)).all()
+    if not users:
+        return 0, 0
     channels = list(channel_instances(enabled_only=True))
     sent = failed = 0
     for ch in channels:
+        if ch.delivery_scope == 'channel':
+            # 群 Webhook 是渠道级广播：接收规则仍决定是否触发，但不按用户重复发送。
+            try:
+                _channel_send(ch, mode, '', title, content, link, file_path)
+                sent += 1
+            except Exception as e:
+                failed += 1
+                log.warning('通知推送失败 channel=%s: %s', ch.channel_type, e)
+            continue
         for u in users:
             account = _account_of(u, ch.channel_type)
             if not account:

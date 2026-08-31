@@ -10,7 +10,8 @@ class NotifyChannelConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     channel_type = db.Column(db.String(32), nullable=False, unique=True)  # wecom/dingtalk/feishu
     name = db.Column(db.String(64), default='')
-    config_json = db.Column(db.Text, default='{}')       # {"corpid":..,"agent_id":..,"secret_encrypted":..}
+    # 企业微信使用 {"webhook_url_encrypted":..}；其他渠道使用各自加密凭据。
+    config_json = db.Column(db.Text, default='{}')
     is_enabled = db.Column(db.Boolean, default=False)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

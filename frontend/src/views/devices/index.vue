@@ -1011,6 +1011,12 @@ const columns = computed<DataColumn[]>(() => {
       cellClass: () => 'cell-muted' },
     { key: 'serial_number', label: '序列号', minWidth: 130,
       cellClass: () => 'cell-muted' },
+    { key: 'ip_port', label: 'IP / 端口', minWidth: 160, defaultVisible: false, type: 'custom',
+      render: (r) => {
+        const ip = String(r.ip_address || '').trim()
+        const port = r.port == null ? '' : String(r.port).trim()
+        return ip && port ? `${ip}:${port}` : (ip || (port ? `端口 ${port}` : ''))
+      } },
     { key: 'ip_address', label: 'IP地址', minWidth: 130 },
     { key: 'network_type', label: '网络类型', width: 90, defaultVisible: false },
     { key: 'port', label: '端口', width: 70, cellClass: () => 'cell-muted' },
@@ -1066,13 +1072,20 @@ const deviceColumnPresets = computed<DataColumnPreset[]>(() => {
     sn: 'serial_number', ip: 'ip_address',
   }
   const available = new Set(columns.value.map((column) => column.key))
-  return presets.map((preset) => ({
-    key: preset.key,
-    label: preset.label,
-    columns: preset.columns
+  return presets.map((preset) => {
+    const mappedColumns = preset.columns
       .map((code) => exportToField.get(code) || aliases[code] || code)
-      .filter((key) => available.has(key)),
-  }))
+      .filter((key) => available.has(key))
+    // 密码表页面合并显示 IP:端口；模型、编辑、导入及审核导出仍保留两个原始字段。
+    const viewColumns = preset.key === 'password'
+      ? mappedColumns.reduce<string[]>((result, key) => {
+        if (key === 'ip_address') result.push('ip_port')
+        else if (key !== 'port') result.push(key)
+        return result
+      }, [])
+      : mappedColumns
+    return { key: preset.key, label: preset.label, columns: viewColumns }
+  })
 })
 
 const deviceViewPresets = computed(() => deviceColumnPresets.value

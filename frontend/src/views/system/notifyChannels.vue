@@ -16,19 +16,15 @@
           </template>
 
           <el-form label-width="92px" size="small">
-            <el-form-item :label="fieldLabel('name', '应用名称', 'form')">
+            <el-form-item :label="fieldLabel('name', '渠道名称', 'form')">
               <el-input v-model="ch.name" placeholder="渠道显示名" />
             </el-form-item>
             <template v-if="ch.channel_type === 'wecom'">
-              <el-form-item label="企业 ID">
-                <el-input v-model="ch.config.corpid" placeholder="CorpID" />
-              </el-form-item>
-              <el-form-item label="应用 AgentId">
-                <el-input v-model="ch.config.agent_id" placeholder="自建应用 AgentId" />
-              </el-form-item>
-              <el-form-item label="应用 Secret">
+              <el-alert class="webhook-hint" type="info" :closable="false"
+                title="使用企业微信群机器人 Webhook；每个通知事件向群聊发送一次。" />
+              <el-form-item label="Webhook">
                 <el-input v-model="secretInputs[ch.channel_type]" type="password" show-password autocomplete="new-password"
-                  :placeholder="ch.has_secret ? '已配置，留空不修改' : '必填'" />
+                  :placeholder="ch.has_secret ? '已配置，留空不修改' : '粘贴群机器人 Webhook 完整地址'" />
               </el-form-item>
             </template>
             <template v-else-if="ch.channel_type === 'dingtalk'">
@@ -61,7 +57,8 @@
 
           <el-divider content-position="left">发送测试</el-divider>
           <div class="test-row">
-            <el-input v-model="testAccounts[ch.channel_type]" size="small" class="test-account"
+            <el-input v-if="ch.channel_type !== 'wecom'"
+              v-model="testAccounts[ch.channel_type]" size="small" class="test-account"
               :placeholder="channelTestHint(ch.channel_type)" />
             <el-select v-model="testModes[ch.channel_type]" size="small" class="test-mode">
               <el-option label="文本" value="text" />
@@ -102,7 +99,7 @@ const testingType = ref('')
 
 const LABELS: Record<string, string> = { wecom: '企业微信', dingtalk: '钉钉', feishu: '飞书' }
 const HINTS: Record<string, string> = {
-  wecom: '接收测试的企业微信账号（userid，开启通讯录同步后=企业账号）',
+  wecom: '测试消息直接发送到该 Webhook 对应的企业微信群，无需填写用户账号',
   dingtalk: '接收测试的钉钉账号（手机号或 userid）',
   feishu: '接收测试的飞书账号（手机号或 user_id/open_id）',
 }
@@ -122,7 +119,7 @@ onMounted(async () => {
 })
 
 function payloadFor(ch: NotifyChannelItem) {
-  const secretKey = ch.channel_type === 'wecom' ? 'secret'
+  const secretKey = ch.channel_type === 'wecom' ? 'webhook_url'
     : ch.channel_type === 'dingtalk' ? 'app_secret' : 'app_secret'
   const config = { ...ch.config }
   const s = secretInputs[ch.channel_type] || ''
@@ -159,7 +156,10 @@ async function toggle(ch: NotifyChannelItem, v: boolean) {
 
 async function sendTest(ch: NotifyChannelItem) {
   const account = testAccounts[ch.channel_type] || ''
-  if (!account) { ui.toast('请填写接收测试消息的渠道账号', 'warning'); return }
+  if (ch.channel_type !== 'wecom' && !account) {
+    ui.toast('请填写接收测试消息的渠道账号', 'warning')
+    return
+  }
   testingType.value = ch.channel_type
   try {
     await testNotifyChannel(ch.channel_type, account, testModes[ch.channel_type] || 'text')
@@ -181,4 +181,5 @@ async function sendTest(ch: NotifyChannelItem) {
 .test-account { flex: 1; }
 .test-mode { width: 110px; }
 .test-hint { color: var(--itsm-text-muted); font-size: 12px; margin-top: 6px; }
+.webhook-hint { margin-bottom: 12px; }
 </style>

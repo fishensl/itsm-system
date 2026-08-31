@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from flask import request, current_app, send_from_directory, abort
 from flask_login import login_required, current_user
-from sqlalchemy import text as sa_text, or_
+from sqlalchemy import text as sa_text, or_, func
 from sqlalchemy.orm import joinedload
 
 from blueprints.vue_api import vue_api_bp, ok, fail
@@ -1722,7 +1722,7 @@ def api_task_schedule_import_template():
 @login_required
 @require_permission('task:schedule')
 def api_task_schedule_export():
-    """按任务看板当前筛选及合同时效开始日期范围导出 Excel。"""
+    """按看板业务筛选、任务期限交集和多选状态导出 Excel。"""
     import base64
     from datetime import date as _date
 
@@ -1730,15 +1730,18 @@ def api_task_schedule_export():
         EXCEL_HEADERS,
         _apply_filters,
         _base_query,
-        _effective_request_args,
         TASK_STATUS_EXCEL_COLUMN_STYLES,
         task_export_row,
     )
     from models import InspectionTask as _IT
     from utils.excel_export import cleanup_export_tmp, export_xlsx
 
-    start_raw = (request.args.get('start_from') or '').strip()
-    end_raw = (request.args.get('start_to') or '').strip()
+    # ``start_from/start_to`` 仅作为旧客户端兼容别名；导出语义统一为
+    # 部门安排的任务期限（scheduled_*），不再误用合同时效 planned_start。
+    start_raw = (request.args.get('scheduled_from')
+                 or request.args.get('start_from') or '').strip()
+    end_raw = (request.args.get('scheduled_to')
+               or request.args.get('start_to') or '').strip()
     try:
         start_date = _date.fromisoformat(start_raw) if start_raw else None
         end_date = _date.fromisoformat(end_raw) if end_raw else None
@@ -1747,10 +1750,34 @@ def api_task_schedule_export():
     if start_date and end_date and start_date > end_date:
         return fail('开始日期不能晚于结束日期', 400)
 
-    effective_args, _ = _effective_request_args(request.args)
-    tasks = (_apply_filters(_base_query(), effective_args)
-             .order_by(_IT.planned_start.asc(),
-                       _IT.planned_end.asc(),
+    statuses_supplied = 'statuses' in request.args
+    statuses = [item.strip() for item in request.args.get('statuses', '').split(',')
+                if item.strip()]
+    invalid_statuses = sorted(set(statuses) - _const.TASK_STATUSES)
+    if invalid_statuses:
+        return fail(f'任务状态无效：{"、".join(invalid_statuses)}', 400)
+
+    # 复用客户、负责人、搜索、逾期等看板筛选，但显式移除看板的合同时效
+    # 期间条件，避免再次把导出日期套到 planned_start。
+    filter_args = request.args.copy()
+    for key in ('start_from', 'start_to', 'scheduled_from', 'scheduled_to'):
+        filter_args.pop(key, None)
+    filter_args.setlist('period', [''])
+    if statuses_supplied:
+        filter_args.pop('status', None)
+
+    query = _apply_filters(_base_query(), filter_args)
+    if statuses:
+        query = query.filter(_IT.status.in_(statuses))
+    if start_date:
+        query = query.filter(
+            func.coalesce(_IT.scheduled_end, _IT.scheduled_start) >= start_date)
+    if end_date:
+        query = query.filter(
+            func.coalesce(_IT.scheduled_start, _IT.scheduled_end) <= end_date)
+    tasks = (query
+             .order_by(_IT.scheduled_start.asc(),
+                       _IT.scheduled_end.asc(),
                        _IT.id.desc())
              .all())
     from services.task_schedule_service import local_now as _task_local_now
@@ -1764,7 +1791,7 @@ def api_task_schedule_export():
     tmp_path, download_name = export_xlsx(
         EXCEL_HEADERS,
         rows,
-        filename=f'任务安排{range_suffix}.xlsx',
+        filename=f'任务安排_任务期限{range_suffix}.xlsx',
         sheet_name='成员分工安排表',
         column_value_styles=TASK_STATUS_EXCEL_COLUMN_STYLES,
     )
@@ -1778,7 +1805,9 @@ def api_task_schedule_export():
     audit_log(
         'task:export',
         'inspection_task',
-        detail=f'导出任务安排 {len(rows)} 条，合同时效开始日期 {start_raw or "最早"} 至 {end_raw or "最新"}',
+        detail=(f'导出任务安排 {len(rows)} 条，任务期限 '
+                f'{start_raw or "最早"} 至 {end_raw or "最新"}，'
+                f'状态 {"、".join(statuses) if statuses else "全部"}'),
     )
     return ok({'filename': download_name, 'content': content, 'count': len(rows)})
 

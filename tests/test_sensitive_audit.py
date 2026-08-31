@@ -49,9 +49,11 @@ def test_access_control_and_notification_config_are_audited(
         admin_client, app, monkeypatch):
     assert admin_client.put('/api/system/access-control', json={
         'trusted_networks': ['10.0.0.0/8']}).status_code == 200
+    webhook = ('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='
+               '12345678-1234-1234-1234-123456789012')
     assert admin_client.put('/api/notify/channels/wecom', json={
         'name': '企业微信', 'is_enabled': False,
-        'config': {'corp_id': 'corp', 'secret': 'notify-secret'},
+        'config': {'webhook_url': webhook},
     }).status_code == 200
 
     class FakeChannel:
@@ -71,4 +73,4 @@ def test_access_control_and_notification_config_are_audited(
     actions = _actions(app)
     assert {'system:access_control', 'notify:channel_save',
             'notify:channel_test', 'notify:rule_save'} <= set(actions)
-    assert all('notify-secret' not in detail for detail in actions.values())
+    assert all(webhook not in detail for detail in actions.values())

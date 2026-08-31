@@ -477,7 +477,7 @@ export function fetchNotifyChannels() {
 
 export function saveNotifyChannel(channel_type: string, data: Record<string, unknown>) {
   const config = { ...((data.config || {}) as Record<string, unknown>) }
-  const secretKey = ['secret', 'app_secret'].find((key) => Boolean(config[key]))
+  const secretKey = ['webhook_url', 'secret', 'app_secret'].find((key) => Boolean(config[key]))
   if (!secretKey) {
     return request<NotifyChannelItem>({
       url: `/api/notify/channels/${channel_type}`, method: 'PUT', data,

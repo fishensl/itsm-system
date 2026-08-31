@@ -104,6 +104,10 @@ def test_task_schedule_separates_contract_deadline_and_execution_timing():
     assert source.count('class="inline-schedule-date" style="width: 95px"') == 8
     assert 'flex: 0 0 95px' in source
     assert 'width: 95px !important' in source
+    assert source.count(":class=\"{ 'with-check': bulkMode }\"") == 4
+    assert 'margin-top: 3px; padding-left: 15px' in source
+    assert 'margin-top: 2px; padding-left: 15px' in source
+    assert '.task-schedule-summary.with-check { padding-left: 35px; }' in source
     # 最窄 310px 看板列中，任务期限标签独占一行，日期区仍有 250px。
     minimum_date_area = 310 - 2 - 20 - 2 - 20 - 16
     date_controls_width = 95 * 2 + 14 + 6 * 2
@@ -111,7 +115,14 @@ def test_task_schedule_separates_contract_deadline_and_execution_timing():
     inline_schedule_style = re.search(r'\.inline-schedule-dates\s*\{([^}]+)\}', source)
     assert inline_schedule_style is not None
     assert 'overflow' not in inline_schedule_style.group(1)
-    assert source.count(':shortcuts="rangeDateShortcuts"') == 1
+    assert ':shortcuts="rangeDateShortcuts"' not in source
+    assert '<el-form-item label="任务期限">' in source
+    assert 'v-model="exportStatuses" multiple' in source
+    assert ':shortcuts="exportDateShortcuts"' in source
+    assert "{ text: '本周', value: currentWeekDates }" in source
+    assert "{ text: '本月', value: currentMonthDates }" in source
+    assert 'params.scheduled_from = exportDateRange.value[0]' in source
+    assert 'params.scheduled_to = exportDateRange.value[1]' in source
     assert source.count(':shortcuts="dateShortcuts"') == 12
     assert "planned_start: today, planned_end: today" in source
     assert "scheduled_start: today, scheduled_end: today" in source
@@ -137,6 +148,10 @@ def test_device_edit_uses_shared_network_types_and_editable_rack_fields():
     assert ':disabled="!form.rack_id"' not in source
     assert 'v-if="form.id && !changePasswordEnabled"' in source
     assert 'if (form.id && !changePasswordEnabled.value) delete payload.password' in source
+    assert "{ key: 'ip_port', label: 'IP / 端口'" in source
+    assert 'return ip && port ? `${ip}:${port}`' in source
+    assert "if (key === 'ip_address') result.push('ip_port')" in source
+    assert "else if (key !== 'port') result.push(key)" in source
 
 
 def test_all_batch_import_pages_expose_template_and_import_actions():
@@ -158,3 +173,18 @@ def test_all_batch_import_pages_expose_template_and_import_actions():
         source = _view_source(page)
         for marker in markers:
             assert marker in source, f'{page} 缺少入口：{marker}'
+
+
+def test_wecom_notification_channel_uses_group_webhook():
+    source = _view_source('system/notifyChannels.vue')
+    assert '使用企业微信群机器人 Webhook' in source
+    assert "ch.channel_type === 'wecom' ? 'webhook_url'" in source
+    assert 'ch.config.corpid' not in source
+    assert '<el-form-item label="企业 ID">' not in source
+    assert '<el-form-item label="应用 AgentId">' not in source
+    assert '应用 Secret' not in source
+    assert 'ch.channel_type !== \'wecom\'' in source
+    assert '测试消息直接发送到该 Webhook 对应的企业微信群' in source
+    users_source = _view_source('system/users.vue')
+    assert 'wecom_account' not in users_source
+    assert '企业微信账号' not in users_source

@@ -81,11 +81,10 @@ DEVICE_EXPORT_PRESETS = {
               'power_supply', 'rated_power_w', 'device_name', 'device_type', 'brand', 'model', 'serial_number',
               'ip_address', 'build_date',
               'is_maintenance', 'is_in_use', 'remark'),
-    'password': ('customer_name', 'rack_location', 'rack_name', 'location', 'rack_slot',
-                 'device_name', 'device_type', 'brand', 'model',
-                 'serial_number', 'ip_address', 'port',
-                 'login_method', 'username', 'password', 'is_in_use', 'pwd_changed_by',
-                 'pwd_changed_at', 'remark'),
+    'password': ('rack_location', 'device_name', 'device_type', 'brand', 'model',
+                 'ip_address', 'port', 'login_method', 'username', 'password',
+                 'is_in_use', 'pwd_changed_by', 'pwd_changed_at',
+                 'rack_name', 'location', 'rack_slot', 'serial_number'),
     'version': ('customer_name', 'rack_location', 'rack_name', 'location', 'rack_slot',
                 'power_supply', 'rated_power_w', 'device_name', 'device_type', 'brand', 'model',
                 'serial_number', 'ip_address', 'build_date',
@@ -507,7 +506,6 @@ USER_FIELDS = (
       value_map={'true': '启用', 'false': '停用'}),
     F('phone', '电话', min_width=110),
     F('email', '邮箱', min_width=160),
-    F('wecom_account', '企业微信账号', min_width=130),
     F('vpn_account', 'VPN账号', min_width=110, default_visible=False),
     F('password', '密码', sensitive=True, permission='user:edit'),
     F('certifications', '资质证书', data_type='list'),
@@ -519,7 +517,7 @@ USER_LIST = ('username', 'realname', 'roles', 'department_name', 'region_names',
              'customer_names', 'is_active', 'phone', 'vpn_account', 'mfa_enabled',
              'mfa_op_enabled', 'created_at')
 USER_FORM = ('username', 'realname', 'roles', 'department_id', 'phone', 'email',
-             'wecom_account', 'vpn_account', 'region_ids', 'customer_ids', 'password',
+             'vpn_account', 'region_ids', 'customer_ids', 'password',
              'is_active', 'certifications')
 
 ROLE_FIELDS = (
@@ -690,7 +688,7 @@ DEVICE_CHECK_TEMPLATE_FIELDS = (
 
 NOTIFY_CHANNEL_FIELDS = (
     F('channel_type', '渠道类型', width=100, filterable=True),
-    F('name', '应用名称', min_width=140, required=True),
+    F('name', '渠道名称', min_width=140, required=True),
     F('is_enabled', '启用', data_type='boolean', width=80),
     F('sort_order', '排序', data_type='number', width=80),
     # 密钥永不进入 metadata；API 只暴露是否已配置。

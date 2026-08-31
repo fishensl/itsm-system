@@ -23,6 +23,8 @@ class NotifyChannel:
     label = ''
     # 能力位：text / markdown / file
     capabilities = frozenset({'text'})
+    # user=按用户渠道账号逐人发送；channel=渠道级广播（如企业微信群机器人）。
+    delivery_scope = 'user'
 
     def __init__(self, cfg: dict, config_json: dict):
         """cfg: NotifyChannelConfig 记录字段；config_json: 解密后的配置 dict"""

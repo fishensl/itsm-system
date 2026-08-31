@@ -550,7 +550,7 @@ class TestTaskScheduleApi:
             assert task.scheduled_end == date(2026, 8, 29)
             assert task.actual_start is None
 
-    def test_export_excel_supports_contract_start_date_range(
+    def test_export_excel_supports_task_deadline_overlap_and_multiple_statuses(
             self, admin_client, app, monkeypatch):
         import base64
         import io
@@ -559,19 +559,47 @@ class TestTaskScheduleApi:
 
         fake_now = datetime(2026, 8, 25, 10, 30)
         monkeypatch.setattr('services.task_schedule_service.local_now', lambda: fake_now)
-        _seed(app)
-        today = date.today().isoformat()
+        customer_id, op_id = _seed(app)
         with app.app_context():
             from services.task_schedule_service import local_now
-            task = InspectionTask.query.filter_by(title='2026年三季度巡检').one()
-            task.actual_start = local_now() - timedelta(hours=2)
+            running = InspectionTask.query.filter_by(title='2026年三季度巡检').one()
+            running.planned_start = date(2026, 7, 1)
+            running.planned_end = date(2026, 9, 30)
+            running.scheduled_start = date(2026, 8, 30)
+            running.scheduled_end = date(2026, 9, 2)
+            running.actual_start = local_now() - timedelta(hours=2)
+
+            scheduled = InspectionTask.query.filter_by(title='2026年二季度巡检').one()
+            scheduled.status = '已安排'
+            scheduled.planned_start = date(2026, 8, 24)
+            scheduled.planned_end = date(2026, 8, 30)
+            scheduled.scheduled_start = date(2026, 8, 18)
+            scheduled.scheduled_end = date(2026, 8, 24)
+
+            # 合同时效落在导出范围、但任务期限不相交，必须排除。
+            db.session.add(InspectionTask(
+                title='仅合同日期命中', customer_id=customer_id, status='已安排',
+                assigned_to_user_id=op_id,
+                planned_start=date(2026, 8, 24), planned_end=date(2026, 8, 30),
+                scheduled_start=date(2026, 9, 7), scheduled_end=date(2026, 9, 11)))
+            # 任务期限命中、但状态未被选择，也必须排除。
+            db.session.add(InspectionTask(
+                title='状态未选择', customer_id=customer_id, status='已完成',
+                assigned_to_user_id=op_id,
+                planned_start=date(2026, 7, 1), planned_end=date(2026, 9, 30),
+                scheduled_start=date(2026, 8, 24), scheduled_end=date(2026, 8, 30)))
             db.session.commit()
-        response = admin_client.get(
-            f'/api/task-schedule/export?period=&start_from={today}&start_to={today}')
+        response = admin_client.get('/api/task-schedule/export', query_string={
+            'period': '',
+            'status': '已完成',  # 多选 statuses 应覆盖看板遗留单状态。
+            'statuses': '已安排,执行中',
+            'scheduled_from': '2026-08-24',
+            'scheduled_to': '2026-08-30',
+        })
         assert response.status_code == 200, response.get_json()
         data = response.get_json()['data']
-        assert data['count'] == 1
-        assert today in data['filename']
+        assert data['count'] == 2
+        assert '任务期限_2026-08-24_至_2026-08-30' in data['filename']
 
         workbook = load_workbook(io.BytesIO(base64.b64decode(data['content'])))
         sheet = workbook.active
@@ -583,31 +611,44 @@ class TestTaskScheduleApi:
             '完成状态', '负责人', '实施开始时间', '实施结束时间', '实施耗时',
             '预估人天', '实际人天',
         ])
-        assert len(rows) == 2
-        assert rows[1][1] == '2026年三季度巡检'
-        assert rows[1][9]
-        assert rows[1][10] is None
-        assert rows[1][11] == '2小时'
-        assert rows[1][13] == '0.25'
-        status_cell = sheet.cell(row=2, column=8)
-        assert status_cell.value == '执行中'
-        assert status_cell.fill.fgColor.rgb.endswith('D9ECFF')
-        assert status_cell.font.color.rgb.endswith('409EFF')
+        assert len(rows) == 3
+        exported = {row[1]: row for row in rows[1:]}
+        assert set(exported) == {'2026年二季度巡检', '2026年三季度巡检'}
+        running_row = exported['2026年三季度巡检']
+        assert running_row[9]
+        assert running_row[10] is None
+        assert running_row[11] == '2小时'
+        assert running_row[13] == '0.25'
+        status_cells = {sheet.cell(row=index, column=2).value:
+                        sheet.cell(row=index, column=8)
+                        for index in range(2, sheet.max_row + 1)}
+        assert status_cells['2026年二季度巡检'].value == '已安排'
+        assert status_cells['2026年二季度巡检'].fill.fgColor.rgb.endswith('D5F5F6')
+        assert status_cells['2026年三季度巡检'].value == '执行中'
+        assert status_cells['2026年三季度巡检'].fill.fgColor.rgb.endswith('D9ECFF')
+        assert status_cells['2026年三季度巡检'].font.color.rgb.endswith('409EFF')
 
         with app.app_context():
             from models import AuditLog
-            assert AuditLog.query.filter_by(action='task:export').count() == 1
+            audit = AuditLog.query.filter_by(action='task:export').one()
+            assert '任务期限 2026-08-24 至 2026-08-30' in audit.detail
+            assert '状态 已安排、执行中' in audit.detail
 
     def test_export_rejects_reversed_or_invalid_date_range(self, admin_client):
         reversed_range = admin_client.get(
-            '/api/task-schedule/export?period=&start_from=2026-08-31&start_to=2026-08-01')
+            '/api/task-schedule/export?period=&scheduled_from=2026-08-31&scheduled_to=2026-08-01')
         assert reversed_range.status_code == 400
         assert '开始日期' in reversed_range.get_json()['message']
 
         invalid = admin_client.get(
-            '/api/task-schedule/export?period=&start_from=2026-99-01')
+            '/api/task-schedule/export?period=&scheduled_from=2026-99-01')
         assert invalid.status_code == 400
         assert '格式' in invalid.get_json()['message']
+
+        invalid_status = admin_client.get(
+            '/api/task-schedule/export?period=&statuses=不存在')
+        assert invalid_status.status_code == 400
+        assert '任务状态无效' in invalid_status.get_json()['message']
 
     def test_scheduled_status_has_matching_excel_color(self, admin_client, app):
         import base64
@@ -628,7 +669,7 @@ class TestTaskScheduleApi:
             assert task.actual_start is None
 
         exported = admin_client.get(
-            '/api/task-schedule/export?period=&start_from=2026-07-01&start_to=2026-07-01')
+            '/api/task-schedule/export?period=&statuses=已安排&scheduled_from=2026-08-25&scheduled_to=2026-08-25')
         workbook = load_workbook(io.BytesIO(base64.b64decode(
             exported.get_json()['data']['content'])))
         status_cell = workbook.active.cell(row=2, column=8)

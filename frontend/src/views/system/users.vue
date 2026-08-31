@@ -107,11 +107,6 @@
               <el-input v-model="form.email" />
             </el-form-item>
           </el-col>
-          <el-col :xs="24">
-            <el-form-item label="企业微信账号">
-              <el-input v-model="form.wecom_account" placeholder="企业微信通讯录账号（userid），用于接收系统通知" />
-            </el-form-item>
-          </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item label="VPN账号">
               <el-input v-model="form.vpn_account" autocomplete="off" />
@@ -464,7 +459,7 @@ async function doResetPwd() {
 
 function openCreate() {
   form.value = { username: '', realname: '', roles: ['viewer'], department_id: null,
-    phone: '', email: '', wecom_account: '', vpn_account: '', password: '', is_active: true, certifications: [],
+    phone: '', email: '', vpn_account: '', password: '', is_active: true, certifications: [],
     region_ids: [], customer_ids: [] }
   formVisible.value = true
 }
@@ -473,7 +468,6 @@ function openEdit(u: UserItem) {
   form.value = { id: u.id, username: u.username, realname: u.realname,
     roles: (u.roles && u.roles.length ? [...u.roles] : [u.role || 'viewer']),
     department_id: u.department_id, phone: u.phone, email: u.email,
-    wecom_account: u.notify_accounts?.wecom || '',
     vpn_account: u.vpn_account || '',
     password: '', is_active: u.is_active, certifications: [...(u.certifications || [])],
     region_ids: [...(u.region_ids || [])], customer_ids: [...(u.customer_ids || [])] }
@@ -485,8 +479,6 @@ async function save() {
   saving.value = true
   try {
     const payload = { ...form.value }
-    // 通知账号合并写入（仅企微字段本期开放，其余渠道启用后自动扩展）
-    payload.notify_accounts = { wecom: payload.wecom_account || '' }
     if (payload.id) {
       await updateUser(payload.id as number, payload)
       ui.toast('用户已更新', 'success')

@@ -18,17 +18,24 @@
 
     <el-dialog v-model="exportVisible" title="导出任务安排" width="520px" destroy-on-close>
       <el-form label-width="120px">
-        <el-form-item label="合同时效开始">
+        <el-form-item label="任务期限">
           <div class="date-with-today w-full">
             <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
               start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
-              :shortcuts="rangeDateShortcuts" :cell-class-name="taskCalendarCellClass"
+              :shortcuts="exportDateShortcuts" :cell-class-name="taskCalendarCellClass"
               popper-class="task-date-today-popper"
               clearable class="w-full" />
           </div>
         </el-form-item>
+        <el-form-item label="任务状态">
+          <el-select v-model="exportStatuses" multiple collapse-tags collapse-tags-tooltip
+            clearable placeholder="全部状态" class="w-full">
+            <el-option v-for="status in exportStatusOptions" :key="status"
+              :label="status" :value="status" />
+          </el-select>
+        </el-form-item>
         <el-alert type="info" :closable="false" show-icon
-          title="导出沿用当前客户、负责人、状态、搜索和逾期筛选；清空日期表示全部时间。" />
+          title="按任务期限与所选日期范围是否相交导出；可多选任务状态，清空状态或日期表示全部。当前客户、负责人、搜索和逾期筛选继续生效。" />
       </el-form>
       <template #footer>
         <el-button @click="exportVisible = false">取消</el-button>
@@ -119,7 +126,7 @@
               </span>
             </div>
             <!-- 第二行：常态=负责人+时间；编辑态=负责人/状态下拉+时间只读 -->
-            <div class="task-line2">
+            <div class="task-line2" :class="{ 'with-check': bulkMode }">
               <template v-if="expandedId === t.id">
                 <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
                   class="ie-select">
@@ -135,7 +142,8 @@
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
               <span v-if="expandedId !== t.id" class="task-range">合同时效 {{ contractRangeText(t) }}</span>
             </div>
-            <div v-if="expandedId !== t.id" class="task-schedule-summary">
+            <div v-if="expandedId !== t.id" class="task-schedule-summary"
+              :class="{ 'with-check': bulkMode }">
               任务期限 {{ taskDeadlineText(t) }}
             </div>
             <div v-if="expandedId === t.id" class="task-timing">
@@ -232,7 +240,7 @@
               </span>
             </div>
             <!-- 第二行：常态=负责人+时间；编辑态=负责人/状态下拉+时间只读 -->
-            <div class="task-line2">
+            <div class="task-line2" :class="{ 'with-check': bulkMode }">
               <template v-if="expandedId === t.id">
                 <el-select v-model="inlineForm.assignee_id" size="small" clearable filterable placeholder="负责人"
                   class="ie-select">
@@ -248,7 +256,8 @@
               <span v-else class="task-assignee">{{ t.assignee_name || '未指派' }}</span>
               <span v-if="expandedId !== t.id" class="task-range">合同时效 {{ contractRangeText(t) }}</span>
             </div>
-            <div v-if="expandedId !== t.id" class="task-schedule-summary">
+            <div v-if="expandedId !== t.id" class="task-schedule-summary"
+              :class="{ 'with-check': bulkMode }">
               任务期限 {{ taskDeadlineText(t) }}
             </div>
             <div v-if="expandedId === t.id" class="task-timing">
@@ -598,6 +607,8 @@ const importInput = ref<HTMLInputElement>()
 const exportVisible = ref(false)
 const exporting = ref(false)
 const exportDateRange = ref<string[]>([])
+const exportStatuses = ref<string[]>([])
+const exportStatusOptions = Object.values(TASK_STATUS)
 const workCalendar = ref<WorkCalendarData>({
   ...EMPTY_WORK_CALENDAR,
   covered_years: [],
@@ -606,10 +617,26 @@ const workCalendar = ref<WorkCalendarData>({
 })
 
 const dateShortcuts = [{ text: '今天', value: () => new Date() }]
-const rangeDateShortcuts = [{ text: '今天', value: () => {
+function currentWeekDates(): [Date, Date] {
   const today = new Date()
-  return [today, today]
-} }]
+  const mondayOffset = (today.getDay() + 6) % 7
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - mondayOffset)
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6)
+  return [start, end]
+}
+
+function currentMonthDates(): [Date, Date] {
+  const today = new Date()
+  return [
+    new Date(today.getFullYear(), today.getMonth(), 1),
+    new Date(today.getFullYear(), today.getMonth() + 1, 0),
+  ]
+}
+
+const exportDateShortcuts = [
+  { text: '本周', value: currentWeekDates },
+  { text: '本月', value: currentMonthDates },
+]
 
 const inlineScheduleSummary = computed(() => workCalendarRangeSummary(
   inlineScheduleRange.value?.[0] || '',
@@ -928,27 +955,9 @@ function todayString() {
   return formatLocalDate(new Date())
 }
 
-function currentPeriodRange(period: unknown): string[] {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  if (period === 'this_month') {
-    return [formatLocalDate(new Date(year, month, 1)), formatLocalDate(new Date(year, month + 1, 0))]
-  }
-  if (period === 'this_quarter') {
-    const startMonth = Math.floor(month / 3) * 3
-    return [formatLocalDate(new Date(year, startMonth, 1)), formatLocalDate(new Date(year, startMonth + 3, 0))]
-  }
-  if (period === 'this_year') {
-    return [`${year}-01-01`, `${year}-12-31`]
-  }
-  const start = String(query.start_from || '')
-  const end = String(query.start_to || '')
-  return start || end ? [start, end] : []
-}
-
 function openExport() {
-  exportDateRange.value = currentPeriodRange(query.period)
+  exportDateRange.value = currentWeekDates().map(formatLocalDate)
+  exportStatuses.value = query.status ? [String(query.status)] : []
   exportVisible.value = true
 }
 
@@ -956,12 +965,16 @@ async function doExport() {
   exporting.value = true
   try {
     const params = { ...query, period: '' } as Record<string, unknown>
+    delete params.start_from
+    delete params.start_to
+    delete params.status
+    params.statuses = exportStatuses.value.join(',')
     if (exportDateRange.value.length === 2) {
-      params.start_from = exportDateRange.value[0]
-      params.start_to = exportDateRange.value[1]
+      params.scheduled_from = exportDateRange.value[0]
+      params.scheduled_to = exportDateRange.value[1]
     } else {
-      delete params.start_from
-      delete params.start_to
+      delete params.scheduled_from
+      delete params.scheduled_to
     }
     if (onlyOverdue.value) params.overdue = '1'
     const result = await exportTaskSchedule(params as never)
@@ -1263,19 +1276,21 @@ onMounted(() => {
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }
-/* 第二行：左缘=标题左缘(checkbox14+gap6+dot9+gap6=35px) */
+/* 摘要左缘跟随标题：常态为 dot9+gap6=15px，批量态再包含 checkbox20px。 */
 .task-line2 {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin-top: 3px; padding-left: 35px; font-size: 12px; color: var(--itsm-text-muted);
+  margin-top: 3px; padding-left: 15px; font-size: 12px; color: var(--itsm-text-muted);
 }
 .task-assignee {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
 }
 .task-range { white-space: nowrap; margin-left: auto; }
 .task-schedule-summary {
-  margin-top: 2px; padding-left: 35px; color: var(--itsm-text-muted);
+  margin-top: 2px; padding-left: 15px; color: var(--itsm-text-muted);
   font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.task-line2.with-check,
+.task-schedule-summary.with-check { padding-left: 35px; }
 .task-timing {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;
   margin-top: 7px; padding: 7px 8px;
