@@ -341,8 +341,8 @@ def save_export_file(tmp_path, download_name, password=None, user_id=None, ttl_h
     return token
 
 
-def serve_export_file(token, user_id, is_admin):
-    """一次性下载：创建人/admin 校验 → send_file + X-Export-Password → 标记已下载 → 事后删文件。
+def serve_export_file(token, user_id, is_admin, *, include_password_header=True):
+    """一次性下载：创建人/admin 校验 → 标记已下载 → 事后删文件。
 
     不可用/已下载/过期/无权限时返回 None（调用方回 404）。
     """
@@ -356,13 +356,17 @@ def serve_export_file(token, user_id, is_admin):
         return None
     if not is_admin and f.created_by_user_id != user_id:
         return None
+    if f.file_password_encrypted and include_password_header:
+        from services.credential_envelope_service import purpose_required
+        if purpose_required('device.password.export_unlock'):
+            return None
     full = os.path.realpath(f.file_path)
     if not os.path.isfile(full):
         return None
     f.downloaded_at = datetime.utcnow()
     db.session.commit()
     resp = send_file(full, as_attachment=True, download_name=f.download_name or 'export.zip')
-    if f.file_password_encrypted:
+    if f.file_password_encrypted and include_password_header:
         resp.headers['X-Export-Password'] = decrypt_password(f.file_password_encrypted)
 
     @resp.call_on_close

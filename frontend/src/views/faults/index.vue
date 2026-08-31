@@ -102,6 +102,12 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
+            <el-form-item label="处置开始">
+              <el-date-picker v-model="form.handling_started_at" type="datetime"
+                value-format="YYYY-MM-DDTHH:mm" class="w-full" placeholder="开始处置时间（可选）" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
             <el-form-item label="处理结果">
               <el-select v-model="form.result" class="w-full">
                 <el-option v-for="r in dicts?.results || []" :key="r" :label="r" :value="r" />
@@ -218,6 +224,8 @@ const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'fault_category', label: '故障分类', minWidth: 160,
     render: (r) => r.fault_category || r.fault_type || '-' },
   { key: 'result', label: '处理结果', width: 90, type: 'tag', asTag: true, tagMap: FAULT_RESULT_TAG },
+  { key: 'handling_duration', label: '处置时效', width: 120,
+    render: (r) => `${r.handling_duration || '-'}${r.timing?.active ? '（截至当前）' : ''}` },
   { key: 'impact_range', label: '影响范围', minWidth: 120 },
   { key: 'actions', label: '操作', width: 140, type: 'action', fixed: 'right',
     actions: [
@@ -275,7 +283,7 @@ const saving = ref(false)
 const formRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', customer_id: null, handler: '', fault_time: '',
-  fault_type: '', category_path: [], result: '已解决', recovery_time: '',
+  fault_type: '', category_path: [], result: '已解决', handling_started_at: '', recovery_time: '',
   fault_description: '', fault_cause: '', solution: '', impact_range: '',
 })
 function isCompleteCategoryPath(value: unknown): value is string[] {
@@ -304,7 +312,7 @@ const formRules = {
 
 function blankForm() {
   return { id: null, title: '', customer_id: null, handler: '', fault_time: '',
-    fault_type: '', category_path: [], result: '已解决', recovery_time: '',
+    fault_type: '', category_path: [], result: '已解决', handling_started_at: '', recovery_time: '',
     fault_description: '', fault_cause: '', solution: '', impact_range: '' }
 }
 
@@ -325,6 +333,7 @@ async function openEdit(f: Fault) {
       id: detailData.id, title: detailData.title, customer_id: detailData.customer_id,
       handler: detailData.handler, fault_time: detailData.fault_time,
       fault_type: detailData.fault_type, result: detailData.result,
+      handling_started_at: detailData.handling_started_at || '',
       recovery_time: detailData.recovery_time || '',
       fault_description: detailData.fault_description || '',
       fault_cause: detailData.fault_cause || '',

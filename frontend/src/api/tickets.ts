@@ -5,6 +5,29 @@ import type { SubmissionVersion } from './inspections'
 
 export { versionReportUrl } from './inspections'
 
+export interface TicketTiming {
+  source: 'events' | 'snapshot' | 'estimated' | 'unknown' | 'ticket' | 'manual'
+  cycle_no: number
+  reported_at: string
+  started_at: string
+  finished_at: string
+  response_seconds: number
+  response_duration_text: string
+  handling_seconds: number
+  handling_duration_text: string
+  handling_person_days: number
+  closure_seconds: number | null
+  closure_duration_text: string
+  suspended_business_seconds: number
+  is_estimated: boolean
+  estimate_reason: string
+  finish_source: string
+  algorithm_version: number
+  calendar_version: string
+  active: boolean
+  source_ticket_id?: number | null
+}
+
 export interface Ticket {
   id: number
   number: string
@@ -44,6 +67,15 @@ export interface Ticket {
   assigned_at: string
   accepted_at: string
   completed_at: string
+  reported_at: string
+  handling_started_at: string
+  handling_finished_at: string
+  response_duration: string
+  handling_duration: string
+  handling_person_days: number
+  closure_duration: string
+  timing_source: string
+  timing: TicketTiming
   // V28: 挂起 / 处置进展 / 合同例外
   suspended: boolean
   suspended_at: string

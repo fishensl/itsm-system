@@ -18,6 +18,7 @@ from blueprints.vue_api_sales import vue_api_bp as _vb_sales  # noqa: F401
 from blueprints.vue_api_asset import vue_api_bp as _vb_asset  # noqa: F401
 from blueprints.vue_api_sys import vue_api_bp as _vb_sys  # noqa: F401
 from blueprints.vue_api_auth import vue_api_bp as _vb_auth  # noqa: F401
+from blueprints.vue_api_security import vue_api_bp as _vb_security  # noqa: F401
 
 
 def register_blueprints(app):

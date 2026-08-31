@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types'
+import type { TicketTiming } from './tickets'
 
 export interface Fault {
   id: number
@@ -19,6 +20,11 @@ export interface Fault {
   fault_cause?: string
   solution?: string
   recovery_time?: string
+  handling_started_at?: string
+  handling_duration?: string
+  handling_person_days?: number
+  timing_source?: string
+  timing?: TicketTiming
   created_at?: string
   ticket_id?: number | null      // S6: 已转工单桥接
   ticket_number?: string          // S6: 已转工单单号

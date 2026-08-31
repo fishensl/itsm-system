@@ -1,5 +1,10 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types'
+import {
+  withBinaryCredentialEnvelope,
+  withCredentialEnvelope,
+  type CredentialEnvelope,
+} from '@/utils/credentialEnvelope'
 
 export interface Device {
   id: number
@@ -148,11 +153,39 @@ export function fetchDeviceRelated(id: number) {
 }
 
 export function createDevice(data: DeviceForm) {
-  return request<{ id: number }>({ url: '/api/devices', method: 'POST', data })
+  const { password, ...normalFields } = data
+  if (!password) {
+    return request<{ id: number }>({ url: '/api/devices', method: 'POST', data: normalFields })
+  }
+  return withCredentialEnvelope({
+    purpose: 'device.password.create',
+    payload: { password },
+    execute: ({ requestEnvelope }) => request<{ id: number }>({
+      url: '/api/devices', method: 'POST',
+      data: { ...normalFields, credential_envelope: requestEnvelope },
+    }),
+    fallback: () => request<{ id: number }>({
+      url: '/api/devices', method: 'POST', data,
+    }),
+  })
 }
 
 export function updateDevice(id: number, data: DeviceForm) {
-  return request<{ id: number }>({ url: `/api/devices/${id}`, method: 'PUT', data })
+  const { password, ...normalFields } = data
+  if (!password) {
+    return request<{ id: number }>({ url: `/api/devices/${id}`, method: 'PUT', data: normalFields })
+  }
+  return withCredentialEnvelope({
+    purpose: 'device.password.update', binding: { targetId: id },
+    payload: { password },
+    execute: ({ requestEnvelope }) => request<{ id: number }>({
+      url: `/api/devices/${id}`, method: 'PUT',
+      data: { ...normalFields, credential_envelope: requestEnvelope },
+    }),
+    fallback: () => request<{ id: number }>({
+      url: `/api/devices/${id}`, method: 'PUT', data,
+    }),
+  })
 }
 
 export function deleteDevice(id: number) {
@@ -160,10 +193,23 @@ export function deleteDevice(id: number) {
 }
 
 export function revealPassword(id: number, historyId?: number) {
-  return request<{ password: string }>({
-    url: `/api/v2/devices/${id}/reveal-password`,
-    method: 'POST',
-    data: historyId ? { history_id: historyId } : undefined,
+  return withCredentialEnvelope({
+    purpose: 'device.password.reveal',
+    binding: { targetId: id, historyId },
+    payload: { history_id: historyId ?? null },
+    execute: async ({ requestEnvelope, decryptResponse }) => {
+      const result = await request<{ credential_envelope: CredentialEnvelope }>({
+        url: `/api/v2/devices/${id}/reveal-password`,
+        method: 'POST',
+        data: { credential_envelope: requestEnvelope },
+      })
+      return decryptResponse<{ password: string }>(result.credential_envelope)
+    },
+    fallback: () => request<{ password: string }>({
+      url: `/api/v2/devices/${id}/reveal-password`,
+      method: 'POST',
+      data: historyId ? { history_id: historyId } : undefined,
+    }),
   })
 }
 
@@ -244,6 +290,39 @@ export function exportPasswordDownloadUrl(token: string) {
   return `/api/v2/devices/export-password-download/${token}`
 }
 
+export function authorizePasswordExportDownload(token: string) {
+  return withCredentialEnvelope<{
+    password: string
+    filename: string
+    download_ticket: string
+    legacy: boolean
+  }>({
+    purpose: 'device.password.export_unlock',
+    binding: { targetId: token },
+    payload: { token },
+    execute: async ({ requestEnvelope, decryptResponse }) => {
+      const result = await request<{ credential_envelope: CredentialEnvelope }>({
+        url: `/api/v2/devices/export-password-download/${token}/authorize`,
+        method: 'POST', data: { credential_envelope: requestEnvelope },
+      })
+      const value = await decryptResponse<{
+        password: string
+        filename: string
+        download_ticket: string
+      }>(result.credential_envelope)
+      return { ...value, legacy: false as const }
+    },
+    fallback: async () => ({
+      password: '', filename: '', download_ticket: '', legacy: true as const,
+    }),
+  })
+}
+
+export function passwordExportFileUrl(token: string, downloadTicket: string) {
+  return `/api/v2/devices/export-password-download/${encodeURIComponent(token)}` +
+    `/file/${encodeURIComponent(downloadTicket)}`
+}
+
 export function importDevices(formData: FormData) {
   return request<{
     create: number
@@ -279,6 +358,30 @@ export function batchUpdateDevices(data: {
   occupy_u?: number
 }) {
   return request<{ count: number }>({ url: '/api/v2/devices/batch-update', method: 'POST', data })
+}
+
+export async function importDevicesEncrypted(file: File, fields: Record<string, string>) {
+  const submit = (body: FormData) => importDevices(body)
+  const rawFallback = () => {
+    const body = new FormData()
+    body.append('import_file', file)
+    Object.entries(fields).forEach(([key, value]) => body.append(key, value))
+    return submit(body)
+  }
+  return withBinaryCredentialEnvelope({
+    purpose: 'device.password.import',
+    plaintext: await file.arrayBuffer(),
+    execute: ({ challengeId, iv, ciphertext }) => {
+      const body = new FormData()
+      body.append('challenge_id', challengeId)
+      body.append('iv', iv)
+      body.append('encrypted_file', ciphertext, 'devices.envelope')
+      body.append('original_filename', file.name)
+      Object.entries(fields).forEach(([key, value]) => body.append(key, value))
+      return submit(body)
+    },
+    fallback: rawFallback,
+  })
 }
 
 export interface DeviceDeleteImpact {

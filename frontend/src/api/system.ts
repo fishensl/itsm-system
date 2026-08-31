@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { withCredentialEnvelope } from '@/utils/credentialEnvelope'
 
 export interface UserItem {
   id: number
@@ -229,11 +230,33 @@ export function fetchAiConfigs() {
 }
 
 export function createAiConfig(data: Record<string, unknown>) {
-  return request<{ id: number }>({ url: '/api/ai-config', method: 'POST', data })
+  const apiKey = String(data.api_key || '')
+  if (!apiKey) return request<{ id: number }>({ url: '/api/ai-config', method: 'POST', data })
+  const normalFields = { ...data }
+  delete normalFields.api_key
+  return withCredentialEnvelope({
+    purpose: 'ai.credential.create', payload: { api_key: apiKey },
+    execute: ({ requestEnvelope }) => request<{ id: number }>({
+      url: '/api/ai-config', method: 'POST',
+      data: { ...normalFields, credential_envelope: requestEnvelope },
+    }),
+    fallback: () => request<{ id: number }>({ url: '/api/ai-config', method: 'POST', data }),
+  })
 }
 
 export function updateAiConfig(id: number, data: Record<string, unknown>) {
-  return request<null>({ url: `/api/ai-config/${id}`, method: 'PUT', data })
+  const apiKey = String(data.api_key || '')
+  if (!apiKey) return request<null>({ url: `/api/ai-config/${id}`, method: 'PUT', data })
+  const normalFields = { ...data }
+  delete normalFields.api_key
+  return withCredentialEnvelope({
+    purpose: 'ai.credential.update', binding: { targetId: id }, payload: { api_key: apiKey },
+    execute: ({ requestEnvelope }) => request<null>({
+      url: `/api/ai-config/${id}`, method: 'PUT',
+      data: { ...normalFields, credential_envelope: requestEnvelope },
+    }),
+    fallback: () => request<null>({ url: `/api/ai-config/${id}`, method: 'PUT', data }),
+  })
 }
 
 export function deleteAiConfig(id: number) {
@@ -264,18 +287,44 @@ export function fetchBackupStats() {
 }
 
 export function exportBackup(payload: { config_only?: boolean; password?: string }) {
-  return request<{ token: string; filename: string; size: number }>({
-    url: '/api/system/backup/export',
-    method: 'POST',
-    data: payload,
+  const password = String(payload.password || '')
+  if (!password) return request<{ token: string; filename: string; size: number }>({
+    url: '/api/system/backup/export', method: 'POST', data: payload,
+  })
+  const normalFields = { ...payload }
+  delete normalFields.password
+  return withCredentialEnvelope({
+    purpose: 'backup.password.export', payload: { password },
+    execute: ({ requestEnvelope }) => request<{ token: string; filename: string; size: number }>({
+      url: '/api/system/backup/export', method: 'POST',
+      data: { ...normalFields, credential_envelope: requestEnvelope },
+    }),
+    fallback: () => request<{ token: string; filename: string; size: number }>({
+      url: '/api/system/backup/export', method: 'POST', data: payload,
+    }),
   })
 }
 
 export function importBackup(formData: FormData) {
-  return request<{ message: string; pre_import_file?: string | null }>({
-    url: '/api/system/backup/import',
-    method: 'POST',
-    data: formData,
+  const password = String(formData.get('password') || '')
+  if (!password) return request<{ message: string; pre_import_file?: string | null }>({
+    url: '/api/system/backup/import', method: 'POST', data: formData,
+  })
+  const encryptedForm = new FormData()
+  formData.forEach((value, key) => {
+    if (key !== 'password') encryptedForm.append(key, value)
+  })
+  return withCredentialEnvelope({
+    purpose: 'backup.password.import', payload: { password },
+    execute: ({ requestEnvelope }) => {
+      encryptedForm.set('credential_envelope', JSON.stringify(requestEnvelope))
+      return request<{ message: string; pre_import_file?: string | null }>({
+        url: '/api/system/backup/import', method: 'POST', data: encryptedForm,
+      })
+    },
+    fallback: () => request<{ message: string; pre_import_file?: string | null }>({
+      url: '/api/system/backup/import', method: 'POST', data: formData,
+    }),
   })
 }
 
@@ -427,10 +476,26 @@ export function fetchNotifyChannels() {
 }
 
 export function saveNotifyChannel(channel_type: string, data: Record<string, unknown>) {
-  return request<NotifyChannelItem>({
-    url: `/api/notify/channels/${channel_type}`,
-    method: 'PUT',
-    data,
+  const config = { ...((data.config || {}) as Record<string, unknown>) }
+  const secretKey = ['secret', 'app_secret'].find((key) => Boolean(config[key]))
+  if (!secretKey) {
+    return request<NotifyChannelItem>({
+      url: `/api/notify/channels/${channel_type}`, method: 'PUT', data,
+    })
+  }
+  const secret = String(config[secretKey] || '')
+  delete config[secretKey]
+  const normalFields = { ...data, config }
+  return withCredentialEnvelope({
+    purpose: 'notification.credential.update', binding: { targetId: channel_type },
+    payload: { secret_key: secretKey, secret },
+    execute: ({ requestEnvelope }) => request<NotifyChannelItem>({
+      url: `/api/notify/channels/${channel_type}`, method: 'PUT',
+      data: { ...normalFields, credential_envelope: requestEnvelope },
+    }),
+    fallback: () => request<NotifyChannelItem>({
+      url: `/api/notify/channels/${channel_type}`, method: 'PUT', data,
+    }),
   })
 }
 

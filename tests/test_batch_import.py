@@ -91,7 +91,7 @@ class TestImportTemplates:
             'fault': {
                 'customer_name', 'title', 'handler', 'fault_time', 'fault_type',
                 'fault_category', 'fault_description', 'impact_range', 'fault_cause',
-                'solution', 'result', 'recovery_time',
+                'solution', 'result', 'handling_started_at', 'recovery_time',
             },
             'stock': {'spare_name', 'location', 'quantity', 'unit_price'},
         }

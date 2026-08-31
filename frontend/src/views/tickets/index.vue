@@ -342,6 +342,8 @@ const columns = computed<DataColumn[]>(() => mergeFieldMeta([
   { key: 'fault_category', label: '故障分类', minWidth: 150, defaultVisible: false,
     render: (r) => r.fault_category || '-' },
   { key: 'assigned_to', label: '处理人', width: 90 },
+  { key: 'handling_duration', label: '处置时效', width: 120,
+    render: (r) => `${r.handling_duration || '-'}${r.timing?.active ? '（截至当前）' : ''}` },
   { key: 'complete', label: '资料完整', width: 100, type: 'tag',
     tagMap: { true: 'success', false: 'warning' } as Record<string, 'success' | 'warning'>,
     valueMap: { true: '完整', false: '不完整' } },

@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 from blueprints.vue_api import vue_api_bp, ok, fail
 from models import db
 from utils.permission import require_permission
+from utils.operation_token import require_op_token
 from utils.upload import ALLOWED_IMAGE_EXT
 
 # ==================== 机柜管理 ====================
@@ -1421,6 +1422,11 @@ def api_device_export_password_review(req_id):
 @login_required
 def api_device_export_password_download(token):
     """一次性下载加密密码包（仅申请人/admin；响应头 X-Export-Password 下发 zip 密码；审计）"""
+    from services.credential_envelope_service import (
+        note_raw_credential_compat, purpose_required)
+    if purpose_required('device.password.export_unlock'):
+        return fail('请先通过安全信封授权下载', 400)
+    note_raw_credential_compat('device.password.export_unlock')
     from datetime import datetime
     from blueprints.vue_export import serve_export_file
     from blueprints.vue_api_sys import audit_log
@@ -1440,4 +1446,99 @@ def api_device_export_password_download(token):
     req.downloaded_at = datetime.utcnow()
     db.session.commit()
     audit_log('device:export_download', 'device', req.id, '下载设备密码导出包')
+    return resp
+
+
+@vue_api_bp.route(
+    '/api/v2/devices/export-password-download/<token>/authorize', methods=['POST'])
+@login_required
+@require_permission('device:reveal')
+@require_op_token()
+def api_device_export_password_authorize(token):
+    """消费双向信封，下发加密包口令及 60 秒一次性下载票据。"""
+    from datetime import datetime, timedelta
+    import secrets
+    from models import (CredentialDownloadTicket, DeviceExportRequest,
+                        ExportFile)
+    from services.credential_envelope_service import consume_request_envelope
+    from utils.crypto import decrypt_password
+
+    req = DeviceExportRequest.query.filter_by(file_token=token).first()
+    export_file = ExportFile.query.filter_by(token=token).first()
+    if (not req or req.status != 'approved' or req.downloaded_at or
+            not export_file or export_file.downloaded_at):
+        return fail('下载链接不存在或已使用', 404)
+    if not (current_user.is_admin or current_user.id == req.user_id):
+        return fail('无权下载该导出包', 403)
+    data = request.get_json(silent=True) or {}
+    try:
+        consumed = consume_request_envelope(
+            'device.password.export_unlock', data.get('credential_envelope'),
+            target_id=token,
+            operation_token=request.headers.get('X-Operation-Token', ''))
+    except Exception as exc:
+        return fail(str(exc) or '安全信封无效或已失效，请重新操作', 400)
+    if consumed.payload.get('token') != token:
+        return fail('安全信封无效或已失效，请重新操作', 400)
+
+    ticket_value = secrets.token_urlsafe(32)
+    ticket = CredentialDownloadTicket(
+        id=ticket_value,
+        export_file_id=export_file.id,
+        user_id=current_user.id,
+        purpose='device.password.export_unlock',
+        created_at=datetime.utcnow(),
+        expires_at=datetime.utcnow() + timedelta(seconds=60),
+    )
+    db.session.add(ticket)
+    db.session.commit()
+    password = (decrypt_password(export_file.file_password_encrypted)
+                if export_file.file_password_encrypted else '')
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:export_authorize', 'device', req.id,
+              '授权设备密码导出包下载')
+    return ok({'credential_envelope': consumed.encrypt_response({
+        'password': password,
+        'filename': export_file.download_name or '设备密码表.xlsx',
+        'download_ticket': ticket_value,
+    })})
+
+
+@vue_api_bp.route(
+    '/api/v2/devices/export-password-download/<token>/file/<download_ticket>',
+    methods=['GET'])
+@login_required
+def api_device_export_password_download_file(token, download_ticket):
+    """凭短时票据下载二进制包；响应中不再包含解压口令。"""
+    from datetime import datetime
+    from blueprints.vue_export import serve_export_file
+    from blueprints.vue_api_sys import audit_log
+    from models import (CredentialDownloadTicket, DeviceExportRequest,
+                        ExportFile)
+
+    export_file = ExportFile.query.filter_by(token=token).first()
+    if not export_file:
+        return fail('导出文件不存在或已失效', 404)
+    ticket = (CredentialDownloadTicket.query
+              .filter_by(id=download_ticket, export_file_id=export_file.id)
+              .with_for_update().first())
+    now = datetime.utcnow()
+    if (not ticket or ticket.user_id != current_user.id or ticket.used_at or
+            ticket.expires_at <= now):
+        return fail('下载票据不存在、已失效或已使用', 404)
+    req = DeviceExportRequest.query.filter_by(file_token=token).first()
+    if not req or req.status != 'approved' or req.downloaded_at:
+        return fail('下载链接不存在或已使用', 404)
+    ticket.used_at = now
+    db.session.commit()
+    resp = serve_export_file(
+        token, current_user.id, current_user.is_admin,
+        include_password_header=False)
+    if resp is None:
+        return fail('导出文件不存在或已失效', 404)
+    resp.headers['X-Export-Filename'] = export_file.download_name or '设备密码表.xlsx'
+    req.downloaded_at = now
+    db.session.commit()
+    audit_log('device:export_download', 'device', req.id,
+              '通过安全信封下载设备密码导出包')
     return resp

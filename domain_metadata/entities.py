@@ -130,18 +130,29 @@ TICKET_FIELDS = (
     F('contract_exception_reason', '合同例外原因', min_width=180, group='contract'),
     F('sla_deadline', 'SLA截止时间', data_type='datetime', min_width=130, group='sla'),
     F('created_at', '创建时间', data_type='datetime', width=130, sortable=True),
+    F('reported_at', '报障时间', data_type='datetime', width=130, group='timing'),
     F('assigned_at', '派单时间', data_type='datetime', width=130),
     F('accepted_at', '接单时间', data_type='datetime', width=130),
     F('completed_at', '完成时间', data_type='datetime', width=130),
+    F('handling_started_at', '处置开始', data_type='datetime', width=130, group='timing'),
+    F('handling_finished_at', '处置结束', data_type='datetime', width=130, group='timing'),
+    F('response_duration', '响应时长', width=110, group='timing'),
+    F('handling_duration', '处置时效', width=120, group='timing'),
+    F('handling_person_days', '实际人天', data_type='number', width=100, group='timing'),
+    F('closure_duration', '闭环时长', width=110, group='timing'),
+    F('timing_source', '计时来源', width=100, group='timing'),
 )
 TICKET_LIST = ('title', 'number', 'status', 'priority', 'severity_level', 'customer_name',
-               'reporter', 'fault_category', 'assigned_to', 'complete', 'created_at')
+               'reporter', 'fault_category', 'assigned_to', 'handling_duration', 'complete',
+               'created_at')
 TICKET_DETAIL = tuple(item.key for item in TICKET_FIELDS)
 TICKET_FORM = ('title', 'priority', 'severity_level', 'customer_name', 'reporter',
                'reporter_phone', 'related_device_name', 'fault_category', 'description',
                'diagnosis', 'solution', 'source_type', 'contract_exception_reason')
 TICKET_EXPORT_DEFAULT = ('number', 'title', 'priority', 'status', 'customer_name', 'reporter',
-                         'assigned_to', 'created_by', 'created_at', 'completed_at')
+                         'assigned_to', 'created_by', 'reported_at', 'handling_started_at',
+                         'handling_finished_at', 'handling_duration', 'handling_person_days',
+                         'created_at', 'completed_at')
 TICKET_EXPORT_AVAILABLE = tuple(dict.fromkeys(TICKET_EXPORT_DEFAULT + TICKET_LIST + TICKET_DETAIL))
 
 
@@ -158,17 +169,23 @@ FAULT_FIELDS = (
     F('fault_cause', '故障原因', min_width=180, group='handling'),
     F('solution', '解决方案', min_width=180, group='handling'),
     F('recovery_time', '恢复时间', data_type='datetime', width=130),
+    F('handling_started_at', '处置开始', data_type='datetime', width=130, group='timing'),
+    F('handling_duration', '处置时效', width=120, group='timing'),
+    F('handling_person_days', '实际人天', data_type='number', width=100, group='timing'),
+    F('timing_source', '计时来源', width=100, group='timing'),
     F('ticket_number', '关联工单号', width=130),
     F('created_at', '创建时间', data_type='datetime', width=130),
 )
 FAULT_LIST = ('title', 'customer_name', 'handler', 'fault_time', 'fault_category', 'fault_type',
-              'result', 'impact_range', 'recovery_time', 'ticket_number', 'created_at')
+              'result', 'handling_duration', 'impact_range', 'recovery_time', 'ticket_number',
+              'created_at')
 FAULT_DETAIL = tuple(item.key for item in FAULT_FIELDS)
 FAULT_FORM = ('title', 'customer_name', 'handler', 'fault_time', 'fault_type',
               'fault_category', 'result', 'fault_description', 'fault_cause', 'solution',
-              'impact_range', 'recovery_time')
+              'impact_range', 'handling_started_at', 'recovery_time')
 FAULT_EXPORT_DEFAULT = ('title', 'customer_name', 'handler', 'fault_time', 'fault_type',
-                        'result', 'recovery_time', 'created_at')
+                        'result', 'handling_started_at', 'handling_duration',
+                        'handling_person_days', 'recovery_time', 'created_at')
 FAULT_EXPORT_AVAILABLE = tuple(dict.fromkeys(FAULT_EXPORT_DEFAULT + FAULT_DETAIL))
 
 

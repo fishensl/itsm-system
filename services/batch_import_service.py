@@ -222,6 +222,8 @@ def import_faults(ws):
             continue
         ftime = _parse_datetime(row['fault_time'])
         recovery_time = _parse_datetime(row['recovery_time'])
+        from utils.business_time import parse_beijing_to_utc
+        handling_started_at = parse_beijing_to_utc(row['handling_started_at'])
         category_path = [
             item.strip() for item in re.split(r'[/／>＞]+', row['fault_category'])
             if item.strip()
@@ -245,6 +247,7 @@ def import_faults(ws):
                 fault_cause=row['fault_cause'] or '',
                 solution=row['solution'] or '',
                 result=result,
+                handling_started_at=handling_started_at,
                 recovery_time=recovery_time,
             ))
             success += 1

@@ -96,7 +96,7 @@ def api_mfa_confirm():
         session.clear()
         login_user(user)
         from utils.session_security import establish_session
-        establish_session(user)
+        establish_session(user, auth_strength='mfa_totp')
         login_result = {'user': _user_payload(user)}
     audit_log('mfa:enabled', 'user', user.id,
               f'启用 {data.get("purpose", "login")} MFA')

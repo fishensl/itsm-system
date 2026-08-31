@@ -237,6 +237,7 @@ def api_user_update(user_id):
     from models import User
     u = User.query.get_or_404(user_id)
     was_active = bool(u.is_active)
+    old_username = u.username
     data = request.get_json(silent=True) or {}
     new_username = (data.get('username') or '').strip()
     if not new_username:
@@ -281,6 +282,8 @@ def api_user_update(user_id):
         u.must_change_password = True
         u.auth_version = int(u.auth_version or 0) + 1
     if was_active and not u.is_active:
+        u.auth_version = int(u.auth_version or 0) + 1
+    if new_username != old_username:
         u.auth_version = int(u.auth_version or 0) + 1
     db.session.commit()
     audit_log('user:update', 'user', u.id, f'更新用户 {new_username}')
@@ -600,10 +603,18 @@ def api_ai_config_list():
 @vue_api_bp.route('/api/ai-config', methods=['POST'])
 @login_required
 @require_permission('ai:edit')
+@require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('api_key')) or
+                  bool((request.get_json(silent=True) or {}).get('credential_envelope')))
 def api_ai_config_add():
     from models import AIConfig
     from utils.crypto import encrypt_password
     data = request.get_json(silent=True) or {}
+    from services.credential_envelope_service import apply_credential_field
+    try:
+        data, _ = apply_credential_field(
+            data, 'ai.credential.create', field='api_key')
+    except Exception as exc:
+        return fail(str(exc) or 'AI 凭据处理失败', 400)
     cfg = AIConfig(
         provider=(data.get('provider') or 'OpenAI').strip() or 'OpenAI',
         api_endpoint=(data.get('api_endpoint') or '').strip(),
@@ -628,11 +639,19 @@ def api_ai_config_add():
 @vue_api_bp.route('/api/ai-config/<int:cid>', methods=['PUT'])
 @login_required
 @require_permission('ai:edit')
+@require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('api_key')) or
+                  bool((request.get_json(silent=True) or {}).get('credential_envelope')))
 def api_ai_config_update(cid):
     from models import AIConfig
     from utils.crypto import encrypt_password
     cfg = AIConfig.query.get_or_404(cid)
     data = request.get_json(silent=True) or {}
+    from services.credential_envelope_service import apply_credential_field
+    try:
+        data, _ = apply_credential_field(
+            data, 'ai.credential.update', target_id=cid, field='api_key')
+    except Exception as exc:
+        return fail(str(exc) or 'AI 凭据处理失败', 400)
     if data.get('provider') is not None:
         cfg.provider = (data['provider'] or 'OpenAI').strip() or 'OpenAI'
     if data.get('api_endpoint') is not None:
@@ -719,6 +738,8 @@ def api_backup_stats():
 @vue_api_bp.route('/api/system/backup/export', methods=['POST'])
 @login_required
 @admin_required
+@require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('password')) or
+                  bool((request.get_json(silent=True) or {}).get('credential_envelope')))
 def api_backup_export():
     """导出备份包：服务端落盘 reports/exports/{token}.zip，返回 token 供一次性下载。
 
@@ -729,6 +750,12 @@ def api_backup_export():
     from utils.data_io import build_export_zip
     from blueprints.vue_export import save_export_file
     data = request.get_json(silent=True) or {}
+    from services.credential_envelope_service import apply_credential_field
+    try:
+        data, _ = apply_credential_field(
+            data, 'backup.password.export', field='password')
+    except Exception as exc:
+        return fail(str(exc) or '备份口令处理失败', 400)
     config_only = bool(data.get('config_only'))
     password = (data.get('password') or '').strip() or None
     tmp_path, size, manifest = build_export_zip(config_only=config_only, password=password)
@@ -763,6 +790,8 @@ def api_backup_export_download(token):
 @vue_api_bp.route('/api/system/backup/import', methods=['POST'])
 @login_required
 @admin_required
+@require_op_token(when=lambda: bool(request.form.get('password')) or
+                  bool(request.form.get('credential_envelope')))
 def api_backup_import():
     import tempfile
     import os
@@ -775,7 +804,32 @@ def api_backup_import():
     if not f or not f.filename or not f.filename.lower().endswith('.zip'):
         return fail('请选择 .zip 备份包')
     restore_key = request.form.get('restore_secret_key') == '1'
-    import_password = (request.form.get('password') or '').strip() or None
+    raw_password = (request.form.get('password') or '').strip()
+    envelope_text = request.form.get('credential_envelope') or ''
+    if envelope_text:
+        if raw_password:
+            return fail('敏感字段不得同时以明文和信封提交', 400)
+        try:
+            import json
+            from services.credential_envelope_service import consume_request_envelope
+            envelope = json.loads(envelope_text)
+            consumed = consume_request_envelope(
+                'backup.password.import', envelope,
+                operation_token=request.headers.get('X-Operation-Token', ''))
+            import_password = consumed.payload.get('password')
+            if not isinstance(import_password, str):
+                return fail('安全信封无效或已失效，请重新操作', 400)
+            import_password = import_password.strip() or None
+        except Exception as exc:
+            return fail(str(exc) or '备份口令处理失败', 400)
+    else:
+        from services.credential_envelope_service import (
+            note_raw_credential_compat, purpose_required)
+        if raw_password and purpose_required('backup.password.import'):
+            return fail('敏感字段必须使用凭据传输信封', 400)
+        if raw_password:
+            note_raw_credential_compat('backup.password.import')
+        import_password = raw_password or None
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip', prefix='itsm_import_')
     os.close(tmp_fd)
 
@@ -1163,11 +1217,38 @@ def api_notify_channels_list():
 @vue_api_bp.route('/api/notify/channels/<channel_type>', methods=['PUT'])
 @login_required
 @require_permission('notify:edit')
+@require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('credential_envelope')) or
+                  any(bool(((request.get_json(silent=True) or {}).get('config') or {}).get(key))
+                      for key in ('secret', 'app_secret')))
 def api_notify_channel_save(channel_type):
     """保存渠道配置（secret 留空=不修改，保持已存密文）"""
     from models import NotifyChannelConfig
     from utils.json_fields import parse_json, dumps_json
     data = request.get_json(silent=True) or {}
+    incoming = dict(data.get('config') or {})
+    credential_envelope = data.pop('credential_envelope', None)
+    raw_secret = next((key for key in ('secret', 'app_secret') if incoming.get(key)), None)
+    from services.credential_envelope_service import (
+        consume_request_envelope, note_raw_credential_compat, purpose_required)
+    if credential_envelope:
+        if raw_secret:
+            return fail('敏感字段不得同时以明文和信封提交', 400)
+        try:
+            consumed = consume_request_envelope(
+                'notification.credential.update', credential_envelope,
+                target_id=channel_type,
+                operation_token=request.headers.get('X-Operation-Token', ''))
+        except Exception as exc:
+            return fail(str(exc) or '通知凭据处理失败', 400)
+        secret_key = consumed.payload.get('secret_key')
+        secret_value = consumed.payload.get('secret')
+        if secret_key not in {'secret', 'app_secret'} or not isinstance(secret_value, str):
+            return fail('安全信封无效或已失效，请重新操作', 400)
+        incoming[secret_key] = secret_value
+    elif raw_secret and purpose_required('notification.credential.update'):
+        return fail('敏感字段必须使用凭据传输信封', 400)
+    elif raw_secret:
+        note_raw_credential_compat('notification.credential.update')
     row = NotifyChannelConfig.query.filter_by(channel_type=channel_type).first()
     if not row:
         row = NotifyChannelConfig(channel_type=channel_type)
@@ -1180,7 +1261,6 @@ def api_notify_channel_save(channel_type):
     cfg = parse_json(row.config_json or '', default={}, field_name='channel_config')
     if not isinstance(cfg, dict):
         cfg = {}
-    incoming = data.get('config') or {}
     # 敏感项加密存储
     for k in ('secret', 'app_secret'):
         if k in incoming and incoming[k]:

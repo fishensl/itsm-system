@@ -15,9 +15,15 @@ from utils.constants import (
     TICKET_SUSPENDED,
     TICKET_TRANSITIONS,
 )
+from utils.business_time import parse_beijing_to_utc
 from .base import ServiceError, transaction
 from .submission_version_service import add_version, review_version, latest_pending_version
 from .fault_category_service import resolve_fault_category_path
+from .ticket_timing_service import (
+    begin_new_cycle,
+    freeze_ticket_timing,
+    record_ticket_event,
+)
 
 
 def _leaf_fault_type_id(l1, l2, l3):
@@ -111,6 +117,7 @@ def create_ticket(data, current_user_name):
         priority=priority,
         description=data.get('description', ''),
         assigned_to=data.get('assigned_to', ''),
+        reported_at=parse_beijing_to_utc(data.get('reported_at')),
         related_device_id=int(data['related_device_id']) if data.get('related_device_id') else None,
         created_by=current_user_name,
         status=initial_status,
@@ -170,6 +177,8 @@ def update_ticket(ticket_id, data, current_user_name):
         t.fault_category_id = leaf_category_id
     if 'severity_level' in data:
         t.severity_level = (data.get('severity_level') or '').strip()
+    if 'reported_at' in data:
+        t.reported_at = parse_beijing_to_utc(data.get('reported_at'))
     _record_log(t, '编辑工单', current_user_name, '')
     return t
 
@@ -184,6 +193,7 @@ def _transition(ticket, target_state, current_user_name, remark=''):
     old = ticket.status
     ticket.status = target_state
     _record_log(ticket, f'状态变更: {old} → {target_state}', current_user_name, remark)
+    return old
 
 
 @transaction
@@ -203,9 +213,12 @@ def assign_ticket(ticket_id, assignee, current_user_name, remark=''):
 def accept_ticket(ticket_id, current_user_name, remark=''):
     """接单：直接进入处理中"""
     t = Ticket.query.get_or_404(ticket_id)
-    t.accepted_at = datetime.utcnow()
-    t.started_at = datetime.utcnow()
-    _transition(t, TICKET_PROCESSING, current_user_name, remark or '已接单，开始处理')
+    now = datetime.utcnow()
+    t.accepted_at = now
+    t.started_at = now
+    old = _transition(t, TICKET_PROCESSING, current_user_name, remark or '已接单，开始处理')
+    record_ticket_event(t, 'start', current_user_name, old, TICKET_PROCESSING,
+                        occurred_at=now, idempotent=True)
     return t
 
 
@@ -234,8 +247,11 @@ def submit_ticket(ticket_id, current_user_name, remark='', diagnosis=None, solut
         submitted_by_user_id=submitter_user_id,
         review_status=REVIEW_PENDING,
     )
-    t.completed_at = datetime.utcnow()
-    _transition(t, TICKET_SUBMITTED, current_user_name, remark)
+    now = datetime.utcnow()
+    t.completed_at = now
+    old = _transition(t, TICKET_SUBMITTED, current_user_name, remark)
+    record_ticket_event(t, 'submit', current_user_name, old, TICKET_SUBMITTED,
+                        occurred_at=now)
     return t
 
 
@@ -252,7 +268,8 @@ def audit_ticket(ticket_id, approved, current_user_name, remark='', requirements
     target = TICKET_CHECKED if approved else TICKET_PROCESSING
     t.audit_status = '通过' if approved else '拒绝'
     t.audit_by = current_user_name
-    t.audit_at = datetime.utcnow()
+    now = datetime.utcnow()
+    t.audit_at = now
     if remark:
         t.audit_comment = remark
     reviewer = User.query.filter_by(username=current_user_name).first()
@@ -261,7 +278,13 @@ def audit_ticket(ticket_id, approved, current_user_name, remark='', requirements
         review_version(pending.id, approved,
                        reviewer_user_id=reviewer.id if reviewer else None,
                        comment=remark, requirements=requirements)
-    _transition(t, target, current_user_name, remark or ('审核通过' if approved else '审核不通过'))
+    old = _transition(t, target, current_user_name,
+                      remark or ('审核通过' if approved else '审核不通过'))
+    event_type = 'audit_approve' if approved else 'audit_reject'
+    record_ticket_event(t, event_type, current_user_name, old, target,
+                        occurred_at=now)
+    if approved:
+        freeze_ticket_timing(t, 'audit_approve', now=now)
     return t
 
 
@@ -272,15 +295,26 @@ def accept_check_ticket(ticket_id, current_user_name, remark='', approved=True):
     target = TICKET_CLOSED if approved else TICKET_PROCESSING
     t.accept_status = '通过' if approved else '退回'
     t.accept_by = current_user_name
-    t.accept_at = datetime.utcnow()
+    now = datetime.utcnow()
+    t.accept_at = now
     if remark:
         t.accept_comment = remark
-    _transition(t, target, current_user_name, remark or ('客户验收通过' if approved else '客户验收退回'))
+    old = _transition(t, target, current_user_name,
+                      remark or ('客户验收通过' if approved else '客户验收退回'))
     if approved:
+        record_ticket_event(t, 'accept', current_user_name, old, target,
+                            occurred_at=now)
         if t.completed_at is None:
-            t.completed_at = datetime.utcnow()
+            t.completed_at = now
+        freeze_ticket_timing(t, 'audit_approve' if t.audit_status == '通过' else 'accept',
+                             now=now)
         from .fault_service import sync_fault_from_ticket
         sync_fault_from_ticket(t, current_user_name, resolved=True)
+    else:
+        begin_new_cycle(t, current_user_name, now, old, target,
+                        reason='customer_accept_reject')
+        t.started_at = now
+        t.completed_at = None
     return t
 
 
@@ -299,9 +333,13 @@ def unassign_ticket(ticket_id, current_user_name, remark=''):
 def close_ticket(ticket_id, current_user_name, remark=''):
     """关闭工单"""
     t = Ticket.query.get_or_404(ticket_id)
+    now = datetime.utcnow()
     if t.completed_at is None:
-        t.completed_at = datetime.utcnow()
-    _transition(t, TICKET_CLOSED, current_user_name, remark or '关闭工单')
+        t.completed_at = now
+    old = _transition(t, TICKET_CLOSED, current_user_name, remark or '关闭工单')
+    record_ticket_event(t, 'close', current_user_name, old, TICKET_CLOSED,
+                        occurred_at=now)
+    freeze_ticket_timing(t, 'close', now=now)
     from .fault_service import sync_fault_from_ticket
     sync_fault_from_ticket(t, current_user_name, resolved=True)
     return t
@@ -316,7 +354,16 @@ def reopen_ticket(ticket_id, current_user_name, remark=''):
     t = Ticket.query.get_or_404(ticket_id)
     if t.status != TICKET_CLOSED:
         raise ServiceError(f'仅已关闭工单可重开（当前状态 "{t.status}"）')
-    _transition(t, TICKET_PROCESSING, current_user_name, remark or '重开工单')
+    now = datetime.utcnow()
+    old = _transition(t, TICKET_PROCESSING, current_user_name, remark or '重开工单')
+    begin_new_cycle(t, current_user_name, now, old, TICKET_PROCESSING,
+                    reason='manual_reopen')
+    t.started_at = now
+    t.completed_at = None
+    t.audit_status = ''
+    t.audit_at = None
+    t.accept_status = ''
+    t.accept_at = None
     from .fault_service import sync_fault_from_ticket
     sync_fault_from_ticket(t, current_user_name, resolved=False)
     return t
@@ -337,13 +384,16 @@ def suspend_ticket(ticket_id, current_user_name, reason=''):
     if not reason:
         raise ServiceError('请填写挂起原因（如：等待采购备件到货）')
     from models import TicketSuspend
+    now = datetime.utcnow()
     db.session.add(TicketSuspend(
-        ticket_id=t.id, reason=reason, started_at=datetime.utcnow(),
+        ticket_id=t.id, reason=reason, started_at=now,
         operator=current_user_name,
     ))
-    t.suspended_at = datetime.utcnow()
+    t.suspended_at = now
     t.suspend_timeout_notified_at = None  # 重新挂起时清除超时提醒游标
-    _transition(t, TICKET_SUSPENDED, current_user_name, f'挂起：{reason}')
+    old = _transition(t, TICKET_SUSPENDED, current_user_name, f'挂起：{reason}')
+    record_ticket_event(t, 'suspend', current_user_name, old, TICKET_SUSPENDED,
+                        occurred_at=now, metadata={'reason': reason})
     return t
 
 
@@ -370,7 +420,9 @@ def resume_ticket(ticket_id, current_user_name, remark=''):
     # SLA 顺延：挂起期间不计处置时效
     if t.sla_deadline and suspend_secs:
         t.sla_deadline = t.sla_deadline + timedelta(seconds=suspend_secs)
-    _transition(t, TICKET_PROCESSING, current_user_name, remark or '恢复处理')
+    old = _transition(t, TICKET_PROCESSING, current_user_name, remark or '恢复处理')
+    record_ticket_event(t, 'resume', current_user_name, old, TICKET_PROCESSING,
+                        occurred_at=now)
     return t
 
 
@@ -402,8 +454,14 @@ def contract_review_ticket(ticket_id, approved, reviewer_name, comment=''):
     t.contract_exception_status = '通过' if approved else '拒绝'
     if comment:
         t.contract_exception_reason = t.contract_exception_reason + f'\n审核意见：{comment}'
-    _transition(t, target, reviewer_name,
-                ('合同例外审核通过' if approved else '合同例外审核拒绝') + (f'：{comment}' if comment else ''))
+    now = datetime.utcnow()
+    old = _transition(t, target, reviewer_name,
+                      ('合同例外审核通过' if approved else '合同例外审核拒绝') +
+                      (f'：{comment}' if comment else ''))
+    if not approved:
+        record_ticket_event(t, 'close', reviewer_name, old, target,
+                            occurred_at=now, metadata={'reason': 'contract_rejected'})
+        freeze_ticket_timing(t, 'close', now=now)
     return t
 
 

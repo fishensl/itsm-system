@@ -57,6 +57,20 @@ class Config:
     # 数据范围扩展采用分阶段发布：先观察/补齐 customer_engineers，再显式启用强制过滤。
     CUSTOMER_SCOPE_ENFORCE = os.environ.get(
         'ITSM_CUSTOMER_SCOPE_ENFORCE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    CREDENTIAL_ENVELOPE_MODE = os.environ.get(
+        'ITSM_CREDENTIAL_ENVELOPE_MODE', 'off').strip().lower()
+    if CREDENTIAL_ENVELOPE_MODE not in {'off', 'optional', 'required'}:
+        raise RuntimeError('[FATAL] ITSM_CREDENTIAL_ENVELOPE_MODE 仅支持 off/optional/required')
+    CREDENTIAL_ENVELOPE_PURPOSES = os.environ.get(
+        'ITSM_CREDENTIAL_ENVELOPE_PURPOSES', '').strip()
+    ENVELOPE_WRAP_KEY = os.environ.get('ITSM_ENVELOPE_WRAP_KEY', '').strip()
+    ENVELOPE_PREVIOUS_WRAP_KEY = os.environ.get(
+        'ITSM_ENVELOPE_PREVIOUS_WRAP_KEY', '').strip()
+    ENVELOPE_WRAP_KID = os.environ.get('ITSM_ENVELOPE_WRAP_KID', 'env-wrap-1').strip()
+    ENVELOPE_CHALLENGE_TTL_SECONDS = max(
+        30, min(int(os.environ.get('ITSM_ENVELOPE_CHALLENGE_TTL_SECONDS', '60')), 120))
+    ENVELOPE_MAX_IMPORT_MB = max(
+        1, min(int(os.environ.get('ITSM_ENVELOPE_MAX_IMPORT_MB', '20')), 100))
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = FORCE_HTTPS

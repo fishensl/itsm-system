@@ -339,8 +339,10 @@ def api_kb_dicts():
 
 
 # ==================== 故障记录 ====================
-def _fault_payload(f, customer_map=None, ticket_map=None):
+def _fault_payload(f, customer_map=None, ticket_map=None, timing=None):
     """ticket_map: {ticket_id: number}（列表端点批量构建，避免逐行查工单号）"""
+    from services.ticket_timing_service import fault_timing_payload
+    timing = timing or fault_timing_payload(f)
     l1, l2, l3 = f.fault_category_level1 or '', f.fault_category_level2 or '', f.fault_category_level3 or ''
     category = '/'.join(x for x in (l1, l2, l3) if x) or ''
     return {
@@ -357,7 +359,12 @@ def _fault_payload(f, customer_map=None, ticket_map=None):
         'fault_category': category,
         'result': f.result or '',
         'impact_range': f.impact_range or '',
-        'recovery_time': f.recovery_time.strftime('%Y-%m-%d %H:%M') if f.recovery_time else '',
+        'recovery_time': timing['finished_at'],
+        'handling_started_at': timing['started_at'],
+        'handling_duration': timing['handling_duration_text'],
+        'handling_person_days': timing['handling_person_days'],
+        'timing_source': timing['source'],
+        'timing': timing,
         'created_at': f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else '',
         'ticket_id': f.ticket_id,          # S6: 已转工单桥接（前端显示/防重复转单）
         'ticket_number': (ticket_map or {}).get(f.ticket_id, '') if f.ticket_id else '',
@@ -400,7 +407,10 @@ def api_fault_list():
         from models import Ticket as _TK
         ticket_map = dict(db.session.query(_TK.id, _TK.number)
                           .filter(_TK.id.in_(tid_set)).all())
-    return ok({'items': [_fault_payload(f, customer_map, ticket_map) for f in rows],
+    from services.ticket_timing_service import fault_timing_payloads
+    timing_map = fault_timing_payloads(rows)
+    return ok({'items': [_fault_payload(f, customer_map, ticket_map, timing_map.get(f.id))
+                         for f in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -420,7 +430,6 @@ def api_fault_get(fault_id):
     payload['fault_description'] = f.fault_description or ''
     payload['fault_cause'] = f.fault_cause or ''
     payload['solution'] = f.solution or ''
-    payload['recovery_time'] = f.recovery_time.strftime('%Y-%m-%d %H:%M') if f.recovery_time else ''
     payload['created_at'] = f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else ''
     return ok(payload)
 

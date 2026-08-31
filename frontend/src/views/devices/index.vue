@@ -666,7 +666,7 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
@@ -678,12 +678,13 @@ import { toRouterPath } from '@/utils/sidebarNav'
 import {
   fetchDevices, fetchDevice, createDevice, updateDevice, deleteDevice, revealPassword,
   fetchDeviceConfigBackups, fetchDeviceConfigBackupContent, deviceConfigBackupDownloadUrl,
-  fetchDeviceRelated, exportDevices, importDevices, createConfigBackup, deleteConfigBackup,
+  fetchDeviceRelated, exportDevices, importDevicesEncrypted, createConfigBackup, deleteConfigBackup,
   rollbackConfigBackup, fetchConfigBackupDiff, fetchPasswordHistory, type DiffLine,
   fetchDeviceTree, type Device, type DeviceForm, type DeviceConfigBackup,
   type DeviceTreeGroup, type RelatedTicket, type RelatedInspection,
   type PasswordHistoryItem, type DeviceExportRequestItem,
   requestDeviceExport, fetchDeviceExportRequests, exportPasswordDownloadUrl,
+  authorizePasswordExportDownload, passwordExportFileUrl,
   batchUpdateDevices,
   previewBatchDeleteDevices, batchDeleteDevices,
   auditPasswordCopy,
@@ -1070,7 +1071,7 @@ const importVisible = ref(false)
 const importing = ref(false)
 const importUploadRef = ref()
 const importFile = ref<File | null>(null)
-type ImportPreview = Awaited<ReturnType<typeof importDevices>>
+type ImportPreview = Awaited<ReturnType<typeof importDevicesEncrypted>>
 const importMode = ref<'create' | 'update' | 'upsert'>('create')
 const importClearEmpty = ref(false)
 const importPreview = ref<ImportPreview | null>(null)
@@ -1159,14 +1160,20 @@ function firstCustomerId(payload: Record<string, unknown>): number | undefined {
 
 async function downloadPasswordExport(token: string) {
   try {
-    const resp = await fetch(exportPasswordDownloadUrl(token), { credentials: 'include' })
+    const authorization = await authorizePasswordExportDownload(token)
+    const downloadUrl = authorization.legacy
+      ? exportPasswordDownloadUrl(token)
+      : passwordExportFileUrl(token, authorization.download_ticket)
+    const resp = await fetch(downloadUrl, { credentials: 'include' })
     if (!resp.ok) {
       const j = await resp.json().catch(() => null)
       ui.toast(j?.message || '下载失败', 'error')
       return
     }
-    const pwd = resp.headers.get('X-Export-Password') || ''
-    const fname = resp.headers.get('X-Export-Filename') || '设备密码表.xlsx'
+    const pwd = authorization.legacy
+      ? (resp.headers.get('X-Export-Password') || '')
+      : authorization.password
+    const fname = authorization.filename || resp.headers.get('X-Export-Filename') || '设备密码表.xlsx'
     const blob = await resp.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -1191,15 +1198,15 @@ async function doImport() {
   }
   importing.value = true
   try {
-    const fd = new FormData()
-    fd.append('import_file', importFile.value)
-    fd.append('mode', importMode.value)
-    fd.append('clear_empty', importClearEmpty.value ? '1' : '0')
-    fd.append('network_mappings', JSON.stringify(networkMappings))
     const execute = Boolean(importPreview.value && !importPreview.value.failed)
-    fd.append('dry_run', execute ? '0' : '1')
-    if (execute && importPreview.value?.batch_id) fd.append('batch_id', importPreview.value.batch_id)
-    const res = await importDevices(fd)
+    const fields: Record<string, string> = {
+      mode: importMode.value,
+      clear_empty: importClearEmpty.value ? '1' : '0',
+      network_mappings: JSON.stringify(networkMappings),
+      dry_run: execute ? '0' : '1',
+    }
+    if (execute && importPreview.value?.batch_id) fields.batch_id = importPreview.value.batch_id
+    const res = await importDevicesEncrypted(importFile.value, fields)
     if (!execute) {
       importPreview.value = res
       for (const value of Object.keys(res.unknown_network_types)) {
@@ -1237,15 +1244,14 @@ const pwdVisible = ref(false)
 const sensitiveVisible = ref(false)
 const sensitiveValue = ref('')
 const sensitiveTitle = ref('敏感信息')
-const sensitiveSeconds = ref(10)
+const sensitiveSeconds = ref(60)
 let sensitiveTimer: number | undefined
 
 function clearSensitiveValue() {
   if (sensitiveTimer) window.clearInterval(sensitiveTimer)
   sensitiveTimer = undefined
   sensitiveValue.value = ''
-  sensitiveSeconds.value = 10
-  if (detail.value) detail.value = { ...detail.value, password: undefined }
+  sensitiveSeconds.value = 60
   pwdVisible.value = false
 }
 
@@ -1288,6 +1294,19 @@ async function copySensitive() {
     ui.toast((e as Error).message || '复制失败', 'error')
   }
 }
+
+function clearSensitiveWhenHidden() {
+  if (document.hidden) {
+    sensitiveVisible.value = false
+    clearSensitiveValue()
+  }
+}
+
+onMounted(() => document.addEventListener('visibilitychange', clearSensitiveWhenHidden))
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', clearSensitiveWhenHidden)
+  clearSensitiveValue()
+})
 /** 今日 YYYY-MM-DD（证书到期比较） */
 const todayStr = new Date().toISOString().slice(0, 10)
 /** 详情弹窗授权行：区间文本 + 状态色框（与列表列同口径） */
@@ -1446,7 +1465,6 @@ async function revealPwd() {
   if (!detail.value) return
   if (!pwdVisible.value) {
     const res = await revealPassword(detail.value.id)
-    detail.value = { ...detail.value, password: res.password }
     showSensitiveValue('当前登录密码', res.password || '（空）')
   } else {
     sensitiveVisible.value = false

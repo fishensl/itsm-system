@@ -49,7 +49,7 @@ IMPORT_TEMPLATE_FIELDS = {
         ('故障分类', 'fault_category'), ('故障描述', 'fault_description'),
         ('影响范围', 'impact_range'), ('故障原因', 'fault_cause'),
         ('解决方案', 'solution'), ('处理结果', 'result'),
-        ('恢复时间', 'recovery_time'),
+        ('处置开始', 'handling_started_at'), ('恢复时间', 'recovery_time'),
     ),
     'spare': (
         ('编码', 'code'), ('名称', 'name'), ('分类', 'category'),
@@ -100,7 +100,8 @@ IMPORT_TEMPLATES = {
         'example': [
             '示例客户（须已存在）', '交换机离线（导入前请删除）', '李工',
             '2026-08-28 09:30', '网络故障', '网络/链路/中断', '设备不可达',
-            '业务中断30分钟', '链路异常', '恢复链路', '已解决', '2026-08-28 10:00',
+            '业务中断30分钟', '链路异常', '恢复链路', '已解决',
+            '2026-08-28 09:35', '2026-08-28 10:00',
         ],
     },
     'spare': {

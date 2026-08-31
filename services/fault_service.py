@@ -5,6 +5,7 @@ from models import db, Fault
 from utils.constants import FAULT_OBSERVING, FAULT_RESOLVED
 from .base import ServiceError, transaction
 from .fault_category_service import resolve_fault_category_path
+from utils.business_time import parse_beijing_to_utc
 
 
 def _parse_dt(value):
@@ -40,6 +41,7 @@ def create_fault(data, current_user_name):
         customer_id=int(data['customer_id']) if data.get('customer_id') else None,
         fault_type=data.get('fault_type', ''),
         fault_time=_parse_dt(data.get('fault_time')) or datetime.utcnow(),
+        handling_started_at=parse_beijing_to_utc(data.get('handling_started_at')),
         recovery_time=_parse_dt(data.get('recovery_time')),
         result=data.get('result', '已解决'),
         fault_description=data.get('fault_description', ''),
@@ -66,6 +68,8 @@ def update_fault(fault_id, data):
         f.fault_time = _parse_dt(data['fault_time']) or f.fault_time
     if 'recovery_time' in data:
         f.recovery_time = _parse_dt(data.get('recovery_time'))
+    if 'handling_started_at' in data:
+        f.handling_started_at = parse_beijing_to_utc(data.get('handling_started_at'))
     f.result = data.get('result', f.result)
     f.fault_description = data.get('fault_description', f.fault_description)
     f.fault_cause = data.get('fault_cause', f.fault_cause)
@@ -130,9 +134,9 @@ def sync_fault_from_ticket(ticket, current_user_name, *, resolved=True):
 
     if resolved:
         fault.result = FAULT_RESOLVED
-        fault.recovery_time = (
-            ticket.completed_at or ticket.accept_at or datetime.utcnow()
-        )
+        from .ticket_timing_service import ticket_resolution_at
+        fault.recovery_time = ticket_resolution_at(ticket) or datetime.utcnow()
+        fault.handling_started_at = ticket.started_at or fault.handling_started_at
     else:
         fault.result = FAULT_OBSERVING
         fault.recovery_time = None

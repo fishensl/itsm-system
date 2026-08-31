@@ -42,6 +42,45 @@
         </el-descriptions-item>
       </el-descriptions>
 
+      <el-divider content-position="left">处置时间</el-divider>
+      <el-descriptions :column="cols" border size="small" class="timing-panel">
+        <el-descriptions-item :label="label('reported_at', '报障时间')">
+          {{ detail.reported_at || detail.created_at || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('assigned_at', '派单时间')">{{ detail.assigned_at || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('accepted_at', '接单时间')">{{ detail.accepted_at || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="label('handling_started_at', '处置开始')">
+          {{ detail.timing?.started_at || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="提交审核">{{ detail.completed_at || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="审核通过">
+          {{ detail.audit_status === '通过' ? (detail.audit_at || '-') : '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('response_duration', '响应时长')">
+          {{ detail.timing?.response_duration_text || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('handling_duration', '处置时效')">
+          <span class="timing-primary">{{ detail.timing?.handling_duration_text || '-' }}</span>
+          <span v-if="detail.timing?.active" class="timing-note">（截至当前）</span>
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('handling_person_days', '实际人天')">
+          {{ detail.timing ? `${detail.timing.handling_person_days} 人天` : '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('closure_duration', '闭环时长')">
+          {{ detail.timing?.closure_duration_text || '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item :label="label('timing_source', '计时来源')">
+          {{ timingSourceLabel(detail.timing?.source) }}
+          <el-tag v-if="detail.timing?.is_estimated" size="small" type="warning" class="audit-tag">
+            估算
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="计时周期">第 {{ detail.timing?.cycle_no || 1 }} 轮</el-descriptions-item>
+      </el-descriptions>
+      <p v-if="detail.timing?.is_estimated && detail.timing.estimate_reason" class="timing-warning">
+        {{ detail.timing.estimate_reason }}
+      </p>
+
       <el-divider content-position="left">描述</el-divider>
       <p class="detail-text">{{ detail.description || '-' }}</p>
 
@@ -241,6 +280,9 @@ const canAddProgress = computed(() => {
 })
 
 const photoUrl = (path: string) => `/static/${path}`
+const timingSourceLabel = (source?: string) => ({
+  events: '状态事件', snapshot: '完成快照', estimated: '历史估算', unknown: '暂无数据',
+}[source || ''] || source || '-')
 
 async function load() {
   loading.value = true
@@ -298,5 +340,8 @@ fetchEntityMeta('ticket').then((meta) => { metadata.value = meta })
 .suspend-item { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; font-size: 12px; }
 .suspend-reason { font-weight: 500; font-size: 13px; }
 .suspend-meta { color: var(--itsm-text-muted); }
+.timing-primary { color: var(--el-color-primary); font-weight: 600; }
+.timing-note { color: var(--itsm-text-muted); font-size: 12px; }
+.timing-warning { color: var(--el-color-warning); font-size: 12px; margin: 8px 0 0; }
 .mr-2 { margin-right: 8px; }
 </style>

@@ -44,6 +44,7 @@ class Ticket(db.Model):
     assigned_to = db.Column(db.String(64), default='', index=True)
     assigned_by = db.Column(db.String(64), default='')
     assigned_at = db.Column(db.DateTime, nullable=True)
+    reported_at = db.Column(db.DateTime, nullable=True)  # 用户填写的故障发生时间（UTC naive）
     accepted_at = db.Column(db.DateTime, nullable=True)
     started_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
@@ -131,6 +132,55 @@ class TicketProgress(db.Model):
     ticket_rel = db.relationship('Ticket', backref='progresses')
 
 
+class TicketTimingEvent(db.Model):
+    """工单结构化计时事件；计时逻辑不解析中文 TicketLog。"""
+    __tablename__ = 'ticket_timing_events'
+    __table_args__ = (
+        db.Index('ix_ticket_timing_event_ticket_cycle_time',
+                 'ticket_id', 'cycle_no', 'occurred_at_utc'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('tickets.id'), nullable=False, index=True)
+    cycle_no = db.Column(db.Integer, nullable=False, default=1)
+    event_type = db.Column(db.String(32), nullable=False, index=True)
+    from_status = db.Column(db.String(32), default='')
+    to_status = db.Column(db.String(32), default='')
+    occurred_at_utc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    actor_name_snapshot = db.Column(db.String(64), default='')
+    source = db.Column(db.String(16), nullable=False, default='api')
+    metadata_json = db.Column(db.Text, nullable=False, default='{}')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    ticket_rel = db.relationship('Ticket', backref='timing_events')
+
+
+class TicketTimingSnapshot(db.Model):
+    """每轮最终审核/管理关闭时冻结的计时结果。"""
+    __tablename__ = 'ticket_timing_snapshots'
+    __table_args__ = (
+        db.UniqueConstraint('ticket_id', 'cycle_no', name='uq_ticket_timing_snapshot_cycle'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('tickets.id'), nullable=False, index=True)
+    cycle_no = db.Column(db.Integer, nullable=False, default=1)
+    response_seconds = db.Column(db.Integer, nullable=False, default=0)
+    handling_seconds = db.Column(db.Integer, nullable=False, default=0)
+    closure_seconds = db.Column(db.Integer, nullable=True)
+    suspended_business_seconds = db.Column(db.Integer, nullable=False, default=0)
+    started_at_utc = db.Column(db.DateTime, nullable=True)
+    finished_at_utc = db.Column(db.DateTime, nullable=True)
+    algorithm_version = db.Column(db.Integer, nullable=False, default=1)
+    calendar_version = db.Column(db.Integer, nullable=False, default=1)
+    is_estimated = db.Column(db.Boolean, nullable=False, default=False)
+    estimate_reason = db.Column(db.String(256), default='')
+    finish_source = db.Column(db.String(32), default='')
+    generated_at_utc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    source = db.Column(db.String(16), nullable=False, default='api')
+
+    ticket_rel = db.relationship('Ticket', backref='timing_snapshots')
+
+
 class CustomerContractReview(db.Model):
     """客户合同例外申请（过期客户安排任务时部门主管审核）"""
     __tablename__ = 'customer_contract_reviews'
@@ -161,6 +211,7 @@ class Fault(db.Model):
     title = db.Column(db.String(128), nullable=False)
     handler = db.Column(db.String(64), default='')
     fault_time = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    handling_started_at = db.Column(db.DateTime, nullable=True)
     fault_type = db.Column(db.String(64), default='')
     fault_description = db.Column(db.Text, default='')
     impact_range = db.Column(db.String(256), default='')

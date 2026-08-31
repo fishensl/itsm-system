@@ -124,7 +124,7 @@ def api_login():
             return ok({'mfa_required': bool(user.mfa_enabled),
                        'bind_required': not bool(user.mfa_enabled)})
         login_user(user)
-        establish_session(user)
+        establish_session(user, auth_strength='password')
         current_app.logger.info(f'用户 [{username}] 登录成功(Vue)')
         return ok({'user': _user_payload(user)})
     if user:
@@ -182,7 +182,8 @@ def api_login_mfa_verify():
     db.session.commit()
     session.clear()
     login_user(user)
-    establish_session(user)
+    establish_session(user, auth_strength=(
+        'mfa_recovery' if data.get('recovery') else 'mfa_totp'))
     current_app.logger.info('用户 [%s] MFA 登录成功', user.username)
     return ok({'user': _user_payload(user)})
 
@@ -192,6 +193,7 @@ def api_login_mfa_verify():
 def api_logout():
     current_app.logger.info(f'用户 [{current_user.username}] 登出(Vue)')
     logout_user()
+    session.clear()
     return ok(None)
 
 
@@ -778,20 +780,59 @@ def api_v2_device_export():
 @vue_api_bp.route('/api/v2/devices/import', methods=['POST'])
 @login_required
 @require_permission('device:add')
+@require_op_token()
 def api_v2_device_import():
     """设备批量导入：同一端点支持预检与三种执行模式。"""
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
     from utils.import_templates import get_import_field_mapping
     from models import Device as _D, Customer as _C, DeviceImportBatch
     from services.device_import_service import prepare_device_import, execute_device_import
-    if 'import_file' not in request.files:
-        return fail('请选择要导入的 Excel 文件', 400)
-    f = request.files['import_file']
-    ALLOWED_EXCEL_EXT = {'.xlsx', '.xls'}
-    ok_flag, err, _ = validate_upload(f, ALLOWED_EXCEL_EXT, max_size_mb=20)
-    if not ok_flag:
-        return fail(err, 400)
-    tmp = save_temp_upload(f, suffix='.xlsx')
+    encrypted_file = request.files.get('encrypted_file')
+    plain_file = request.files.get('import_file')
+    from services.credential_envelope_service import (
+        consume_binary_request_envelope, purpose_required)
+    encrypted_transport = bool(encrypted_file)
+    tmp = None
+    if encrypted_file:
+        max_bytes = int(current_app.config.get('ENVELOPE_MAX_IMPORT_MB', 20)) * 1024 * 1024
+        ciphertext = encrypted_file.read(max_bytes + 17)
+        if len(ciphertext) > max_bytes + 16:
+            return fail('加密导入文件超过大小限制', 400)
+        try:
+            consumed = consume_binary_request_envelope(
+                'device.password.import',
+                challenge_id=request.form.get('challenge_id', ''),
+                iv=request.form.get('iv', ''),
+                ciphertext=ciphertext,
+                operation_token=request.headers.get('X-Operation-Token', ''),
+                max_plaintext=max_bytes,
+            )
+            file_bytes = consumed.payload
+        except Exception as exc:
+            return fail(str(exc) or '安全信封无效或已失效，请重新操作', 400)
+        import tempfile
+        original_name = request.form.get('original_filename') or 'devices.xlsx'
+        extension = os.path.splitext(original_name)[1].lower()
+        if extension not in {'.xlsx', '.xls'}:
+            return fail('不支持的设备导入文件类型', 400)
+        handle = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
+        try:
+            handle.write(file_bytes)
+        finally:
+            handle.close()
+        tmp = handle.name
+    else:
+        if purpose_required('device.password.import'):
+            return fail('设备导入文件必须使用凭据传输信封', 400)
+        if not plain_file:
+            return fail('请选择要导入的 Excel 文件', 400)
+        from services.credential_envelope_service import note_raw_credential_compat
+        note_raw_credential_compat('device.password.import')
+        ok_flag, err, _ = validate_upload(
+            plain_file, {'.xlsx', '.xls'}, max_size_mb=20)
+        if not ok_flag:
+            return fail(err, 400)
+        tmp = save_temp_upload(plain_file, suffix='.xlsx')
     try:
         import hashlib
         from uuid import uuid4
@@ -908,7 +949,8 @@ def api_v2_device_import():
         from blueprints.vue_api_sys import audit_log
         audit_log('device:import', 'device', None,
                   f'模式={mode}; 新增={response["create"]}; 更新={response["update"]}; '
-                  f'无变化={response["unchanged"]}; 密码更新={result["password_updates"]}')
+                  f'无变化={response["unchanged"]}; 密码更新={result["password_updates"]}; '
+                  f'传输={"信封" if encrypted_transport else "兼容通道"}')
         return ok(response)
     finally:
         cleanup_temp_file(tmp)
@@ -1121,9 +1163,17 @@ def api_device_get(device_id):
 @vue_api_bp.route('/api/devices', methods=['POST'])
 @login_required
 @require_permission('device:add')
+@require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('password')) or
+                  bool((request.get_json(silent=True) or {}).get('credential_envelope')))
 def api_device_create():
     from services.device_service import create_device_from_form
     data = request.get_json(silent=True) or {}
+    from services.credential_envelope_service import apply_credential_field
+    try:
+        data, password_enveloped = apply_credential_field(
+            data, 'device.password.create', field='password')
+    except Exception as e:
+        return fail(str(e) or '设备凭据处理失败', 400)
     from utils.customer_scope import has_full_customer_scope, require_customer_access
     if not data.get('customer_id') and not has_full_customer_scope(current_user):
         return fail('受限数据范围用户创建设备时必须选择可见客户', 400)
@@ -1139,18 +1189,29 @@ def api_device_create():
         db.session.rollback()
         return fail(str(e) or '设备创建失败', 400)
     _sync_device_count(d.customer_id)
+    if data.get('password'):
+        from blueprints.vue_api_sys import audit_log
+        source = '传输信封' if password_enveloped else '兼容通道'
+        audit_log('device:password_change', 'device', d.id,
+                  f'创建设备「{d.device_name}」并设置登录密码（{source}）')
     return ok({'id': d.id})
 
 
 @vue_api_bp.route('/api/devices/<int:device_id>', methods=['PUT'])
 @login_required
 @require_permission('device:edit')
-@require_op_token(when=lambda: 'password' in (request.get_json(silent=True) or {}) and
-                  bool((request.get_json(silent=True) or {}).get('password')))
+@require_op_token(when=lambda: bool((request.get_json(silent=True) or {}).get('password')) or
+                  bool((request.get_json(silent=True) or {}).get('credential_envelope')))
 def api_device_update(device_id):
     from services.device_service import update_device_from_form
     from flask_login import current_user as _cu
     data = request.get_json(silent=True) or {}
+    from services.credential_envelope_service import apply_credential_field
+    try:
+        data, password_enveloped = apply_credential_field(
+            data, 'device.password.update', target_id=device_id, field='password')
+    except Exception as e:
+        return fail(str(e) or '设备凭据处理失败', 400)
     from models import Device as _Device
     from utils.customer_scope import require_device_access, require_customer_access
     existing_device = _Device.query.get_or_404(device_id)
@@ -1169,7 +1230,9 @@ def api_device_update(device_id):
     _sync_device_count(d.customer_id)
     if data.get('password'):
         from blueprints.vue_api_sys import audit_log
-        audit_log('device:password_change', 'device', d.id, f'修改设备「{d.device_name}」登录密码')
+        source = '传输信封' if password_enveloped else '兼容通道'
+        audit_log('device:password_change', 'device', d.id,
+                  f'修改设备「{d.device_name}」登录密码（{source}）')
     return ok({'id': d.id})
 
 
@@ -1265,8 +1328,26 @@ def api_device_reveal_password(device_id):
     """
     from utils.crypto import decrypt_password
     from models import Device as _Device, PasswordHistory as _PH
-    history_id = request.get_json(silent=True) or {}
-    history_id = history_id.get('history_id')
+    data = request.get_json(silent=True) or {}
+    credential_envelope = data.get('credential_envelope')
+    consumed = None
+    if credential_envelope:
+        from services.credential_envelope_service import consume_request_envelope
+        try:
+            consumed = consume_request_envelope(
+                'device.password.reveal', credential_envelope, target_id=device_id,
+                operation_token=request.headers.get('X-Operation-Token', ''))
+        except Exception as e:
+            return fail(str(e) or '安全信封无效或已失效，请重新操作', 400)
+        history_id = consumed.payload.get('history_id')
+        bound_history_id = consumed.history_id
+        if (str(history_id) if history_id not in (None, '') else None) != bound_history_id:
+            return fail('安全信封无效或已失效，请重新操作', 400)
+    else:
+        from services.credential_envelope_service import purpose_required
+        if purpose_required('device.password.reveal'):
+            return fail('敏感字段必须使用凭据传输信封', 400)
+        history_id = data.get('history_id')
     d = _Device.query.get_or_404(device_id)
     from utils.customer_scope import require_device_access
     require_device_access(current_user, d)
@@ -1288,6 +1369,12 @@ def api_device_reveal_password(device_id):
     from utils.access_control import client_ip
     from utils.security_events import note_password_reveal
     note_password_reveal(current_user.id, current_user.username, d.id, client_ip())
+    if consumed:
+        return ok({'credential_envelope': consumed.encrypt_response({
+            'password': pwd,
+            'kind': 'history' if history_id else 'current',
+            'history_id': int(history_id) if history_id else None,
+        })})
     return ok({'password': pwd})
 
 
@@ -1813,12 +1900,14 @@ def api_task_board_dicts():
         assignee_users = [me] if _IT.query.filter_by(assigned_to_user_id=me.id).first() else []
     assignees = [{'id': u.id, 'name': u.realname or u.username} for u in assignee_users]
     return ok({'customers': customers, 'assignees': assignees})
-def _ticket_payload(t, customer_map=None):
+def _ticket_payload(t, customer_map=None, timing=None):
     from datetime import datetime
     from services.ticket_service import ticket_completeness
     from models import Device as _D, Customer as _C
     from services.submission_version_service import report_display_name
+    from services.ticket_timing_service import ticket_timing_payload
     complete, missing = ticket_completeness(t)
+    timing = timing or ticket_timing_payload(t)
     related_device = _D.query.get(t.related_device_id) if t.related_device_id else None
     customer_name = (customer_map or {}).get(t.customer_id, '')
     # 外网脱敏：仅输出客户最小集（名称/办公室/门牌号/地图定位），隐藏客户/设备主数据
@@ -1900,6 +1989,15 @@ def _ticket_payload(t, customer_map=None):
         'assigned_at': t.assigned_at.strftime('%Y-%m-%d %H:%M') if t.assigned_at else '',
         'accepted_at': t.accepted_at.strftime('%Y-%m-%d %H:%M') if t.accepted_at else '',
         'completed_at': t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '',
+        'reported_at': timing['reported_at'],
+        'handling_started_at': timing['started_at'],
+        'handling_finished_at': timing['finished_at'],
+        'response_duration': timing['response_duration_text'],
+        'handling_duration': timing['handling_duration_text'],
+        'handling_person_days': timing['handling_person_days'],
+        'closure_duration': timing['closure_duration_text'],
+        'timing_source': timing['source'],
+        'timing': timing,
         # V28: 挂起 / 处置进展 / 合同例外
         'suspended': bool(t.suspended_at),
         'suspended_at': t.suspended_at.strftime('%Y-%m-%d %H:%M') if t.suspended_at else '',
@@ -2005,7 +2103,9 @@ def api_ticket_list():
     total = len(rows_all)
     rows = rows_all[(page - 1) * page_size: page * page_size]
     customer_map = {c.id: c.name for c in _C.query.all()}
-    return ok({'items': [_ticket_payload(t, customer_map) for t in rows],
+    from services.ticket_timing_service import ticket_timing_payloads
+    timing_map = ticket_timing_payloads(rows)
+    return ok({'items': [_ticket_payload(t, customer_map, timing_map.get(t.id)) for t in rows],
                'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -4105,9 +4205,12 @@ def api_v2_ticket_export():
     device_map = dict(db.session.query(_D.id, _D.device_name)
                       .filter(_D.id.in_(device_ids)).all()) if device_ids else {}
     from services.ticket_service import ticket_completeness
+    from services.ticket_timing_service import ticket_timing_payloads
+    timing_map = ticket_timing_payloads(records)
 
     def cell(r, code):
         complete, _ = ticket_completeness(r)
+        timing = timing_map[r.id]
         return {
             'number': r.number or '', 'title': r.title or '', 'priority': r.priority or '',
             'status': r.status or '', 'customer': r.customer_rel.name if r.customer_rel else '',
@@ -4127,6 +4230,14 @@ def api_v2_ticket_export():
             'assigned_at': r.assigned_at.strftime('%Y-%m-%d %H:%M') if r.assigned_at else '',
             'accepted_at': r.accepted_at.strftime('%Y-%m-%d %H:%M') if r.accepted_at else '',
             'completed_at': r.completed_at.strftime('%Y-%m-%d %H:%M') if r.completed_at else '',
+            'reported_at': timing['reported_at'],
+            'handling_started_at': timing['started_at'],
+            'handling_finished_at': timing['finished_at'],
+            'response_duration': timing['response_duration_text'],
+            'handling_duration': timing['handling_duration_text'],
+            'handling_person_days': timing['handling_person_days'],
+            'closure_duration': timing['closure_duration_text'],
+            'timing_source': timing['source'],
         }.get(code, '')
 
     rows = generic_rows(records, codes, cell)
@@ -4170,8 +4281,11 @@ def api_v2_ticket_export_bundle():
     customer_map = {c.id: c.name for c in _C.query.all()}
     headers = [h for _, h in TICKET_EXPORT_COLUMNS]
     codes = [c for c, _ in TICKET_EXPORT_COLUMNS]
+    from services.ticket_timing_service import ticket_timing_payloads
+    timing_map = ticket_timing_payloads(records)
 
     def cell(r, code):
+        timing = timing_map[r.id]
         return {
             'number': r.number or '', 'title': r.title or '', 'priority': r.priority or '',
             'status': r.status or '', 'customer': customer_map.get(r.customer_id, ''),
@@ -4179,6 +4293,14 @@ def api_v2_ticket_export_bundle():
             'created_by': r.created_by or '',
             'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
             'completed_at': r.completed_at.strftime('%Y-%m-%d %H:%M') if r.completed_at else '',
+            'reported_at': timing['reported_at'],
+            'handling_started_at': timing['started_at'],
+            'handling_finished_at': timing['finished_at'],
+            'response_duration': timing['response_duration_text'],
+            'handling_duration': timing['handling_duration_text'],
+            'handling_person_days': timing['handling_person_days'],
+            'closure_duration': timing['closure_duration_text'],
+            'timing_source': timing['source'],
         }.get(code, '')
 
     rows = generic_rows(records, codes, cell)
@@ -4234,8 +4356,11 @@ def api_v2_fault_export():
     ticket_ids = {r.ticket_id for r in records if r.ticket_id}
     ticket_map = dict(db.session.query(_T.id, _T.number)
                       .filter(_T.id.in_(ticket_ids)).all()) if ticket_ids else {}
+    from services.ticket_timing_service import fault_timing_payloads
+    timing_map = fault_timing_payloads(records)
 
     def cell(r, code):
+        timing = timing_map[r.id]
         return {
             'title': r.title or '', 'customer': r.customer_rel.name if r.customer_rel else '',
             'handler': r.handler or '',
@@ -4248,7 +4373,11 @@ def api_v2_fault_export():
             'fault_description': r.fault_description or '',
             'fault_cause': r.fault_cause or '',
             'solution': r.solution or '',
-            'recovery_time': r.recovery_time.strftime('%Y-%m-%d %H:%M') if r.recovery_time else '',
+            'recovery_time': timing['finished_at'],
+            'handling_started_at': timing['started_at'],
+            'handling_duration': timing['handling_duration_text'],
+            'handling_person_days': timing['handling_person_days'],
+            'timing_source': timing['source'],
             'ticket_number': ticket_map.get(r.ticket_id, ''),
             'created_at': r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
         }.get(code, '')

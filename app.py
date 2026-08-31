@@ -209,6 +209,13 @@ def create_app(test_config=None):
     app.config['IS_PRODUCTION'] = Config.IS_PRODUCTION
     app.config['MFA_ENFORCE'] = Config.MFA_ENFORCE
     app.config['CSP_ENABLED'] = Config.CSP_ENABLED
+    app.config['CREDENTIAL_ENVELOPE_MODE'] = Config.CREDENTIAL_ENVELOPE_MODE
+    app.config['CREDENTIAL_ENVELOPE_PURPOSES'] = Config.CREDENTIAL_ENVELOPE_PURPOSES
+    app.config['ENVELOPE_WRAP_KEY'] = Config.ENVELOPE_WRAP_KEY
+    app.config['ENVELOPE_PREVIOUS_WRAP_KEY'] = Config.ENVELOPE_PREVIOUS_WRAP_KEY
+    app.config['ENVELOPE_WRAP_KID'] = Config.ENVELOPE_WRAP_KID
+    app.config['ENVELOPE_CHALLENGE_TTL_SECONDS'] = Config.ENVELOPE_CHALLENGE_TTL_SECONDS
+    app.config['ENVELOPE_MAX_IMPORT_MB'] = Config.ENVELOPE_MAX_IMPORT_MB
     app.config['SESSION_COOKIE_HTTPONLY'] = Config.SESSION_COOKIE_HTTPONLY
     app.config['SESSION_COOKIE_SAMESITE'] = Config.SESSION_COOKIE_SAMESITE
     app.config['SESSION_COOKIE_SECURE'] = Config.SESSION_COOKIE_SECURE
@@ -220,6 +227,34 @@ def create_app(test_config=None):
     app.config['RATELIMIT_STORAGE_URI'] = 'memory://'
     if test_config:
         app.config.update(test_config)
+
+    if app.config.get('CREDENTIAL_ENVELOPE_MODE') != 'off':
+        if app.config.get('IS_PRODUCTION') and not app.config.get('ENVELOPE_WRAP_KEY'):
+            raise RuntimeError(
+                '[FATAL] 凭据传输信封已启用，但 ITSM_ENVELOPE_WRAP_KEY 未配置。'
+                '请设置 Base64url 编码的 32 字节随机密钥。')
+        from services.credential_envelope_service import CREDENTIAL_ENVELOPE_PURPOSES
+        configured_purposes = {
+            value.strip() for value in str(
+                app.config.get('CREDENTIAL_ENVELOPE_PURPOSES') or '').split(',')
+            if value.strip()
+        }
+        unknown_purposes = configured_purposes - set(CREDENTIAL_ENVELOPE_PURPOSES)
+        if unknown_purposes:
+            raise RuntimeError(
+                '[FATAL] ITSM_CREDENTIAL_ENVELOPE_PURPOSES 包含未知用途: ' +
+                ', '.join(sorted(unknown_purposes)))
+        from utils.credential_envelope import b64url_decode
+        for setting_name in ('ENVELOPE_WRAP_KEY', 'ENVELOPE_PREVIOUS_WRAP_KEY'):
+            configured_key = app.config.get(setting_name)
+            if configured_key:
+                try:
+                    b64url_decode(configured_key, expected_length=32)
+                except ValueError as exc:
+                    env_name = 'ITSM_' + setting_name
+                    raise RuntimeError(
+                        f'[FATAL] {env_name} 必须是 Base64url 编码的 32 字节密钥。'
+                    ) from exc
 
     setup_logging(app)
     register_template_functions(app)
