@@ -16,10 +16,14 @@ def test_https_guard_is_dormant_by_default(client, app):
     assert response.status_code == 401
 
 
-def test_https_guard_blocks_sensitive_http_when_enabled(client, app, monkeypatch):
+def test_https_guard_blocks_external_sensitive_http_when_enabled(client, app, monkeypatch):
+    from utils import access_control
+
     monkeypatch.setitem(app.config, 'TESTING', False)
     app.config['FORCE_HTTPS'] = True
-    response = client.post('/api/auth/change-password', json={})
+    monkeypatch.setattr(access_control, 'get_trusted_networks', lambda: ['10.0.0.0/8'])
+    response = client.post('/api/auth/change-password', json={},
+                           headers={'X-Real-IP': '203.0.113.40'})
     assert response.status_code == 403
     assert response.get_json()['code'] == 1
     assert 'HTTPS' in response.get_json()['message']
@@ -34,6 +38,41 @@ def test_https_guard_accepts_forwarded_https(client, app, monkeypatch):
     response = client.post('/api/auth/change-password', json={},
                            headers={'X-Forwarded-Proto': 'https'})
     assert response.status_code == 401
+
+
+def test_first_password_change_allows_trusted_internal_http_and_blocks_external(
+        op_client, viewer_client, app, monkeypatch):
+    from models import User, db
+    from utils import access_control
+
+    with app.app_context():
+        op = User.query.filter_by(username='op').one()
+        viewer = User.query.filter_by(username='viewer').one()
+        op.must_change_password = True
+        viewer.must_change_password = True
+        db.session.commit()
+
+    monkeypatch.setitem(app.config, 'TESTING', False)
+    app.config['FORCE_HTTPS'] = True
+    monkeypatch.setattr(access_control, 'get_trusted_networks', lambda: ['10.0.0.0/8'])
+    payload = {'old_password': 'test123456', 'new_password': 'NewInternalPassword123!'}
+
+    internal = op_client.post(
+        '/api/auth/change-password', json=payload,
+        headers={'X-Real-IP': '10.20.30.40'},
+    )
+    assert internal.status_code == 200
+
+    external = viewer_client.post(
+        '/api/auth/change-password', json=payload,
+        headers={'X-Real-IP': '203.0.113.40'},
+    )
+    assert external.status_code == 403
+    assert 'HTTPS' in external.get_json()['message']
+
+    with app.app_context():
+        assert User.query.filter_by(username='op').one().must_change_password is False
+        assert User.query.filter_by(username='viewer').one().must_change_password is True
 
 
 def test_device_password_write_allows_trusted_internal_http_and_blocks_external(
