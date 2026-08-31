@@ -24,6 +24,20 @@ export interface CredentialChallenge {
   expires_at: string
 }
 
+export interface CredentialEnvelopeCapability {
+  mode: 'off' | 'optional' | 'required'
+  enabled: boolean
+  required: boolean
+}
+
+export function getCredentialEnvelopeCapability(purpose: CredentialPurpose) {
+  return request<CredentialEnvelopeCapability>({
+    url: '/api/security/credential-envelope/capability',
+    method: 'GET',
+    params: { purpose },
+  })
+}
+
 export function issueCredentialChallenge(data: {
   version: 1
   purpose: CredentialPurpose

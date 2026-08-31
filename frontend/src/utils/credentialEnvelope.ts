@@ -1,4 +1,5 @@
 import {
+  getCredentialEnvelopeCapability,
   issueCredentialChallenge,
   type CredentialChallenge,
   type CredentialPurpose,
@@ -49,6 +50,15 @@ function concat(...parts: Uint8Array[]): Uint8Array {
 
 export function isEnvelopeSupported(): boolean {
   return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle)
+}
+
+async function useConfirmedCompatibilityFallback<T>(
+  purpose: CredentialPurpose,
+  fallback?: () => Promise<T>,
+): Promise<T> {
+  const capability = await getCredentialEnvelopeCapability(purpose)
+  if (!capability.enabled && fallback) return fallback()
+  throw new Error('当前浏览器环境不支持安全凭据传输，请通过 HTTPS 域名使用新版 Edge/Chrome')
 }
 
 async function deriveKey(
@@ -138,7 +148,7 @@ export async function withCredentialEnvelope<T>(options: {
   fallback?: () => Promise<T>
 }): Promise<T> {
   if (!isEnvelopeSupported()) {
-    throw new Error('当前浏览器环境不支持安全凭据传输，请通过 HTTPS 域名使用新版 Edge/Chrome')
+    return useConfirmedCompatibilityFallback(options.purpose, options.fallback)
   }
   try {
     const context = await prepareEnvelope(
@@ -164,7 +174,7 @@ export async function withBinaryCredentialEnvelope<T>(options: {
   fallback?: () => Promise<T>
 }): Promise<T> {
   if (!isEnvelopeSupported()) {
-    throw new Error('当前浏览器环境不支持安全凭据传输，请通过 HTTPS 域名使用新版 Edge/Chrome')
+    return useConfirmedCompatibilityFallback(options.purpose, options.fallback)
   }
   try {
     const keyPair = await crypto.subtle.generateKey(

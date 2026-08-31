@@ -116,6 +116,20 @@ def purpose_required(purpose):
     return envelope_mode() == 'required' and purpose in _configured_purposes()
 
 
+def credential_envelope_capability(purpose):
+    """返回单个用途的信封能力，供非安全上下文判断是否允许兼容回退。"""
+    rule = CREDENTIAL_ENVELOPE_PURPOSES.get(purpose)
+    if not rule:
+        raise ServiceError('不支持的敏感操作用途')
+    if not has_permission(rule.permission, current_user):
+        raise ServiceError('无权执行该敏感操作')
+    return {
+        'mode': envelope_mode(),
+        'enabled': purpose_enabled(purpose),
+        'required': purpose_required(purpose),
+    }
+
+
 def note_raw_credential_compat(purpose):
     """记录 optional 灰度中的旧明文调用，只记元数据、不记请求内容。"""
     if envelope_mode() == 'optional' and purpose in _configured_purposes():

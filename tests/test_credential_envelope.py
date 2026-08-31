@@ -67,6 +67,36 @@ def _seed_device():
     return device.id
 
 
+def test_capability_allows_compatibility_only_for_disabled_purpose(admin_client, app):
+    response = admin_client.get(
+        '/api/security/credential-envelope/capability',
+        query_string={'purpose': 'device.password.update'},
+    )
+    assert response.status_code == 200
+    assert response.get_json()['data'] == {
+        'mode': 'off', 'enabled': False, 'required': False,
+    }
+
+    app.config.update(
+        CREDENTIAL_ENVELOPE_MODE='optional',
+        CREDENTIAL_ENVELOPE_PURPOSES='device.password.update',
+    )
+    response = admin_client.get(
+        '/api/security/credential-envelope/capability',
+        query_string={'purpose': 'device.password.update'},
+    )
+    assert response.status_code == 200
+    assert response.get_json()['data'] == {
+        'mode': 'optional', 'enabled': True, 'required': False,
+    }
+
+    response = admin_client.get(
+        '/api/security/credential-envelope/capability',
+        query_string={'purpose': 'unknown'},
+    )
+    assert response.status_code == 400
+
+
 def test_device_password_update_and_reveal_use_one_time_envelopes(admin_client, app):
     app.config.update(
         CREDENTIAL_ENVELOPE_MODE='required',

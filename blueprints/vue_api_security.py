@@ -6,8 +6,23 @@ from flask_login import login_required
 from app import limiter
 from blueprints.vue_api import fail, ok, vue_api_bp
 from services.base import ServiceError
-from services.credential_envelope_service import issue_challenge
+from services.credential_envelope_service import (
+    credential_envelope_capability,
+    issue_challenge,
+)
 from utils.operation_token import require_op_token
+
+
+@vue_api_bp.route('/api/security/credential-envelope/capability', methods=['GET'])
+@limiter.limit('60 per minute;300 per hour')
+@login_required
+def api_credential_envelope_capability():
+    try:
+        result = credential_envelope_capability(
+            str(request.args.get('purpose') or ''))
+    except ServiceError as exc:
+        return fail(str(exc) or '凭据传输能力查询失败', 400)
+    return ok(result)
 
 
 @vue_api_bp.route('/api/security/credential-envelope/challenge', methods=['POST'])
