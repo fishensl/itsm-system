@@ -59,9 +59,8 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
   {
     key: 'version',
     label: '网络安全版本控制表',
-    columns: ['customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply', 'rated_power_w',
-      'name', 'type', 'brand',
-      'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
+    columns: ['customer', 'rack_location', 'name', 'os_version', 'rule_version',
+      'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
       'license_expiry', 'is_in_use', 'remark'],
   },
   {

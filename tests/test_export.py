@@ -118,10 +118,15 @@ class TestDevicePresets:
     def test_preset_version_columns(self, op_client, seed):
         from blueprints.vue_export import DEVICE_PRESETS
         assert DEVICE_PRESETS['version'] == [
-            'customer', 'rack_location', 'rack_name', 'location', 'rack_slot', 'power_supply',
-            'rated_power_w', 'name', 'type', 'brand',
-            'model', 'sn', 'ip', 'build_date', 'os_version', 'rule_version', 'license_start',
+            'customer', 'rack_location', 'name', 'os_version', 'rule_version',
+            'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
             'license_expiry', 'is_in_use', 'remark']
+        response = op_client.post('/api/v2/devices/export', json={'preset': 'version'})
+        header, _rows = _decode_xlsx(response)
+        assert header == [
+            '客户', '机房位置', '名称', '系统版本', '规则库版本', '类型', '品牌', '型号',
+            '序列号', 'IP', '建设时间', '授权开始', '授权截止', '是否在用', '备注',
+        ]
 
     def test_update_preset_contains_stable_device_id(self, op_client, seed):
         r = op_client.post('/api/v2/devices/export', json={'preset': 'update'})

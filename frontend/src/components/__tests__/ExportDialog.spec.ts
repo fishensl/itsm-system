@@ -62,15 +62,25 @@ describe('ExportDialog 设备预设自动勾选', () => {
     ])
   })
 
-  it('点击「安全版本控制表」自动勾选 20 列', async () => {
+  it('点击「安全版本控制表」按版本字段顺序勾选 15 列', async () => {
     const w = mountDialog()
     await w.vm.$nextTick()
     await clickPreset(w, 2)
     const labels = checkedLabels(w)
-    expect(labels).toHaveLength(20)
+    expect(labels).toHaveLength(15)
+    expect(DEVICE_PRESETS.find((item) => item.key === 'version')?.columns).toEqual([
+      'customer', 'rack_location', 'name', 'os_version', 'rule_version',
+      'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
+      'license_expiry', 'is_in_use', 'remark',
+    ])
     expect(labels).toContain('系统版本')
+    expect(labels).toContain('规则库版本')
     expect(labels).toContain('授权截止')
-    expect(labels).toContain('额定功率')
+    expect(labels).not.toContain('机柜号')
+    expect(labels).not.toContain('安装位置')
+    expect(labels).not.toContain('起始U位')
+    expect(labels).not.toContain('电源配置')
+    expect(labels).not.toContain('额定功率')
     expect(labels).not.toContain('登录密码')
   })
 
