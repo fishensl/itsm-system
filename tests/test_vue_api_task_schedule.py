@@ -193,6 +193,37 @@ class TestTaskScheduleApi:
             assert task.actual_end is None
             assert task.actual_effort is None
 
+    def test_status_change_sends_channel_notification_once(
+            self, admin_client, app, monkeypatch):
+        _, op_id = _seed(app)
+        sent = []
+        monkeypatch.setattr(
+            'utils.wecom_notify.wecom_broadcast',
+            lambda event_type, title, content='', link='', target_user_ids=None,
+            mode='text', file_path=None: sent.append({
+                'event': event_type, 'title': title, 'content': content,
+                'link': link, 'target_user_ids': target_user_ids, 'mode': mode,
+            }) or (1, 0))
+        with app.app_context():
+            task_id = InspectionTask.query.filter_by(
+                title='2026年二季度巡检').one().id
+
+        changed = admin_client.put(
+            f'/api/task-schedule/{task_id}', json={'status': '执行中'})
+        assert changed.status_code == 200
+        assert len(sent) == 1
+        assert sent[0]['event'] == 'inspection_status_changed'
+        assert sent[0]['title'].startswith('巡检任务状态：待执行 → 执行中')
+        assert '**状态：**待执行 → 执行中' in sent[0]['content']
+        assert '**巡检地点：**看板客户' in sent[0]['content']
+        assert sent[0]['target_user_ids'] == [op_id]
+        assert sent[0]['mode'] == 'markdown'
+
+        unchanged = admin_client.put(
+            f'/api/task-schedule/{task_id}', json={'status': '执行中'})
+        assert unchanged.status_code == 200
+        assert len(sent) == 1
+
     def test_reviewing_kpi_and_group(self, admin_client, app):
         """V21: 待审核任务计入 KPI + 状态分组 + 排序优先级"""
         cid, op_id = _seed(app)

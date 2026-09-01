@@ -1834,6 +1834,7 @@ def api_task_board_status(task_id):
     data = request.get_json(silent=True) or {}
     status = data.get('status', '')
     t = _IT.query.get_or_404(task_id)
+    old_status = t.status
     is_reopen = (
         t.status in (_const.TASK_DONE, _const.TASK_CANCELLED)
         and status == _const.TASK_RUNNING
@@ -1848,10 +1849,19 @@ def api_task_board_status(task_id):
         db.session.rollback()
         return fail(str(e), 400)
     db.session.commit()
+    try:
+        from utils.wecom_notify import notify_task_status_changed
+        notify_task_status_changed(
+            t, old_status,
+            current_user.realname or current_user.username,
+            current_user.id)
+    except Exception:
+        current_app.logger.warning(
+            '任务看板状态变更通知失败 task_id=%s', task_id, exc_info=True)
     if is_reopen:
         from blueprints.vue_api_sys import audit_log
         audit_log('task:reopen', 'inspection_task', t.id,
-                  f'任务「{t.title}」由 {t.status} 重开为执行中（操作人：'
+                  f'任务「{t.title}」由 {old_status} 重开为执行中（操作人：'
                   f'{current_user.realname or current_user.username}）')
         current_app.logger.info(
             '任务重开审计(Vue): 用户[%s] 重开任务[%s](id=%s), IP=%s',
@@ -3270,7 +3280,9 @@ def api_inspection_submit(inspection_id):
         wecom_broadcast(EVENT_INSPECTION_REVIEW_PENDING,
                         f'巡检记录 #{inspection_id} 提交审核',
                         f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
-                        f'/app/inspections/{inspection_id}')
+                        f'/app/inspections/{inspection_id}',
+                        target_user_ids=[i.inspector_user_id or current_user.id],
+                        mode='markdown')
     except Exception:
         current_app.logger.warning('巡检提交通知发送失败 inspection_id=%s', inspection_id)
     return ok(None)
@@ -3385,6 +3397,9 @@ def api_inspection_review(inspection_id):
     from models import Inspection as _IC
     from services.submission_version_service import latest_pending_version
     data = request.get_json(silent=True) or {}
+    inspection_before = _IC.query.get_or_404(inspection_id)
+    task_id = inspection_before.task_id
+    task_old_status = inspection_before.task_rel.status if inspection_before.task_rel else ''
     approved = bool(data.get('approved'))
     remark = data.get('remark') or ''
     requirements = data.get('requirements') or ''
@@ -3428,6 +3443,20 @@ def api_inspection_review(inspection_id):
                    f'/app/inspections/{inspection_id}')
     except Exception:
         current_app.logger.warning('巡检审核通知失败 inspection_id=%s', inspection_id)
+    if task_id:
+        try:
+            from models import InspectionTask as _ITN
+            from utils.wecom_notify import notify_task_status_changed
+            task = db.session.get(_ITN, task_id)
+            if task:
+                notify_task_status_changed(
+                    task, task_old_status,
+                    current_user.realname or current_user.username,
+                    current_user.id)
+        except Exception:
+            current_app.logger.warning(
+                '巡检审核任务状态通知失败 inspection_id=%s',
+                inspection_id, exc_info=True)
     return ok(None)
 
 
@@ -3727,6 +3756,21 @@ def api_inspection_upload_report(task_id):
                 '/app/task-schedule', except_user_id=me.id)
         except Exception:
             current_app.logger.warning('巡检资料提交通知发送失败 task_id=%s', task_id)
+
+        try:
+            from utils.wecom_notify import (
+                EVENT_INSPECTION_REVIEW_PENDING, inspection_notification_content,
+                wecom_broadcast)
+            wecom_broadcast(
+                EVENT_INSPECTION_REVIEW_PENDING,
+                f'巡检任务已提交待审核：{task.title}',
+                inspection_notification_content(task),
+                '/app/task-schedule',
+                target_user_ids=[task.assigned_to_user_id or me.id],
+                mode='markdown')
+        except Exception:
+            current_app.logger.warning(
+                '巡检资料提交渠道通知失败 task_id=%s', task_id, exc_info=True)
 
     return ok({'inspection_id': inspection.id, 'version_no': version.version_no,
                'task_status': task.status,

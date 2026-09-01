@@ -327,8 +327,16 @@ class TestInspectionUploadReportFlow:
                            content_type='multipart/form-data')
         assert r.status_code == 400
 
-    def test_review_approve_completes_task(self, op_client, seed, app):
+    def test_review_approve_completes_task(self, op_client, seed, app, monkeypatch):
         """上传 → 待审核 → 审核通过 → 任务已完成 + actual_end"""
+        sent = []
+        monkeypatch.setattr(
+            'utils.wecom_notify.wecom_broadcast',
+            lambda event_type, title, content='', link='', target_user_ids=None,
+            mode='text', file_path=None: sent.append({
+                'event': event_type, 'title': title, 'content': content,
+                'link': link, 'target_user_ids': target_user_ids, 'mode': mode,
+            }) or (1, 0))
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
@@ -356,6 +364,10 @@ class TestInspectionUploadReportFlow:
         assert detail['task_deadline_period'] == '2026-08-24 至 2026-08-28'
         assert detail['task_actual_duration'] == expected_timing['actual_duration_text']
         assert detail['task_actual_effort'] == expected_timing['actual_effort']
+        assert [item['event'] for item in sent] == [
+            'inspection_review_pending', 'inspection_status_changed']
+        assert '待审核 → 已完成' in sent[-1]['title']
+        assert sent[-1]['mode'] == 'markdown'
 
     def test_review_reject_reverts_task(self, op_client, seed, app):
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",

@@ -442,6 +442,21 @@ def _apply_status(task, new_status, now=None, allow_reopen=False):
         task, new_status, allow_reopen=allow_reopen, now=now)
 
 
+def _notify_status_change(task, old_status):
+    """写入成功后才发通知；渠道失败不回滚业务状态。"""
+    if old_status == task.status:
+        return
+    try:
+        from utils.wecom_notify import notify_task_status_changed
+        notify_task_status_changed(
+            task, old_status,
+            current_user.realname or current_user.username,
+            current_user.id)
+    except Exception:
+        current_app.logger.warning(
+            '任务状态变更通知失败 task_id=%s', task.id, exc_info=True)
+
+
 def _apply_assignee(task, user, now=None):
     """指派负责人；user=None 视为清除。已派发过的不覆盖派发人。"""
     now = now or local_now()
@@ -505,11 +520,13 @@ def change_status(task_id):
     if new_status not in ALL_STATUSES:
         return jsonify(success=False, error='非法状态'), 400
 
+    old_status = task.status
     try:
         _apply_status(task, new_status)
     except ValueError as e:
         return jsonify(success=False, error=str(e)), 400
     db.session.commit()
+    _notify_status_change(task, old_status)
     return jsonify(success=True, status=new_status)
 
 
@@ -614,12 +631,14 @@ def change_status_form(task_id):
     if new_status not in ALL_STATUSES:
         flash('非法状态', 'danger')
         return redirect(url_for('task_schedule.list_view'))
+    old_status = task.status
     try:
         _apply_status(task, new_status)
     except ValueError as e:
         flash(str(e), 'danger')
         return redirect(request.referrer or url_for('task_schedule.list_view'))
     db.session.commit()
+    _notify_status_change(task, old_status)
     flash('任务状态已更新为「%s」' % new_status, 'success')
     return redirect(request.referrer or url_for('task_schedule.list_view'))
 

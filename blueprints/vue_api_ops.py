@@ -1557,6 +1557,7 @@ def api_task_schedule_update(task_id):
     from datetime import date as _date
     from blueprints.task_schedule import local_now
     t = _IT.query.get_or_404(task_id)
+    old_status = t.status
     data = request.get_json(silent=True) or {}
     if 'actual_effort' in data:
         return fail('实际人天由实施开始至审核通过的实施耗时自动计算，不能手工修改', 400)
@@ -1639,6 +1640,16 @@ def api_task_schedule_update(task_id):
     if data.get('remark') is not None:
         t.remark = (data['remark'] or '').strip()
     db.session.commit()
+    if t.status != old_status:
+        try:
+            from utils.wecom_notify import notify_task_status_changed
+            notify_task_status_changed(
+                t, old_status,
+                current_user.realname or current_user.username,
+                current_user.id)
+        except Exception:
+            current_app.logger.warning(
+                '任务状态变更通知失败 task_id=%s', task_id, exc_info=True)
     return ok(None)
 
 
@@ -1717,16 +1728,20 @@ def api_task_schedule_batch():
     if not ids:
         return fail('请先选择任务')
     tasks = _IT.query.filter(_IT.id.in_(ids)).all()
+    status_changes = []
     if action == 'status':
         from services.task_schedule_service import apply_task_status
         if value not in (_const.TASK_STATUSES - {_const.TASK_CONTRACT_REVIEW}):
             return fail('非法的状态', 400)
         for t in tasks:
+            old_status = t.status
             try:
                 apply_task_status(t, value)
             except ValueError as e:
                 db.session.rollback()
                 return fail(str(e), 400)
+            if t.status != old_status:
+                status_changes.append((t, old_status))
     elif action == 'assign':
         if not value and any(t.status == _const.TASK_SCHEDULED for t in tasks):
             return fail('「已安排」任务不能清空负责人，请先改回「待执行」', 400)
@@ -1743,6 +1758,17 @@ def api_task_schedule_batch():
     else:
         return fail(f'未知操作: {action}', 400)
     db.session.commit()
+    for task, old_status in status_changes:
+        try:
+            from utils.wecom_notify import notify_task_status_changed
+            notify_task_status_changed(
+                task, old_status,
+                current_user.realname or current_user.username,
+                current_user.id)
+        except Exception:
+            current_app.logger.warning(
+                '批量任务状态变更通知失败 task_id=%s',
+                task.id, exc_info=True)
     return ok({'count': len(tasks)})
 
 

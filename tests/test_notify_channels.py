@@ -6,7 +6,8 @@ from models import db, User, NotifyChannelConfig, NotifyRule
 from utils.notify_channels import send_all_channels
 from utils.wecom_notify import (seed_default_notify_rules, EVENT_TICKET_ASSIGN,
                                 EVENT_TICKET_COMPLETED,
-                                EVENT_TICKET_SUSPENDED_TIMEOUT, wecom_broadcast)
+                                EVENT_TICKET_SUSPENDED_TIMEOUT,
+                                EVENT_INSPECTION_STATUS_CHANGED, wecom_broadcast)
 
 
 @pytest.fixture()
@@ -41,6 +42,10 @@ class TestRuleSeed:
             completed = NotifyRule.query.filter_by(event_type=EVENT_TICKET_COMPLETED).first()
             assert completed is not None and completed.is_enabled
             assert completed.recipients_json and 'sales' in completed.recipients_json
+            status_changed = NotifyRule.query.filter_by(
+                event_type=EVENT_INSPECTION_STATUS_CHANGED).first()
+            assert status_changed is not None and status_changed.is_enabled
+            assert status_changed.label == '巡检任务状态变更'
 
     def test_seed_idempotent(self, app, seeded):
         with app.app_context():

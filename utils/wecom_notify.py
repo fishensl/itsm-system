@@ -13,6 +13,7 @@ EVENT_TICKET_REVIEW_PENDING = 'ticket_review_pending'  # 工单提交审核（�
 EVENT_TICKET_SUSPENDED_TIMEOUT = 'ticket_suspended_timeout'  # 工单挂起超时（工程师+主管+销售）
 EVENT_TICKET_PROGRESS = 'ticket_progress'              # 工单处置进展（群通知）
 EVENT_INSPECTION_ASSIGN = 'inspection_assign'      # 巡检任务派发（被指派人）
+EVENT_INSPECTION_STATUS_CHANGED = 'inspection_status_changed'  # 巡检任务状态变更
 EVENT_INSPECTION_REVIEW_PENDING = 'inspection_review_pending'  # 巡检报告待审核（部门主管）
 EVENT_CONTRACT_EXPIRING = 'contract_expiring'      # 客户合同到期提醒（关联工程师+销售+admin）
 EVENT_CONTRACT_REVIEW = 'contract_review'          # 合同例外申请待审（部门主管+admin）
@@ -27,6 +28,7 @@ EVENT_LABELS = {
     EVENT_TICKET_SUSPENDED_TIMEOUT: '工单挂起超时',
     EVENT_TICKET_PROGRESS: '工单处理进展',
     EVENT_INSPECTION_ASSIGN: '巡检任务派发',
+    EVENT_INSPECTION_STATUS_CHANGED: '巡检任务状态变更',
     EVENT_INSPECTION_REVIEW_PENDING: '巡检报告待审核',
     EVENT_CONTRACT_EXPIRING: '客户合同到期提醒',
     EVENT_CONTRACT_REVIEW: '合同例外申请',
@@ -43,6 +45,7 @@ DEFAULT_RULES = {
     EVENT_TICKET_SUSPENDED_TIMEOUT: {'roles': ['sales']},
     EVENT_TICKET_PROGRESS: {'roles': ['sales']},
     EVENT_INSPECTION_ASSIGN: {'roles': []},
+    EVENT_INSPECTION_STATUS_CHANGED: {'roles': []},
     EVENT_INSPECTION_REVIEW_PENDING: {'roles': []},
     EVENT_CONTRACT_EXPIRING: {'roles': ['sales']},
     EVENT_CONTRACT_REVIEW: {'roles': []},
@@ -135,6 +138,55 @@ def inspection_notification_content(task, assignee_name=''):
         if start or end:
             lines.append(_line('任务期限', f'{start or "-"} 至 {end or "-"}'))
     return '\n'.join(line for line in lines if line)
+
+
+def _format_period(start, end):
+    if start and end:
+        return f'{start} 至 {end}'
+    if start:
+        return f'{start} 起'
+    if end:
+        return f'{end} 止'
+    return ''
+
+
+def task_status_notification_content(task, old_status, actor_name=''):
+    """构造任务状态变更详情，明确展示三类时效而不混用。"""
+    customer = getattr(task, 'customer_rel', None)
+    assignee = getattr(task, 'assignee_rel', None)
+    actual_start = getattr(task, 'actual_start', None)
+    actual_end = getattr(task, 'actual_end', None)
+    lines = [
+        _line('状态', f'{old_status or "-"} → {getattr(task, "status", "") or "-"}'),
+        _line('巡检地点', getattr(customer, 'name', '') if customer else ''),
+        _line('巡检工程师', (
+            (getattr(assignee, 'realname', '') or getattr(assignee, 'username', ''))
+            if assignee else '')),
+        _line('合同时效', _format_period(
+            getattr(task, 'planned_start', None), getattr(task, 'planned_end', None))),
+        _line('任务期限', _format_period(
+            getattr(task, 'scheduled_start', None), getattr(task, 'scheduled_end', None))),
+        _line('实施开始', actual_start.strftime('%Y年%m月%d日 %H:%M') if actual_start else ''),
+        _line('实施结束', actual_end.strftime('%Y年%m月%d日 %H:%M') if actual_end else ''),
+        _line('操作人', actor_name),
+    ]
+    return '\n'.join(line for line in lines if line)
+
+
+def notify_task_status_changed(task, old_status, actor_name='', actor_user_id=None):
+    """任务状态真正变更后向所有启用渠道分发；同值保存不重复通知。"""
+    new_status = getattr(task, 'status', '') or ''
+    if not old_status or old_status == new_status:
+        return 0, 0
+    assignee_id = getattr(task, 'assigned_to_user_id', None)
+    target_user_ids = [assignee_id] if assignee_id else []
+    if not target_user_ids and actor_user_id:
+        target_user_ids.append(actor_user_id)
+    return wecom_broadcast(
+        EVENT_INSPECTION_STATUS_CHANGED,
+        f'巡检任务状态：{old_status} → {new_status}｜{getattr(task, "title", "")}',
+        task_status_notification_content(task, old_status, actor_name),
+        '/app/task-schedule', target_user_ids=target_user_ids, mode='markdown')
 
 
 def seed_default_notify_channels():
