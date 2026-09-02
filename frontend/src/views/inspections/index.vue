@@ -201,6 +201,12 @@
             <div class="el-upload__text">拖拽或点击上传现场报告（可选，创建后直接进入提交审核）</div>
           </el-upload>
         </el-form-item>
+        <el-form-item v-if="!form.id && form.reportFile" label="审核人" required>
+          <el-select v-model="form.reviewer_id" filterable class="w-full" placeholder="请选择本次审核人">
+            <el-option v-for="reviewer in dicts?.reviewers || []" :key="reviewer.id" :value="reviewer.id"
+              :label="reviewerOptionLabel(reviewer)" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -209,16 +215,28 @@
     </el-dialog>
 
     <!-- 提交审核引导：无现场报告时上传 -->
-    <el-dialog v-model="submitReportVisible" title="上传现场报告并提交审核" width="480px" destroy-on-close>
-      <el-upload ref="submitReportUploadRef" drag :auto-upload="false" :limit="1"
+    <el-dialog v-model="submitReportVisible" title="提交巡检审核" width="520px" destroy-on-close>
+      <el-form label-width="80px">
+        <el-form-item label="审核人" required>
+          <el-select v-model="submitReviewerId" filterable placeholder="请选择本次审核人" class="w-full">
+            <el-option v-for="reviewer in dicts?.reviewers || []" :key="reviewer.id" :value="reviewer.id"
+              :label="reviewerOptionLabel(reviewer)" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="!actionRow?.submitted_report" label="现场报告" required>
+          <el-upload ref="submitReportUploadRef" drag :auto-upload="false" :limit="1"
         accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
         :on-change="onSubmitReportChange" :on-remove="() => submitReportFile = null">
-        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-        <div class="el-upload__text">拖拽或点击上传现场报告（Word/PDF/Excel/图片）</div>
-      </el-upload>
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖拽或点击上传现场报告（Word/PDF/Excel/图片）</div>
+          </el-upload>
+        </el-form-item>
+        <el-alert v-if="actionRow?.submitted_report" type="info" :closable="false" show-icon
+          title="已有现场报告，本次只需确认审核人后提交。" />
+      </el-form>
       <template #footer>
         <el-button @click="submitReportVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submittingReport" @click="doSubmitReport">上传并提交审核</el-button>
+        <el-button type="primary" :loading="submittingReport" @click="doSubmitReport">提交审核</el-button>
       </template>
     </el-dialog>
   </div>
@@ -266,6 +284,13 @@ const regionCustomers = computed(() => {
   const filtered = custs.filter((c) => c.region_id !== null && rids.includes(c.region_id))
   return filtered.length ? filtered : custs
 })
+
+function reviewerOptionLabel(reviewer: InspectionDicts['reviewers'][number]) {
+  const responsibility = reviewer.responsible_departments?.length
+    ? `负责人：${reviewer.responsible_departments.join('、')}`
+    : reviewer.department_name
+  return `${reviewer.name}${responsibility ? `（${responsibility}）` : ''}`
+}
 
 const query = reactive<Record<string, unknown>>({
   search: '', status: '', review_status: '', customer_id: undefined,
@@ -333,28 +358,19 @@ async function loadTarget(row: Inspection) {
 
 async function onSubmit(row: Inspection) {
   actionRow.value = row
-  try {
-    await submitInspection(row.id)
-    ui.toast('已提交审核', 'success')
-    tableRef.value?.refresh()
-  } catch (e) {
-    const msg = (e as Error).message
-    if (msg.includes('报告')) {
-      openSubmitReport()
-      return
-    }
-    ui.toast(msg, 'error')
-  }
+  openSubmitReport()
 }
 
 // 提交审核引导弹窗：无现场报告时上传后提交
 const submitReportVisible = ref(false)
 const submitReportFile = ref<File | null>(null)
+const submitReviewerId = ref<number | null>(null)
 const submitReportUploadRef = ref()
 const submittingReport = ref(false)
 
 function openSubmitReport() {
   submitReportFile.value = null
+  submitReviewerId.value = dicts.value?.default_reviewer_id ?? dicts.value?.reviewers?.[0]?.id ?? null
   submitReportUploadRef.value?.clearFiles?.()
   submitReportVisible.value = true
 }
@@ -365,14 +381,19 @@ function onSubmitReportChange(f: UploadFile) {
 
 async function doSubmitReport() {
   if (!actionRow.value) return
-  if (!submitReportFile.value) {
+  if (!submitReviewerId.value) {
+    ui.toast('请选择本次巡检审核人', 'warning')
+    return
+  }
+  if (!actionRow.value.submitted_report && !submitReportFile.value) {
     ui.toast('请选择现场报告文件', 'warning')
     return
   }
   submittingReport.value = true
   try {
     const fd = new FormData()
-    fd.append('report_file', submitReportFile.value)
+    fd.append('reviewer_id', String(submitReviewerId.value))
+    if (submitReportFile.value) fd.append('report_file', submitReportFile.value)
     await submitInspection(actionRow.value.id, fd)
     ui.toast('已上传并提交审核', 'success')
     submitReportVisible.value = false
@@ -507,6 +528,7 @@ const reportUploadRef = ref()
 const form = reactive<Record<string, unknown>>({
   id: null, title: '', task_id: null, task_title: '', customer_id: null, inspection_date: '',
   inspector_user_id: null, overall_status: OVERALL_STATUS.NORMAL, conclusion: '', reportFile: null,
+  reviewer_id: null,
 })
 const formRules = {
   title: [{ required: true, message: '请输入巡检标题', trigger: 'blur' }],
@@ -521,7 +543,7 @@ const selectableTasks = computed(() =>
 function blankForm() {
   return { id: null, title: '', task_id: null, task_title: '', customer_id: null,
     inspection_date: '', inspector_user_id: null, overall_status: OVERALL_STATUS.NORMAL, conclusion: '',
-    reportFile: null }
+    reportFile: null, reviewer_id: dicts.value?.default_reviewer_id ?? null }
 }
 
 function onReportChange(f: UploadFile) {
@@ -558,6 +580,10 @@ function openEdit(i: Inspection) {
 
 async function save() {
   try { await formRef.value?.validate() } catch { return }
+  if (!form.id && form.reportFile && !form.reviewer_id) {
+    ui.toast('请选择本次巡检审核人', 'warning')
+    return
+  }
   saving.value = true
   try {
     if (form.id) {
@@ -569,6 +595,7 @@ async function save() {
       if (form.reportFile) {
         const fd = new FormData()
         fd.append('report_file', form.reportFile as File)
+        fd.append('reviewer_id', String(form.reviewer_id))
         await submitInspection(res.id, fd)
         ui.toast('巡检记录已创建并提交审核', 'success')
       } else {

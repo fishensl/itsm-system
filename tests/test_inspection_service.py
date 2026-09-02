@@ -33,8 +33,9 @@ class TestReviewFlow:
         i = Inspection.query.get(inspection)
         assert i.review_status == '待审核'
 
-    def test_approve_triggers_report_generation(self, ctx, inspection, monkeypatch):
+    def test_approve_triggers_report_generation(self, ctx, inspection, monkeypatch, app):
         calls = []
+        monkeypatch.setitem(app.config, 'AUTO_GENERATE_INSPECTION_REPORT', True)
 
         def _fake_report(insp):
             calls.append(insp.id)
@@ -57,8 +58,9 @@ class TestReviewFlow:
         assert i.review_status == '已退回'
         assert calls == []
 
-    def test_report_failure_does_not_block_approval(self, ctx, inspection, monkeypatch):
+    def test_report_failure_does_not_block_approval(self, ctx, inspection, monkeypatch, app):
         """报告生成异常不阻塞审核通过（服务内 try/except 兜底）"""
+        monkeypatch.setitem(app.config, 'AUTO_GENERATE_INSPECTION_REPORT', True)
         def _boom(insp):
             raise RuntimeError('docx 生成失败')
 

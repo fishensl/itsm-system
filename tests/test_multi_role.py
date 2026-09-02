@@ -26,7 +26,7 @@ def seed(app):
         db.session.add(c)
         db.session.flush()
         i1 = Inspection(title='纯工程师巡检', customer_id=c.id, inspection_date=None,
-                        inspector='pure_op', inspector_name='pure_op',
+                        inspector='pure_op', inspector_name='pure_op', inspector_user_id=pure.id,
                         overall_status='草稿', review_status='',
                         content_json='[{"name": "电源检查"}]')
         i2 = Inspection(title='授权工程师巡检', customer_id=c.id, inspection_date=None,
@@ -208,9 +208,13 @@ class TestReviewRole:
         assert r.status_code == 403
 
     def test_granted_operator_reviews_ok(self, app, op_client, seed):
-        """conftest 用户级 grant 后 op 可审核（inspection:review 生效）"""
-        r = op_client.post(f"/api/inspections/{seed['i2']}/submit", json={})
-        assert r.get_json()['code'] == 0
+        """用户级 grant 且被流程选为审核人后，op 可完成审核。"""
+        with app.app_context():
+            op = User.query.filter_by(username='op').first()
+            inspection = db.session.get(Inspection, seed['i2'])
+            inspection.review_status = '待审核'
+            inspection.reviewer_id = op.id
+            db.session.commit()
         r = op_client.post(f"/api/inspections/{seed['i2']}/review", json={'approved': True})
         assert r.status_code != 403  # 有权限 → 进入业务逻辑（结果非权限拒绝）
 
@@ -235,6 +239,24 @@ class TestReviewRole:
         response = client.post(
             f"/api/inspections/{seed['i2']}/review", json={'approved': True})
         assert response.status_code != 403
+
+    def test_department_head_sees_records_from_department_they_manage(
+            self, app, client, seed):
+        """负责人本人可在上级部门或不挂部门，但仍能看到所负责部门成员的巡检。"""
+        with app.app_context():
+            pure_op = db.session.get(User, seed['pure_id'])
+            pure_op.department_id = seed['dept_id']
+            head = db.session.get(User, seed['head_id'])
+            assert head.department_id is None
+            db.session.commit()
+        login = client.post('/api/auth/login', json={
+            'username': 'dept_head', 'password': 'test123456',
+        })
+        assert login.status_code == 200
+        response = client.get('/api/inspections')
+        assert response.status_code == 200
+        titles = {item['title'] for item in response.get_json()['data']['items']}
+        assert '纯工程师巡检' in titles
 
 
 class TestReviewNotify:

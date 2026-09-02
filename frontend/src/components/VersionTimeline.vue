@@ -81,7 +81,10 @@
           <!-- 审核阶段 -->
           <div v-if="v.review_status" class="vt-review">
             <div class="vt-review-head">
-              <span class="vt-reviewer">审核人：{{ v.reviewed_by_name || '-' }} · {{ v.reviewed_at || '-' }}</span>
+              <span class="vt-reviewer">
+                {{ v.reviewed_at ? '审核人' : '待审人' }}：{{ v.reviewed_by_name || v.assigned_reviewer_name || '-' }}
+                <template v-if="v.reviewed_at"> · {{ v.reviewed_at }}</template>
+              </span>
             </div>
             <!-- 检查项勾选结果（V23 留痕） -->
             <div v-if="Object.keys(v.checklist || {}).length" class="vt-checklist">

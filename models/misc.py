@@ -110,6 +110,7 @@ class SubmissionVersion(db.Model):
     submitted_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
     review_status = db.Column(db.String(16), default='', index=True)   # ''(未审)/待审核/已通过/已退回
+    assigned_reviewer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_comment = db.Column(db.Text, default='')          # 本轮审核意见（退回原因）
@@ -124,6 +125,8 @@ class SubmissionVersion(db.Model):
     )
 
     submitter_rel = db.relationship('User', foreign_keys=[submitted_by], backref='submitted_versions')
+    assigned_reviewer_rel = db.relationship(
+        'User', foreign_keys=[assigned_reviewer_id], backref='assigned_submission_reviews')
     reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by], backref='reviewed_versions')
 
 
@@ -174,4 +177,3 @@ class ExportFile(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     creator_rel = db.relationship('User', backref='export_files')
-

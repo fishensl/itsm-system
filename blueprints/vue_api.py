@@ -3061,6 +3061,7 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
     from utils.json_fields import parse_json
     from services.inspection_service import inspection_completeness
     from services.submission_version_service import report_display_name
+    from utils.permission import has_permission
     complete, missing = inspection_completeness(i)
     task = (task_map or {}).get(i.task_id) or i.task_rel
     task_title = task.title if task else ''
@@ -3097,6 +3098,15 @@ def _inspection_payload(i, customer_map=None, full=False, task_map=None):
         'inspection_date': i.inspection_date.strftime('%Y-%m-%d') if i.inspection_date else '',
         'overall_status': i.overall_status or '',
         'review_status': i.review_status or _const.REVIEW_DRAFT_LABEL,
+        'reviewer_id': i.reviewer_id,
+        'reviewer_name': (
+            i.assigned_reviewer_rel.realname or i.assigned_reviewer_rel.username
+        ) if i.assigned_reviewer_rel else '',
+        'can_review': bool(
+            i.review_status == _const.REVIEW_PENDING and
+            has_permission('inspection:review', current_user) and
+            (current_user.is_admin or i.reviewer_id in (None, current_user.id))
+        ),
         'inspector_name': i.inspector_name or i.inspector or '',
         'inspector_user_id': i.inspector_user_id,
         'report_file': bool(i.report_file),
@@ -3256,6 +3266,8 @@ def api_inspection_submit(inspection_id):
     ALLOWED_REPORT_EXT = {'.doc', '.docx', '.pdf', '.xlsx', '.xls',
                           '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.zip'}
     i = _I.query.get_or_404(inspection_id)
+    data = request.get_json(silent=True) or request.form or {}
+    reviewer_id = data.get('reviewer_id')
     report_path = ''
     if request.files.get('report_file'):
         if i.submitted_report or latest_pending_version('inspection', inspection_id):
@@ -3272,23 +3284,21 @@ def api_inspection_submit(inspection_id):
                     content={'conclusion': i.conclusion or '', 'remark': ''},
                     submitted_by_user_id=current_user.id, review_status=_RP)
     try:
-        submit_for_review(inspection_id, current_user.realname or current_user.username)
+        submit_for_review(
+            inspection_id, current_user.realname or current_user.username,
+            reviewer_id=reviewer_id, current_user_id=current_user.id,
+            department_id=current_user.department_id)
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '提交审核失败', 400)
-    # 提交审核：通知提交人部门负责人 + 全部 admin
+    # 提交审核：只通知本轮明确选择的审核人。
     try:
-        from models import User as _U4
-        from utils.notifications import notify_review_submitted
-        dept_id = current_user.department_id
-        if not dept_id and i.inspector_user_id:
-            _insp = _U4.query.get(i.inspector_user_id)
-            dept_id = _insp.department_id if _insp else None
-        notify_review_submitted(
-            dept_id, 'inspection',
-            f'巡检记录 #{inspection_id} 提交审核',
-            f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
-            f'/app/inspections/{inspection_id}', except_user_id=current_user.id)
+        from utils.notifications import notify
+        notify(
+            i.reviewer_id, 'inspection',
+            f'巡检记录 #{inspection_id} 等待你审核',
+            f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录',
+            f'/app/inspections/{inspection_id}')
         from utils.wecom_notify import (
             EVENT_INSPECTION_REVIEW_PENDING,
             inspection_record_review_notification_content,
@@ -3305,7 +3315,7 @@ def api_inspection_submit(inspection_id):
         wecom_broadcast(
             EVENT_INSPECTION_REVIEW_PENDING,
             title, content, '',
-            target_user_ids=[i.inspector_user_id or current_user.id],
+            target_user_ids=[i.reviewer_id] if i.reviewer_id else [],
             mode='markdown')
     except Exception:
         current_app.logger.warning('巡检提交通知发送失败 inspection_id=%s', inspection_id)
@@ -3382,6 +3392,8 @@ def api_inspection_ai_analyze(inspection_id):
     if not cfg:
         return fail('未配置可用的 AI 服务（系统设置 → AI 对接），无法使用 AI 辅助分析', 400)
     i = _I.query.get_or_404(inspection_id)
+    if i.reviewer_id and i.reviewer_id != current_user.id and not current_user.is_admin:
+        return fail('该巡检记录已指派给其他审核人', 403)
     parts = [f'巡检标题：{i.title}']
     if i.conclusion:
         parts.append(f'结论：{i.conclusion}')
@@ -3422,6 +3434,10 @@ def api_inspection_review(inspection_id):
     from services.submission_version_service import latest_pending_version
     data = request.get_json(silent=True) or {}
     inspection_before = _IC.query.get_or_404(inspection_id)
+    if (inspection_before.reviewer_id and
+            inspection_before.reviewer_id != current_user.id and
+            not current_user.is_admin):
+        return fail('该巡检记录已指派给其他审核人', 403)
     task_id = inspection_before.task_id
     task_old_status = inspection_before.task_rel.status if inspection_before.task_rel else ''
     approved = bool(data.get('approved'))
@@ -3429,8 +3445,9 @@ def api_inspection_review(inspection_id):
     requirements = data.get('requirements') or ''
     checklist = data.get('checklist')
     try:
-        review_inspection(inspection_id, approved, current_user.realname or current_user.username,
-                          remark, requirements, checklist)
+        review_inspection(
+            inspection_id, approved, current_user.realname or current_user.username,
+            remark, requirements, checklist, reviewer_user_id=current_user.id)
     except Exception as e:
         db.session.rollback()
         return fail(str(e) or '审核失败', 400)
@@ -3550,7 +3567,8 @@ def api_submission_asset_content(asset_id):
 @require_permission('inspection:view')
 def api_task_required_assets(task_id):
     """任务提交资料必传配置（按任务模板）+ 任务客户设备列表（提交弹窗数据源）"""
-    from services.inspection_service import get_task_required_assets
+    from services.inspection_service import (
+        get_task_required_assets, inspection_reviewer_options)
     from models import InspectionTask as _IT, Device as _D
     t = _IT.query.get_or_404(task_id)
     devices = [{
@@ -3567,9 +3585,16 @@ def api_task_required_assets(task_id):
         request_limit_mb,
         max(1, int(current_app.config.get('INSPECTION_CONFIG_MAX_MB', request_limit_mb))),
     )
+    submitter = t.assignee_rel or current_user
+    reviewer_department_id = current_user.department_id
+    if t.assignee_rel:
+        reviewer_department_id = t.assignee_rel.department_id or reviewer_department_id
+    reviewers = inspection_reviewer_options(submitter, reviewer_department_id)
     return ok({
         'required_assets': get_task_required_assets(t),
         'devices': devices,
+        'reviewers': reviewers,
+        'default_reviewer_id': reviewers[0]['id'] if reviewers else None,
         'upload_limits': {
             'request_mb': request_limit_mb,
             'config_zip_mb': config_zip_limit_mb,
@@ -3738,6 +3763,7 @@ def api_inspection_upload_report(task_id):
 
     conclusion = (request.form.get('conclusion') or '').strip()
     remark = (request.form.get('remark') or '').strip()
+    reviewer_id = request.form.get('reviewer_id') or None
     me = current_user
     try:
         if supplementing:
@@ -3758,6 +3784,7 @@ def api_inspection_upload_report(task_id):
                 current_user_name=me.realname or me.username,
                 force=me.is_admin,
                 remark=remark,
+                reviewer_id=reviewer_id,
                 report_skip_reason=report_skip_reason,
                 config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
                 config_zip_skip_reason=config_zip_skip_reason,
@@ -3799,17 +3826,12 @@ def api_inspection_upload_report(task_id):
     if not supplementing:
         # 首次/退回重提才发送审核通知；补传不重复制造审核通知。
         try:
-            from models import User as _U5
-            from utils.notifications import notify_review_submitted
-            dept_id = me.department_id
-            if task.assigned_to_user_id and task.assigned_to_user_id != me.id:
-                _eng = _U5.query.get(task.assigned_to_user_id)
-                dept_id = (_eng.department_id if _eng else None) or dept_id
-            notify_review_submitted(
-                dept_id, 'inspection',
-                f'任务「{task.title}」已上传全套资料提交审核',
+            from utils.notifications import notify
+            notify(
+                inspection.reviewer_id, 'inspection',
+                f'任务「{task.title}」等待你审核',
                 f'{me.realname or me.username} 提交了巡检资料（{inspection.customer_rel.name if inspection.customer_rel else ""}）',
-                '/app/task-schedule', except_user_id=me.id)
+                '/app/inspections')
         except Exception:
             current_app.logger.warning('巡检资料提交通知发送失败 task_id=%s', task_id)
 
@@ -3824,7 +3846,7 @@ def api_inspection_upload_report(task_id):
                 inspection_review_notification_content(
                     task, me.realname or me.username),
                 '',
-                target_user_ids=[task.assigned_to_user_id or me.id],
+                target_user_ids=[inspection.reviewer_id] if inspection.reviewer_id else [],
                 mode='markdown')
         except Exception:
             current_app.logger.warning(
@@ -3921,6 +3943,7 @@ def _send_report_file(rel_path, download_name=None):
 @require_permission('inspection:view')
 def api_inspection_dicts():
     from models import Inspector as _I, InspectionTask as _IT
+    from services.inspection_service import inspection_reviewer_options
     from utils.customer_scope import customer_dropdown_options
     customers = customer_dropdown_options(current_user)
     inspectors = [{'user_id': ins.user_id, 'name': ins.name}
@@ -3945,7 +3968,10 @@ def api_inspection_dicts():
         _const.REVIEW_APPROVED,
         _const.REVIEW_REJECTED,
     ]
+    reviewers = inspection_reviewer_options(current_user, current_user.department_id)
     return ok({'customers': customers, 'inspectors': inspectors, 'tasks': tasks,
+               'reviewers': reviewers,
+               'default_reviewer_id': reviewers[0]['id'] if reviewers else None,
                'overall_statuses': overall_statuses, 'review_statuses': review_statuses})
 
 # ==================== 地区管理 ====================

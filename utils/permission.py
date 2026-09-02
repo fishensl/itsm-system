@@ -312,15 +312,29 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
     from models import User as UModel
     from sqlalchemy import or_
 
-    if scope == 'department' and getattr(user, 'department_id', None):
+    if scope == 'department':
         from utils.department_scope import department_subtree_ids
-        department_ids = department_subtree_ids(user.department_id)
-        department_users = UModel.query.filter(
+        from models import Department
+        department_ids = set()
+        if getattr(user, 'department_id', None):
+            department_ids.update(department_subtree_ids(user.department_id))
+        # 部门负责人可能属于上级部门或未挂在被负责部门内；数据范围必须包含
+        # 其负责部门及下级，不能只根据 user.department_id 推断。
+        headed_ids = [row.id for row in Department.query.filter_by(head_id=user.id).all()]
+        for department_id in headed_ids:
+            department_ids.update(department_subtree_ids(department_id))
+        department_users = (UModel.query.filter(
             UModel.department_id.in_(department_ids),
             UModel.is_active.is_(True),
-        ).all()
+        ).all() if department_ids else [])
         dept_user_ids = [u.id for u in department_users]
         dept_user_names = [u.realname or u.username for u in department_users]
+        # 未挂部门时仍保留“本人”数据；不能像旧逻辑一样退化成全量可见。
+        if user.id not in dept_user_ids:
+            dept_user_ids.append(user.id)
+        me_name = getattr(user, 'realname', '') or getattr(user, 'username', '')
+        if me_name and me_name not in dept_user_names:
+            dept_user_names.append(me_name)
         conditions = []
         if hasattr(model, 'created_by'):
             conditions.append(model.created_by.in_(dept_user_names))
@@ -328,6 +342,15 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
             conditions.append(model.assigned_to.in_(dept_user_names))
         if hasattr(model, 'assigned_to_user_id'):
             conditions.append(model.assigned_to_user_id.in_(dept_user_ids))
+        if hasattr(model, 'inspector_user_id'):
+            conditions.append(model.inspector_user_id.in_(dept_user_ids))
+        if hasattr(model, 'inspector_name'):
+            conditions.append(model.inspector_name.in_(dept_user_names))
+        if hasattr(model, 'inspector'):
+            conditions.append(model.inspector.in_(dept_user_names))
+        if hasattr(model, 'reviewer_id'):
+            # 跨部门明确指派的审核人仍应能看到待自己审核的数据。
+            conditions.append(model.reviewer_id == user.id)
         if hasattr(model, 'dispatched_by'):
             conditions.append(model.dispatched_by == user.id)
         if hasattr(model, 'customer_id') and customer_id_field:
@@ -335,6 +358,8 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
             pass  # 客户级过滤由业务层决定
         if conditions:
             return query.filter(or_(*conditions))
+        # department 范围但模型没有可用归属字段时必须 fail-closed。
+        return query.filter(False)
 
     if scope == 'self' and hasattr(model, 'assigned_to'):
         me_name = getattr(user, 'realname', '') or getattr(user, 'username', '')

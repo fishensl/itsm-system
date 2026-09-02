@@ -32,7 +32,8 @@ def add_asset(version_id, asset_type, file_path='', file_name='', device_id=None
 
 
 def add_version(entity_type, entity_id, report_file='', content=None,
-                submitted_by_user_id=None, review_status=REVIEW_PENDING):
+                submitted_by_user_id=None, review_status=REVIEW_PENDING,
+                assigned_reviewer_id=None):
     """追加一个提交版本（version_no 自动 +1）。返回 SubmissionVersion 实例。"""
     entity_type = entity_type if entity_type in ('inspection', 'ticket') else 'inspection'
     latest = SubmissionVersion.query \
@@ -48,6 +49,7 @@ def add_version(entity_type, entity_id, report_file='', content=None,
         submitted_by=submitted_by_user_id,
         submitted_at=datetime.utcnow(),
         review_status=review_status or '',
+        assigned_reviewer_id=assigned_reviewer_id,
     )
     db.session.add(v)
     db.session.flush()
@@ -172,6 +174,7 @@ def _version_payload(v):
     from utils.json_fields import parse_json
     submitter = v.submitter_rel
     reviewer = v.reviewer_rel
+    assigned_reviewer = v.assigned_reviewer_rel
     storage_name = (v.report_file or '').split('/')[-1] or ''
     customer_name, title = version_context(v.entity_type, v.entity_id)
     approved = v.review_status == REVIEW_APPROVED
@@ -185,6 +188,10 @@ def _version_payload(v):
         'submitted_by_name': (submitter.realname or submitter.username) if submitter else '',
         'submitted_at': v.submitted_at.strftime('%Y-%m-%d %H:%M') if v.submitted_at else '',
         'review_status': v.review_status or '',
+        'assigned_reviewer_id': v.assigned_reviewer_id,
+        'assigned_reviewer_name': (
+            assigned_reviewer.realname or assigned_reviewer.username
+        ) if assigned_reviewer else '',
         'reviewed_by_name': (reviewer.realname or reviewer.username) if reviewer else '',
         'reviewed_at': v.reviewed_at.strftime('%Y-%m-%d %H:%M') if v.reviewed_at else '',
         'review_comment': v.review_comment or '',

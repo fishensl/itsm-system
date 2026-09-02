@@ -25,6 +25,8 @@ export interface SubmissionVersion {
   submitted_by_name: string
   submitted_at: string
   review_status: string
+  assigned_reviewer_id: number | null
+  assigned_reviewer_name: string
   reviewed_by_name: string
   reviewed_at: string
   review_comment: string
@@ -50,6 +52,9 @@ export interface Inspection {
   inspection_date: string
   overall_status: string
   review_status: string
+  reviewer_id: number | null
+  reviewer_name: string
+  can_review: boolean
   inspector_name: string
   inspector_user_id: number | null
   report_file: boolean
@@ -217,6 +222,14 @@ export interface InspectionDicts {
   customers: { id: number; name: string; region_id: number | null }[]
   inspectors: { user_id: number; name: string }[]
   tasks: InspectionTaskOption[]
+  reviewers: Array<{
+    id: number
+    name: string
+    department_name: string
+    responsible_departments: string[]
+    is_department_head: boolean
+  }>
+  default_reviewer_id: number | null
   overall_statuses: string[]
   review_statuses: string[]
 }

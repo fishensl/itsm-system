@@ -12,6 +12,7 @@
             {{ detail.review_status }}
           </el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="审核人">{{ detail.reviewer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('customer_name', '客户')">{{ detail.customer_name || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('task_title', '关联任务')">{{ detail.task_title || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('task_status', '任务状态')">{{ detail.task_status || '-' }}</el-descriptions-item>
@@ -74,9 +75,9 @@
             @click="emit('submit')">提交审核</el-button>
         </template>
         <template v-else-if="detail.review_status === REVIEW_STATUS.PENDING">
-          <el-button v-if="user.hasPerm('inspection:review')" size="small" type="success"
+          <el-button v-if="detail.can_review" size="small" type="success"
             @click="emit('review', true)">审核通过</el-button>
-          <el-button v-if="user.hasPerm('inspection:review')" size="small" type="danger"
+          <el-button v-if="detail.can_review" size="small" type="danger"
             @click="emit('review', false)">退回修改</el-button>
         </template>
         <el-button v-if="user.hasPerm('inspection:edit')" size="small" type="primary" plain

@@ -42,6 +42,83 @@ def _resolve_inspector(data, current_user_name):
     return None, name, ''
 
 
+def inspection_reviewer_options(submitter=None, department_id=None):
+    """返回可选巡检审核人，部门负责人优先、管理员兜底。
+
+    资格始终按实际 ``inspection:review`` 权限计算，避免仅凭角色名称展示一个
+    最终会被接口拒绝的用户。提交人本人不进入候选，防止自审。
+    """
+    from models import Department
+    from utils.permission import get_user_permissions
+
+    submitter_id = getattr(submitter, 'id', None)
+    nearest_head_ids = []
+    dept = db.session.get(Department, department_id) if department_id else None
+    seen = set()
+    while dept and dept.id not in seen:
+        seen.add(dept.id)
+        if dept.head_id and dept.head_id != submitter_id:
+            nearest_head_ids.append(dept.head_id)
+        dept = dept.parent
+
+    headed_by_user = {
+        user_id: names
+        for user_id, names in _headed_department_names().items()
+    }
+    rows = []
+    for user in User.query.filter_by(is_active=True).order_by(User.realname, User.username).all():
+        if user.id == submitter_id:
+            continue
+        if 'inspection:review' not in get_user_permissions(user):
+            continue
+        department_name = user.department_rel.name if user.department_rel else ''
+        headed_names = headed_by_user.get(user.id, [])
+        if user.id in nearest_head_ids:
+            priority = nearest_head_ids.index(user.id)
+        elif user.is_admin:
+            priority = 100
+        else:
+            priority = 200
+        rows.append({
+            'id': user.id,
+            'name': user.realname or user.username,
+            'department_name': department_name,
+            'responsible_departments': headed_names,
+            'is_department_head': bool(headed_names),
+            '_priority': priority,
+        })
+    rows.sort(key=lambda item: (
+        item['_priority'], item['department_name'], item['name'], item['id']))
+    for item in rows:
+        item.pop('_priority', None)
+    return rows
+
+
+def _headed_department_names():
+    from models import Department
+    result = {}
+    for department in Department.query.filter(Department.head_id.isnot(None)).all():
+        result.setdefault(department.head_id, []).append(department.name)
+    return result
+
+
+def resolve_inspection_reviewer(reviewer_id, submitter=None, department_id=None):
+    """校验/选择本轮审核人；未显式选择时默认最近一级部门负责人。"""
+    options = inspection_reviewer_options(submitter, department_id)
+    by_id = {item['id']: item for item in options}
+    if reviewer_id not in (None, ''):
+        try:
+            selected_id = int(reviewer_id)
+        except (TypeError, ValueError) as exc:
+            raise ServiceError('审核人参数无效') from exc
+        if selected_id not in by_id:
+            raise ServiceError('所选审核人无巡检审核权限，或不能审核本人提交的记录')
+        return selected_id
+    if not options:
+        raise ServiceError('当前没有可用的巡检审核人，请先设置部门负责人或授予巡检审核权限')
+    return options[0]['id']
+
+
 def inspection_completeness(i):
     """巡检记录资料完整性检查：返回 (complete, missing_fields)"""
     missing = []
@@ -200,6 +277,7 @@ def _revert_task_to_running(i):
 @transaction
 def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
                            current_user_name, submit_review=True, force=False, remark='',
+                           reviewer_id=None,
                            report_skip_reason='',
                            config_zip_path='', config_zip_device_id=None, config_zip_skip_reason='',
                            config_texts=None, config_text_skip_reason='',
@@ -274,15 +352,28 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
         db.session.add(inspection)
         db.session.flush()
 
+    submitter = db.session.get(User, current_user_id) if current_user_id else None
+    reviewer_department_id = getattr(submitter, 'department_id', None)
+    reviewer_submitter = submitter
+    if task.assigned_to_user_id:
+        assignee = db.session.get(User, task.assigned_to_user_id)
+        reviewer_department_id = (
+            getattr(assignee, 'department_id', None) or reviewer_department_id)
+        reviewer_submitter = assignee or reviewer_submitter
+    assigned_reviewer_id = resolve_inspection_reviewer(
+        reviewer_id, submitter=reviewer_submitter, department_id=reviewer_department_id)
+
     version = add_version(
         'inspection', inspection.id,
         report_file=report_path,
         content={'conclusion': conclusion or '', 'remark': remark or ''},
         submitted_by_user_id=current_user_id,
         review_status=REVIEW_PENDING if submit_review else '',
+        assigned_reviewer_id=assigned_reviewer_id,
     )
     inspection.submitted_report = report_path if report_path else inspection.submitted_report
     inspection.review_status = REVIEW_PENDING
+    inspection.reviewer_id = assigned_reviewer_id
     inspection.overall_status = REVIEW_PENDING
     inspection.conclusion = conclusion or ''
 
@@ -532,7 +623,8 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
 
 
 @transaction
-def submit_for_review(inspection_id, current_user_name):
+def submit_for_review(inspection_id, current_user_name, reviewer_id=None,
+                      current_user_id=None, department_id=None):
     """提交审核 — V21: review_status='待审核' + 任务同步「待审核」"""
     from utils.json_fields import parse_json
     i = Inspection.query.get_or_404(inspection_id)
@@ -541,6 +633,19 @@ def submit_for_review(inspection_id, current_user_name):
     has_content = bool(parse_json(i.content_json, [], 'inspection.content_json'))
     if not i.submitted_report and not has_content:
         raise ServiceError('请先上传巡检报告再提交审核')
+    submitter = db.session.get(User, current_user_id) if current_user_id else User.query.filter(
+        (User.username == current_user_name) | (User.realname == current_user_name)).first()
+    effective_department_id = department_id or getattr(submitter, 'department_id', None)
+    if i.inspector_user_id:
+        inspector_user = db.session.get(User, i.inspector_user_id)
+        effective_department_id = (
+            getattr(inspector_user, 'department_id', None) or effective_department_id)
+        submitter = inspector_user or submitter
+    i.reviewer_id = resolve_inspection_reviewer(
+        reviewer_id, submitter=submitter, department_id=effective_department_id)
+    pending = latest_pending_version('inspection', i.id)
+    if pending:
+        pending.assigned_reviewer_id = i.reviewer_id
     i.overall_status = REVIEW_PENDING
     i.review_status = REVIEW_PENDING
     _sync_task_to_reviewing(i)
@@ -548,7 +653,8 @@ def submit_for_review(inspection_id, current_user_name):
 
 
 @transaction
-def review_inspection(inspection_id, approved, current_user_name, remark='', requirements='', checklist=None):
+def review_inspection(inspection_id, approved, current_user_name, remark='', requirements='',
+                      checklist=None, reviewer_user_id=None):
     """审核巡检 — V21/V23: 审核结果/意见/修改要求/检查项勾选写回最新待审核版本 + 任务联动。
 
     审核通过 (approved=True):
@@ -566,7 +672,13 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
     if i.review_status != REVIEW_PENDING:
         raise ServiceError('该记录不处于待审核状态，无法审核')
 
-    reviewer = _User.query.filter_by(username=current_user_name).first()
+    reviewer = (db.session.get(_User, reviewer_user_id) if reviewer_user_id else
+                _User.query.filter(
+                    (_User.username == current_user_name) |
+                    (_User.realname == current_user_name)).first())
+    if i.reviewer_id and (
+            not reviewer or (reviewer.id != i.reviewer_id and not reviewer.is_admin)):
+        raise ServiceError('该巡检记录已指派给其他审核人')
 
     if not approved and not requirements and checklist:
         need_fix = [name for name, st in checklist.items() if st == '需修改']

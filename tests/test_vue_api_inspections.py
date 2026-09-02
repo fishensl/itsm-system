@@ -194,13 +194,67 @@ class TestInspectionUploadReportFlow:
             assert i is not None
             assert i.review_status == '待审核'
             assert i.submitted_report.startswith('uploads/inspection_reports/')
-            v = SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).first()
+            v = SubmissionVersion.query.filter_by(
+                entity_type='inspection', entity_id=i.id).first()
             assert v is not None
             assert v.version_no == 1
             assert v.review_status == '待审核'
             assert v.report_file == i.submitted_report
             assert '现场巡检完成' in (v.content_json or '')
             assert '扩容计划' in (v.content_json or '')  # 提交备注随版本留档
+
+    def test_submitter_selects_reviewer_and_only_selected_reviewer_can_review(
+            self, op_client, client, app, seed):
+        from models import UserPermission
+        with app.app_context():
+            reviewer = User.create_with_password(
+                username='inspection_reviewer', password='test123456',
+                realname='运维审核人', role='operator')
+            db.session.add(reviewer)
+            db.session.flush()
+            db.session.add(UserPermission(
+                user_id=reviewer.id, permission_code='inspection:review',
+                grant_type='grant'))
+            op = User.query.filter_by(username='op').first()
+            task = InspectionTask(
+                title='指定审核人巡检', customer_id=seed['c'], status='执行中',
+                assigned_to_user_id=op.id)
+            db.session.add(task)
+            db.session.commit()
+            reviewer_id = reviewer.id
+            task_id = task.id
+
+        submitted = op_client.post(
+            f'/api/inspections/task/{task_id}/report',
+            data={
+                'report_file': _dummy_file(),
+                'reviewer_id': str(reviewer_id),
+            },
+            content_type='multipart/form-data')
+        assert submitted.status_code == 200, submitted.get_json()
+        inspection_id = submitted.get_json()['data']['inspection_id']
+        with app.app_context():
+            inspection = db.session.get(Inspection, inspection_id)
+            version = SubmissionVersion.query.filter_by(
+                entity_type='inspection', entity_id=inspection_id).one()
+            assert inspection.reviewer_id == reviewer_id
+            assert version.assigned_reviewer_id == reviewer_id
+
+        # 提交人本身也有 inspection:review，但未被选中，不能越过流程自审。
+        denied = op_client.post(
+            f'/api/inspections/{inspection_id}/review', json={'approved': True})
+        assert denied.status_code == 403
+
+        login = client.post('/api/auth/login', json={
+            'username': 'inspection_reviewer', 'password': 'test123456',
+        })
+        assert login.status_code == 200
+        visible = client.get('/api/inspections')
+        assert any(item['id'] == inspection_id
+                   for item in visible.get_json()['data']['items'])
+        approved = client.post(
+            f'/api/inspections/{inspection_id}/review', json={'approved': True})
+        assert approved.status_code == 200, approved.get_json()
 
     def test_upload_assignee_is_inspector(self, admin_client, app, seed):
         """巡检人员取任务指派工程师（管理员代传也记录真实执行人）；上传者由版本留档"""
@@ -346,7 +400,8 @@ class TestInspectionUploadReportFlow:
         assert body['code'] == 1
         assert '请拆分后补传' in body['message']
 
-    def test_review_approve_completes_task(self, op_client, seed, app, monkeypatch):
+    def test_review_approve_completes_task(
+            self, op_client, admin_client, seed, app, monkeypatch):
         """上传 → 待审核 → 审核通过 → 任务已完成 + actual_end"""
         sent = []
         monkeypatch.setattr(
@@ -363,7 +418,7 @@ class TestInspectionUploadReportFlow:
         with app.app_context():
             task = db.session.get(InspectionTask, seed['t1'])
             assert task.status == '待审核'
-        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+        r = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
             'approved': True, 'remark': '审核通过'})
         assert r.status_code == 200, r.get_json()
         with app.app_context():
@@ -391,14 +446,14 @@ class TestInspectionUploadReportFlow:
         assert '合同时效' not in sent[-1]['content']
         assert sent[-1]['mode'] == 'markdown'
 
-    def test_review_reject_reverts_task(self, op_client, seed, app):
+    def test_review_reject_reverts_task(self, op_client, admin_client, seed, app):
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
         assert r.status_code == 200
         with app.app_context():
             assert db.session.get(InspectionTask, seed['t1']).status == '待审核'
-        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+        r = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
             'approved': False, 'remark': '报告缺少照片，退回'})
         assert r.status_code == 200
         with app.app_context():
@@ -421,7 +476,7 @@ class TestInspectionUploadReportFlow:
         assert r.status_code == 400
         assert '待审核' in r.get_json()['message']
 
-    def test_versions_after_multi_round(self, op_client, seed, app):
+    def test_versions_after_multi_round(self, op_client, admin_client, seed, app):
         """退回修改（带修改要求）→ 再上传 → 版本递增，每轮审核意见/修改要求/文件留档"""
         # v1 上传
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
@@ -429,7 +484,7 @@ class TestInspectionUploadReportFlow:
                            content_type='multipart/form-data')
         assert r.status_code == 200
         # 退回修改 v1：原因 + 修改要求
-        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+        r = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
             'approved': False, 'remark': '报告缺照片', 'requirements': '请补充每台设备的现场照片并重新上传'})
         assert r.status_code == 200
         # v2 重传
@@ -490,7 +545,7 @@ class TestInspectionUploadReportFlow:
         r = op_client.get(f'/api/inspections/report/{bad_id}')
         assert r.status_code == 404 or r.get_json()['code'] == 1
 
-    def test_report_display_name_rules(self, op_client, seed, app):
+    def test_report_display_name_rules(self, op_client, admin_client, seed, app):
         """报告可读名：任务标题+报告+两位序号；客户前缀去重；审核通过定稿去序号"""
         # 任务标题不含客户名 → 拼客户前缀；v1 带序号 01
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
@@ -505,7 +560,7 @@ class TestInspectionUploadReportFlow:
         detail = r.get_json()['data']
         assert detail['submitted_report_name'] == '巡检API客户核心机房月度巡检任务报告01.docx'
         # 审核通过（定稿）→ 去序号
-        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+        r = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
             'approved': True, 'remark': '通过'})
         assert r.status_code == 200
         r = op_client.get(f"/api/inspections/{seed['i1']}/versions")
@@ -690,6 +745,8 @@ class TestInspectionDicts:
         assert data['overall_statuses'] == ['正常', '警告', '异常']
         assert '草稿' in data['review_statuses']
         assert '待审核' in data['review_statuses']
+        assert data['reviewers']
+        assert data['default_reviewer_id'] == data['reviewers'][0]['id']
 
     def test_list_requires_login(self, client):
         assert client.get('/api/inspections').status_code == 401
@@ -1067,7 +1124,7 @@ class TestReviewChecklist:
         assert [it['name'] for it in items] == ['链路状态', '设备除尘']
         assert items[1]['enabled'] is False
 
-    def test_checklist_written_to_version(self, op_client, seed, app):
+    def test_checklist_written_to_version(self, op_client, admin_client, seed, app):
         """审核提交 checklist → 版本落库 + 版本列表 API 输出 + 退回自动拼装"""
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
                            data={'report_file': _dummy_file()},
@@ -1077,7 +1134,7 @@ class TestReviewChecklist:
                      '链路状态及信息': '合格', '路由信息': '不适用', '现场图片': '需修改',
                      '设备除尘': '合格', '机房环境': '合格', '会议测试': '合格'}
         # 退回且不填 requirements → 由需修改项自动拼装
-        r = op_client.post(f"/api/inspections/{seed['i1']}/review", json={
+        r = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
             'approved': False, 'remark': '两项不合格', 'checklist': checklist})
         assert r.status_code == 200, r.get_json()
         with app.app_context():

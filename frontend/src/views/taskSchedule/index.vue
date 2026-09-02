@@ -455,6 +455,13 @@
       :title="isSupplementing ? '补传巡检资料' : '上传巡检资料并提交审核'"
       width="680px" destroy-on-close>
       <el-form label-width="100px">
+        <el-form-item v-if="!isSupplementing" label="审核人" required>
+          <el-select v-model="reviewerId" filterable placeholder="请选择本次审核人" style="width: 100%">
+            <el-option v-for="reviewer in reviewers" :key="reviewer.id" :value="reviewer.id"
+              :label="reviewerOptionLabel(reviewer)" />
+          </el-select>
+          <span class="asset-tip">默认优先选择巡检人员所在部门负责人，可按实际流程调整</span>
+        </el-form-item>
         <!-- 巡检报告 -->
         <el-form-item :label="assetLabel('report')" :required="isRequired('report')">
           <div class="asset-row">
@@ -703,7 +710,16 @@ type TaskDeviceOption = {
   ip_address: string
   is_in_use: boolean
 }
+type ReviewerOption = {
+  id: number
+  name: string
+  department_name: string
+  responsible_departments: string[]
+  is_department_head: boolean
+}
 const devices = ref<TaskDeviceOption[]>([])
+const reviewers = ref<ReviewerOption[]>([])
+const reviewerId = ref<number | null>(null)
 const requiredAssets = ref<Record<string, boolean>>({})
 const uploadLimits = reactive<{ request_mb: number | null; config_zip_mb: number | null }>({
   request_mb: null,
@@ -727,6 +743,13 @@ function deviceOptionLabel(device: TaskDeviceOption) {
   const details = [device.device_type || '未分类', device.ip_address].filter(Boolean).join(' · ')
   const inactive = device.is_in_use ? '' : ' · 已停用'
   return `${device.device_name}${details ? `（${details}${inactive}）` : inactive}`
+}
+
+function reviewerOptionLabel(reviewer: ReviewerOption) {
+  const responsibility = reviewer.responsible_departments?.length
+    ? `负责人：${reviewer.responsible_departments.join('、')}`
+    : reviewer.department_name
+  return `${reviewer.name}${responsibility ? `（${responsibility}）` : ''}`
 }
 
 // 待审核/已通过记录是在最近版本上补资料；已退回仍需重新提交新版本走审核。
@@ -1118,6 +1141,8 @@ function openUpload() {
   uploadRemark.value = ''
   configZipFile.value = null
   configZipDeviceId.value = null
+  reviewers.value = []
+  reviewerId.value = null
   configTextRows.value = []
   topologyFile.value = null
   assetListFile.value = null
@@ -1128,6 +1153,8 @@ function openUpload() {
       .then((data) => {
         requiredAssets.value = data.required_assets as unknown as Record<string, boolean>
         devices.value = data.devices
+        reviewers.value = data.reviewers || []
+        reviewerId.value = data.default_reviewer_id ?? data.reviewers?.[0]?.id ?? null
         uploadLimits.request_mb = data.upload_limits?.request_mb ?? null
         uploadLimits.config_zip_mb = data.upload_limits?.config_zip_mb ?? null
       })
@@ -1156,6 +1183,10 @@ function previewLatestReport() {
 
 async function doUpload() {
   if (!detail.value) return
+  if (!isSupplementing.value && !reviewerId.value) {
+    ui.toast('请选择本次巡检审核人', 'warning')
+    return
+  }
   if (!isSupplementing.value && !uploadFile.value && !skipReasons.report.trim()) {
     ui.toast('请选择巡检报告文件，或填写无法上传的原因', 'warning')
     return
@@ -1193,6 +1224,9 @@ async function doUpload() {
   try {
     const fd = new FormData()
     fd.append('mode', isSupplementing.value ? 'supplement' : 'submit')
+    if (!isSupplementing.value && reviewerId.value) {
+      fd.append('reviewer_id', String(reviewerId.value))
+    }
     if (uploadFile.value) fd.append('report_file', uploadFile.value)
     else fd.append('report_skip_reason', skipReasons.report)
     fd.append('conclusion', uploadConclusion.value)

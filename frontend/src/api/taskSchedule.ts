@@ -144,6 +144,14 @@ export interface RequiredAssetsData {
     ip_address: string
     is_in_use: boolean
   }>
+  reviewers: Array<{
+    id: number
+    name: string
+    department_name: string
+    responsible_departments: string[]
+    is_department_head: boolean
+  }>
+  default_reviewer_id: number | null
   upload_limits: {
     request_mb: number
     config_zip_mb: number

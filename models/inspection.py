@@ -291,6 +291,8 @@ class Inspection(db.Model):
     field_values_json = db.Column(db.Text, default='{}')     # {"设备名": {"检查项": "值"}}
     skip_reasons_json = db.Column(db.Text, default='{}')      # {"检查项": {"reason": "...", "detail": "..."}}
     review_status = db.Column(db.String(16), default='', index=True)      # ''(草稿)/待审核/已通过/已退回
+    # 本轮待审核的指定审核人；reviewed_by 仅记录实际完成审核的人。
+    reviewer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_comment = db.Column(db.Text, default='')
@@ -298,5 +300,7 @@ class Inspection(db.Model):
 
     customer_rel = db.relationship('Customer', backref='inspections')
     task_rel = db.relationship('InspectionTask', backref='records')
+    assigned_reviewer_rel = db.relationship(
+        'User', foreign_keys=[reviewer_id], backref='assigned_inspection_reviews')
     reviewer_rel = db.relationship('User', foreign_keys=[reviewed_by], backref='reviewed_inspections')
     inspector_user_rel = db.relationship('User', foreign_keys=[inspector_user_id])
