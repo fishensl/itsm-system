@@ -67,9 +67,10 @@ def test_device_location_power_and_export_profiles_share_one_contract():
             continue
         if preset_name == 'version':
             assert list(preset) == [
-                'customer_name', 'rack_location', 'device_name', 'os_version', 'rule_version',
-                'device_type', 'brand', 'model', 'serial_number', 'ip_address', 'build_date',
-                'license_start', 'license_expiry', 'is_in_use', 'remark',
+                'customer_name', 'rack_location', 'device_name', 'interface', 'os_version',
+                'rule_version', 'device_type', 'brand', 'model', 'serial_number', 'ip_address',
+                'build_date', 'license_start', 'license_expiry', 'cert_expiry_date',
+                'is_in_use', 'remark',
             ]
             assert not {
                 'rack_name', 'location', 'rack_slot', 'power_supply', 'rated_power_w',

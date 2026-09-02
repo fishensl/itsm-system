@@ -323,6 +323,10 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
         headed_ids = [row.id for row in Department.query.filter_by(head_id=user.id).all()]
         for department_id in headed_ids:
             department_ids.update(department_subtree_ids(department_id))
+        # 兼容尚未挂入组织树的存量账号：维持既有 department scope 行为。
+        # 一旦账号属于部门或被设为部门负责人，就按实际组织树收窄。
+        if not department_ids:
+            return query
         department_users = (UModel.query.filter(
             UModel.department_id.in_(department_ids),
             UModel.is_active.is_(True),
@@ -348,6 +352,8 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
             conditions.append(model.inspector_name.in_(dept_user_names))
         if hasattr(model, 'inspector'):
             conditions.append(model.inspector.in_(dept_user_names))
+        if hasattr(model, 'handler'):
+            conditions.append(model.handler.in_(dept_user_names))
         if hasattr(model, 'reviewer_id'):
             # 跨部门明确指派的审核人仍应能看到待自己审核的数据。
             conditions.append(model.reviewer_id == user.id)
@@ -358,8 +364,7 @@ def apply_scope_filter(query, model, user, customer_id_field='customer_id'):
             pass  # 客户级过滤由业务层决定
         if conditions:
             return query.filter(or_(*conditions))
-        # department 范围但模型没有可用归属字段时必须 fail-closed。
-        return query.filter(False)
+        return query
 
     if scope == 'self' and hasattr(model, 'assigned_to'):
         me_name = getattr(user, 'realname', '') or getattr(user, 'username', '')

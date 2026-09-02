@@ -87,7 +87,7 @@ class TestDevicePresets:
         header, rows = _decode_xlsx(r)
         assert header == ['客户', '机房位置', '机柜号', '安装位置', '起始U位', '电源配置',
                           '额定功率', '名称', '类型', '品牌', '型号',
-                          '序列号', 'IP', '建设时间', '是否维修', '是否在用', '备注']
+                          '序列号', 'IP', '接口', '建设时间', '是否维修', '是否在用', '备注']
         assert '登录密码' not in header
         assert len(rows) == 2
         by_name = {dict(zip(header, row))['名称']: dict(zip(header, row)) for row in rows}
@@ -118,14 +118,15 @@ class TestDevicePresets:
     def test_preset_version_columns(self, op_client, seed):
         from blueprints.vue_export import DEVICE_PRESETS
         assert DEVICE_PRESETS['version'] == [
-            'customer', 'rack_location', 'name', 'os_version', 'rule_version',
+            'customer', 'rack_location', 'name', 'interface', 'os_version', 'rule_version',
             'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
-            'license_expiry', 'is_in_use', 'remark']
+            'license_expiry', 'cert_expiry_date', 'is_in_use', 'remark']
         response = op_client.post('/api/v2/devices/export', json={'preset': 'version'})
         header, _rows = _decode_xlsx(response)
         assert header == [
-            '客户', '机房位置', '名称', '系统版本', '规则库版本', '类型', '品牌', '型号',
-            '序列号', 'IP', '建设时间', '授权开始', '授权截止', '是否在用', '备注',
+            '客户', '机房位置', '名称', '接口', '系统版本', '规则库版本', '类型', '品牌',
+            '型号', '序列号', 'IP', '建设时间', '授权开始', '授权截止', '证书到期日期',
+            '是否在用', '备注',
         ]
 
     def test_update_preset_contains_stable_device_id(self, op_client, seed):

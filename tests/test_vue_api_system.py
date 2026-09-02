@@ -67,7 +67,11 @@ class TestUserApi:
         r = admin_client.put(f'/api/users/{uid}', json={'username': 'eng1', 'region_ids': []})
         assert r.status_code == 200
         with app.app_context():
-            assert User.query.get(uid).regions == []
+            user = User.query.get(uid)
+            assert user.regions == []
+            # 本用例验证区域字段回显，不重复首次登录 MFA 绑定专项流程。
+            user.must_change_password = False
+            db.session.commit()
         # me 回显
         c = app.test_client()
         c.post('/api/auth/login', json={'username': 'eng1', 'password': 'StrongPass123!'})
@@ -101,7 +105,11 @@ class TestUserApi:
         r = admin_client.put(f'/api/users/{uid}', json={'username': 'eng2', 'customer_ids': []})
         assert r.status_code == 200
         with app.app_context():
-            assert User.query.get(uid).customers == []
+            user = User.query.get(uid)
+            assert user.customers == []
+            # 本用例验证客户字段回显，不重复首次登录 MFA 绑定专项流程。
+            user.must_change_password = False
+            db.session.commit()
         # me 回显
         c = app.test_client()
         c.post('/api/auth/login', json={'username': 'eng2', 'password': 'StrongPass123!'})
