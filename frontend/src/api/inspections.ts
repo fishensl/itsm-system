@@ -1,6 +1,7 @@
 import request from '@/utils/request'
 import { buildQueryUrl } from '@/utils/queryUrl'
 import type { PageResult } from '@/types'
+import type { AxiosProgressEvent } from 'axios'
 
 export interface SubmissionAsset {
   id: number
@@ -158,11 +159,21 @@ export interface UploadTaskReportResult {
 }
 
 /** 从任务上传全套资料（multipart）→ 自动建记录/版本并提交审核 */
-export function uploadTaskReport(taskId: number, formData: FormData) {
+export function uploadTaskReport(
+  taskId: number,
+  formData: FormData,
+  onProgress?: (percentage: number) => void,
+) {
   return request<UploadTaskReportResult>({
     url: `/api/inspections/task/${taskId}/report`,
     method: 'POST',
     data: formData,
+    timeout: 300_000,
+    onUploadProgress: (event: AxiosProgressEvent) => {
+      if (event.total && onProgress) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
+      }
+    },
   })
 }
 

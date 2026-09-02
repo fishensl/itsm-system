@@ -83,6 +83,11 @@ def _line(label, value):
     return f'> **{label}：**{value}' if value else ''
 
 
+def _action_line(value):
+    value = str(value or '').strip()
+    return f'> **{value}**' if value else ''
+
+
 def _format_utc(value):
     if not value:
         return ''
@@ -122,21 +127,17 @@ def ticket_notification_content(ticket, actor='', assignee='', progress=''):
 
 
 def inspection_notification_content(task, assignee_name=''):
-    """构造巡检派发详情。前往时间未填写时保留任务期限，避免误报具体时刻。"""
+    """构造巡检任务的手机端简要信息。"""
     customer = getattr(task, 'customer_rel', None)
     assignee = getattr(task, 'assignee_rel', None)
     lines = [
         _line('巡检地点', getattr(customer, 'name', '') if customer else ''),
-        _line('前往时间', _format_utc(getattr(task, 'visit_at', None))),
         _line('巡检工程师', assignee_name or (
             (getattr(assignee, 'realname', '') or getattr(assignee, 'username', ''))
             if assignee else '')),
+        _line('任务期限', _format_period(
+            getattr(task, 'scheduled_start', None), getattr(task, 'scheduled_end', None))),
     ]
-    if not getattr(task, 'visit_at', None):
-        start = getattr(task, 'scheduled_start', None)
-        end = getattr(task, 'scheduled_end', None)
-        if start or end:
-            lines.append(_line('任务期限', f'{start or "-"} 至 {end or "-"}'))
     return '\n'.join(line for line in lines if line)
 
 
@@ -150,26 +151,78 @@ def _format_period(start, end):
     return ''
 
 
+def inspection_assignment_notification_content(task, assignee_name=''):
+    """任务派发通知：动作在首行，随后仅保留现场执行所需信息。"""
+    lines = [
+        _action_line(f'巡检任务已安排给工程师：{assignee_name}'),
+        inspection_notification_content(task, assignee_name),
+    ]
+    return '\n'.join(line for line in lines if line)
+
+
+def inspection_review_notification_content(task, actor_name=''):
+    """巡检资料提交审核通知，复用任务简要信息并避免重复标题。"""
+    actual_start = getattr(task, 'actual_start', None)
+    lines = [
+        _action_line('巡检资料已提交审核'),
+        inspection_notification_content(task),
+        _line('实施开始', actual_start.strftime('%Y年%m月%d日 %H:%M')
+              if actual_start else ''),
+        _line('提交人', actor_name),
+    ]
+    return '\n'.join(line for line in lines if line)
+
+
+def inspection_record_review_notification_content(inspection, actor_name=''):
+    """无关联任务的巡检记录提交审核通知。"""
+    customer = getattr(inspection, 'customer_rel', None)
+    inspector = getattr(inspection, 'inspector_user_rel', None)
+    inspector_name = (
+        getattr(inspection, 'inspector_name', '') or
+        getattr(inspection, 'inspector', '') or
+        ((getattr(inspector, 'realname', '') or getattr(inspector, 'username', ''))
+         if inspector else '')
+    )
+    inspection_date = getattr(inspection, 'inspection_date', None)
+    lines = [
+        _action_line('巡检资料已提交审核'),
+        _line('巡检地点', (
+            getattr(inspection, 'location', '') or
+            (getattr(customer, 'name', '') if customer else ''))),
+        _line('巡检工程师', inspector_name),
+        _line('巡检日期', inspection_date.isoformat() if inspection_date else ''),
+        _line('提交人', actor_name),
+    ]
+    return '\n'.join(line for line in lines if line)
+
+
 def task_status_notification_content(task, old_status, actor_name=''):
-    """构造任务状态变更详情，明确展示三类时效而不混用。"""
+    """按目标状态展示必要时效，避免合同时效与实施信息混在一起。"""
+    from utils.constants import TASK_DONE, TASK_REVIEWING, TASK_RUNNING
+
     customer = getattr(task, 'customer_rel', None)
     assignee = getattr(task, 'assignee_rel', None)
+    new_status = getattr(task, 'status', '') or ''
     actual_start = getattr(task, 'actual_start', None)
     actual_end = getattr(task, 'actual_end', None)
     lines = [
-        _line('状态', f'{old_status or "-"} → {getattr(task, "status", "") or "-"}'),
+        _line('任务状态', f'{old_status or "-"} → {new_status or "-"}'),
         _line('巡检地点', getattr(customer, 'name', '') if customer else ''),
         _line('巡检工程师', (
             (getattr(assignee, 'realname', '') or getattr(assignee, 'username', ''))
             if assignee else '')),
-        _line('合同时效', _format_period(
-            getattr(task, 'planned_start', None), getattr(task, 'planned_end', None))),
         _line('任务期限', _format_period(
             getattr(task, 'scheduled_start', None), getattr(task, 'scheduled_end', None))),
-        _line('实施开始', actual_start.strftime('%Y年%m月%d日 %H:%M') if actual_start else ''),
-        _line('实施结束', actual_end.strftime('%Y年%m月%d日 %H:%M') if actual_end else ''),
-        _line('操作人', actor_name),
     ]
+    if new_status in {TASK_RUNNING, TASK_REVIEWING, TASK_DONE}:
+        lines.append(_line(
+            '实施开始', actual_start.strftime('%Y年%m月%d日 %H:%M')
+            if actual_start else ''))
+    if new_status == TASK_DONE:
+        lines.append(_line(
+            '实施结束', actual_end.strftime('%Y年%m月%d日 %H:%M')
+            if actual_end else ''))
+    lines.append(_line('操作人', actor_name))
     return '\n'.join(line for line in lines if line)
 
 
@@ -184,9 +237,9 @@ def notify_task_status_changed(task, old_status, actor_name='', actor_user_id=No
         target_user_ids.append(actor_user_id)
     return wecom_broadcast(
         EVENT_INSPECTION_STATUS_CHANGED,
-        f'巡检任务状态：{old_status} → {new_status}｜{getattr(task, "title", "")}',
+        getattr(task, 'title', '') or '巡检任务',
         task_status_notification_content(task, old_status, actor_name),
-        '/app/task-schedule', target_user_ids=target_user_ids, mode='markdown')
+        '', target_user_ids=target_user_ids, mode='markdown')
 
 
 def seed_default_notify_channels():

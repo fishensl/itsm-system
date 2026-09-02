@@ -150,11 +150,10 @@ class User(UserMixin, db.Model):
 
     @property
     def is_supervisor(self):
-        """判断用户是否为部门主管"""
-        if not self.department_id:
+        """判断用户是否被设置为任一部门负责人。"""
+        if not self.id:
             return False
-        dept = Department.query.get(self.department_id)
-        return dept and dept.head_id == self.id
+        return Department.query.filter_by(head_id=self.id).first() is not None
 
     def cert_list(self):
         """证书 JSON 字符串 -> list（防御老数据）"""

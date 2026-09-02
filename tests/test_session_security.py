@@ -17,6 +17,33 @@ def test_mfa_enforcement_is_off_by_default(client):
     assert response.get_json()['data']['user']['username'] == 'op'
 
 
+def test_initial_password_account_must_bind_login_mfa_even_when_global_off(client, app):
+    from models import User, db
+    with app.app_context():
+        user = User.query.filter_by(username='viewer').first()
+        user.must_change_password = True
+        user.mfa_enabled = False
+        db.session.commit()
+
+    first = client.post('/api/auth/login', json={
+        'username': 'viewer', 'password': 'test123456',
+    })
+    assert first.status_code == 200
+    assert first.get_json()['data'] == {
+        'mfa_required': False, 'bind_required': True,
+    }
+    status = client.get('/api/auth/mfa/status')
+    assert status.status_code == 200
+    assert status.get_json()['data']['binding_required'] is True
+
+    setup = client.post('/api/auth/mfa/setup', json={'purpose': 'login'}).get_json()['data']
+    confirmed = client.post('/api/auth/mfa/confirm', json={
+        'purpose': 'login', 'code': pyotp.TOTP(setup['manual_secret']).now(),
+    })
+    assert confirmed.status_code == 200
+    assert confirmed.get_json()['data']['user']['must_change_password'] is True
+
+
 def test_application_uses_dedicated_session_cookie_name(client):
     response = client.get('/app/login')
     assert response.status_code in (200, 404)

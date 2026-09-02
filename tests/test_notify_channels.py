@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """多渠道通知平台（P3）：规则种子 / 接收人合并 / 用户账号 JSON / 渠道 mock 推送"""
+from datetime import date
+from types import SimpleNamespace
+
 import pytest
 
 from models import db, User, NotifyChannelConfig, NotifyRule
@@ -7,7 +10,9 @@ from utils.notify_channels import send_all_channels
 from utils.wecom_notify import (seed_default_notify_rules, EVENT_TICKET_ASSIGN,
                                 EVENT_TICKET_COMPLETED,
                                 EVENT_TICKET_SUSPENDED_TIMEOUT,
-                                EVENT_INSPECTION_STATUS_CHANGED, wecom_broadcast)
+                                EVENT_INSPECTION_STATUS_CHANGED,
+                                inspection_assignment_notification_content,
+                                wecom_broadcast)
 
 
 @pytest.fixture()
@@ -46,6 +51,20 @@ class TestRuleSeed:
                 event_type=EVENT_INSPECTION_STATUS_CHANGED).first()
             assert status_changed is not None and status_changed.is_enabled
             assert status_changed.label == '巡检任务状态变更'
+
+    def test_inspection_assignment_uses_mobile_summary(self):
+        task = SimpleNamespace(
+            customer_rel=SimpleNamespace(name='江西省水利科学院德安基地'),
+            assignee_rel=None,
+            scheduled_start=date(2026, 8, 31),
+            scheduled_end=date(2026, 9, 4),
+        )
+        content = inspection_assignment_notification_content(task, '邱斌')
+        assert content.splitlines()[0] == '> **巡检任务已安排给工程师：邱斌**'
+        assert '**巡检地点：**江西省水利科学院德安基地' in content
+        assert '**巡检工程师：**邱斌' in content
+        assert '**任务期限：**2026-08-31 至 2026-09-04' in content
+        assert '合同时效' not in content
 
     def test_seed_idempotent(self, app, seeded):
         with app.app_context():

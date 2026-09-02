@@ -12,4 +12,14 @@ describe('login form native submission safety', () => {
     expect(source.match(/native-type="submit"/g)).toHaveLength(2)
     expect(source).not.toContain('@keyup.enter')
   })
+
+  it('routes an unbound first-login account to the mandatory MFA setup page', () => {
+    const loginSource = readFileSync(resolve(process.cwd(), 'src/views/login/index.vue'), 'utf8')
+    const setupSource = readFileSync(resolve(process.cwd(), 'src/views/mfaSetup.vue'), 'utf8')
+
+    expect(loginSource).toContain("if (result.bind_required)")
+    expect(loginSource).toContain("await router.push('/mfa')")
+    expect(setupSource).toContain('首次登录必须先绑定登录 MFA')
+    expect(setupSource).toContain('绑定成功后，系统会继续引导你修改初始密码')
+  })
 })

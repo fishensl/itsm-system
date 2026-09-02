@@ -67,7 +67,9 @@ export interface MfaSetupResult {
 
 export function fetchMfaStatus() {
   return request<{ login_enabled: boolean; operation_enabled: boolean; backup_codes_remaining: number;
-    mfa_enforce: boolean; op_code_enforce: boolean }>({ url: '/api/auth/mfa/status', method: 'GET' })
+    binding_required: boolean; mfa_enforce: boolean; op_code_enforce: boolean }>({
+    url: '/api/auth/mfa/status', method: 'GET',
+  })
 }
 
 export function setupMfa(purpose: MfaPurpose) {

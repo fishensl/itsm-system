@@ -205,19 +205,27 @@ class TestTaskScheduleApi:
                 'link': link, 'target_user_ids': target_user_ids, 'mode': mode,
             }) or (1, 0))
         with app.app_context():
-            task_id = InspectionTask.query.filter_by(
-                title='2026年二季度巡检').one().id
+            task = InspectionTask.query.filter_by(
+                title='2026年二季度巡检').one()
+            task.scheduled_start = date(2026, 8, 31)
+            task.scheduled_end = date(2026, 9, 4)
+            db.session.commit()
+            task_id = task.id
 
         changed = admin_client.put(
             f'/api/task-schedule/{task_id}', json={'status': '执行中'})
         assert changed.status_code == 200
         assert len(sent) == 1
         assert sent[0]['event'] == 'inspection_status_changed'
-        assert sent[0]['title'].startswith('巡检任务状态：待执行 → 执行中')
-        assert '**状态：**待执行 → 执行中' in sent[0]['content']
+        assert sent[0]['title'] == '2026年二季度巡检'
+        assert '**任务状态：**待执行 → 执行中' in sent[0]['content']
         assert '**巡检地点：**看板客户' in sent[0]['content']
+        assert '**任务期限：**2026-08-31 至 2026-09-04' in sent[0]['content']
+        assert '**实施开始：**' in sent[0]['content']
+        assert '合同时效' not in sent[0]['content']
         assert sent[0]['target_user_ids'] == [op_id]
         assert sent[0]['mode'] == 'markdown'
+        assert sent[0]['link'] == ''
 
         unchanged = admin_client.put(
             f'/api/task-schedule/{task_id}', json={'status': '执行中'})

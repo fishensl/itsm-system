@@ -52,6 +52,7 @@ def api_mfa_status():
     return ok({
         'login_enabled': bool(user.mfa_enabled),
         'operation_enabled': bool(user.mfa_op_enabled),
+        'binding_required': bool(g.mfa_pending_login and not user.mfa_enabled),
         'backup_codes_remaining': len(parse_json(user.backup_codes_json or '', default=[])),
         'mfa_enforce': setting_bool('mfa_enforce', False),
         'op_code_enforce': setting_bool('op_code_enforce', False),

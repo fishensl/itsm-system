@@ -86,7 +86,12 @@ def err_403(e):
 
 def err_413(e):
     if _is_api_request():
-        return jsonify({'success': False, 'error': '上传的文件超过系统允许的大小限制'}), 413
+        limit_mb = max(1, int(current_app.config.get('MAX_CONTENT_LENGTH', 0) / 1024 / 1024))
+        return jsonify({
+            'code': 1,
+            'data': None,
+            'message': f'本次上传总大小超过系统限制（{limit_mb}MB），请拆分后补传',
+        }), 413
     return redirect('/app/'), 413
 
 

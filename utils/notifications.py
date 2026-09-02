@@ -43,13 +43,19 @@ def _admin_user_ids(except_user_id=None):
 
 
 def review_recipient_ids(department_id, except_user_id=None):
-    """返回审核接收人：申请人所在部门负责人 + 全部管理员。"""
+    """返回审核接收人：申请部门最近一级负责人 + 全部管理员。"""
     from models import Department
     targets = []
     if department_id:
         dept = Department.query.get(department_id)
-        if dept and dept.head_id and dept.head_id != except_user_id:
-            targets.append(dept.head_id)
+        seen = set()
+        while dept and dept.id not in seen:
+            seen.add(dept.id)
+            if dept.head_id:
+                if dept.head_id != except_user_id:
+                    targets.append(dept.head_id)
+                break
+            dept = dept.parent
     targets.extend(_admin_user_ids(except_user_id))
     return list(dict.fromkeys(targets))
 

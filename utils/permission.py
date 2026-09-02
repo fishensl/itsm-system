@@ -177,6 +177,12 @@ ROLE_LABELS = {
     'viewer': '查看者',
 }
 
+# 部门负责人基于组织职责自动获得的审批能力。用户级 deny 仍在最后生效，
+# 管理员可以针对个别负责人显式收回某项权限。
+SUPERVISOR_PERMISSIONS = frozenset({
+    'inspection:review', 'ticket:review', 'ticket:assign', 'contract:review',
+})
+
 # 故障一级分类选项
 FAULT_CATEGORY_LEVEL1 = [
     '硬件故障', '软件故障', '网络故障', '安全事件', '配置变更', '环境问题'
@@ -231,7 +237,11 @@ def get_user_permissions(user):
     for role_code in codes:
         base |= set(_get_cached_role_perms(role_code))
 
-    # 2) 用户级 grant/deny 覆盖（每次查，不缓存 —— 用户级操作少）
+    # 2) 组织职责权限：被设置为任一部门负责人即生效，不要求负责人必须隶属该部门。
+    if is_supervisor(user):
+        base |= set(SUPERVISOR_PERMISSIONS)
+
+    # 3) 用户级 grant/deny 覆盖（每次查，不缓存 —— 用户级操作少）
     if hasattr(user, 'extra_permissions') and user.extra_permissions:
         now = datetime.utcnow()
         for up in user.extra_permissions:
@@ -357,16 +367,15 @@ def role_label(role):
 
 
 def is_supervisor(user=None):
-    """判断用户是否为部门主管"""
+    """判断用户是否被设置为任一部门负责人。"""
     if user is None:
         user = current_user
     if not user or not getattr(user, 'is_authenticated', False):
         return False
-    if not getattr(user, 'department_id', None):
+    if not getattr(user, 'id', None):
         return False
     from models import Department
-    dept = Department.query.get(user.department_id)
-    return dept is not None and dept.head_id == user.id
+    return Department.query.filter_by(head_id=user.id).first() is not None
 
 
 def _is_api_request():

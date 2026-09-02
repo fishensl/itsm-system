@@ -214,6 +214,28 @@ class TestReviewRole:
         r = op_client.post(f"/api/inspections/{seed['i2']}/review", json={'approved': True})
         assert r.status_code != 403  # 有权限 → 进入业务逻辑（结果非权限拒绝）
 
+    def test_department_head_automatically_receives_review_permission(
+            self, app, client, seed):
+        """设置为部门负责人后无需再单独授予巡检审核权限。"""
+        with app.app_context():
+            pure_op = User.query.filter_by(username='pure_op').first()
+            dept = Department(name='自动审批运维科', head_id=pure_op.id)
+            db.session.add(dept)
+            db.session.commit()
+            assert pure_op.is_supervisor is True
+            from utils.permission import get_user_permissions
+            permissions = set(get_user_permissions(pure_op))
+            assert 'inspection:review' in permissions
+            assert 'ticket:review' in permissions
+
+        login = client.post('/api/auth/login', json={
+            'username': 'pure_op', 'password': 'test123456',
+        })
+        assert login.status_code == 200
+        response = client.post(
+            f"/api/inspections/{seed['i2']}/review", json={'approved': True})
+        assert response.status_code != 403
+
 
 class TestReviewNotify:
     def test_ticket_submit_notifies_dept_head_and_admin(self, app, admin_client, seed):

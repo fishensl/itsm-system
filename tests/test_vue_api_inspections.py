@@ -327,6 +327,25 @@ class TestInspectionUploadReportFlow:
                            content_type='multipart/form-data')
         assert r.status_code == 400
 
+    def test_upload_too_large_returns_unified_json_error(self, op_client, seed, app):
+        old_limit = app.config['MAX_CONTENT_LENGTH']
+        app.config['MAX_CONTENT_LENGTH'] = 512
+        try:
+            response = op_client.post(
+                f"/api/inspections/task/{seed['t1']}/report",
+                data={
+                    'report_skip_reason': '本次仅补配置',
+                    'config_zip': (io.BytesIO(b'x' * 2048), 'large.zip'),
+                },
+                content_type='multipart/form-data',
+            )
+        finally:
+            app.config['MAX_CONTENT_LENGTH'] = old_limit
+        assert response.status_code == 413
+        body = response.get_json()
+        assert body['code'] == 1
+        assert '请拆分后补传' in body['message']
+
     def test_review_approve_completes_task(self, op_client, seed, app, monkeypatch):
         """上传 → 待审核 → 审核通过 → 任务已完成 + actual_end"""
         sent = []
@@ -366,7 +385,9 @@ class TestInspectionUploadReportFlow:
         assert detail['task_actual_effort'] == expected_timing['actual_effort']
         assert [item['event'] for item in sent] == [
             'inspection_review_pending', 'inspection_status_changed']
-        assert '待审核 → 已完成' in sent[-1]['title']
+        assert sent[-1]['title'] == '核心机房月度巡检任务'
+        assert '**任务状态：**待审核 → 已完成' in sent[-1]['content']
+        assert '合同时效' not in sent[-1]['content']
         assert sent[-1]['mode'] == 'markdown'
 
     def test_review_reject_reverts_task(self, op_client, seed, app):

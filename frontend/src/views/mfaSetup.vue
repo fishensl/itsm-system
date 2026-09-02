@@ -7,10 +7,20 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="status.binding_required"
+      class="bind-required-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="首次登录必须先绑定登录 MFA"
+      description="请使用腾讯身份验证器扫码并输入 6 位动态码。绑定成功后，系统会继续引导你修改初始密码。"
+    />
+
     <el-card shadow="never" class="status-card">
       <div class="status-grid">
         <button
-          v-for="item in purposeOptions"
+          v-for="item in visiblePurposeOptions"
           :key="item.value"
           type="button"
           :class="['purpose-card', { active: purpose === item.value }]"
@@ -149,7 +159,8 @@ import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
 const purpose = ref<MfaPurpose>('login')
-const status = ref({ login_enabled: false, operation_enabled: false, backup_codes_remaining: 0 })
+const status = ref({ login_enabled: false, operation_enabled: false,
+  binding_required: false, backup_codes_remaining: 0 })
 const statusLoaded = ref(false)
 const setup = ref<MfaSetupResult>()
 const code = ref('')
@@ -163,6 +174,9 @@ const purposeOptions: Array<{ value: MfaPurpose; label: string; description: str
 ]
 
 const currentOption = computed(() => purposeOptions.find((item) => item.value === purpose.value)!)
+const visiblePurposeOptions = computed(() => status.value.binding_required
+  ? purposeOptions.filter((item) => item.value === 'login')
+  : purposeOptions)
 const currentLabel = computed(() => currentOption.value.label)
 const currentDescription = computed(() => currentOption.value.description)
 const enabled = computed(() => isEnabled(purpose.value))
@@ -245,7 +259,7 @@ onMounted(() => {
 
 <style scoped>
 .security-setup { max-width: 920px; margin: 0 auto; }
-.status-card { margin-bottom: 14px; }
+.bind-required-alert, .status-card { margin-bottom: 14px; }
 .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .purpose-card {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;

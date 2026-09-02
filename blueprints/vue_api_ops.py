@@ -1620,16 +1620,17 @@ def api_task_schedule_update(task_id):
                        f'任务期限 {t.scheduled_start or "-"} ~ {t.scheduled_end or "-"}，请及时处理',
                        '/app/task-schedule')
                 from utils.wecom_notify import (
-                    EVENT_INSPECTION_ASSIGN, inspection_notification_content,
+                    EVENT_INSPECTION_ASSIGN,
+                    inspection_assignment_notification_content,
                     wecom_broadcast)
                 assignee = db.session.get(_U, new_uid)
                 assignee_name = ((assignee.realname or assignee.username)
                                  if assignee else '')
                 wecom_broadcast(
                     EVENT_INSPECTION_ASSIGN,
-                    f'巡检任务已安排给 {assignee_name}：{t.title}',
-                    inspection_notification_content(t, assignee_name),
-                    '/app/task-schedule', target_user_ids=[new_uid],
+                    t.title,
+                    inspection_assignment_notification_content(t, assignee_name),
+                    '', target_user_ids=[new_uid],
                     mode='markdown')
             except Exception:
                 current_app.logger.warning('任务指派通知失败 task_id=%s', task_id)

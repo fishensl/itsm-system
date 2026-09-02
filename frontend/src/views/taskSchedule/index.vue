@@ -552,6 +552,9 @@
         <el-form-item v-if="uploadHint" label="提示">
           <span class="upload-hint">{{ uploadHint }}</span>
         </el-form-item>
+        <el-form-item v-if="uploading" label="上传进度">
+          <el-progress :percentage="uploadProgress" :stroke-width="10" style="width: 100%" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
@@ -684,6 +687,7 @@ const recordLoading = ref(false)
 const versions = ref<SubmissionVersion[]>([])
 const uploadVisible = ref(false)
 const uploading = ref(false)
+const uploadProgress = ref(0)
 const uploadFile = ref<File | null>(null)
 const uploadConclusion = ref('')
 const uploadRemark = ref('')
@@ -1109,7 +1113,21 @@ async function doUpload() {
     ui.toast('请至少选择一项需要补传的文件或配置内容', 'warning')
     return
   }
+  const selectedFiles = [
+    uploadFile.value,
+    configZipFile.value,
+    topologyFile.value,
+    assetListFile.value,
+    ...configTextRows.value.map((row) => row.file),
+  ].filter((file): file is File => Boolean(file))
+  const totalBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0)
+  const maxUploadBytes = 95 * 1024 * 1024
+  if (totalBytes > maxUploadBytes) {
+    ui.toast(`本次文件总大小 ${(totalBytes / 1024 / 1024).toFixed(1)}MB，超过 95MB 上传上限，请拆分后补传`, 'warning')
+    return
+  }
   uploading.value = true
+  uploadProgress.value = 0
   try {
     const fd = new FormData()
     fd.append('mode', isSupplementing.value ? 'supplement' : 'submit')
@@ -1144,7 +1162,12 @@ async function doUpload() {
     if (assetListFile.value) fd.append('asset_list', assetListFile.value)
     else if (skipReasons.asset_list) fd.append('asset_list_skip_reason', skipReasons.asset_list)
 
-    const r = await uploadTaskReport(detail.value.id, fd)
+    const r = await uploadTaskReport(
+      detail.value.id,
+      fd,
+      (percentage) => { uploadProgress.value = percentage },
+    )
+    uploadProgress.value = 100
     let msg = r.supplemented
       ? `已补传到版本 ${r.version_no}，任务状态保持：${r.task_status}`
       : `已上传（版本 ${r.version_no}）并提交审核，任务状态：${r.task_status}`
@@ -1159,7 +1182,14 @@ async function doUpload() {
     await loadRecord()
     reload()
   } catch (e) {
-    ui.toast((e as Error).message, 'error')
+    const message = (e as Error).message || ''
+    if (message === 'Network Error') {
+      ui.toast('上传连接中断，请确认网络稳定后重试；建议大文件拆分后使用补传功能', 'error')
+    } else if (/timeout/i.test(message)) {
+      ui.toast('上传处理超时，请拆分配置包后使用补传功能', 'error')
+    } else {
+      ui.toast(message || '上传失败', 'error')
+    }
   } finally {
     uploading.value = false
   }

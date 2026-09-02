@@ -115,9 +115,11 @@ def api_login():
         user.login_locked_until = None
         db.session.commit()
         enforce_mfa = bool(current_app.config.get('MFA_ENFORCE')) or setting_bool('mfa_enforce', False)
+        initial_account_requires_bind = bool(
+            user.must_change_password and not user.mfa_enabled)
         # 用户主动绑定登录 MFA 后立即生效；全局开关只负责强制未绑定用户先完成绑定。
-        # 否则界面显示“已绑定”，实际登录却只校验密码，容易造成错误安全预期。
-        if user.mfa_enabled or enforce_mfa:
+        # 初始密码账号即使全局开关关闭也必须先绑定，随后再完成首次改密。
+        if user.mfa_enabled or enforce_mfa or initial_account_requires_bind:
             session.clear()
             session['pending_mfa_user_id'] = user.id
             session['pending_mfa_at'] = int(now.timestamp())
@@ -3276,13 +3278,24 @@ def api_inspection_submit(inspection_id):
             f'巡检记录 #{inspection_id} 提交审核',
             f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
             f'/app/inspections/{inspection_id}', except_user_id=current_user.id)
-        from utils.wecom_notify import wecom_broadcast, EVENT_INSPECTION_REVIEW_PENDING
-        wecom_broadcast(EVENT_INSPECTION_REVIEW_PENDING,
-                        f'巡检记录 #{inspection_id} 提交审核',
-                        f'{current_user.realname or current_user.username} 提交了「{i.customer_rel.name if i.customer_rel else ""}」巡检记录待审核',
-                        f'/app/inspections/{inspection_id}',
-                        target_user_ids=[i.inspector_user_id or current_user.id],
-                        mode='markdown')
+        from utils.wecom_notify import (
+            EVENT_INSPECTION_REVIEW_PENDING,
+            inspection_record_review_notification_content,
+            inspection_review_notification_content,
+            wecom_broadcast,
+        )
+        actor_name = current_user.realname or current_user.username
+        task = i.task_rel
+        title = task.title if task else (i.title or '巡检记录')
+        content = (
+            inspection_review_notification_content(task, actor_name)
+            if task else inspection_record_review_notification_content(i, actor_name)
+        )
+        wecom_broadcast(
+            EVENT_INSPECTION_REVIEW_PENDING,
+            title, content, '',
+            target_user_ids=[i.inspector_user_id or current_user.id],
+            mode='markdown')
     except Exception:
         current_app.logger.warning('巡检提交通知发送失败 inspection_id=%s', inspection_id)
     return ok(None)
@@ -3759,13 +3772,15 @@ def api_inspection_upload_report(task_id):
 
         try:
             from utils.wecom_notify import (
-                EVENT_INSPECTION_REVIEW_PENDING, inspection_notification_content,
+                EVENT_INSPECTION_REVIEW_PENDING,
+                inspection_review_notification_content,
                 wecom_broadcast)
             wecom_broadcast(
                 EVENT_INSPECTION_REVIEW_PENDING,
-                f'巡检任务已提交待审核：{task.title}',
-                inspection_notification_content(task),
-                '/app/task-schedule',
+                task.title,
+                inspection_review_notification_content(
+                    task, me.realname or me.username),
+                '',
                 target_user_ids=[task.assigned_to_user_id or me.id],
                 mode='markdown')
         except Exception:
