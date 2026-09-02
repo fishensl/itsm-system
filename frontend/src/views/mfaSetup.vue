@@ -155,9 +155,11 @@ import {
   type MfaPurpose,
   type MfaSetupResult,
 } from '@/api/auth'
+import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
+const user = useUserStore()
 const purpose = ref<MfaPurpose>('login')
 const status = ref({ login_enabled: false, operation_enabled: false,
   binding_required: false, backup_codes_remaining: 0 })
@@ -224,6 +226,7 @@ async function confirm() {
     const result = await confirmMfa(purpose.value, code.value)
     cancelSetup()
     await load()
+    if (purpose.value === 'login' && user.user) user.user.mfa_enabled = true
     ui.toast('绑定成功', 'success')
     if (result?.user) window.location.href = '/app/'
   } catch (error) {

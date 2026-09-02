@@ -19,6 +19,7 @@ def test_mfa_setup_confirm_and_status(op_client, app):
     confirm = op_client.post('/api/auth/mfa/confirm', json={'purpose': 'login', 'code': code})
     assert confirm.status_code == 200
     assert op_client.get('/api/auth/mfa/status').get_json()['data']['login_enabled'] is True
+    assert op_client.get('/api/auth/me').get_json()['data']['mfa_enabled'] is True
 
     from models import User
     with app.app_context():

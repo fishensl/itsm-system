@@ -269,6 +269,9 @@ def _user_payload(user):
         'permissions': get_user_permissions(user),
         'is_supervisor': user.is_supervisor,
         'must_change_password': bool(user.must_change_password),
+        # 前端全局账号菜单和登录后安全提醒的数据源。只返回绑定状态，
+        # 不返回种子、恢复码等任何 MFA 凭据。
+        'mfa_enabled': bool(user.mfa_enabled),
     }
 
 

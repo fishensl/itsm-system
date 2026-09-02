@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工作台' },
       },
       {
+        path: 'security/mfa',
+        name: 'account-mfa',
+        component: () => import('@/views/mfaSetup.vue'),
+        meta: { title: '身份验证器' },
+      },
+      {
         path: 'customers',
         name: 'customers',
         component: () => import('@/views/customers/index.vue'),

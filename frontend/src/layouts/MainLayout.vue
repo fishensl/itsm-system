@@ -137,6 +137,9 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item command="mfa">
+                  {{ user.user?.mfa_enabled ? '管理登录 MFA' : '绑定登录 MFA' }}
+                </el-dropdown-item>
                 <el-dropdown-item command="password">
                   修改密码
                 </el-dropdown-item>
@@ -151,6 +154,16 @@
           </el-dropdown>
         </div>
       </header>
+
+      <section v-if="showMfaReminder" class="mfa-reminder" role="alert">
+        <div class="mfa-reminder-copy">
+          <el-icon><Warning /></el-icon>
+          <span><strong>当前账号尚未绑定登录 MFA</strong>，请绑定身份验证器以保护账号。</span>
+        </div>
+        <el-button type="warning" plain size="small" @click="openMfaSettings">
+          立即绑定
+        </el-button>
+      </section>
 
       <!-- 内容 -->
       <main class="content">
@@ -250,7 +263,7 @@ import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Monitor, Expand, Fold, Menu, ArrowDown, MoonNight, Sunny,
-  SwitchButton, HomeFilled, Bell, Search,
+  SwitchButton, HomeFilled, Bell, Search, Warning,
 } from '@element-plus/icons-vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
@@ -267,6 +280,7 @@ const router = useRouter()
 const user = useUserStore()
 const ui = useUiStore()
 const mustChangePassword = computed(() => Boolean(user.user?.must_change_password))
+const showMfaReminder = computed(() => Boolean(user.user && !user.user.mfa_enabled))
 
 const mobileNotif = ref(false)
 const mobileSearch = ref(false)
@@ -312,7 +326,10 @@ const handleLogout = async () => {
 const onUserCommand = (cmd: string) => {
   if (cmd === 'logout') handleLogout()
   else if (cmd === 'password') openPwdDialog()
+  else if (cmd === 'mfa') openMfaSettings()
 }
+
+const openMfaSettings = () => router.push('/security/mfa')
 
 // 修改密码（SPA 弹窗，替代 /me/change_password 整页跳转）
 const pwdVisible = ref(false)
@@ -503,6 +520,24 @@ watch(mustChangePassword, (required) => {
   flex: 1;
   overflow-y: auto;
 }
+.mfa-reminder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  color: var(--el-color-warning-dark-2);
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-5);
+  border-radius: 8px;
+}
+.mfa-reminder-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 
 /* 移动端遮罩 */
 .sidebar-overlay {
@@ -569,6 +604,14 @@ watch(mustChangePassword, (required) => {
   }
   .user-name {
     display: none;
+  }
+  .mfa-reminder {
+    align-items: flex-start;
+    margin: 8px 10px 0;
+  }
+  .mfa-reminder-copy {
+    align-items: flex-start;
+    font-size: 13px;
   }
   .bottom-nav {
     position: fixed;

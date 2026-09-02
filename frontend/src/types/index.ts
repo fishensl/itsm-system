@@ -34,6 +34,8 @@ export interface CurrentUser {
   /** 是否为部门负责人（部门主管，可执行派单等主管动作） */
   is_supervisor?: boolean
   must_change_password?: boolean
+  /** 登录 MFA 是否已绑定（仅状态，不包含任何 MFA 凭据） */
+  mfa_enabled: boolean
 }
 
 /** 侧栏分组（数据源与后端 sidebar_config 对齐） */

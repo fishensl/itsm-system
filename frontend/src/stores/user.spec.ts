@@ -16,6 +16,7 @@ describe('user store', () => {
       region_ids: [],
       customer_ids: [],
       permissions: [],
+      mfa_enabled: true,
     }
     expect(store.hasPerm('anything:xxx')).toBe(true)
     expect(store.hasPerm()).toBe(true)
@@ -33,6 +34,7 @@ describe('user store', () => {
       region_ids: [],
       customer_ids: [],
       permissions: ['device:view', 'ticket:view'],
+      mfa_enabled: false,
     }
     expect(store.hasPerm('device:view')).toBe(true)
     expect(store.hasPerm('device:edit')).toBe(false)
@@ -52,6 +54,7 @@ describe('user store', () => {
       region_ids: [],
       customer_ids: [],
       permissions: [],
+      mfa_enabled: true,
     }
     store.sidebarGroups = [{ key: 'dashboard', title: '工作台', icon: 'HomeFilled',
       enabled: true, single_link: { name: '工作台', url: '/app/', icon: 'HomeFilled' }, children: [] }]

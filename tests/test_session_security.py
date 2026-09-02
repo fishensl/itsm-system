@@ -15,6 +15,7 @@ def test_mfa_enforcement_is_off_by_default(client):
     response = client.post('/api/auth/login', json={'username': 'op', 'password': 'test123456'})
     assert response.status_code == 200
     assert response.get_json()['data']['user']['username'] == 'op'
+    assert response.get_json()['data']['user']['mfa_enabled'] is False
 
 
 def test_initial_password_account_must_bind_login_mfa_even_when_global_off(client, app):
@@ -73,6 +74,7 @@ def test_bound_mfa_always_requires_two_step_login(client, app):
     # Invalid input must keep the pending login alive so a correct code can be retried.
     second = client.post('/api/auth/mfa/verify', json={'code': pyotp.TOTP(secret).now()})
     assert second.status_code == 200
+    assert second.get_json()['data']['user']['mfa_enabled'] is True
     assert client.get('/api/auth/me').status_code == 200
 
 
