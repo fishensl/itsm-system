@@ -82,20 +82,26 @@
           <div v-if="v.review_status" class="vt-review">
             <div class="vt-review-head">
               <span class="vt-reviewer">
-                {{ v.reviewed_at ? '审核人' : '待审人' }}：{{ v.reviewed_by_name || v.assigned_reviewer_name || '-' }}
-                <template v-if="v.reviewed_at"> · {{ v.reviewed_at }}</template>
+                <template v-if="v.reviewed_at">
+                  <template v-if="reviewerName(v)">审核人：{{ reviewerName(v) }} · </template>
+                  审核时间：{{ v.reviewed_at }}
+                </template>
+                <template v-else>待审人：{{ reviewerName(v) || '未指定' }}</template>
+              </span>
+              <span v-if="Object.keys(v.checklist || {}).length" class="vt-check-summary">
+                {{ checklistSummary(v.checklist) }}
               </span>
             </div>
             <!-- 检查项勾选结果（V23 留痕） -->
             <div v-if="Object.keys(v.checklist || {}).length" class="vt-checklist">
-              <div v-for="(st, name) in v.checklist" :key="name" class="vt-check-row">
+              <div v-for="(st, name) in v.checklist" :key="name" class="vt-check-row" :class="checkStateClass(st)">
                 <el-icon :color="st === '合格' ? 'var(--el-color-success)' : st === '需修改' ? 'var(--el-color-danger)' : 'var(--el-text-color-placeholder)'"
-                  size="13" style="margin-right: 4px">
+                  size="13">
                   <CircleCheck v-if="st === '合格'" />
                   <CircleClose v-else />
                 </el-icon>
                 <span class="vt-check-name">{{ name }}</span>
-                <el-tag size="small" :type="checkTag(st)" class="vt-check-status">{{ st }}</el-tag>
+                <span class="vt-check-status">{{ st }}</span>
               </div>
             </div>
             <template v-if="v.review_status === REVIEW_STATUS.REJECTED">
@@ -170,10 +176,26 @@ function previewReport(v: SubmissionVersion) {
   previewVisible.value = true
 }
 
-function checkTag(st: string): 'success' | 'danger' | 'info' {
-  if (st === '合格') return 'success'
-  if (st === '需修改') return 'danger'
-  return 'info'
+function reviewerName(v: SubmissionVersion): string {
+  return v.reviewed_by_name || v.assigned_reviewer_name || ''
+}
+
+function checkStateClass(st: string): string {
+  if (st === '合格') return 'is-qualified'
+  if (st === '需修改') return 'needs-change'
+  return 'not-applicable'
+}
+
+function checklistSummary(checklist: Record<string, string>): string {
+  const states = Object.values(checklist || {})
+  const qualified = states.filter((value) => value === '合格').length
+  const needsChange = states.filter((value) => value === '需修改').length
+  const notApplicable = states.length - qualified - needsChange
+  const parts = [`${states.length} 项`]
+  if (qualified) parts.push(`合格 ${qualified}`)
+  if (needsChange) parts.push(`需修改 ${needsChange}`)
+  if (notApplicable) parts.push(`不适用 ${notApplicable}`)
+  return parts.join(' · ')
 }
 
 function viewContent(a: SubmissionAsset) {
@@ -230,12 +252,37 @@ function download(v: SubmissionVersion) {
 .vt-skip { color: var(--el-color-warning); font-size: 12px; }
 .vt-device { color: var(--el-text-color-secondary); font-size: 12px; }
 .vt-review { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--el-border-color-lighter); font-size: 12px; }
-.vt-review-head { margin-bottom: 2px; }
+.vt-review-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 5px; }
 .vt-reviewer { color: var(--el-text-color-secondary); }
-.vt-checklist { margin: 4px 0; display: flex; flex-direction: column; gap: 2px; }
-.vt-check-row { display: flex; align-items: center; }
-.vt-check-name { font-size: 12px; }
-.vt-check-status { margin-left: auto; }
+.vt-check-summary {
+  margin-left: auto;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.vt-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 4px 6px;
+  margin: 4px 0;
+}
+.vt-check-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 5px;
+  background: var(--el-fill-color-lighter);
+}
+.vt-check-row.is-qualified { background: var(--el-color-success-light-9); border-color: var(--el-color-success-light-7); }
+.vt-check-row.needs-change { background: var(--el-color-danger-light-9); border-color: var(--el-color-danger-light-7); }
+.vt-check-name { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.vt-check-status { margin-left: auto; flex-shrink: 0; font-size: 11px; font-weight: 600; }
+.is-qualified .vt-check-status { color: var(--el-color-success); }
+.needs-change .vt-check-status { color: var(--el-color-danger); }
+.not-applicable .vt-check-status { color: var(--el-text-color-placeholder); }
 .vt-requirements {
   color: var(--el-color-danger);
   font-weight: 600;
