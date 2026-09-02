@@ -18,7 +18,7 @@ describe('inspection material upload', () => {
     await uploadTaskReport(7, new FormData(), progress)
 
     const config = vi.mocked(request).mock.calls[0][0]
-    expect(config.timeout).toBe(300_000)
+    expect(config.timeout).toBe(1_800_000)
     config.onUploadProgress?.({ loaded: 50, total: 100 } as AxiosProgressEvent)
     expect(progress).toHaveBeenCalledWith(50)
   })

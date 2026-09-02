@@ -48,7 +48,15 @@ class Config:
         )
         SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(BASE_DIR, 'instance', 'itsm.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    MAX_CONTENT_LENGTH = int(os.environ.get('ITSM_MAX_UPLOAD_MB', 100)) * 1024 * 1024
+    # 巡检配置备份可能包含多台网络/安全设备文件，不能沿用普通附件的 100MB 上限。
+    # 总请求与配置 ZIP 分开配置，其他上传端点仍由各自 validate_upload 上限约束。
+    MAX_CONTENT_LENGTH = max(1, int(os.environ.get('ITSM_MAX_UPLOAD_MB', 1024))) * 1024 * 1024
+    INSPECTION_CONFIG_MAX_MB = max(
+        1, int(os.environ.get('ITSM_INSPECTION_CONFIG_MAX_MB', 900)))
+    # 正式巡检报告模板尚未定稿，默认不在审核通过时自动生成；完善后显式开启。
+    AUTO_GENERATE_INSPECTION_REPORT = os.environ.get(
+        'ITSM_AUTO_GENERATE_INSPECTION_REPORT', '').strip().lower() in {
+            '1', 'true', 'yes', 'on'}
     FORCE_HTTPS = os.environ.get('ITSM_FORCE_HTTPS', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     IS_PRODUCTION = (os.environ.get('ITSM_ENV') == 'production' or
                      os.environ.get('FLASK_ENV') == 'production')

@@ -53,6 +53,7 @@ export interface TaskScheduleData {
 }
 
 export interface TaskScheduleQuery {
+  task_id?: number
   view?: string
   period?: string
   start_from?: string
@@ -136,7 +137,17 @@ export interface RequiredAssets {
 
 export interface RequiredAssetsData {
   required_assets: RequiredAssets
-  devices: Array<{ id: number; device_name: string; device_type: string }>
+  devices: Array<{
+    id: number
+    device_name: string
+    device_type: string
+    ip_address: string
+    is_in_use: boolean
+  }>
+  upload_limits: {
+    request_mb: number
+    config_zip_mb: number
+  }
 }
 
 export function fetchRequiredAssets(id: number) {

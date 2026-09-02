@@ -1341,6 +1341,10 @@ def api_task_schedule_board():
 
     args = _effective_request_args(request.args)[0]
     query = _apply_filters(_base_query(), args)
+    task_id = request.args.get('task_id', type=int)
+    if task_id:
+        from models import InspectionTask as _IT
+        query = query.filter(_IT.id == task_id)
     view = (request.args.get('view') or 'engineer').strip()
     tasks = query.all()
     today = __import__('datetime').date.today()

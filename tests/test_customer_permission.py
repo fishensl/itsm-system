@@ -18,8 +18,10 @@ def seed(app):
         c2 = Customer(name='敏感客户B', contact_person='李四', phone='13800000002')
         db.session.add_all([c1, c2])
         db.session.flush()
-        d1 = Device(customer_id=c1.id, device_name='范围设备A', ip_address='10.0.0.1')
-        d2 = Device(customer_id=c2.id, device_name='范围设备B', ip_address='10.0.0.2')
+        d1 = Device(customer_id=c1.id, device_name='范围设备A', ip_address='10.0.0.1',
+                    rack_location='客户A机房')
+        d2 = Device(customer_id=c2.id, device_name='范围设备B', ip_address='10.0.0.2',
+                    rack_location='客户B机房')
         db.session.add_all([d1, d2])
         # 给 op 关联 c1（工程师只负责这个客户）
         op = User.query.filter_by(username='op').first()
@@ -133,6 +135,12 @@ class TestDropdownScoping:
         assert r.status_code == 200
         names = [c['name'] for c in r.get_json()['data']['customers']]
         assert names == ['敏感客户A']
+        assert r.get_json()['data']['room_locations'] == ['客户A机房']
+
+    def test_device_room_locations_follow_selected_customer(self, admin_client, seed):
+        r = admin_client.get('/api/dicts/devices', query_string={'customer_id': seed['c1']})
+        assert r.status_code == 200
+        assert r.get_json()['data']['room_locations'] == ['客户A机房']
 
     def test_admin_dropdown_all(self, admin_client, seed):
         r = admin_client.get('/api/dicts/tickets')

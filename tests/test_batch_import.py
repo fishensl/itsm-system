@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """批量导入端点：备件档案/库存/巡检记录/故障记录（模板列见 views/system.download_template）"""
 import io
+from datetime import date, datetime
 
 from domain_metadata import get_entity_schema
 from models import (db, Customer, CustomerCategory, Device, Fault, Inspection,
@@ -159,8 +160,8 @@ class TestDeviceCustomerImport:
             'rack_location': '9楼机房', 'rack_name': '4', 'location': '正面',
             'rack_start_u': 27, 'rack_occupy_u': 4, 'power_supply': '双电源',
             'interface': 'GE0/0/1、GE0/0/2', 'os_version': 'V1',
-            'rule_version': 'R2', 'build_date': '2026-01-02',
-            'license_start': '2026-02-01', 'license_expiry': '2027-02-01',
+            'rule_version': 'R2', 'build_date': date(2026, 1, 2),
+            'license_start': datetime(2026, 2, 1, 0, 0), 'license_expiry': '2027/2/1',
             'cert_expiry_date': '2027-03-01', 'is_maintenance': '是',
             'is_in_use': '是', 'remark': '完整字段导入',
         }

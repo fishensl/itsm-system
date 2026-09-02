@@ -6,7 +6,7 @@
 - create_device(data): 旧式（接收 customer_name 字符串，内部查找）
 """
 import re
-from datetime import datetime
+from datetime import date, datetime
 from models import db, Device, Customer, SparePart, SpareStock, DevicePowerConfig
 from utils.crypto import encrypt_password
 from utils.json_fields import dumps_json
@@ -479,7 +479,14 @@ def _to_bool(val):
 def _parse_date(s):
     if not s:
         return None
-    try:
-        return datetime.strptime(s.strip(), '%Y-%m-%d').date()
-    except (ValueError, TypeError):
-        return None
+    if isinstance(s, datetime):
+        return s.date()
+    if isinstance(s, date):
+        return s
+    text = str(s).strip()
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y.%m.%d', '%Y-%m-%d %H:%M:%S'):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None

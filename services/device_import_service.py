@@ -22,6 +22,12 @@ TEXT_FIELDS = (
     'username', 'os_version', 'rule_version', 'rack_location', 'remark',
 )
 DATE_FIELDS = ('build_date', 'license_start', 'license_expiry', 'cert_expiry_date')
+DATE_FIELD_LABELS = {
+    'build_date': '建设时间',
+    'license_start': '授权开始日期',
+    'license_expiry': '授权截止日期',
+    'cert_expiry_date': '证书到期日期',
+}
 BOOL_FIELDS = ('is_maintenance', 'is_in_use')
 INSTALL_SIDES = {'正面', '背面'}
 
@@ -192,7 +198,12 @@ def _normalized_values(row, existing=None, clear_empty=False):
         values['interface'] = dumps_json(interfaces) if interfaces else None
     for field in DATE_FIELDS:
         if _present(row, field, clear_empty):
-            values[field] = _parse_date(row.get(field))
+            raw_value = row.get(field)
+            parsed = _parse_date(raw_value)
+            if raw_value not in ('', None) and parsed is None:
+                raise ServiceError(
+                    f'{DATE_FIELD_LABELS[field]}格式无效，请使用 YYYY-MM-DD')
+            values[field] = parsed
     for field in BOOL_FIELDS:
         if _present(row, field, clear_empty):
             values[field] = _truthy(row.get(field))

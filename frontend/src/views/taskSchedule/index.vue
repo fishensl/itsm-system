@@ -486,7 +486,8 @@
             </el-upload>
             <el-select v-if="configZipFile" v-model="configZipDeviceId" size="small" clearable filterable
               placeholder="所属设备（核心设备）" style="width: 200px">
-              <el-option v-for="d in devices" :key="d.id" :label="d.device_name" :value="d.id" />
+              <el-option v-for="d in devices" :key="d.id" :value="d.id"
+                :label="deviceOptionLabel(d)" />
             </el-select>
             <span v-if="!configZipFile && isRequired('config_zip')" class="skip-box">
               <el-input v-model="skipReasons.config_zip" size="small" placeholder="上传不了？填原因即可提交" style="width: 300px" />
@@ -500,7 +501,8 @@
             <div v-for="(row, i) in configTextRows" :key="i" class="asset-row">
               <el-select v-model="row.device_id" size="small" clearable filterable placeholder="设备"
                 style="width: 160px">
-                <el-option v-for="d in devices" :key="d.id" :label="d.device_name" :value="d.id" />
+                <el-option v-for="d in devices" :key="d.id" :value="d.id"
+                  :label="deviceOptionLabel(d)" />
               </el-select>
               <el-upload :auto-upload="false" :limit="1" accept=".txt,.cfg,.conf,.log,.text"
                 :on-change="(f: UploadFile) => { row.file = f.raw ?? null; if (row.file) row.content = '' }"
@@ -570,6 +572,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { Plus, Search, Download, Upload, UploadFilled, Delete } from '@element-plus/icons-vue'
 import {
   fetchTaskSchedule, createTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
@@ -593,6 +596,8 @@ import {
 
 const user = useUserStore()
 const ui = useUiStore()
+const route = useRoute()
+const router = useRouter()
 const data = ref<TaskScheduleData | null>(null)
 const loading = ref(false)
 const query = reactive<Record<string, unknown>>({ view: 'engineer', period: 'this_quarter', q: '', status: '' })
@@ -691,8 +696,19 @@ const uploadProgress = ref(0)
 const uploadFile = ref<File | null>(null)
 const uploadConclusion = ref('')
 const uploadRemark = ref('')
-const devices = ref<Array<{ id: number; device_name: string; device_type: string }>>([])
+type TaskDeviceOption = {
+  id: number
+  device_name: string
+  device_type: string
+  ip_address: string
+  is_in_use: boolean
+}
+const devices = ref<TaskDeviceOption[]>([])
 const requiredAssets = ref<Record<string, boolean>>({})
+const uploadLimits = reactive<{ request_mb: number | null; config_zip_mb: number | null }>({
+  request_mb: null,
+  config_zip_mb: null,
+})
 const configZipFile = ref<File | null>(null)
 const configZipDeviceId = ref<number | null>(null)
 const configTextRows = ref<Array<{ device_id: number | null; file: File | null; content: string }>>([])
@@ -705,6 +721,12 @@ const skipReasons = reactive<Record<string, string>>({
 const ASSET_LABELS: Record<string, string> = {
   report: '巡检报告', config_zip: '完整配置备份包', config_text: '核心设备文本配置',
   topology: '拓扑图', asset_list: '资产清单',
+}
+
+function deviceOptionLabel(device: TaskDeviceOption) {
+  const details = [device.device_type || '未分类', device.ip_address].filter(Boolean).join(' · ')
+  const inactive = device.is_in_use ? '' : ' · 已停用'
+  return `${device.device_name}${details ? `（${details}${inactive}）` : inactive}`
 }
 
 // 待审核/已通过记录是在最近版本上补资料；已退回仍需重新提交新版本走审核。
@@ -794,14 +816,43 @@ function taskDeadlineText(t: TaskScheduleItem) {
   return compactRangeText(t.scheduled_start || '', t.scheduled_end || '')
 }
 
-function reload() {
+let routeActionHandled = false
+
+async function openRouteSupplement(dataValue: TaskScheduleData) {
+  if (routeActionHandled || route.query.action !== 'supplement') return
+  const taskId = Number(route.query.task_id)
+  if (!Number.isInteger(taskId) || taskId <= 0) return
+  routeActionHandled = true
+  const task = dataValue.tasks.find((item) => item.id === taskId)
+  if (!task) {
+    ui.toast('未找到可补传的任务，或该任务不在当前账号数据范围内', 'warning')
+    return
+  }
+  await openInline(task)
+  openUpload()
+  const nextQuery = { ...route.query }
+  delete nextQuery.task_id
+  delete nextQuery.action
+  void router.replace({ query: nextQuery })
+}
+
+async function reload() {
   const params: Record<string, unknown> = { ...query }
   if (onlyOverdue.value) params.overdue = '1'
+  if (!routeActionHandled && route.query.action === 'supplement') {
+    const taskId = Number(route.query.task_id)
+    if (Number.isInteger(taskId) && taskId > 0) {
+      params.task_id = taskId
+      params.period = ''
+    }
+  }
   loading.value = true
-  fetchTaskSchedule(params as never)
-    .then((d) => { data.value = d })
-    .catch(() => { /* toast */ })
-    .finally(() => { loading.value = false })
+  try {
+    const result = await fetchTaskSchedule(params as never)
+    data.value = result
+    await openRouteSupplement(result)
+  } catch { /* toast */ }
+  finally { loading.value = false }
 }
 
 function toggleOverdue(v: boolean | string | number | undefined) {
@@ -877,7 +928,7 @@ async function doCreate() {
   }
 }
 
-function openInline(t: TaskScheduleItem) {
+async function openInline(t: TaskScheduleItem) {
   // 再次点击当前展开卡片 → 收起；点击其他卡片 → 切换展开
   if (expandedId.value === t.id) {
     cancelInline()
@@ -897,7 +948,7 @@ function openInline(t: TaskScheduleItem) {
   inlineScheduleRange.value = [start, end]
   inlineScheduleChanged.value = !t.scheduled_start || !t.scheduled_end
   inlineVisitAt.value = t.visit_at ? t.visit_at.replace(' ', 'T') : ''
-  loadRecord()
+  await loadRecord()
 }
 
 function cancelInline() {
@@ -1077,6 +1128,8 @@ function openUpload() {
       .then((data) => {
         requiredAssets.value = data.required_assets as unknown as Record<string, boolean>
         devices.value = data.devices
+        uploadLimits.request_mb = data.upload_limits?.request_mb ?? null
+        uploadLimits.config_zip_mb = data.upload_limits?.config_zip_mb ?? null
       })
       .catch(() => { /* toast */ })
   }
@@ -1121,9 +1174,18 @@ async function doUpload() {
     ...configTextRows.value.map((row) => row.file),
   ].filter((file): file is File => Boolean(file))
   const totalBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0)
-  const maxUploadBytes = 95 * 1024 * 1024
-  if (totalBytes > maxUploadBytes) {
-    ui.toast(`本次文件总大小 ${(totalBytes / 1024 / 1024).toFixed(1)}MB，超过 95MB 上传上限，请拆分后补传`, 'warning')
+  const configZipLimitBytes = uploadLimits.config_zip_mb
+    ? uploadLimits.config_zip_mb * 1024 * 1024
+    : null
+  if (configZipFile.value && configZipLimitBytes && configZipFile.value.size > configZipLimitBytes) {
+    ui.toast(`配置备份包 ${(configZipFile.value.size / 1024 / 1024).toFixed(1)}MB，超过系统配置的 ${uploadLimits.config_zip_mb}MB 单文件上限`, 'warning')
+    return
+  }
+  const requestLimitBytes = uploadLimits.request_mb
+    ? uploadLimits.request_mb * 1024 * 1024
+    : null
+  if (requestLimitBytes && totalBytes > requestLimitBytes) {
+    ui.toast(`本次文件总大小 ${(totalBytes / 1024 / 1024).toFixed(1)}MB，超过系统配置的 ${uploadLimits.request_mb}MB 总上传上限`, 'warning')
     return
   }
   uploading.value = true
@@ -1184,9 +1246,9 @@ async function doUpload() {
   } catch (e) {
     const message = (e as Error).message || ''
     if (message === 'Network Error') {
-      ui.toast('上传连接中断，请确认网络稳定后重试；建议大文件拆分后使用补传功能', 'error')
+      ui.toast('上传连接中断，请确认网络稳定和反向代理上传限制后重试', 'error')
     } else if (/timeout/i.test(message)) {
-      ui.toast('上传处理超时，请拆分配置包后使用补传功能', 'error')
+      ui.toast('上传超过 30 分钟仍未完成，请检查网络、反向代理及服务端超时配置', 'error')
     } else {
       ui.toast(message || '上传失败', 'error')
     }

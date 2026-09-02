@@ -63,6 +63,12 @@
 
       <el-divider content-position="left">操作</el-divider>
       <div class="action-bar">
+        <el-button v-if="detail.task_id && user.hasPerm('inspection:edit') &&
+          (detail.review_status === REVIEW_STATUS.PENDING ||
+            detail.review_status === REVIEW_STATUS.APPROVED)"
+          size="small" type="warning" plain @click="emit('supplement')">
+          补传资料
+        </el-button>
         <template v-if="detail.review_status === REVIEW_STATUS.DRAFT || detail.review_status === '草稿'">
           <el-button v-if="user.hasPerm('inspection:edit')" size="small" type="primary"
             @click="emit('submit')">提交审核</el-button>
@@ -103,6 +109,7 @@ const props = defineProps<{ row: Record<string, unknown> }>()
 const emit = defineEmits<{
   (e: 'submit'): void
   (e: 'review', approved: boolean): void
+  (e: 'supplement'): void
   (e: 'edit'): void
   (e: 'delete'): void
 }>()

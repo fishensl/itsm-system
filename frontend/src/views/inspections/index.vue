@@ -60,6 +60,7 @@
           :row="row"
           @submit="onSubmit(row as unknown as Inspection)"
           @review="(approved: boolean) => openReview(row as unknown as Inspection, approved)"
+          @supplement="openSupplement(row as unknown as Inspection)"
           @edit="openEdit(row as unknown as Inspection)"
           @delete="onDelete(row as unknown as Inspection)"
         />
@@ -227,6 +228,7 @@
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Plus, Search, Download, FolderOpened, Upload, UploadFilled, MagicStick } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import BatchImportDialog from '@/components/BatchImportDialog.vue'
@@ -251,6 +253,7 @@ import { downloadImportTemplate } from '@/utils/importTemplate'
 
 const user = useUserStore()
 const ui = useUiStore()
+const router = useRouter()
 const dicts = ref<InspectionDicts | null>(null)
 
 /** 客户下拉：优先按直接关联客户过滤；无直接关联时按负责区域过滤；再兜底全部 */
@@ -303,6 +306,17 @@ const columns = computed<DataColumn[]>(() => mergeFieldMeta([
 
 // 当前操作目标行（提交审核/审核弹窗等共用）
 const actionRow = ref<Inspection | null>(null)
+
+function openSupplement(row: Inspection) {
+  if (!row.task_id) {
+    ui.toast('该巡检记录未关联任务，无法补传任务资料', 'warning')
+    return
+  }
+  void router.push({
+    path: '/app/task-schedule',
+    query: { task_id: String(row.task_id), action: 'supplement' },
+  })
+}
 
 // 审核弹窗数据（打开前按目标行拉取）
 const detail = ref<Inspection | null>(null)

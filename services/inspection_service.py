@@ -55,7 +55,8 @@ def inspection_completeness(i):
         missing.append('结论')
     if not i.submitted_report:
         missing.append('现场报告')
-    if not i.report_file:
+    # 正式报告当前为可选产物；模板完善并开启自动生成后再纳入完整性门禁。
+    if current_app.config.get('AUTO_GENERATE_INSPECTION_REPORT') and not i.report_file:
         missing.append('正式报告')
     if i.review_status != REVIEW_APPROVED:
         missing.append('审核通过')
@@ -408,7 +409,7 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
                             asset_list_path, asset_list_file_name, asset_list_skip_reason,
                             operator_name, add_asset):
     """写 submission_assets 明细 + 同步 DeviceConfigBackup / Topology，返回汇总"""
-    from models import DeviceConfigBackup, Topology as _Topology
+    from models import Device, DeviceConfigBackup, Topology as _Topology
     import hashlib
 
     result = {'config_backups': 0, 'topologies': 0, 'assets': 0, 'skipped': []}
@@ -432,6 +433,9 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
             except (TypeError, ValueError):
                 cid = None
         if cid:
+            device = db.session.get(Device, cid)
+            if not device or device.customer_id != task.customer_id:
+                raise ServiceError('配置备份所选设备不属于当前巡检客户')
             backup = DeviceConfigBackup(
                 device_id=cid,
                 backup_type='全部配置',
@@ -465,6 +469,9 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
             fname = ct.get('file_name') or ''
             backup = None
             if dev_id:
+                device = db.session.get(Device, dev_id)
+                if not device or device.customer_id != task.customer_id:
+                    raise ServiceError('文本配置所选设备不属于当前巡检客户')
                 backup = DeviceConfigBackup(
                     device_id=dev_id,
                     backup_type='运行配置',
@@ -546,7 +553,7 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
 
     审核通过 (approved=True):
         - review_status = '已通过'，overall_status = '正常'
-        - 自动生成正式 Word 报告
+        - 仅在 ITSM_AUTO_GENERATE_INSPECTION_REPORT 开启时生成正式 Word 报告
         - 关联任务「待审核 → 已完成」（写 actual_end）
     审核退回修改 (approved=False):
         - review_status = '已退回'，overall_status = '异常'
@@ -583,19 +590,18 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
     if approved:
         if task and task.status == TASK_REVIEWING:
             apply_task_status(task, TASK_DONE, allow_review_complete=True)
-        try:
-            _generate_report_for_inspection(i)
-            if not i.report_file:
-                raise RuntimeError('报告生成器返回为空路径')
-        except Exception as e:
-            # 报告生成失败不阻塞审核通过，但必须可发现：
-            # service 层仅记日志（不在此处写审计/通知——审计依赖 request 上下文，
-            # 且其内部 rollback 会污染本事务），由路由层 api_inspection_review
-            # 检查 report_file 为空后补审计 + 通知管理员。
+        if current_app.config.get('AUTO_GENERATE_INSPECTION_REPORT'):
             try:
-                current_app.logger.exception('生成巡检报告失败 inspection_id=%s: %s', i.id, e)
-            except Exception:
-                pass
+                _generate_report_for_inspection(i)
+                if not i.report_file:
+                    raise RuntimeError('报告生成器返回为空路径')
+            except Exception as e:
+                # 报告生成失败不阻塞审核通过，但必须可发现；路由层补审计/通知。
+                try:
+                    current_app.logger.exception(
+                        '生成巡检报告失败 inspection_id=%s: %s', i.id, e)
+                except Exception:
+                    pass
     else:
         _revert_task_to_running(i)
     return i

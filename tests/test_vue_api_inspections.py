@@ -371,6 +371,7 @@ class TestInspectionUploadReportFlow:
             i = Inspection.query.get(seed['i1'])
             assert i.review_status == '已通过'
             assert i.overall_status == '正常'
+            assert not i.report_file  # 正式报告模板未启用时，审核不自动生成占位报告
             t = db.session.get(InspectionTask, seed['t1'])
             assert t.status == '已完成'
             assert t.actual_end is not None
@@ -962,6 +963,27 @@ class TestTaskSubmissionAssets:
         body = r.get_json()['data']
         assert body['required_assets']['report'] is True
         assert any(d['id'] == did for d in body['devices'])
+        assert body['upload_limits']['request_mb'] == \
+            app.config['MAX_CONTENT_LENGTH'] // 1024 // 1024
+        assert body['upload_limits']['config_zip_mb'] == min(
+            body['upload_limits']['request_mb'],
+            app.config['INSPECTION_CONFIG_MAX_MB'])
+
+    def test_required_assets_lists_inactive_customer_devices(self, op_client, app, seed):
+        tid, _ = self._task(app, seed)
+        with app.app_context():
+            inactive = Device(
+                customer_id=seed['c'], device_name='停用核心防火墙',
+                device_type='防火墙', ip_address='10.0.0.9', is_in_use=False)
+            db.session.add(inactive)
+            db.session.commit()
+            inactive_id = inactive.id
+        body = op_client.get(
+            f'/api/task-schedule/{tid}/required-assets').get_json()['data']
+        option = next(item for item in body['devices'] if item['id'] == inactive_id)
+        assert option['device_type'] == '防火墙'
+        assert option['ip_address'] == '10.0.0.9'
+        assert option['is_in_use'] is False
 
 
 class TestDeviceConfigBackupApi:

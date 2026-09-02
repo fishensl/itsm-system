@@ -789,7 +789,8 @@ def api_v2_device_import():
     from utils.upload import validate_upload, save_temp_upload, open_excel, cleanup_temp_file
     from utils.import_templates import get_import_field_mapping
     from models import Device as _D, Customer as _C, DeviceImportBatch
-    from services.device_import_service import prepare_device_import, execute_device_import
+    from services.device_import_service import (
+        DATE_FIELDS, execute_device_import, prepare_device_import)
     encrypted_file = request.files.get('encrypted_file')
     plain_file = request.files.get('import_file')
     from services.credential_envelope_service import (
@@ -857,7 +858,12 @@ def api_v2_device_import():
             row = {'_row': row_no, '_present': set(col_map)}
             for field, index in col_map.items():
                 value = ws.cell(row=row_no, column=index + 1).value
-                row[field] = '' if value is None else str(value).strip()
+                # 保留 Excel 日期单元格类型；先转字符串会得到
+                # ``YYYY-MM-DD 00:00:00``，旧解析器会静默写成空日期。
+                row[field] = (
+                    '' if value is None else
+                    value if field in DATE_FIELDS else str(value).strip()
+                )
             if any(value for key, value in row.items() if not key.startswith('_')):
                 rows.append(row)
 
@@ -2532,10 +2538,15 @@ def api_device_dicts():
     ]
     customers = customer_dropdown_options(current_user)
     from sqlalchemy.orm import selectinload as _selectinload
-    visible_devices = apply_customer_scope(
+    visible_device_query = apply_customer_scope(
         _Device.query.options(_selectinload(_Device.rack_installs).joinedload(_RI.rack_rel)),
         _Device, current_user,
-    ).all()
+    )
+    selected_customer_id = request.args.get('customer_id', type=int)
+    if selected_customer_id is not None:
+        visible_device_query = visible_device_query.filter(
+            _Device.customer_id == selected_customer_id)
+    visible_devices = visible_device_query.all()
     room_locations = sorted({
         location
         for device in visible_devices
@@ -3403,7 +3414,7 @@ def api_inspection_ai_analyze(inspection_id):
 @login_required
 @require_permission('inspection:review')
 def api_inspection_review(inspection_id):
-    """审核巡检：approved=True 通过（自动生成 Word 报告）/ False 退回修改。
+    """审核巡检：approved=True 通过 / False 退回修改。
     remark=退回原因/审核意见，requirements=需要修改的内容（空时由需修改检查项自动拼装），
     checklist=检查项勾选 {"项名": "合格|需修改|不适用"}。"""
     from services.inspection_service import review_inspection
@@ -3424,7 +3435,7 @@ def api_inspection_review(inspection_id):
         db.session.rollback()
         return fail(str(e) or '审核失败', 400)
     # ---- 审核通过但正式报告生成失败：补审计 + 通知管理员（service 层不碰 request）----
-    if approved:
+    if approved and current_app.config.get('AUTO_GENERATE_INSPECTION_REPORT'):
         try:
             from models import Inspection as _IG
             i = _IG.query.get(inspection_id)
@@ -3450,9 +3461,14 @@ def api_inspection_review(inspection_id):
             v = latest_pending_version('inspection', inspection_id)
             target_uid = (v.submitted_by if v else None) or i.inspector_user_id
         if target_uid and target_uid != current_user.id:
+            approved_message = (
+                '审核已通过并生成正式报告'
+                if current_app.config.get('AUTO_GENERATE_INSPECTION_REPORT')
+                else '审核已通过')
             notify(target_uid, 'inspection',
                    f'巡检「{i.title if i else ""}」审核{"通过" if approved else "退回"}',
-                   (remark or requirements) or ('已生成正式报告' if approved else '请按修改要求重新提交'),
+                   (remark or requirements) or (
+                       approved_message if approved else '请按修改要求重新提交'),
                    f'/app/inspections/{inspection_id}')
     except Exception:
         current_app.logger.warning('巡检审核通知失败 inspection_id=%s', inspection_id)
@@ -3537,10 +3553,28 @@ def api_task_required_assets(task_id):
     from services.inspection_service import get_task_required_assets
     from models import InspectionTask as _IT, Device as _D
     t = _IT.query.get_or_404(task_id)
-    devices = [{'id': d.id, 'device_name': d.device_name, 'device_type': d.device_type or ''}
-               for d in _D.query.filter_by(customer_id=t.customer_id, is_in_use=True)
-               .order_by(_D.device_name).all()]
-    return ok({'required_assets': get_task_required_assets(t), 'devices': devices})
+    devices = [{
+        'id': d.id,
+        'device_name': d.device_name,
+        'device_type': d.device_type or '',
+        'ip_address': d.ip_address or '',
+        'is_in_use': bool(d.is_in_use),
+    } for d in _D.query.filter_by(customer_id=t.customer_id)
+        .order_by(_D.device_type, _D.device_name, _D.id).all()]
+    request_limit_mb = max(
+        1, int(current_app.config.get('MAX_CONTENT_LENGTH', 0) / 1024 / 1024))
+    config_zip_limit_mb = min(
+        request_limit_mb,
+        max(1, int(current_app.config.get('INSPECTION_CONFIG_MAX_MB', request_limit_mb))),
+    )
+    return ok({
+        'required_assets': get_task_required_assets(t),
+        'devices': devices,
+        'upload_limits': {
+            'request_mb': request_limit_mb,
+            'config_zip_mb': config_zip_limit_mb,
+        },
+    })
 
 
 @vue_api_bp.route('/api/inspections/task/<int:task_id>/report', methods=['POST'])
@@ -3618,7 +3652,16 @@ def api_inspection_upload_report(task_id):
     config_zip_skip_reason = (request.form.get('config_zip_skip_reason') or '').strip()
     f = request.files.get('config_zip')
     if f:
-        config_zip_path, err = _save_file(f, f'inspection_configs/{task.id}', ALLOWED_ZIP_EXT, max_mb=100)
+        request_limit_mb = max(
+            1, int(current_app.config.get('MAX_CONTENT_LENGTH', 0) / 1024 / 1024))
+        config_zip_limit_mb = min(
+            request_limit_mb,
+            max(1, int(current_app.config.get(
+                'INSPECTION_CONFIG_MAX_MB', request_limit_mb))),
+        )
+        config_zip_path, err = _save_file(
+            f, f'inspection_configs/{task.id}', ALLOWED_ZIP_EXT,
+            max_mb=config_zip_limit_mb)
         if err:
             return _upload_fail('完整配置备份包：' + (err or '文件校验失败'))
 

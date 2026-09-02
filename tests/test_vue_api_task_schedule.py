@@ -116,6 +116,16 @@ class TestTaskScheduleApi:
         data = admin_client.get('/api/task-schedule?period=').get_json()['data']
         assert '历史跨季度任务' in {item['title'] for item in data['tasks']}
 
+    def test_task_id_filter_supports_supplement_deep_link(self, admin_client, app):
+        _seed(app)
+        with app.app_context():
+            task = InspectionTask.query.filter_by(title='2026年三季度巡检').one()
+            task_id = task.id
+        data = admin_client.get('/api/task-schedule', query_string={
+            'period': '', 'task_id': task_id,
+        }).get_json()['data']
+        assert [item['id'] for item in data['tasks']] == [task_id]
+
     def test_status_view(self, admin_client, app):
         _seed(app)
         r = admin_client.get('/api/task-schedule?view=status')

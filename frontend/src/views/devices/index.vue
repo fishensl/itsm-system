@@ -752,6 +752,7 @@ const installationPositions = ref<string[]>(['正面', '背面'])
 const powerSupplies = ref<string[]>(['单电源', '双电源', '四电源'])
 const loginMethods = ref<string[]>(['SSH', 'Telnet', 'Web', 'SNMP'])
 const roomLocations = ref<string[]>([])
+const allRoomLocations = ref<string[]>([])
 const rackOptions = ref<RackItem[]>([])
 const rackOptionsLoading = ref(false)
 const rackSelection = ref<number | string | null>(null)
@@ -791,6 +792,8 @@ function enterTable(node: Record<string, unknown>) {
   const id = node.id as number | null ?? null
   tableCustomer.value = { id, name: node.name as string || (id == null ? '未关联客户' : '') }
   query.customer_id = id ?? undefined
+  query.room_locations = []
+  void loadRoomLocations(id ?? undefined)
   mode.value = 'table'
   tableTotal.value = Number(node.device_count) || 0
   // DataTable 首次挂载后刷新
@@ -804,6 +807,8 @@ function backToTree() {
   inlinePassword.clear()
   mode.value = 'tree'
   query.customer_id = undefined
+  query.room_locations = []
+  roomLocations.value = [...allRoomLocations.value]
   tableCustomer.value = null
   loadTree()
 }
@@ -815,6 +820,8 @@ function openColSettings() {
 
 function onCustomerFilterChange() {
   const cid = query.customer_id as number | undefined
+  query.room_locations = []
+  void loadRoomLocations(cid)
   tableCustomer.value = cid
     ? { id: cid, name: customers.value.find((c) => c.id === cid)?.name || `客户 #${cid}` }
     : { id: null, name: '全部客户' }
@@ -864,6 +871,25 @@ async function openBatchEdit() {
   batchForm.startU = 1
   batchForm.occupyU = 1
   batchVisible.value = true
+}
+
+let roomLocationLoadSequence = 0
+
+async function loadRoomLocations(customerId?: number) {
+  const sequence = ++roomLocationLoadSequence
+  if (!customerId) {
+    roomLocations.value = [...allRoomLocations.value]
+    return
+  }
+  try {
+    const scoped = await fetchDeviceDicts({ customer_id: customerId })
+    if (sequence === roomLocationLoadSequence) roomLocations.value = scoped.room_locations || []
+  } catch (e) {
+    if (sequence === roomLocationLoadSequence) {
+      roomLocations.value = []
+      ui.toast((e as Error).message || '机房位置加载失败', 'error')
+    }
+  }
 }
 
 async function doBatchDelete() {
@@ -1786,13 +1812,15 @@ fetchDeviceDicts().then((d) => {
   if (d.installation_positions?.length) installationPositions.value = d.installation_positions
   if (d.power_supplies?.length) powerSupplies.value = d.power_supplies
   if (d.login_methods?.length) loginMethods.value = d.login_methods
-  roomLocations.value = d.room_locations || []
+  allRoomLocations.value = d.room_locations || []
+  roomLocations.value = [...allRoomLocations.value]
   // ?customer_id=X 直达表格模式（全局搜索/书签跳转）
   const cid = Number(route.query.customer_id)
   if (cid && !Number.isNaN(cid) && cid > 0) {
     const c = d.customers.find((x: { id: number; name: string }) => x.id === cid)
     tableCustomer.value = { id: cid, name: c?.name || `客户 #${cid}` }
     query.customer_id = cid
+    void loadRoomLocations(cid)
     mode.value = 'table'
     setTimeout(() => {
       applyDeviceView(activeDeviceView.value || 'asset')

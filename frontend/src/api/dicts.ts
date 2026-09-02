@@ -11,7 +11,7 @@ export interface DeviceDicts {
   room_locations: string[]
 }
 
-/** 设备页统一字典（筛选 + 安装位置/电源配置表单枚举） */
-export function fetchDeviceDicts() {
-  return request<DeviceDicts>({ url: '/api/dicts/devices', method: 'GET' })
+/** 设备页统一字典；customer_id 用于将机房位置候选限制到当前客户。 */
+export function fetchDeviceDicts(params?: { customer_id?: number }) {
+  return request<DeviceDicts>({ url: '/api/dicts/devices', method: 'GET', params })
 }

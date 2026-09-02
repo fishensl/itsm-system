@@ -168,7 +168,7 @@ export function uploadTaskReport(
     url: `/api/inspections/task/${taskId}/report`,
     method: 'POST',
     data: formData,
-    timeout: 300_000,
+    timeout: 1_800_000,
     onUploadProgress: (event: AxiosProgressEvent) => {
       if (event.total && onProgress) {
         onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
