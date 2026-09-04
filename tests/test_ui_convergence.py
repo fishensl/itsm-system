@@ -105,9 +105,10 @@ def test_task_schedule_separates_contract_deadline_and_execution_timing():
     assert 'flex: 0 0 95px' in source
     assert 'width: 95px !important' in source
     assert source.count(":class=\"{ 'with-check': bulkMode }\"") == 4
-    assert 'margin-top: 3px; padding-left: 15px' in source
-    assert 'margin-top: 2px; padding-left: 15px' in source
-    assert '.task-schedule-summary.with-check { padding-left: 35px; }' in source
+    # 摘要左缘随扩大后的状态标识对齐；批量模式再计入复选框宽度。
+    assert 'margin-top: 3px; padding-left: 20px' in source
+    assert 'margin-top: 2px; padding-left: 20px' in source
+    assert '.task-schedule-summary.with-check { padding-left: 42px; }' in source
     # 最窄 310px 看板列中，任务期限标签独占一行，日期区仍有 250px。
     minimum_date_area = 310 - 2 - 20 - 2 - 20 - 16
     date_controls_width = 95 * 2 + 14 + 6 * 2

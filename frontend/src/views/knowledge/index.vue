@@ -67,12 +67,11 @@
     </el-dialog>
 
     <!-- 附件在线预览（点击列表附件文件名直接打开） -->
-    <el-dialog v-model="previewVisible" :title="previewAtt?.file_name || '附件预览'" width="780px" top="5vh"
-      destroy-on-close>
+    <AdaptivePreviewDialog v-model="previewVisible" :title="previewAtt?.file_name || '附件预览'">
       <FilePreview v-if="previewAtt && previewKbId"
         :url="knowledgeAttachmentPreviewUrl(previewKbId, previewAtt.id)"
         :file-name="previewAtt.file_name" />
-    </el-dialog>
+    </AdaptivePreviewDialog>
 
     <!-- 新建/编辑知识 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑知识' : '新建知识'" width="680px" top="5vh"
@@ -146,6 +145,7 @@ import type { UploadRawFile } from 'element-plus/es/components/upload'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import { fetchEntityMeta, mergeFieldMeta, type EntityFieldMeta } from '@/api/meta'
 import FilePreview from '@/components/FilePreview.vue'
+import AdaptivePreviewDialog from '@/components/AdaptivePreviewDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {

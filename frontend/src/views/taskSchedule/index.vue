@@ -439,7 +439,7 @@
     </el-dialog>
 
     <!-- 现场报告预览弹窗 -->
-    <el-dialog v-model="reportPreviewVisible" title="现场报告预览" width="900px" top="5vh" destroy-on-close>
+    <AdaptivePreviewDialog v-model="reportPreviewVisible" title="现场报告预览">
       <div class="preview-body">
         <FilePreview v-if="reportPreviewUrl" :url="reportPreviewUrl" :file-name="reportPreviewName" />
       </div>
@@ -448,7 +448,7 @@
         <el-button @click="reportPreviewVisible = false">关闭</el-button>
         <el-button type="primary" :icon="Download" @click="downloadLatestReport">下载文件</el-button>
       </template>
-    </el-dialog>
+    </AdaptivePreviewDialog>
 
     <!-- 上传提交资料（全套：报告 + 配置备份 + 拓扑图 + 资产清单） -->
     <el-dialog v-model="uploadVisible"
@@ -590,6 +590,7 @@ import {
 import { fetchInspections, fetchInspection, fetchInspectionVersions, uploadTaskReport,
   versionReportUrl, type Inspection, type SubmissionVersion } from '@/api/inspections'
 import FilePreview from '@/components/FilePreview.vue'
+import AdaptivePreviewDialog from '@/components/AdaptivePreviewDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { TASK_STATUS, REVIEW_STATUS } from '@/utils/status'
@@ -1394,7 +1395,7 @@ onMounted(() => {
 .col-check { margin: 6px 12px; }
 .col-body { padding: 6px 10px 12px; min-height: 80px; }
 .upload-hint { color: var(--el-color-warning); font-size: 12px; }
-.preview-body { min-height: 420px; }
+.preview-body { width: 100%; height: 100%; min-height: 0; }
 .preview-name { float: left; font-size: 12px; color: var(--el-text-color-secondary); line-height: 32px; }
 .mt-2 { margin-top: 8px; }
 .asset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
@@ -1410,17 +1411,19 @@ onMounted(() => {
 .task-card.selected { background: var(--el-color-primary-light-9); }
 .task-card.expanded { border-color: var(--itsm-primary); box-shadow: var(--itsm-shadow-sm); }
 /* 第一行：checkbox 流内紧凑，左边不留空白 */
-.task-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.task-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .task-check { margin: 0; }
 .status-dot {
-  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
+  width: 12px; height: 12px; box-sizing: border-box; border: 2px solid var(--itsm-card-bg);
+  border-radius: 50%; flex-shrink: 0; display: inline-block;
+  background: currentColor; box-shadow: 0 0 0 2px currentColor;
 }
-.dot-待执行 { background: var(--el-color-warning); }
-.dot-已安排 { background: var(--itsm-scheduled); }
-.dot-执行中 { background: var(--el-color-primary); }
-.dot-待审核 { background: var(--el-color-info); }
-.dot-已完成 { background: var(--el-color-success); }
-.dot-已取消 { background: var(--itsm-text-muted); }
+.dot-待执行 { color: var(--el-color-warning); }
+.dot-已安排 { color: var(--itsm-scheduled); }
+.dot-执行中 { color: var(--el-color-primary); }
+.dot-待审核 { color: var(--el-color-info); }
+.dot-已完成 { color: var(--el-color-success); }
+.dot-已取消 { color: var(--itsm-text-muted); }
 .task-title {
   font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; min-width: 0; flex: 1;
@@ -1432,21 +1435,21 @@ onMounted(() => {
 }
 .tag-overdue { background: var(--el-color-danger); }
 .tag-urgent { background: var(--el-color-warning); }
-/* 摘要左缘跟随标题：常态为 dot9+gap6=15px，批量态再包含 checkbox20px。 */
+/* 摘要左缘跟随标题：状态圆点含高对比描边，批量态再包含复选框。 */
 .task-line2 {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin-top: 3px; padding-left: 15px; font-size: 12px; color: var(--itsm-text-muted);
+  margin-top: 3px; padding-left: 20px; font-size: 12px; color: var(--itsm-text-muted);
 }
 .task-assignee {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
 }
 .task-range { white-space: nowrap; margin-left: auto; }
 .task-schedule-summary {
-  margin-top: 2px; padding-left: 15px; color: var(--itsm-text-muted);
+  margin-top: 2px; padding-left: 20px; color: var(--itsm-text-muted);
   font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .task-line2.with-check,
-.task-schedule-summary.with-check { padding-left: 35px; }
+.task-schedule-summary.with-check { padding-left: 42px; }
 .task-timing {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;
   margin-top: 7px; padding: 7px 8px;

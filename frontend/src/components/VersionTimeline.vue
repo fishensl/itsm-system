@@ -119,7 +119,7 @@
     </el-timeline>
 
     <!-- 报告预览弹窗 -->
-    <el-dialog v-model="previewVisible" title="报告预览" width="900px" top="5vh" destroy-on-close>
+    <AdaptivePreviewDialog v-model="previewVisible" title="报告预览">
       <div class="preview-body">
         <FilePreview v-if="previewUrl" :url="previewUrl" :file-name="previewName" />
       </div>
@@ -128,14 +128,19 @@
         <el-button @click="previewVisible = false">关闭</el-button>
         <el-button type="primary" :icon="Download" @click="download(previewVersion!)">下载文件</el-button>
       </template>
-    </el-dialog>
+    </AdaptivePreviewDialog>
+
+    <AdaptivePreviewDialog v-model="contentPreviewVisible" :title="contentPreviewTitle"
+      @closed="contentPreviewText = ''">
+      <FilePreview :text="contentPreviewText" :file-name="contentPreviewTitle" />
+    </AdaptivePreviewDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref } from 'vue'
 import { Download, View, Share, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import AdaptivePreviewDialog from '@/components/AdaptivePreviewDialog.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import type { SubmissionVersion, SubmissionAsset } from '@/api/inspections'
 import { versionReportUrl, submissionAssetUrl, fetchSubmissionAssetContent } from '@/api/inspections'
@@ -168,6 +173,9 @@ const previewVisible = ref(false)
 const previewUrl = ref('')
 const previewName = ref('')
 const previewVersion = ref<SubmissionVersion | null>(null)
+const contentPreviewVisible = ref(false)
+const contentPreviewTitle = ref('配置文本')
+const contentPreviewText = ref('')
 
 function previewReport(v: SubmissionVersion) {
   previewVersion.value = v
@@ -201,10 +209,9 @@ function checklistSummary(checklist: Record<string, string>): string {
 function viewContent(a: SubmissionAsset) {
   fetchSubmissionAssetContent(a.id)
     .then((r) => {
-      ElMessageBox.alert(r.content || '（空）', `配置文本 · ${a.device_name || a.file_name}`, {
-        customStyle: { maxHeight: '70vh', overflow: 'auto' },
-        confirmButtonText: '关闭',
-      }).catch(() => {})
+      contentPreviewTitle.value = `配置文本 · ${a.device_name || a.file_name || '未命名'}`
+      contentPreviewText.value = r.content || '（空）'
+      contentPreviewVisible.value = true
     })
     .catch(() => { /* toast */ })
 }
@@ -292,7 +299,7 @@ function download(v: SubmissionVersion) {
   background: var(--el-color-danger-light-9);
   border-radius: 4px;
 }
-.preview-body { min-height: 420px; }
+.preview-body { width: 100%; height: 100%; min-height: 0; }
 .preview-name { float: left; font-size: 12px; color: var(--el-text-color-secondary); line-height: 32px; }
 .vt-req-label { color: var(--el-color-danger); }
 .vt-comment { color: var(--el-text-color-primary); white-space: pre-wrap; margin: 2px 0; }

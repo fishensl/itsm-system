@@ -102,13 +102,20 @@ onBeforeUnmount(cleanup)
 </script>
 
 <style scoped>
-.file-preview { min-height: 200px; }
+.file-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  overflow: auto;
+}
 .has-content { height: 100%; }
-.preview-image { max-width: 100%; display: block; margin: 0 auto; }
-.preview-frame { width: 100%; height: 100%; min-height: 420px; border: 1px solid var(--el-border-color-lighter); }
-.preview-docx { max-height: 62vh; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; }
+.preview-image { max-width: 100%; max-height: 100%; display: block; margin: 0 auto; object-fit: contain; }
+.preview-frame { width: 100%; height: 100%; min-height: 100%; border: 1px solid var(--el-border-color-lighter); }
+.preview-docx { height: 100%; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; }
 .preview-text {
-  max-height: 62vh; overflow: auto; margin: 0; padding: 10px; font-size: 12px; line-height: 1.6;
+  box-sizing: border-box; width: 100%; height: 100%; overflow: auto; margin: 0; padding: 12px;
+  font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.55;
   background: var(--el-fill-color-light); border-radius: 4px; white-space: pre-wrap; word-break: break-all;
 }
+:deep(.preview-docx .docx-wrapper) { min-height: 100%; padding: 16px; }
 </style>

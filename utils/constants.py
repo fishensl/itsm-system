@@ -9,7 +9,7 @@ service 层写入边界应使用这些常量与校验函数，防止拼写错误
 # Device.location 的业务含义是机柜安装朝向，机房/机柜/U 位由 RackInstall 独立维护。
 DEVICE_INSTALLATION_POSITIONS = ('正面', '背面')
 DEVICE_POWER_SUPPLIES = ('单电源', '双电源', '四电源')
-DEVICE_LOGIN_METHODS = ('SSH', 'Telnet', 'Web', 'SNMP')
+DEVICE_LOGIN_METHODS = ('SSH', 'Telnet', 'Web', 'SNMP', '本地串口')
 
 # ==================== 工单状态（状态机见 services/ticket_service） ====================
 TICKET_PENDING_ASSIGN = '待派单'

@@ -448,6 +448,11 @@
       </template>
     </el-dialog>
 
+    <AdaptivePreviewDialog v-model="backupPreviewVisible" :title="backupPreviewTitle"
+      @closed="backupPreviewText = ''">
+      <FilePreview :text="backupPreviewText" :file-name="backupPreviewTitle" />
+    </AdaptivePreviewDialog>
+
     <!-- 历史密码弹窗 -->
     <el-dialog v-model="pwdHistoryVisible" title="历史密码（查看明文将记录审计）" width="560px" destroy-on-close>
       <el-table v-loading="pwdHistoryLoading" :data="pwdHistory" size="small" border stripe max-height="360">
@@ -703,6 +708,8 @@ import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Bac
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
 import DataTable, { type DataColumn, type DataColumnPreset } from '@/components/DataTable.vue'
+import AdaptivePreviewDialog from '@/components/AdaptivePreviewDialog.vue'
+import FilePreview from '@/components/FilePreview.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import { IN_USE_LABELS } from '@/utils/labels'
@@ -750,7 +757,7 @@ const networkTypes = ref<string[]>([])
 const customers = ref<{ id: number; name: string }[]>([])
 const installationPositions = ref<string[]>(['正面', '背面'])
 const powerSupplies = ref<string[]>(['单电源', '双电源', '四电源'])
-const loginMethods = ref<string[]>(['SSH', 'Telnet', 'Web', 'SNMP'])
+const loginMethods = ref<string[]>(['SSH', 'Telnet', 'Web', 'SNMP', '本地串口'])
 const roomLocations = ref<string[]>([])
 const allRoomLocations = ref<string[]>([])
 const rackOptions = ref<RackItem[]>([])
@@ -1469,13 +1476,16 @@ async function loadBackups(deviceId: number) {
   }
 }
 
+const backupPreviewVisible = ref(false)
+const backupPreviewTitle = ref('配置备份')
+const backupPreviewText = ref('')
+
 function viewBackup(row: DeviceConfigBackup) {
   fetchDeviceConfigBackupContent(row.id)
     .then((r) => {
-      ElMessageBox.alert(r.content || '（空）', `配置备份 · ${row.backup_type}`, {
-        customStyle: { maxHeight: '70vh', overflow: 'auto' },
-        confirmButtonText: '关闭',
-      }).catch(() => {})
+      backupPreviewTitle.value = `配置备份 · ${row.backup_type}`
+      backupPreviewText.value = r.content || '（空）'
+      backupPreviewVisible.value = true
     })
     .catch(() => { /* toast */ })
 }

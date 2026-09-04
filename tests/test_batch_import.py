@@ -57,6 +57,20 @@ class TestImportTemplates:
         assert sales_client.get('/exports/download-template/device').status_code == 403
         assert viewer_client.get('/exports/download-template/device').status_code == 403
 
+    def test_device_template_login_method_dictionary_contains_local_serial(self, admin_client):
+        """设备编辑字典和导入模板必须共用登录方式选项。"""
+        import openpyxl
+
+        response = admin_client.get('/exports/download-template/device')
+        assert response.status_code == 200
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data), read_only=True)
+        dictionary = workbook['数据字典']
+        headers = [cell.value for cell in dictionary[1]]
+        login_method_column = headers.index('登录方式') + 1
+        values = [dictionary.cell(row, login_method_column).value
+                  for row in range(2, dictionary.max_row + 1)]
+        assert '本地串口' in values
+
     def test_unknown_template_is_404(self, admin_client):
         assert admin_client.get('/exports/download-template/not-exists').status_code == 404
 

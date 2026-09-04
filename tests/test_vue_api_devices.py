@@ -871,6 +871,7 @@ class TestDeviceDicts:
         assert len(data['customers']) >= 2
         assert data['installation_positions'] == ['正面', '背面']
         assert data['power_supplies'] == ['单电源', '双电源', '四电源']
+        assert data['login_methods'] == ['SSH', 'Telnet', 'Web', 'SNMP', '本地串口']
 
     def test_tree_three_levels(self, admin_client, seed, app):
         """设备树：市 → 客户 → 设备 三级；未关联客户设备独立成组

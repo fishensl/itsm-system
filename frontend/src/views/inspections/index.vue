@@ -68,8 +68,8 @@
     </DataTable>
 
     <!-- 审核弹窗（双栏：报告在线预览 + 检查项清单勾选） -->
-    <el-dialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'" width="1080px"
-      top="4vh" destroy-on-close>
+    <AdaptivePreviewDialog v-model="reviewVisible" :title="reviewApproved ? '审核通过' : '退回修改'"
+      :start-width="1280" :start-height="820">
       <div class="review-layout">
         <!-- 左栏：报告预览 -->
         <div class="review-preview">
@@ -145,7 +145,7 @@
           </div>
         </div>
       </div>
-    </el-dialog>
+    </AdaptivePreviewDialog>
 
     <!-- 新建/编辑巡检 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑巡检' : '新建巡检'" width="600px" top="5vh"
@@ -252,6 +252,7 @@ import DataTable, { type DataColumn } from '@/components/DataTable.vue'
 import BatchImportDialog from '@/components/BatchImportDialog.vue'
 import InspectionExpandRow from './InspectionExpandRow.vue'
 import FilePreview from '@/components/FilePreview.vue'
+import AdaptivePreviewDialog from '@/components/AdaptivePreviewDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -681,19 +682,19 @@ onMounted(() => {
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-full { width: 100%; }
 .task-status-tag { margin-left: 6px; }
-.review-layout { display: flex; gap: 14px; }
-.review-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.review-panel { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; }
+.review-layout { display: flex; gap: 14px; width: 100%; height: 100%; min-height: 0; }
+.review-preview { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.review-panel { width: 400px; min-height: 0; flex-shrink: 0; display: flex; flex-direction: column; overflow-y: auto; }
 /* S7-3 窄屏：审核弹窗左右栏改纵向堆叠（panel 固定 400px 是主要溢出源） */
 @media (max-width: 767px) {
   .review-layout { flex-direction: column; }
   .review-panel { width: 100%; }
 }
 .review-panel .el-form {
-  max-height: 62vh; overflow-y: auto; padding-right: 4px;
+  padding-right: 4px;
 }
 .preview-tabs { flex-shrink: 0; }
-.preview-body { flex: 1; min-height: 380px; max-height: 62vh; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; padding: 8px; }
+.preview-body { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; padding: 8px; }
 .checklist-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 .checklist-hint { font-weight: 400; font-size: 12px; color: var(--itsm-text-muted); margin-left: 6px; }
 .check-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
