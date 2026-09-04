@@ -65,6 +65,8 @@ class User(UserMixin, db.Model):
     # 身份安全扩展：迁移先落列，强制能力均由设置开关控制且默认关闭。
     mfa_secret_encrypted = db.Column(db.Text, nullable=True)
     mfa_enabled = db.Column(db.Boolean, default=False)
+    # Deprecated rollback-compatible columns. Since b3c4d5e6f7a8 every MFA
+    # challenge uses the single account binding above and these stay empty.
     mfa_op_secret_encrypted = db.Column(db.Text, nullable=True)
     mfa_op_enabled = db.Column(db.Boolean, default=False)
     backup_codes_json = db.Column(db.Text, default='[]')

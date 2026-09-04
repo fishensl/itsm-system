@@ -138,7 +138,7 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="mfa">
-                  {{ user.user?.mfa_enabled ? '管理登录 MFA' : '绑定登录 MFA' }}
+                  {{ user.user?.mfa_enabled ? '管理账号 MFA' : '绑定账号 MFA' }}
                 </el-dropdown-item>
                 <el-dropdown-item command="password">
                   修改密码
@@ -158,7 +158,7 @@
       <section v-if="showMfaReminder" class="mfa-reminder" role="alert">
         <div class="mfa-reminder-copy">
           <el-icon><Warning /></el-icon>
-          <span><strong>当前账号尚未绑定登录 MFA</strong>，请绑定身份验证器以保护账号。</span>
+          <span><strong>当前账号尚未绑定 MFA</strong>，请绑定身份验证器以保护登录和高风险操作。</span>
         </div>
         <el-button type="warning" plain size="small" @click="openMfaSettings">
           立即绑定

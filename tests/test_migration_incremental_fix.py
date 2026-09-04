@@ -38,6 +38,47 @@ def _run_alembic(app, db_uri, func, rev=None):
 
 
 class TestMigrationIncrementalFix:
+    def test_unified_mfa_migrates_legacy_operation_binding(self, mig_app):
+        """旧操作 MFA 只在账号 MFA 缺失时接管，已有账号绑定必须优先保留。"""
+        app, db_uri = mig_app
+        _run_alembic(app, db_uri, command.upgrade, 'a2b3c4d5e6f7')
+
+        from models import User, db
+        with app.app_context():
+            legacy_only = User.create_with_password(
+                username='legacy-op', password='test123456', role='viewer')
+            legacy_only.mfa_op_secret_encrypted = 'legacy-operation-secret'
+            legacy_only.mfa_op_enabled = True
+            legacy_only.mfa_op_last_counter = 123
+            both_bound = User.create_with_password(
+                username='both-bound', password='test123456', role='viewer')
+            both_bound.mfa_secret_encrypted = 'account-secret'
+            both_bound.mfa_enabled = True
+            both_bound.mfa_last_counter = 456
+            both_bound.mfa_op_secret_encrypted = 'second-operation-secret'
+            both_bound.mfa_op_enabled = True
+            db.session.add_all([legacy_only, both_bound])
+            db.session.commit()
+
+        _run_alembic(app, db_uri, command.upgrade, 'head')
+
+        with app.app_context():
+            legacy_only = User.query.filter_by(username='legacy-op').one()
+            assert legacy_only.mfa_enabled is True
+            assert legacy_only.mfa_secret_encrypted == 'legacy-operation-secret'
+            assert legacy_only.mfa_last_counter == 123
+            assert legacy_only.mfa_op_enabled is False
+            assert legacy_only.mfa_op_secret_encrypted is None
+            assert legacy_only.mfa_op_last_counter is None
+
+            both_bound = User.query.filter_by(username='both-bound').one()
+            assert both_bound.mfa_enabled is True
+            assert both_bound.mfa_secret_encrypted == 'account-secret'
+            assert both_bound.mfa_last_counter == 456
+            assert both_bound.mfa_op_enabled is False
+            assert both_bound.mfa_op_secret_encrypted is None
+            assert both_bound.mfa_op_last_counter is None
+
     def test_upgrade_from_stale_schema_repairs_columns(self, mig_app):
         """服务器场景：alembic 已标记 head 但列缺失（被修改的迁移不重跑所致）→
         发布新迁移 6f5e4d3c2b1a 后 upgrade 幂等补列"""

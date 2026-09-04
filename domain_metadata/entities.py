@@ -510,13 +510,12 @@ USER_FIELDS = (
     F('vpn_account', 'VPN账号', min_width=110, default_visible=False),
     F('password', '密码', sensitive=True, permission='user:edit'),
     F('certifications', '资质证书', data_type='list'),
-    F('mfa_enabled', '登录MFA', data_type='boolean', width=90, group='security'),
-    F('mfa_op_enabled', '操作码', data_type='boolean', width=90, group='security'),
+    F('mfa_enabled', '账号MFA', data_type='boolean', width=90, group='security'),
     F('created_at', '创建时间', data_type='datetime', width=100, group='audit'),
 )
 USER_LIST = ('username', 'realname', 'roles', 'department_name', 'region_names',
              'customer_names', 'is_active', 'phone', 'vpn_account', 'mfa_enabled',
-             'mfa_op_enabled', 'created_at')
+             'created_at')
 USER_FORM = ('username', 'realname', 'roles', 'department_id', 'phone', 'email',
              'vpn_account', 'region_ids', 'customer_ids', 'password',
              'is_active', 'certifications')

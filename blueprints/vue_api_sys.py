@@ -165,7 +165,9 @@ def api_user_list():
             'notify_accounts': u.notify_accounts(),
             'vpn_account': u.vpn_account or '',
             'mfa_enabled': bool(u.mfa_enabled),
-            'mfa_op_enabled': bool(u.mfa_op_enabled),
+            # Compatibility alias for old cached clients; high-risk operations
+            # reuse the account MFA and no longer have a separate binding.
+            'mfa_op_enabled': bool(u.mfa_enabled),
             'must_change_password': bool(u.must_change_password),
             'created_at': u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
         } for u in users],

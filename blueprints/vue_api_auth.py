@@ -49,10 +49,15 @@ def mfa_context_required(func):
 @mfa_context_required
 def api_mfa_status():
     user = g.mfa_user
+    account_enabled = bool(user.mfa_enabled)
     return ok({
-        'login_enabled': bool(user.mfa_enabled),
-        'operation_enabled': bool(user.mfa_op_enabled),
-        'binding_required': bool(g.mfa_pending_login and not user.mfa_enabled),
+        'account_enabled': account_enabled,
+        # Compatibility aliases for an older cached SPA. Both now describe the
+        # same account binding and must never expose the deprecated op fields.
+        'login_enabled': account_enabled,
+        'operation_enabled': account_enabled,
+        'operation_uses_account_mfa': True,
+        'binding_required': bool(g.mfa_pending_login and not account_enabled),
         'backup_codes_remaining': len(parse_json(user.backup_codes_json or '', default=[])),
         'mfa_enforce': setting_bool('mfa_enforce', False),
         'op_code_enforce': setting_bool('op_code_enforce', False),
@@ -62,9 +67,12 @@ def api_mfa_status():
 @vue_api_bp.route('/api/auth/security-profile', methods=['GET'])
 @login_required
 def api_security_profile():
+    account_enabled = bool(current_user.mfa_enabled)
     return ok({
-        'mfa': {'login_enabled': bool(current_user.mfa_enabled),
-                'operation_enabled': bool(current_user.mfa_op_enabled)},
+        'mfa': {'account_enabled': account_enabled,
+                'login_enabled': account_enabled,
+                'operation_enabled': account_enabled,
+                'operation_uses_account_mfa': True},
         'operation_token_ttl_seconds': setting_int('op_code_ttl_seconds', 120, 30, 600),
         'session_idle_minutes': setting_int('session_idle_minutes', 30, 5, 1440),
     })
@@ -73,12 +81,14 @@ def api_security_profile():
 @vue_api_bp.route('/api/auth/mfa/setup', methods=['POST'])
 @mfa_context_required
 def api_mfa_setup():
+    # An old cached SPA may still post purpose=operation. Normalize it so a
+    # second secret can no longer be created.
     purpose = (request.get_json(silent=True) or {}).get('purpose', 'login')
     result, error = _service_call(begin_mfa_setup, g.mfa_user, purpose)
     if error:
         return error
     from blueprints.vue_api_sys import audit_log
-    audit_log('mfa:setup_started', 'user', g.mfa_user.id, f'发起 {purpose} MFA 绑定')
+    audit_log('mfa:setup_started', 'user', g.mfa_user.id, '发起账号 MFA 绑定')
     return ok(result)
 
 
@@ -93,14 +103,13 @@ def api_mfa_confirm():
         return error
     from blueprints.vue_api_sys import audit_log
     login_result = None
-    if g.mfa_pending_login and data.get('purpose', 'login') == 'login':
+    if g.mfa_pending_login:
         session.clear()
         login_user(user)
         from utils.session_security import establish_session
         establish_session(user, auth_strength='mfa_totp')
         login_result = {'user': _user_payload(user)}
-    audit_log('mfa:enabled', 'user', user.id,
-              f'启用 {data.get("purpose", "login")} MFA')
+    audit_log('mfa:enabled', 'user', user.id, '启用账号 MFA')
     return ok(login_result)
 
 
@@ -122,7 +131,7 @@ def api_mfa_recover():
     if error:
         return error
     from blueprints.vue_api_sys import audit_log
-    audit_log('mfa:recovered', 'user', current_user.id, '使用恢复码解除 MFA 绑定')
+    audit_log('mfa:recovered', 'user', current_user.id, '使用恢复码解除账号 MFA 绑定')
     return ok(None)
 
 
@@ -149,7 +158,7 @@ def api_admin_mfa_reset(user_id):
         return fail('MFA 用途非法', 400)
     reset_user_mfa(user, purpose)
     from blueprints.vue_api_sys import audit_log
-    audit_log('mfa:admin_reset', 'user', user.id, f'管理员重置 {user.username} {purpose} MFA')
+    audit_log('mfa:admin_reset', 'user', user.id, f'管理员重置 {user.username} 账号 MFA')
     return ok(None)
 
 

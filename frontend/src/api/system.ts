@@ -21,7 +21,6 @@ export interface UserItem {
   notify_accounts?: Record<string, string>
   vpn_account?: string
   mfa_enabled?: boolean
-  mfa_op_enabled?: boolean
   created_at: string
 }
 
@@ -444,8 +443,8 @@ export interface AccessControlData {
   enabled: boolean
 }
 
-export function resetUserMfa(id: number, purpose: 'all' | 'login' | 'operation' = 'all') {
-  return request<null>({ url: `/api/users/${id}/mfa-reset`, method: 'POST', data: { purpose } })
+export function resetUserMfa(id: number) {
+  return request<null>({ url: `/api/users/${id}/mfa-reset`, method: 'POST', data: { purpose: 'all' } })
 }
 
 export function offboardUser(id: number) {

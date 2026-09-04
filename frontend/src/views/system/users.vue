@@ -14,7 +14,7 @@
           <div>
             <span class="card-title">用户</span>
             <span v-if="currentAccount" class="current-security-status">
-              当前账号登录 MFA：
+              当前账号 MFA：
               <el-tag size="small" :type="currentAccount.mfa_enabled ? 'success' : 'warning'">
                 {{ currentAccount.mfa_enabled ? '已绑定' : '未绑定' }}
               </el-tag>
@@ -26,7 +26,7 @@
             size="small"
             @click="openMyMfa"
           >
-            {{ currentAccount.mfa_enabled ? '管理 / 更换 MFA' : '绑定我的登录 MFA' }}
+            {{ currentAccount.mfa_enabled ? '管理 / 更换 MFA' : '绑定我的账号 MFA' }}
           </el-button>
         </div>
       </template>
@@ -385,9 +385,7 @@ const userColumns = computed(() => mergeFieldMeta([
     tagMap: { true: 'success', false: 'info' }, valueMap: ACTIVE_LABELS },
   { key: 'phone', label: '电话', minWidth: 110 },
   { key: 'vpn_account', label: 'VPN账号', minWidth: 110, defaultVisible: false },
-  { key: 'mfa_enabled', label: '登录MFA', width: 90, type: 'tag',
-    tagMap: { true: 'success', false: 'info' }, valueMap: { true: '已绑定', false: '未绑定' } },
-  { key: 'mfa_op_enabled', label: '操作码', width: 90, type: 'tag',
+  { key: 'mfa_enabled', label: '账号MFA', width: 90, type: 'tag',
     tagMap: { true: 'success', false: 'info' }, valueMap: { true: '已绑定', false: '未绑定' } },
   { key: 'created_at', label: '创建时间', width: 100 },
   { key: 'actions', label: '操作', width: 280, type: 'action', fixed: 'right',
@@ -512,7 +510,7 @@ async function onDelete(u: UserItem) {
 
 async function onResetMfa(u: UserItem) {
   try {
-    await ElMessageBox.confirm(`重置「${u.username}」的登录 MFA、操作码和恢复码？`,
+    await ElMessageBox.confirm(`重置「${u.username}」的账号 MFA 和恢复码？`,
       '重置 MFA', { type: 'warning' })
   } catch { return }
   try {

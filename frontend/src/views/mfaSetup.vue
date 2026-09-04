@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">身份验证器</h2>
-        <p class="page-subtitle">使用腾讯身份验证器分别保护账号登录和高风险操作。</p>
+        <p class="page-subtitle">一个账号只绑定一个身份验证器，同时用于登录和高风险操作再次确认。</p>
       </div>
     </div>
 
@@ -13,27 +13,19 @@
       type="warning"
       :closable="false"
       show-icon
-      title="首次登录必须先绑定登录 MFA"
+      title="首次登录必须先绑定账号 MFA"
       description="请使用腾讯身份验证器扫码并输入 6 位动态码。绑定成功后，系统会继续引导你修改初始密码。"
     />
 
     <el-card shadow="never" class="status-card">
-      <div class="status-grid">
-        <button
-          v-for="item in visiblePurposeOptions"
-          :key="item.value"
-          type="button"
-          :class="['purpose-card', { active: purpose === item.value }]"
-          @click="selectPurpose(item.value)"
-        >
-          <span class="purpose-main">
-            <span class="purpose-title">{{ item.label }}</span>
-            <span class="purpose-desc">{{ item.description }}</span>
-          </span>
-          <el-tag :type="isEnabled(item.value) ? 'success' : 'warning'" effect="light">
-            {{ isEnabled(item.value) ? '已绑定' : '未绑定' }}
-          </el-tag>
-        </button>
+      <div class="account-status">
+        <span class="purpose-main">
+          <span class="purpose-title">账号 MFA</span>
+          <span class="purpose-desc">登录时验证；查看设备密码等高风险操作时复用同一个 6 位动态码</span>
+        </span>
+        <el-tag :type="enabled ? 'success' : 'warning'" effect="light">
+          {{ enabled ? '已绑定' : '未绑定' }}
+        </el-tag>
       </div>
     </el-card>
 
@@ -41,8 +33,8 @@
       <template #header>
         <div class="card-header">
           <div>
-            <div class="card-title">{{ currentLabel }}</div>
-            <div class="card-subtitle">{{ currentDescription }}</div>
+            <div class="card-title">账号 MFA</div>
+            <div class="card-subtitle">同一绑定保护登录，并为查看密码等高风险操作提供再次验证</div>
           </div>
           <el-tag v-if="statusLoaded" :type="enabled ? 'success' : 'warning'">
             {{ enabled ? '已绑定' : '等待绑定' }}
@@ -106,15 +98,15 @@
       <el-result
         v-else-if="enabled"
         icon="success"
-        :title="`${currentLabel}已绑定`"
-        sub-title="当前保护已生效。更换手机或重新安装身份验证器时，请先完成换绑。"
+        title="账号 MFA 已绑定"
+        sub-title="登录和高风险操作均使用这一身份验证器。更换手机或重新安装时，请先完成换绑。"
       >
         <template #extra>
           <el-button type="primary" plain @click="rebindVisible = true">更换绑定</el-button>
         </template>
       </el-result>
 
-      <el-empty v-else :description="`${currentLabel}尚未绑定`">
+      <el-empty v-else description="账号 MFA 尚未绑定">
         <el-button type="primary" :loading="saving" @click="start">立即绑定</el-button>
         <p class="empty-hint">绑定过程只需扫码并输入一次 6 位动态码。</p>
       </el-empty>
@@ -152,7 +144,6 @@ import {
   fetchMfaStatus,
   rebindMfa,
   setupMfa,
-  type MfaPurpose,
   type MfaSetupResult,
 } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
@@ -160,8 +151,8 @@ import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
 const user = useUserStore()
-const purpose = ref<MfaPurpose>('login')
-const status = ref({ login_enabled: false, operation_enabled: false,
+const status = ref({ account_enabled: false, login_enabled: false, operation_enabled: false,
+  operation_uses_account_mfa: true,
   binding_required: false, backup_codes_remaining: 0 })
 const statusLoaded = ref(false)
 const setup = ref<MfaSetupResult>()
@@ -170,27 +161,7 @@ const saving = ref(false)
 const rebindVisible = ref(false)
 const currentCode = ref('')
 
-const purposeOptions: Array<{ value: MfaPurpose; label: string; description: string }> = [
-  { value: 'login', label: '登录 MFA', description: '登录账号时进行第二步身份验证' },
-  { value: 'operation', label: '高风险操作码', description: '查看密码、重置账号等敏感操作验证' },
-]
-
-const currentOption = computed(() => purposeOptions.find((item) => item.value === purpose.value)!)
-const visiblePurposeOptions = computed(() => status.value.binding_required
-  ? purposeOptions.filter((item) => item.value === 'login')
-  : purposeOptions)
-const currentLabel = computed(() => currentOption.value.label)
-const currentDescription = computed(() => currentOption.value.description)
-const enabled = computed(() => isEnabled(purpose.value))
-
-function isEnabled(value: MfaPurpose) {
-  return value === 'login' ? status.value.login_enabled : status.value.operation_enabled
-}
-
-function selectPurpose(value: MfaPurpose) {
-  purpose.value = value
-  cancelSetup()
-}
+const enabled = computed(() => status.value.account_enabled || status.value.login_enabled)
 
 async function load() {
   try {
@@ -203,7 +174,7 @@ async function load() {
 async function start() {
   saving.value = true
   try {
-    setup.value = await setupMfa(purpose.value)
+    setup.value = await setupMfa()
   } catch (error) {
     ui.toast((error as Error).message, 'error')
   } finally {
@@ -223,10 +194,10 @@ async function confirm() {
   }
   saving.value = true
   try {
-    const result = await confirmMfa(purpose.value, code.value)
+    const result = await confirmMfa(code.value)
     cancelSetup()
     await load()
-    if (purpose.value === 'login' && user.user) user.user.mfa_enabled = true
+    if (user.user) user.user.mfa_enabled = true
     ui.toast('绑定成功', 'success')
     if (result?.user) window.location.href = '/app/'
   } catch (error) {
@@ -243,7 +214,7 @@ async function beginRebind() {
   }
   saving.value = true
   try {
-    setup.value = await rebindMfa(purpose.value, currentCode.value.trim())
+    setup.value = await rebindMfa(currentCode.value.trim())
     currentCode.value = ''
     code.value = ''
     rebindVisible.value = false
@@ -263,15 +234,11 @@ onMounted(() => {
 <style scoped>
 .security-setup { max-width: 920px; margin: 0 auto; }
 .bind-required-alert, .status-card { margin-bottom: 14px; }
-.status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.purpose-card {
+.account-status {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   width: 100%; padding: 16px; color: var(--itsm-text); text-align: left;
   background: var(--itsm-card-bg); border: 1px solid var(--itsm-border); border-radius: 10px;
-  cursor: pointer; transition: border-color .2s, background .2s;
 }
-.purpose-card:hover, .purpose-card.active { border-color: var(--el-color-primary); }
-.purpose-card.active { background: var(--el-color-primary-light-9); }
 .purpose-main { display: flex; flex-direction: column; gap: 4px; }
 .purpose-title { font-size: 15px; font-weight: 600; }
 .purpose-desc, .card-subtitle, .empty-hint, .qr-caption { color: var(--itsm-text-muted); font-size: 12px; }
@@ -295,7 +262,7 @@ onMounted(() => {
 .empty-hint { margin: 10px 0 0; }
 .rebind-form { margin-top: 16px; }
 @media (max-width: 680px) {
-  .status-grid, .bind-grid { grid-template-columns: 1fr; }
+  .bind-grid { grid-template-columns: 1fr; }
   .confirm-row { grid-template-columns: 1fr; }
   .codes { grid-template-columns: repeat(2, 1fr); }
 }

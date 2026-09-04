@@ -12,8 +12,11 @@
         <el-form-item label="强制登录 MFA">
           <el-switch v-model="form.mfa_enforce" />
         </el-form-item>
-        <el-form-item label="高风险操作码">
-          <el-switch v-model="form.op_code_enforce" />
+        <el-form-item label="高风险操作再次验证">
+          <div class="setting-row">
+            <el-switch v-model="form.op_code_enforce" />
+            <span class="setting-help">查看设备密码等操作复用账号 MFA 动态码，不需要单独绑定。</span>
+          </div>
         </el-form-item>
         <el-form-item label="操作令牌有效期（秒）">
           <el-input-number v-model="form.op_code_ttl_seconds" :min="30" :max="600" />
@@ -67,4 +70,8 @@ async function save() {
 onMounted(() => { load().catch((e) => ui.toast((e as Error).message, 'error')) })
 </script>
 
-<style scoped>.security-page { max-width: 900px; margin: 0 auto; }</style>
+<style scoped>
+.security-page { max-width: 900px; margin: 0 auto; }
+.setting-row { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.setting-help { color: var(--itsm-text-muted); font-size: 12px; line-height: 1.5; }
+</style>

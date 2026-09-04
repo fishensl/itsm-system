@@ -17,8 +17,9 @@ def generate_secret():
     return pyotp.random_base32()
 
 
-def provisioning_uri(secret, username, purpose='登录'):
-    purpose_name = {'登录': '登录', '操作验证': '操作验证'}.get(str(purpose), str(purpose))
+def provisioning_uri(secret, username, purpose='账号'):
+    purpose_name = {'登录': '账号', '操作验证': '账号', '账号': '账号'}.get(
+        str(purpose), str(purpose))
     # 腾讯身份验证器会同时渲染 issuer 参数和 URI 标签中的 issuer 前缀，
     # 传两处会出现“系统名:系统名:用途”的重复名称。用单一账户标签保持简洁。
     account = f'ITSM · {purpose_name}（{username}）'

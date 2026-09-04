@@ -55,10 +55,8 @@ export function verifyLoginMfa(code: string, recovery = false) {
   })
 }
 
-export type MfaPurpose = 'login' | 'operation'
-
 export interface MfaSetupResult {
-  purpose: MfaPurpose
+  purpose: 'login'
   manual_secret: string
   provisioning_uri: string
   qr_data_uri: string
@@ -66,25 +64,26 @@ export interface MfaSetupResult {
 }
 
 export function fetchMfaStatus() {
-  return request<{ login_enabled: boolean; operation_enabled: boolean; backup_codes_remaining: number;
-    binding_required: boolean; mfa_enforce: boolean; op_code_enforce: boolean }>({
+  return request<{ account_enabled: boolean; login_enabled: boolean; operation_enabled: boolean;
+    operation_uses_account_mfa: boolean; backup_codes_remaining: number; binding_required: boolean;
+    mfa_enforce: boolean; op_code_enforce: boolean }>({
     url: '/api/auth/mfa/status', method: 'GET',
   })
 }
 
-export function setupMfa(purpose: MfaPurpose) {
-  return request<MfaSetupResult>({ url: '/api/auth/mfa/setup', method: 'POST', data: { purpose } })
+export function setupMfa() {
+  return request<MfaSetupResult>({ url: '/api/auth/mfa/setup', method: 'POST' })
 }
 
-export function confirmMfa(purpose: MfaPurpose, code: string) {
+export function confirmMfa(code: string) {
   return request<{ user: CurrentUser } | null>({
-    url: '/api/auth/mfa/confirm', method: 'POST', data: { purpose, code },
+    url: '/api/auth/mfa/confirm', method: 'POST', data: { code },
   })
 }
 
-export function rebindMfa(purpose: MfaPurpose, currentCode: string) {
+export function rebindMfa(currentCode: string) {
   return request<MfaSetupResult>({
-    url: '/api/auth/mfa/rebind', method: 'POST', data: { purpose, current_code: currentCode },
+    url: '/api/auth/mfa/rebind', method: 'POST', data: { current_code: currentCode },
   })
 }
 

@@ -2,7 +2,7 @@
   <el-dialog v-model="visible" title="高风险操作验证" width="420px" destroy-on-close
     :close-on-click-modal="false" @closed="cancel">
     <el-alert type="warning" :closable="false" show-icon
-      title="请输入腾讯身份验证器中的操作动态码。验证后短时间内无需重复输入。" />
+      title="请输入账号已绑定身份验证器中的当前动态码。验证后短时间内无需重复输入。" />
     <el-input v-model="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
       placeholder="6 位动态码" class="mt-2" @keyup.enter="submit" />
     <template #footer>

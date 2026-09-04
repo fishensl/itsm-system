@@ -10,11 +10,22 @@ from utils.totp import (consume_backup_code, generate_backup_codes, generate_sec
 
 
 def _purpose_fields(purpose):
-    if purpose == 'login':
-        return 'mfa_secret_encrypted', 'mfa_enabled', '登录'
-    if purpose == 'operation':
-        return 'mfa_op_secret_encrypted', 'mfa_op_enabled', '操作验证'
-    raise ServiceError('MFA 用途非法')
+    """Return the single account-MFA fields.
+
+    ``operation`` remains accepted for one release so an old cached SPA cannot
+    create a second authenticator after the backend is upgraded. Both values
+    deliberately resolve to the account binding.
+    """
+    if purpose not in {'login', 'operation'}:
+        raise ServiceError('MFA 用途非法')
+    return 'mfa_secret_encrypted', 'mfa_enabled', '账号'
+
+
+def _clear_legacy_operation_mfa(user):
+    """Clear deprecated second-MFA state while retaining schema rollback safety."""
+    user.mfa_op_secret_encrypted = None
+    user.mfa_op_enabled = False
+    user.mfa_op_last_counter = None
 
 
 @transaction
@@ -26,10 +37,11 @@ def begin_mfa_setup(user, purpose='login'):
     backup_codes = generate_backup_codes()
     setattr(user, secret_field, encrypt_password(secret))
     setattr(user, enabled_field, False)
+    _clear_legacy_operation_mfa(user)
     user.backup_codes_json = dumps_json(hash_backup_codes(backup_codes))
     uri = provisioning_uri(secret, user.username, label)
     return {
-        'purpose': purpose,
+        'purpose': 'login',
         'manual_secret': secret,
         'provisioning_uri': uri,
         'qr_data_uri': qr_data_uri(uri),
@@ -47,6 +59,7 @@ def confirm_mfa_setup(user, purpose, code):
     if not verify_code(secret, code):
         raise ServiceError('动态验证码不正确')
     setattr(user, enabled_field, True)
+    _clear_legacy_operation_mfa(user)
     return True
 
 
@@ -75,7 +88,8 @@ def rebind_mfa(user, purpose, current_code):
     secret_field, enabled_field, _ = _purpose_fields(purpose)
     setattr(user, secret_field, None)
     setattr(user, enabled_field, False)
-    return begin_mfa_setup.__wrapped__(user, purpose)
+    _clear_legacy_operation_mfa(user)
+    return begin_mfa_setup.__wrapped__(user, 'login')
 
 
 @transaction
@@ -87,6 +101,7 @@ def recover_mfa(user, purpose, recovery_code):
     secret_field, enabled_field, _ = _purpose_fields(purpose)
     setattr(user, secret_field, None)
     setattr(user, enabled_field, False)
+    _clear_legacy_operation_mfa(user)
     user.backup_codes_json = dumps_json(remaining)
     return True
 
@@ -97,9 +112,9 @@ def verify_operation_code(user, code):
     if user.op_locked_until and user.op_locked_until > now:
         seconds = max(1, int((user.op_locked_until - now).total_seconds()))
         raise ServiceError(f'操作验证已锁定，请 {seconds} 秒后重试')
-    if not user.mfa_op_enabled:
-        raise ServiceError('尚未绑定操作验证器')
-    if verify_user_mfa(user, 'operation', code, allow_recovery=False):
+    if not user.mfa_enabled:
+        raise ServiceError('尚未绑定账号 MFA，请先完成绑定')
+    if verify_user_mfa(user, 'login', code, allow_recovery=False):
         user.op_fail_count = 0
         user.op_locked_until = None
         token = issue_operation_token(user.id, user.auth_version)
@@ -115,18 +130,19 @@ def verify_operation_code(user, code):
         from utils.security_events import emit_security_event
         emit_security_event('操作验证码连续失败',
                             f'用户={user.username}，已锁定15分钟')
-    raise ServiceError('操作动态码不正确')
+    raise ServiceError('账号 MFA 动态码不正确')
 
 
 @transaction
 def reset_user_mfa(user, purpose='all'):
-    if purpose in ('all', 'login'):
-        user.mfa_secret_encrypted = None
-        user.mfa_enabled = False
-    if purpose in ('all', 'operation'):
-        user.mfa_op_secret_encrypted = None
-        user.mfa_op_enabled = False
-        user.op_fail_count = 0
-        user.op_locked_until = None
+    if purpose not in {'all', 'login', 'operation'}:
+        raise ServiceError('MFA 用途非法')
+    # 账号只有一个 MFA；兼容旧客户端传入 operation，但仍重置同一绑定。
+    user.mfa_secret_encrypted = None
+    user.mfa_enabled = False
+    user.mfa_last_counter = None
+    _clear_legacy_operation_mfa(user)
+    user.op_fail_count = 0
+    user.op_locked_until = None
     user.backup_codes_json = '[]'
     user.auth_version = int(user.auth_version or 0) + 1
