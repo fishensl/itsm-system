@@ -505,22 +505,26 @@
         <!-- 核心设备文本配置（动态行） -->
         <el-form-item :label="assetLabel('config_text')" :required="isRequired('config_text')">
           <div class="asset-col">
-            <div v-for="(row, i) in configTextRows" :key="i" class="asset-row">
-              <el-select v-model="row.device_id" size="small" clearable filterable placeholder="设备"
-                style="width: 160px">
-                <el-option v-for="d in devices" :key="d.id" :value="d.id"
-                  :label="deviceOptionLabel(d)" />
-              </el-select>
-              <el-upload :auto-upload="false" :limit="1" accept=".txt,.cfg,.conf,.log,.text"
-                :on-change="(f: UploadFile) => { row.file = f.raw ?? null; if (row.file) row.content = '' }"
-                :on-remove="() => row.file = null">
-                <el-button size="small" :icon="UploadFilled">文件</el-button>
-              </el-upload>
-              <el-input v-model="row.content" size="small" type="textarea" :rows="2" placeholder="或直接粘贴配置内容"
-                style="width: 260px" />
-              <el-button size="small" link type="danger" :icon="Delete" @click="configTextRows.splice(i, 1)" />
+            <div v-for="(row, i) in configTextRows" :key="i" class="config-text-row">
+              <div class="asset-row">
+                <el-input v-model="row.name" size="small" placeholder="配置名称" style="width: 190px" />
+                <el-select v-model="row.device_id" size="small" clearable filterable
+                  placeholder="关联设备（可选）" no-data-text="没有设备，可直接填写配置名称"
+                  style="width: 210px">
+                  <el-option v-for="d in devices" :key="d.id" :value="d.id"
+                    :label="deviceOptionLabel(d)" />
+                </el-select>
+                <el-upload :auto-upload="false" :limit="1" accept=".txt,.cfg,.conf,.log,.text"
+                  :on-change="(f: UploadFile) => onConfigTextFileChange(row, f)"
+                  :on-remove="() => row.file = null">
+                  <el-button size="small" :icon="UploadFilled">选择文件</el-button>
+                </el-upload>
+                <el-button size="small" link type="danger" :icon="Delete" @click="configTextRows.splice(i, 1)" />
+              </div>
+              <el-input v-model="row.content" size="small" type="textarea" :rows="2"
+                placeholder="或直接粘贴配置内容（未关联设备时请填写配置名称）" />
             </div>
-            <el-button size="small" plain :icon="Plus" @click="configTextRows.push({ device_id: null, file: null, content: '' })">
+            <el-button size="small" plain :icon="Plus" @click="addConfigTextRow">
               添加设备配置
             </el-button>
             <span v-if="!configTextRows.length && isRequired('config_text')" class="skip-box">
@@ -728,7 +732,13 @@ const uploadLimits = reactive<{ request_mb: number | null; config_zip_mb: number
 })
 const configZipFile = ref<File | null>(null)
 const configZipDeviceId = ref<number | null>(null)
-const configTextRows = ref<Array<{ device_id: number | null; file: File | null; content: string }>>([])
+type ConfigTextRow = {
+  name: string
+  device_id: number | null
+  file: File | null
+  content: string
+}
+const configTextRows = ref<ConfigTextRow[]>([])
 const topologyFile = ref<File | null>(null)
 const assetListFile = ref<File | null>(null)
 const skipReasons = reactive<Record<string, string>>({
@@ -744,6 +754,17 @@ function deviceOptionLabel(device: TaskDeviceOption) {
   const details = [device.device_type || '未分类', device.ip_address].filter(Boolean).join(' · ')
   const inactive = device.is_in_use ? '' : ' · 已停用'
   return `${device.device_name}${details ? `（${details}${inactive}）` : inactive}`
+}
+
+function addConfigTextRow() {
+  configTextRows.value.push({ name: '', device_id: null, file: null, content: '' })
+}
+
+function onConfigTextFileChange(row: ConfigTextRow, upload: UploadFile) {
+  row.file = upload.raw ?? null
+  if (!row.file) return
+  row.content = ''
+  if (!row.name.trim()) row.name = row.file.name
 }
 
 function reviewerOptionLabel(reviewer: ReviewerOption) {
@@ -1193,6 +1214,13 @@ async function doUpload() {
     return
   }
   const hasConfigText = configTextRows.value.some((r) => r.file || r.content.trim())
+  const unnamedConfig = configTextRows.value.find(
+    (row) => (row.file || row.content.trim()) && !row.name.trim() && !row.device_id,
+  )
+  if (unnamedConfig) {
+    ui.toast('未关联设备的核心配置必须填写配置名称', 'warning')
+    return
+  }
   if (isSupplementing.value && !uploadFile.value && !configZipFile.value &&
       !hasConfigText && !topologyFile.value && !assetListFile.value) {
     ui.toast('请至少选择一项需要补传的文件或配置内容', 'warning')
@@ -1241,6 +1269,7 @@ async function doUpload() {
     }
 
     configTextRows.value.forEach((row, i) => {
+      if (row.name.trim()) fd.append(`config_text_name_${i}`, row.name.trim())
       if (row.file) {
         fd.append(`config_text_file_${i}`, row.file)
         if (row.device_id) fd.append(`config_text_device_id_${i}`, String(row.device_id))
@@ -1400,6 +1429,11 @@ onMounted(() => {
 .mt-2 { margin-top: 8px; }
 .asset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .asset-col { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.config-text-row {
+  display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 8px;
+  border: 1px solid var(--itsm-border); border-radius: 6px;
+  background: var(--el-fill-color-lighter);
+}
 .asset-tip { font-size: 12px; color: var(--itsm-text-muted); }
 .skip-box { display: inline-flex; }
 .task-card {

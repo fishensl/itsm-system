@@ -835,6 +835,11 @@ class TestTaskSubmissionAssets:
         r = op_client.get(f"/api/inspections/{i.id}/versions")
         vers = r.get_json()['data']
         assert len(vers[0]['assets']) == 5
+        backup_names = {
+            item['file_name'] for item in op_client.get(
+                f'/api/devices/{did}/config-backups').get_json()['data']
+        }
+        assert {'full.zip', 'core-a.cfg'} <= backup_names
 
     def test_pending_submission_can_supplement_files_without_new_version(self, op_client, app, seed):
         """先传报告进入待审核后，仍可把配置包和资产清单补到同一版本。"""
@@ -895,13 +900,15 @@ class TestTaskSubmissionAssets:
             'asset_list': (_xlsx_bytes([
                 ['客户', '机房位置', '机柜号', '安装位置', '起始U位', '电源配置',
                  '名称', '类型', '品牌', '型号', '序列号', 'IP', '建设时间',
-                 '是否维修', '是否在用', '备注'],
+                 '授权开始', '授权截止', '证书到期日期', '是否维修', '是否在用', '备注'],
                 ['字典客户', '9楼机房', '4', '正面', '27U-30U', '双电源',
                  '核心交换机A', '核心交换机', '华为', 'S12700', 'SN-001',
-                 '10.0.0.10', '2026-01-02', '否', '是', '资产表更新'],
+                 '10.0.0.10', '2026-01-02', '2026-01-03', '2027-01-03',
+                 '2027-02-04', '否', '是', '资产表更新'],
                 ['字典客户', '9楼机房', '', '背面', '', '单电源',
                  '补传服务器', '服务器', '浪潮', 'NF5180', 'SN-002',
-                 '10.0.0.11', '2026-02-03', '否', '是', ''],
+                 '10.0.0.11', '2026-02-03', '2026-02-04', '2027-02-04',
+                 '2027-03-05', '否', '是', ''],
             ]), '设备资产表.xlsx'),
         }, content_type='multipart/form-data')
         assert supplement.status_code == 200, supplement.get_json()
@@ -921,11 +928,49 @@ class TestTaskSubmissionAssets:
             assert (install.start_u, install.occupy_u) == (27, 4)
             assert existing.brand == '华为'
             assert existing.build_date.isoformat() == '2026-01-02'
+            assert existing.license_start.isoformat() == '2026-01-03'
+            assert existing.license_expiry.isoformat() == '2027-01-03'
+            assert existing.cert_expiry_date.isoformat() == '2027-02-04'
             assert existing.username == 'keep-user'
             assert existing.os_version == 'keep-os'
             assert existing.rule_version == 'keep-rule'
             assert Device.query.filter_by(
                 customer_id=seed['c'], device_name='补传服务器').one()
+
+    def test_unlinked_config_text_uses_custom_or_original_file_name(
+            self, op_client, app, seed):
+        """核心配置无需关联设备，版本明细仍必须保留可辨识名称。"""
+        from models import SubmissionAsset
+
+        tid, _ = self._task(app, seed)
+        response = op_client.post(f'/api/inspections/task/{tid}/report', data={
+            'report_file': _dummy_file(),
+            'config_text_file_0': (io.BytesIO(b'hostname core-a\n'), '核心交换机A.cfg'),
+            'config_text_file_1': (io.BytesIO(b'hostname firewall\n'), '防火墙主机.cfg'),
+            'config_text_content_2': 'hostname custom\n',
+            'config_text_name_2': '会议控制主机',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200, response.get_json()
+
+        with app.app_context():
+            inspection = Inspection.query.filter_by(task_id=tid).one()
+            version = SubmissionVersion.query.filter_by(
+                entity_type='inspection', entity_id=inspection.id).one()
+            assets = SubmissionAsset.query.filter_by(
+                version_id=version.id, asset_type='config_text').order_by(
+                    SubmissionAsset.id).all()
+            assert [asset.file_name for asset in assets] == [
+                '核心交换机A.cfg', '防火墙主机.cfg', '会议控制主机',
+            ]
+            assert all(asset.device_id is None for asset in assets)
+
+        versions = op_client.get(
+            f'/api/inspections/{inspection.id}/versions').get_json()['data']
+        config_names = [
+            asset['file_name'] for asset in versions[0]['assets']
+            if asset['asset_type'] == 'config_text'
+        ]
+        assert config_names == ['核心交换机A.cfg', '防火墙主机.cfg', '会议控制主机']
 
     def test_supplement_requires_at_least_one_file(self, op_client, app, seed):
         tid, _ = self._task(app, seed)

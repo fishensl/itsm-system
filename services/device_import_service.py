@@ -4,6 +4,7 @@
 路由只负责解析工作簿；匹配、字段校验、空值语义和位置处理在此统一。
 """
 import re
+from datetime import date, datetime
 
 from models import db, Device, PasswordHistory, Rack, RackInstall
 from services.base import ServiceError
@@ -30,6 +31,25 @@ DATE_FIELD_LABELS = {
 }
 BOOL_FIELDS = ('is_maintenance', 'is_in_use')
 INSTALL_SIDES = {'正面', '背面'}
+
+
+def normalize_device_import_cell(field, value):
+    """Normalize an Excel cell without leaking a synthetic midnight into text fields.
+
+    Excel may store values such as a rule-library version as a date-formatted cell.
+    openpyxl then returns ``datetime(YYYY, M, D, 0, 0)``. Lifecycle fields retain the
+    native value for strict date parsing; ordinary device text fields keep only the
+    calendar date instead of persisting ``00:00:00`` as part of the version string.
+    """
+    if value is None:
+        return ''
+    if field in DATE_FIELDS:
+        return value
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value).strip()
 
 
 def _truthy(value):

@@ -38,6 +38,28 @@ def _run_alembic(app, db_uri, func, rev=None):
 
 
 class TestMigrationIncrementalFix:
+    def test_rule_version_midnight_cleanup_is_shape_limited(self, mig_app):
+        """只清理 Excel 日期化产生的午夜尾巴，不改真实规则库版本文本。"""
+        app, db_uri = mig_app
+        _run_alembic(app, db_uri, command.upgrade, 'b3c4d5e6f7a8')
+
+        from models import Device, db
+        with app.app_context():
+            imported_date = Device(
+                device_name='日期型规则库', rule_version='2026-08-07 00:00:00')
+            real_version = Device(
+                device_name='真实规则库', rule_version='R2 2026-08-07 00:00:00')
+            db.session.add_all([imported_date, real_version])
+            db.session.commit()
+
+        _run_alembic(app, db_uri, command.upgrade, 'head')
+
+        with app.app_context():
+            assert Device.query.filter_by(device_name='日期型规则库').one().rule_version == \
+                '2026-08-07'
+            assert Device.query.filter_by(device_name='真实规则库').one().rule_version == \
+                'R2 2026-08-07 00:00:00'
+
     def test_unified_mfa_migrates_legacy_operation_binding(self, mig_app):
         """旧操作 MFA 只在账号 MFA 缺失时接管，已有账号绑定必须优先保留。"""
         app, db_uri = mig_app

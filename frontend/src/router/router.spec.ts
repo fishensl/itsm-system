@@ -14,4 +14,15 @@ describe('router fallback', () => {
     expect(router.resolve('/regions').meta.perm).toBe('region:view')
     expect(router.resolve('/customer-categories').meta.perm).toBe('category:view')
   })
+
+  it('resolves the named task supplement route under the SPA base exactly once', () => {
+    const route = router.resolve({
+      name: 'task-schedule',
+      query: { task_id: '12', action: 'supplement' },
+    })
+
+    expect(route.name).toBe('task-schedule')
+    expect(route.fullPath).toBe('/task-schedule?task_id=12&action=supplement')
+    expect(route.href).toBe('/app/task-schedule?task_id=12&action=supplement')
+  })
 })

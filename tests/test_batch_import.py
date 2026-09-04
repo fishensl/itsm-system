@@ -139,6 +139,10 @@ class TestImportTemplates:
         assert mapping['名称'] == mapping['设备名称'] == 'device_name'
         assert mapping['类型'] == mapping['设备类型'] == 'device_type'
         assert mapping['IP'] == mapping['IP地址'] == 'ip_address'
+        assert mapping['建设时间'] == mapping['建设日期'] == 'build_date'
+        assert mapping['授权开始'] == mapping['授权开始日期'] == 'license_start'
+        assert mapping['授权截止'] == mapping['授权截止日期'] == 'license_expiry'
+        assert mapping['证书到期日期'] == mapping['证书到期'] == 'cert_expiry_date'
 
     def test_templates_cover_registered_form_profiles(self):
         """新增编辑字段后若忘记同步模板，本测试必须立即失败。"""
@@ -174,7 +178,7 @@ class TestDeviceCustomerImport:
             'rack_location': '9楼机房', 'rack_name': '4', 'location': '正面',
             'rack_start_u': 27, 'rack_occupy_u': 4, 'power_supply': '双电源',
             'interface': 'GE0/0/1、GE0/0/2', 'os_version': 'V1',
-            'rule_version': 'R2', 'build_date': date(2026, 1, 2),
+            'rule_version': datetime(2026, 8, 7, 0, 0), 'build_date': date(2026, 1, 2),
             'license_start': datetime(2026, 2, 1, 0, 0), 'license_expiry': '2027/2/1',
             'cert_expiry_date': '2027-03-01', 'is_maintenance': '是',
             'is_in_use': '是', 'remark': '完整字段导入',
@@ -204,7 +208,7 @@ class TestDeviceCustomerImport:
             assert device.power_supply == '双电源'
             assert device.interface and parse_json(device.interface) == ['GE0/0/1', 'GE0/0/2']
             assert device.os_version == 'V1'
-            assert device.rule_version == 'R2'
+            assert device.rule_version == '2026-08-07'
             assert device.build_date.isoformat() == '2026-01-02'
             assert device.license_start.isoformat() == '2026-02-01'
             assert device.license_expiry.isoformat() == '2027-02-01'

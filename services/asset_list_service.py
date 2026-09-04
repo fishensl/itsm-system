@@ -10,7 +10,11 @@ from flask import current_app
 
 from models import Customer, Device, db
 from services.base import ServiceError
-from services.device_import_service import prepare_device_import, execute_device_import
+from services.device_import_service import (
+    execute_device_import,
+    normalize_device_import_cell,
+    prepare_device_import,
+)
 from utils.import_templates import get_import_field_mapping
 
 
@@ -44,7 +48,7 @@ def import_asset_list(file_path, customer_id, operator_name,
         row = {'_row': row_no, '_present': set(present), 'customer_name': customer.name}
         for field, index in col_map.items():
             value = ws.cell(row=row_no, column=index + 1).value
-            row[field] = '' if value is None else str(value).strip()
+            row[field] = normalize_device_import_cell(field, value)
         row['customer_name'] = customer.name
         if any(value for key, value in row.items()
                if not key.startswith('_') and key != 'customer_name'):

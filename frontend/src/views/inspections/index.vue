@@ -339,7 +339,7 @@ function openSupplement(row: Inspection) {
     return
   }
   void router.push({
-    path: '/app/task-schedule',
+    name: 'task-schedule',
     query: { task_id: String(row.task_id), action: 'supplement' },
   })
 }

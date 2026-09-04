@@ -58,7 +58,7 @@
                 <template v-else>
                   <template v-if="a.asset_type === 'config_text' && a.has_content">
                     <el-link type="primary" :underline="false" @click="viewContent(a)">
-                      <el-icon style="margin-right: 2px"><View /></el-icon>{{ a.device_name || '配置' }} 在线查看
+                      <el-icon style="margin-right: 2px"><View /></el-icon>{{ a.file_name || a.device_name || '配置' }} 在线查看
                     </el-link>
                   </template>
                   <template v-else-if="a.asset_type === 'topology' && a.target_id">
@@ -72,7 +72,7 @@
                     </el-link>
                     <span v-else class="vt-none">（无附件）</span>
                   </template>
-                  <span v-if="a.device_name" class="vt-device">· {{ a.device_name }}</span>
+                  <span v-if="a.device_name && a.device_name !== a.file_name" class="vt-device">· {{ a.device_name }}</span>
                 </template>
               </div>
             </div>
@@ -209,7 +209,7 @@ function checklistSummary(checklist: Record<string, string>): string {
 function viewContent(a: SubmissionAsset) {
   fetchSubmissionAssetContent(a.id)
     .then((r) => {
-      contentPreviewTitle.value = `配置文本 · ${a.device_name || a.file_name || '未命名'}`
+      contentPreviewTitle.value = `配置文本 · ${a.file_name || a.device_name || '未命名'}`
       contentPreviewText.value = r.content || '（空）'
       contentPreviewVisible.value = true
     })

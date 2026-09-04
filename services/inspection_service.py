@@ -279,14 +279,15 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
                            current_user_name, submit_review=True, force=False, remark='',
                            reviewer_id=None,
                            report_skip_reason='',
-                           config_zip_path='', config_zip_device_id=None, config_zip_skip_reason='',
+                           config_zip_path='', config_zip_file_name='',
+                           config_zip_device_id=None, config_zip_skip_reason='',
                            config_texts=None, config_text_skip_reason='',
                            topology_file_path='', topology_file_name='', topology_skip_reason='',
                            asset_list_path='', asset_list_file_name='', asset_list_skip_reason=''):
     """工程师从任务上传现场报告（全套资料）→ 自动生成/复用巡检记录并提交审核。
 
     全套资料（V22）：巡检报告（必传默认，可配置豁免）+ 完整配置包 config_zip +
-    核心设备文本配置 config_texts（[{device_id, content, file_path, file_name}]）+
+    核心设备文本配置 config_texts（[{name, device_id, content, file_path, file_name}]）+
     拓扑图 topology + 资产清单 asset_list（已由调用方解析导入设备）。
 
     规则：
@@ -379,7 +380,7 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
 
     asset_result = _sync_submission_assets(
         version, task, report_path, report_skip_reason,
-        config_zip_path, config_zip_device_id, config_zip_skip_reason,
+        config_zip_path, config_zip_file_name, config_zip_device_id, config_zip_skip_reason,
         config_texts or [], config_text_skip_reason,
         topology_file_path, topology_file_name, topology_skip_reason,
         asset_list_path, asset_list_file_name, asset_list_skip_reason,
@@ -394,7 +395,7 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
 def supplement_report_assets_for_task(
         task_id, current_user_id, current_user_name, force=False,
         report_path='', conclusion='', remark='',
-        config_zip_path='', config_zip_device_id=None,
+        config_zip_path='', config_zip_file_name='', config_zip_device_id=None,
         config_texts=None, topology_file_path='', topology_file_name='',
         asset_list_path='', asset_list_file_name=''):
     """向任务最近一次巡检提交版本补充资料，不重复提交审核、不改变任务状态。
@@ -450,7 +451,7 @@ def supplement_report_assets_for_task(
 
     asset_result = _sync_submission_assets(
         version, task, report_path, '',
-        config_zip_path, config_zip_device_id, '',
+        config_zip_path, config_zip_file_name, config_zip_device_id, '',
         config_texts, '',
         topology_file_path, topology_file_name, '',
         asset_list_path, asset_list_file_name, '',
@@ -494,7 +495,8 @@ def _check_required_assets(task, **kwargs):
 
 
 def _sync_submission_assets(version, task, report_path, report_skip_reason,
-                            config_zip_path, config_zip_device_id, config_zip_skip_reason,
+                            config_zip_path, config_zip_file_name,
+                            config_zip_device_id, config_zip_skip_reason,
                             config_texts, config_text_skip_reason,
                             topology_file_path, topology_file_name, topology_skip_reason,
                             asset_list_path, asset_list_file_name, asset_list_skip_reason,
@@ -542,7 +544,8 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
             result['config_backups'] += 1
         else:
             target_id = None
-        add_asset(version.id, 'config_zip', file_path=config_zip_path, device_id=cid, target_id=target_id)
+        add_asset(version.id, 'config_zip', file_path=config_zip_path,
+                  file_name=config_zip_file_name, device_id=cid, target_id=target_id)
         result['assets'] += 1
     elif config_zip_skip_reason:
         add_asset(version.id, 'config_zip', skip_reason=config_zip_skip_reason)
@@ -558,11 +561,14 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
             content = ct.get('content') or ''
             fpath = ct.get('file_path') or ''
             fname = ct.get('file_name') or ''
+            display_name = str(ct.get('name') or fname or '').strip()[:256]
             backup = None
             if dev_id:
                 device = db.session.get(Device, dev_id)
                 if not device or device.customer_id != task.customer_id:
                     raise ServiceError('文本配置所选设备不属于当前巡检客户')
+                if not display_name:
+                    display_name = device.device_name or ''
                 backup = DeviceConfigBackup(
                     device_id=dev_id,
                     backup_type='运行配置',
@@ -576,7 +582,9 @@ def _sync_submission_assets(version, task, report_path, report_skip_reason,
                 db.session.add(backup)
                 db.session.flush()
                 result['config_backups'] += 1
-            add_asset(version.id, 'config_text', file_path=fpath, file_name=fname,
+            if not display_name:
+                raise ServiceError('核心设备文本配置必须填写配置名称或关联设备')
+            add_asset(version.id, 'config_text', file_path=fpath, file_name=display_name,
                  device_id=dev_id, content_text=content,
                  target_id=backup.id if backup else None)
             result['assets'] += 1

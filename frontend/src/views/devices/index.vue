@@ -350,6 +350,9 @@
       </div>
       <div v-loading="backupsLoading" class="backup-list">
         <el-table v-if="backups.length" :data="backups" size="small" border stripe max-height="220">
+          <el-table-column prop="file_name" label="配置名称" min-width="160">
+            <template #default="{ row }">{{ row.file_name || row.backup_type || '-' }}</template>
+          </el-table-column>
           <el-table-column prop="backup_type" :label="fieldLabel('config_backup', 'backup_type', '备份类型')" width="100" />
           <el-table-column prop="backup_method" :label="fieldLabel('config_backup', 'backup_method', '备份来源')" width="100" />
           <el-table-column prop="backup_date" :label="fieldLabel('config_backup', 'backup_date', '备份日期')" width="100" />

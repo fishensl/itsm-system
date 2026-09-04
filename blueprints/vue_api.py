@@ -793,7 +793,7 @@ def api_v2_device_import():
     from utils.import_templates import get_import_field_mapping
     from models import Device as _D, Customer as _C, DeviceImportBatch
     from services.device_import_service import (
-        DATE_FIELDS, execute_device_import, prepare_device_import)
+        execute_device_import, normalize_device_import_cell, prepare_device_import)
     encrypted_file = request.files.get('encrypted_file')
     plain_file = request.files.get('import_file')
     from services.credential_envelope_service import (
@@ -861,12 +861,7 @@ def api_v2_device_import():
             row = {'_row': row_no, '_present': set(col_map)}
             for field, index in col_map.items():
                 value = ws.cell(row=row_no, column=index + 1).value
-                # 保留 Excel 日期单元格类型；先转字符串会得到
-                # ``YYYY-MM-DD 00:00:00``，旧解析器会静默写成空日期。
-                row[field] = (
-                    '' if value is None else
-                    value if field in DATE_FIELDS else str(value).strip()
-                )
+                row[field] = normalize_device_import_cell(field, value)
             if any(value for key, value in row.items() if not key.startswith('_')):
                 rows.append(row)
 
@@ -1079,7 +1074,7 @@ def api_v2_device_batch_update():
     TEXT_FIELDS = {'location', 'power_supply', 'network_type', 'brand', 'model',
                    'device_type', 'remark'}
     BOOL_FIELDS = {'is_in_use', 'is_maintenance'}
-    DATE_FIELDS = {'license_start', 'license_expiry', 'cert_expiry_date'}
+    DATE_FIELDS = {'build_date', 'license_start', 'license_expiry', 'cert_expiry_date'}
     NUMBER_FIELDS = {'rated_power_w'}
     if field == 'rack_location':
         # 机房位置：已上架设备更新所在机柜 Rack.location；未上架设备写入自身 rack_location。全部生效
@@ -1430,10 +1425,19 @@ def api_device_password_history(device_id):
 @require_permission('device:view')
 def api_device_config_backups(device_id):
     """设备配置备份列表（含巡检上传同步的记录）"""
-    from models import Device as _D, DeviceConfigBackup as _DCB
+    from models import Device as _D, DeviceConfigBackup as _DCB, SubmissionAsset as _SA
     from utils.customer_scope import require_device_access
     require_device_access(current_user, _D.query.get_or_404(device_id))
     rows = _DCB.query.filter_by(device_id=device_id).order_by(_DCB.id.desc()).limit(50).all()
+    asset_names = {}
+    if rows:
+        assets = _SA.query.filter(
+            _SA.target_id.in_([row.id for row in rows]),
+            _SA.asset_type.in_(('config_text', 'config_zip')),
+        ).order_by(_SA.id.desc()).all()
+        for asset in assets:
+            if asset.file_name:
+                asset_names.setdefault(asset.target_id, asset.file_name)
     return ok([{
         'id': b.id,
         'backup_type': b.backup_type or '',
@@ -1441,7 +1445,7 @@ def api_device_config_backups(device_id):
         'backup_date': b.backup_date.strftime('%Y-%m-%d') if b.backup_date else '',
         'has_content': bool(b.config_content),
         'has_file': bool(b.file_path),
-        'file_name': (b.file_path or '').split('/')[-1] or '',
+        'file_name': asset_names.get(b.id) or (b.file_path or '').split('/')[-1] or '',
         'checksum': (b.checksum or '')[:10],
         'created_by': b.created_by or '',
         'created_at': b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '',
@@ -3615,7 +3619,8 @@ def api_inspection_upload_report(task_id):
       mode=submit(默认，建版本并提交审核) | supplement(补传到最近版本，不改变状态)
       report_file(必传，可豁免：report_skip_reason) + conclusion + remark
       config_zip(完整配置包) + config_zip_device_id + config_zip_skip_reason
-      config_text_file_N / config_text_content_N / config_text_device_id_N（核心设备文本配置，可粘贴或传文件）
+      config_text_file_N / config_text_content_N / config_text_name_N /
+      config_text_device_id_N（核心设备文本配置；名称可自定义，设备关联可选）
       config_text_skip_reason
       topology_file（拓扑图）+ topology_skip_reason
       asset_list（资产清单 Excel，提交时解析导入设备）+ asset_list_skip_reason
@@ -3676,10 +3681,12 @@ def api_inspection_upload_report(task_id):
 
     # 完整配置备份包
     config_zip_path = ''
+    config_zip_file_name = ''
     config_zip_device_id = request.form.get('config_zip_device_id') or None
     config_zip_skip_reason = (request.form.get('config_zip_skip_reason') or '').strip()
     f = request.files.get('config_zip')
     if f:
+        config_zip_file_name = (f.filename or '').strip()
         request_limit_mb = max(
             1, int(current_app.config.get('MAX_CONTENT_LENGTH', 0) / 1024 / 1024))
         config_zip_limit_mb = min(
@@ -3707,14 +3714,20 @@ def api_inspection_upload_report(task_id):
         if err:
             return _upload_fail('核心设备文本配置：' + (err or '文件校验失败'))
         dev_id = request.form.get(f'config_text_device_id_{n}') or None
+        display_name = (request.form.get(f'config_text_name_{n}') or '').strip()
         content = ''
         try:
             with open(os.path.join('static', tpath), 'r', encoding='utf-8', errors='replace') as fh:
                 content = fh.read()
         except Exception:
             pass
-        config_texts.append({'device_id': dev_id, 'content': content,
-                             'file_path': tpath, 'file_name': fobj.filename or ''})
+        config_texts.append({
+            'device_id': dev_id,
+            'name': display_name or (fobj.filename or '').strip(),
+            'content': content,
+            'file_path': tpath,
+            'file_name': fobj.filename or '',
+        })
     for n, value in request.form.items():
         if not n.startswith('config_text_content_'):
             continue
@@ -3725,7 +3738,16 @@ def api_inspection_upload_report(task_id):
         if not content:
             continue
         dev_id = request.form.get(f'config_text_device_id_{idx}') or None
-        config_texts.append({'device_id': dev_id, 'content': content, 'file_path': '', 'file_name': ''})
+        display_name = (request.form.get(f'config_text_name_{idx}') or '').strip()
+        if not display_name and not dev_id:
+            return _upload_fail(f'核心设备文本配置第 {int(idx) + 1} 项请填写配置名称或关联设备')
+        config_texts.append({
+            'device_id': dev_id,
+            'name': display_name,
+            'content': content,
+            'file_path': '',
+            'file_name': '',
+        })
     config_text_skip_reason = (request.form.get('config_text_skip_reason') or '').strip()
 
     # 拓扑图
@@ -3775,7 +3797,8 @@ def api_inspection_upload_report(task_id):
                 current_user_name=me.realname or me.username,
                 force=me.is_admin,
                 report_path=report_path, conclusion=conclusion, remark=remark,
-                config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
+                config_zip_path=config_zip_path, config_zip_file_name=config_zip_file_name,
+                config_zip_device_id=config_zip_device_id,
                 config_texts=config_texts,
                 topology_file_path=topology_file_path, topology_file_name=topology_file_name,
                 asset_list_path=asset_list_path, asset_list_file_name=asset_list_file_name,
@@ -3789,7 +3812,8 @@ def api_inspection_upload_report(task_id):
                 remark=remark,
                 reviewer_id=reviewer_id,
                 report_skip_reason=report_skip_reason,
-                config_zip_path=config_zip_path, config_zip_device_id=config_zip_device_id,
+                config_zip_path=config_zip_path, config_zip_file_name=config_zip_file_name,
+                config_zip_device_id=config_zip_device_id,
                 config_zip_skip_reason=config_zip_skip_reason,
                 config_texts=config_texts, config_text_skip_reason=config_text_skip_reason,
                 topology_file_path=topology_file_path, topology_file_name=topology_file_name,

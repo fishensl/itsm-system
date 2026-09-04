@@ -32,7 +32,7 @@ IMPORT_TEMPLATE_FIELDS = {
         ('登录方式', 'login_method'), ('登录用户名', 'username'),
         ('登录密码', 'password'), ('接口', 'interface'), ('系统版本', 'os_version'),
         ('规则库版本', 'rule_version'), ('建设时间', 'build_date'),
-        ('授权开始日期', 'license_start'), ('授权截止日期', 'license_expiry'),
+        ('授权开始', 'license_start'), ('授权截止', 'license_expiry'),
         ('证书到期日期', 'cert_expiry_date'), ('是否维修', 'is_maintenance'),
         ('是否在用', 'is_in_use'), ('备注', 'remark'),
         ('设备ID（可选）', 'device_id'),
@@ -130,6 +130,12 @@ IMPORT_TEMPLATE_HEADER_ALIASES = {
         '设备类型': 'device_type',
         'IP地址': 'ip_address',
         '设备ID': 'device_id',
+        '建设日期': 'build_date',
+        '授权开始日期': 'license_start',
+        '授权开始时间': 'license_start',
+        '授权截止日期': 'license_expiry',
+        '授权截止时间': 'license_expiry',
+        '证书到期': 'cert_expiry_date',
     },
 }
 

@@ -52,4 +52,44 @@ describe('VersionTimeline review summary', () => {
     expect(wrapper.find('.vt-check-row.needs-change').text()).toContain('拓扑图需修改')
     expect(wrapper.find('.vt-check-row.not-applicable').text()).toContain('机房环境不适用')
   })
+
+  it('shows each unlinked configuration by its saved display name', () => {
+    const version: SubmissionVersion = {
+      id: 2,
+      version_no: 1,
+      report_file: false,
+      report_name: '',
+      content: {},
+      submitted_by_name: '工程师',
+      submitted_at: '2026-09-04 09:00',
+      review_status: '待审核',
+      assigned_reviewer_id: null,
+      assigned_reviewer_name: '',
+      reviewed_by_name: '',
+      reviewed_at: '',
+      review_comment: '',
+      revision_requirements: '',
+      checklist: {},
+      assets: [{
+        id: 21,
+        asset_type: 'config_text',
+        file_path: 'uploads/inspection_configs/1/core-a.cfg',
+        file_name: '核心交换机A.cfg',
+        device_id: null,
+        device_name: '',
+        has_content: true,
+        content_text: '',
+        target_id: null,
+        skip_reason: '',
+      }],
+    }
+
+    const wrapper = mount(VersionTimeline, {
+      props: { versions: [version], entityType: 'inspection' },
+      global: { stubs },
+    })
+
+    expect(wrapper.text()).toContain('核心交换机A.cfg 在线查看')
+    expect(wrapper.text()).not.toContain('配置 在线查看')
+  })
 })
