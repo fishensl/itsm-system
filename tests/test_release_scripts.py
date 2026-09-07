@@ -140,6 +140,18 @@ def test_offline_update_does_not_require_zip_or_pypi():
     assert 'backups/key-archive' in script
 
 
+def test_update_probe_always_tests_direct_and_preserves_failure_reason():
+    script = (ROOT / 'scripts' / 'update.sh').read_text(encoding='utf-8')
+    # A configured (possibly stale) proxy must not suppress the direct probe.
+    assert 'if [ ${#ITSM_PROXY_ARRAY[@]} -eq 0 ] && probe_url' not in script
+    assert 'if probe_url "${GITHUB_RELEASE_URL}"; then' in script
+    # Probe failures must retain curl/HTTP diagnostics instead of discarding stderr.
+    assert 'PROBE_HTTP_CODE' in script
+    assert 'PROBE_CURL_RC' in script
+    assert 'HTTP_STATUS:%{http_code}' in script
+    assert '$(probe_reason)' in script
+
+
 def test_backup_timer_units_are_installed_and_hardened():
     installer = (ROOT / 'scripts' / 'lib-install.sh').read_text(encoding='utf-8')
     service = (ROOT / 'scripts' / 'itsm-backup.service').read_text(encoding='utf-8')
