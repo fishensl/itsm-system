@@ -92,6 +92,24 @@ class TestVueSidebarApi:
 
 
 class TestVueDashboardApi:
+    @pytest.mark.parametrize('offsets,expected', [
+        ([-1279, -250, -165, -72], [-72, -165, -250, -1279]),
+        ([-1279, -250, -165, -72, -7, -3, -1, 0, 1, 2, 30, 31],
+         [0, -1, 1, 2, -3, -7, 30, -72]),
+    ])
+    def test_expiring_devices_nearest_first(self, app, admin_client, offsets, expected):
+        from datetime import date, timedelta
+        from models import db, Device
+        with app.app_context():
+            for offset in offsets:
+                db.session.add(Device(device_name=f'到期测试{offset}',
+                                      license_expiry=date.today() + timedelta(days=offset)))
+            db.session.add(Device(device_name='无授权日期'))
+            db.session.commit()
+        body = admin_client.get('/api/dashboard/overview').get_json()
+        assert body['code'] == 0
+        assert [d['remaining_days'] for d in body['data']['expiring_devices']] == expected
+
     def test_overview_shape(self, admin_client):
         r = admin_client.get('/api/dashboard/overview')
         body = r.get_json()

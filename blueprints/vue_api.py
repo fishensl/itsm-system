@@ -436,10 +436,17 @@ def api_dashboard_overview():
     deadline = today + timedelta(days=30)
     expiring_devices = []
     if role in ('admin', 'operator', 'viewer'):
-        for d in Device.query.filter(
-                Device.license_expiry.isnot(None),
-                Device.license_expiry <= deadline
-        ).order_by(Device.license_expiry).limit(8).all():
+        # 两侧各取最近 8 条再合并，避免旧过期记录挤掉最近到期项；
+        # 使用日期比较兼容 PostgreSQL / SQLite，不做数据库特定的日期减法。
+        expired = Device.query.filter(Device.license_expiry < today).order_by(
+            Device.license_expiry.desc(), Device.id).limit(8).all()
+        upcoming = Device.query.filter(
+            Device.license_expiry >= today, Device.license_expiry <= deadline
+        ).order_by(Device.license_expiry, Device.id).limit(8).all()
+        nearest = sorted(expired + upcoming, key=lambda d: (
+            abs((d.license_expiry - today).days), d.license_expiry, d.id
+        ))[:8]
+        for d in nearest:
             expiring_devices.append({
                 'id': d.id, 'device_name': d.device_name,
                 'customer_name': customer_map.get(d.customer_id, '-'),
