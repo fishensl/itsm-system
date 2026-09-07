@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""内外网访问隔离（P3）：外网仅放行工单/故障处置流程，敏感模块一律 403
+"""内外网访问隔离：业务模块按权限开放，敏感读取要求 MFA。
 
 模拟方式：可信网段配置为 10.0.0.0/8，用 X-Real-IP 头模拟内网/外网 IP。
 """
@@ -61,9 +61,9 @@ class TestExternalBlocked:
         assert r.status_code == 403
         assert r.get_json()['code'] == 1
 
-    def test_devices_blocked(self, admin_client):
+    def test_devices_allowed(self, admin_client):
         r = _get(admin_client, '/api/devices', '8.8.8.8')
-        assert r.status_code == 403
+        assert r.status_code == 200
 
     def test_users_blocked(self, admin_client):
         r = _get(admin_client, '/api/users', '8.8.8.8')
@@ -91,6 +91,89 @@ class TestExternalBlocked:
 
 @pytest.mark.usefixtures('networks')
 class TestExternalAllowed:
+    @pytest.mark.parametrize('url', [
+        '/api/devices', '/api/devices/tree', '/api/v2/rack/tree',
+        '/api/topologies', '/api/topologies/templates', '/api/topologies/editor-meta',
+        '/api/dicts/tickets', '/api/dicts/devices', '/api/dicts/rack',
+        '/api/meta/entities?entities=device,ticket',
+    ])
+    def test_business_dependencies_allowed(self, admin_client, url):
+        assert _get(admin_client, url, '8.8.8.8').status_code == 200
+
+    def test_external_password_still_requires_permission(self, viewer_client):
+        response = viewer_client.post('/api/v2/devices/999/reveal-password',
+                                      headers={'X-Real-IP': '8.8.8.8'}, json={})
+        assert response.status_code == 403
+
+    def test_external_config_requires_mfa_and_writes_audit(self, app, admin_client):
+        from models import User, Device, DeviceConfigBackup, AuditLog
+        from utils.totp import issue_operation_token
+        with app.app_context():
+            user = User.query.filter_by(username='admin').one()
+            user.mfa_enabled = True
+            device = Device(device_name='配置守卫设备')
+            db.session.add(device)
+            db.session.flush()
+            backup = DeviceConfigBackup(device_id=device.id, config_content='test-config')
+            db.session.add(backup)
+            db.session.commit()
+            bid = backup.id
+            token = issue_operation_token(user.id, user.auth_version)
+        headers = {'X-Real-IP': '8.8.8.8'}
+        for suffix in ('content', 'download'):
+            denied = admin_client.get(f'/api/devices/config-backup/{bid}/{suffix}', headers=headers)
+            assert denied.status_code == 403
+            assert denied.get_json()['message'] == '需要操作动态码验证'
+        assert admin_client.get('/api/devices/config-backup/diff?a=1&b=2', headers=headers).status_code == 403
+        allowed = admin_client.get(f'/api/devices/config-backup/{bid}/content',
+                                  headers={**headers, 'X-Operation-Token': token})
+        assert allowed.status_code == 200
+        assert allowed.get_json()['data']['content'] == 'test-config'
+        assert 'no-store' in allowed.headers['Cache-Control']
+        with app.app_context():
+            assert AuditLog.query.filter_by(action='device:config_view').count() == 1
+
+    def test_external_mfa_cannot_be_disabled_by_global_switch(self, app, admin_client):
+        from models import User
+        from utils.totp import issue_operation_token
+        paths = ['/api/devices/999/reveal-password', '/api/v2/devices/999/reveal-password']
+        headers = {'X-Real-IP': '8.8.8.8'}
+        for path in paths:
+            denied = admin_client.post(path, json={}, headers=headers)
+            assert denied.status_code == 403
+            assert '绑定账号 MFA' in denied.get_json()['message']
+        with app.app_context():
+            user = User.query.filter_by(username='admin').one()
+            user.mfa_enabled = True
+            db.session.commit()
+            wrong_user_token = issue_operation_token(user.id + 1000, user.auth_version)
+        for path in paths:
+            denied = admin_client.post(path, json={}, headers={
+                **headers, 'X-Operation-Token': wrong_user_token})
+            assert denied.status_code == 403
+            assert denied.get_json()['message'] == '需要操作动态码验证'
+
+    def test_external_ticket_keeps_selected_customer(self, app, admin_client):
+        with app.app_context():
+            customer = Customer(name='外网工单客户')
+            db.session.add(customer)
+            db.session.commit()
+            cid = customer.id
+        created = admin_client.post('/api/tickets', json={
+            'title': '外网报修', 'customer_id': cid,
+        }, headers={'X-Real-IP': '8.8.8.8'})
+        assert created.status_code == 200
+        tid = created.get_json()['data']['id']
+        detail = _get(admin_client, f'/api/tickets/{tid}', '8.8.8.8').get_json()['data']
+        assert detail['customer_id'] == cid
+
+    @pytest.mark.parametrize('path', [
+        '/static/uploads/configs/1/a.cfg', '/static/uploads/inspection_configs/1/a.zip',
+        '/static/uploads/topologies/../configs/1/a.cfg', '/api/devices-other',
+    ])
+    def test_external_config_raw_paths_and_prefix_bypass_blocked(self, admin_client, path):
+        assert _get(admin_client, path, '8.8.8.8').status_code in (302, 403)
+
     def test_ticket_list_allowed(self, admin_client):
         r = _get(admin_client, '/api/tickets', '8.8.8.8')
         assert r.status_code == 200
@@ -163,11 +246,13 @@ class TestInternalAccess:
         assert 'customer' in keys
 
     def test_sidebar_external_trimmed(self, admin_client):
-        """外网侧栏仅工作台(→工单)+运维管理(仅工单/故障)"""
+        """外网侧栏显示工单及三项资产功能。"""
         r = _get(admin_client, '/api/auth/sidebar-groups', '8.8.8.8')
         groups = r.get_json()['data']
         keys = [g['key'] for g in groups]
-        assert keys == ['workbench', 'ops']
+        assert keys == ['workbench', 'ops', 'dev']
+        asset = next(g for g in groups if g['key'] == 'dev')
+        assert {c['url'] for c in asset['children']} == {'/app/devices', '/app/rack', '/app/topologies'}
         ops = next(g for g in groups if g['key'] == 'ops')
         urls = [c['url'] for c in ops['children']]
         assert all(('/tickets' in u or '/faults' in u) for u in urls)
@@ -189,10 +274,10 @@ class TestTicketPayloadRedaction:
             db.session.commit()
             cid = c.id
             tid = Ticket.query.filter_by(number='WO-REDACT-1').first().id
-        # 外网：customer 最小集，customer_id 置空，设备隐藏
+        # 外网仍保留工单关联 ID，客户附加信息维持最小集。
         r = _get(admin_client, f'/api/tickets/{tid}', '8.8.8.8')
         d = r.get_json()['data']
-        assert d['customer_id'] is None
+        assert d['customer_id'] == cid
         assert d['customer'] == {'name': '脱敏客户', 'office': 'A栋',
                                  'office_room': '101', 'map_location': 'xx,xx'}
         assert d['related_device_id'] is None

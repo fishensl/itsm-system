@@ -186,9 +186,9 @@ def get_default_groups():
 
 
 def _apply_external_sidebar(groups):
-    """外网裁剪：仅保留工作台（入口指向工单）+ 运维管理的工单/故障两项。
+    """外网保留工单/故障及设备、机柜、拓扑；角色权限过滤仍由调用方执行。
 
-    客户/设备/合同/备件/销售等敏感分组外网一律移除；未配置可信网段（全内网）
+    客户管理/合同/备件/销售等分组外网移除；未配置可信网段（全内网）
     或判定异常时不裁剪（兼容存量部署）。
     """
     from utils.access_control import is_internal_request
@@ -207,6 +207,11 @@ def _apply_external_sidebar(groups):
             children = [c for c in g.get('children', [])
                         if c.get('url') in ('/tickets', '/faults')]
             out.append({**g, 'children': children})
+        elif g['key'] == 'dev':
+            children = [c for c in g.get('children', [])
+                        if c.get('url') in ('/devices', '/rack', '/topologies')]
+            if children:
+                out.append({**g, 'children': children})
     return out
 
 

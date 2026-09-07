@@ -32,9 +32,9 @@ instance.interceptors.request.use((config) => {
   const method = (config.method || 'get').toUpperCase()
   if (method !== 'GET') {
     config.headers.set('X-CSRFToken', getCsrfToken())
-    const operationToken = currentOperationToken()
-    if (operationToken) config.headers.set('X-Operation-Token', operationToken)
   }
+  const operationToken = currentOperationToken()
+  if (operationToken) config.headers.set('X-Operation-Token', operationToken)
   return config
 })
 
@@ -95,4 +95,22 @@ export async function request<T>(config: ItsmRequestConfig): Promise<T> {
 }
 
 export const http = instance
+/** 受保护附件走同源请求携带操作令牌，不把令牌写入 URL。 */
+export async function requestProtectedBlob(url: string): Promise<Blob> {
+  const load = () => instance.get<Blob>(url, { responseType: 'blob' })
+  try {
+    return (await load()).data
+  } catch (error) {
+    const response = (error as AxiosError<Blob>).response
+    if (response?.data instanceof Blob) {
+      const body = JSON.parse(await response.data.text()) as { message?: string }
+      if (response.status === 403 && body.message === '需要操作动态码验证') {
+        await requestOperationToken()
+        return (await load()).data
+      }
+      throw new Error(body.message || '附件下载失败')
+    }
+    throw error
+  }
+}
 export default request

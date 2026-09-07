@@ -1346,7 +1346,7 @@ def api_v2_device_batch_delete():
 @limiter.limit('5 per minute;30 per hour')
 @login_required
 @require_permission('device:reveal')
-@require_op_token()
+@require_op_token(external_required=True)
 def api_device_reveal_password(device_id):
     """查看设备明文密码（审计）。
 
@@ -1474,6 +1474,7 @@ def api_device_config_backups(device_id):
 @vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/download', methods=['GET'])
 @login_required
 @require_permission('device:view')
+@require_op_token(external_required=True)
 def api_device_config_backup_download(backup_id):
     """配置备份文件受控下载（防路径穿越，替代静态裸暴露）"""
     from models import DeviceConfigBackup as _DCB
@@ -1486,19 +1487,28 @@ def api_device_config_backup_download(backup_id):
     base = os.path.realpath(os.path.join('static', 'uploads'))
     if not full.startswith(base + os.sep) or not os.path.isfile(full):
         return fail('文件不存在', 404)
-    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:config_download', 'device', b.device_id, f'下载配置备份 {b.id}')
+    response = send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/content', methods=['GET'])
 @login_required
 @require_permission('device:view')
+@require_op_token(external_required=True)
 def api_device_config_backup_content(backup_id):
     """配置文本在线查看"""
     from models import DeviceConfigBackup as _DCB
     b = _DCB.query.get_or_404(backup_id)
     from utils.customer_scope import require_device_access
     require_device_access(current_user, b.device_rel)
-    return ok({'id': b.id, 'content': b.config_content or ''})
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:config_view', 'device', b.device_id, f'查看配置备份 {b.id}')
+    response = ok({'id': b.id, 'content': b.config_content or ''})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @vue_api_bp.route('/api/devices/<int:device_id>/config-backup', methods=['POST'])
@@ -1599,6 +1609,7 @@ def api_device_config_backup_rollback(backup_id):
 @vue_api_bp.route('/api/devices/config-backup/diff', methods=['GET'])
 @login_required
 @require_permission('device:view')
+@require_op_token(external_required=True)
 def api_device_config_backup_diff():
     """两版本逐行对比"""
     from blueprints.asset.config_backups import _compute_config_diff
@@ -1614,7 +1625,11 @@ def api_device_config_backup_diff():
     from utils.customer_scope import require_device_access
     require_device_access(current_user, ba.device_rel)
     require_device_access(current_user, bb.device_rel)
-    return ok({'lines': _compute_config_diff(ba.config_content or '', bb.config_content or '')})
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:config_diff', 'device', ba.device_id, f'对比配置备份 {a_id}/{b_id}')
+    response = ok({'lines': _compute_config_diff(ba.config_content or '', bb.config_content or '')})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 def _sync_device_count(customer_id):
@@ -1994,15 +2009,15 @@ def _ticket_payload(t, customer_map=None, timing=None):
         'title': t.title,
         'status': t.status,
         'priority': t.priority,
-        'customer_id': None if external else t.customer_id,
+        'customer_id': t.customer_id,
         'customer_name': customer_name,
         # 外网工单客户最小集（名称/办公室/门牌号/地图定位）；内网为 None
         'customer': customer_min,
         'reporter': t.reporter or '',
         'reporter_phone': t.reporter_phone or '',
         'fault_location': t.fault_location or '',
-        'related_device_id': None if external else t.related_device_id,
-        'related_device_name': '' if external else (related_device.device_name if related_device else ''),
+        'related_device_id': t.related_device_id,
+        'related_device_name': related_device.device_name if related_device else '',
         'assigned_to': t.assigned_to or '',
         'created_by': t.created_by or '',
         'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
@@ -2175,16 +2190,18 @@ def api_ticket_create():
     from services.ticket_service import create_ticket, assign_ticket, accept_ticket
     data = request.get_json(silent=True) or {}
     me = current_user.realname or current_user.username
-    # 外网：不绑定客户主数据（下拉已被禁），仅存手填客户名；内网完整
-    external = False
+    # 内外网均保留客户关联，并校验调用者数据范围。
+    from utils.customer_scope import require_customer_access, require_device_access
     try:
-        from utils.access_control import is_internal_request
-        external = not is_internal_request()
-    except Exception:
-        pass
-    if external:
-        data['customer_id'] = None
-        data['customer_name'] = (data.get('customer_name') or '').strip()
+        customer_id = int(data['customer_id']) if data.get('customer_id') else None
+        related_device_id = int(data['related_device_id']) if data.get('related_device_id') else None
+    except (TypeError, ValueError):
+        return fail('客户或设备 ID 无效', 400)
+    if customer_id:
+        require_customer_access(current_user, customer_id)
+    if related_device_id:
+        from models import Device
+        require_device_access(current_user, Device.query.get_or_404(related_device_id))
     try:
         t = create_ticket(data, me)
         # 自接单：录单+派单+接单一体
@@ -2543,8 +2560,10 @@ def api_ticket_dicts():
     ]
     priorities = ['紧急', '高', '中', '低']
     from utils.permission import SEVERITY_LEVELS
+    from utils.customer_scope import apply_customer_scope
+    device_query = apply_customer_scope(_D.query, _D, current_user)
     devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
-               for d in _D.query.order_by(_D.device_name).all()]
+               for d in device_query.order_by(_D.device_name).all()]
     return ok({'customers': customers, 'fault_types': fault_types,
                'statuses': statuses, 'priorities': priorities, 'severity_levels': list(SEVERITY_LEVELS),
                'devices': devices})

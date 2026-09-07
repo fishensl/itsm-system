@@ -308,6 +308,11 @@ router.beforeEach(async (to) => {
   if (!userStore.isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
+  // 外网工作台在侧栏配置中指向工单，登录默认首页也使用同一入口。
+  if (to.path === '/') {
+    const entry = userStore.sidebarGroups.find(group => group.key === 'workbench')?.single_link?.url
+    if (entry === '/app/tickets' || entry === '/tickets') return { path: '/tickets' }
+  }
   // 页面级权限校验：无权限 → 403 提示（不再静默踢回工作台）
   const perm = to.meta.perm as string | undefined
   if (perm && !userStore.hasPerm(perm)) {

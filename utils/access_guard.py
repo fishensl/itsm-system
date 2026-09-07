@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """内外网访问隔离守卫（before_request 全局注册）
 
-外网（非可信网段）仅放行工单/故障处置流程：登录改密、站内通知、工单/故障
-增删改查+挂起/进展/审核/照片、SPA 入口与静态资源；其余敏感模块
-（客户/设备/合同/销售/备件/巡检/用户/报表/AI/通知渠道配置等）一律拒绝。
+外网放行工单/故障、设备、机柜、拓扑及必要字典；仍受角色和客户范围约束。
+密码及配置读取另行强制账号 MFA；管理模块、批量导出及删除保持内网限制。
 
 - API 请求 → 403 JSON {code:1, message}
 - 页面请求 → 302 到 /app/login
@@ -12,6 +11,7 @@
 """
 from flask import request, jsonify, redirect, abort
 from flask_login import current_user
+import posixpath
 
 # 外网放行的路径前缀（其余 /api/* 一律拒绝）
 _EXTERNAL_API_PREFIXES = (
@@ -19,15 +19,27 @@ _EXTERNAL_API_PREFIXES = (
     '/api/notifications',  # 站内通知铃铛
     '/api/tickets',    # 工单主流程
     '/api/faults',     # 故障主流程
+    '/api/devices',
+    '/api/v2/devices',
+    '/api/v2/rack',
+    '/api/topologies',
+    '/api/security/credential-envelope',
 )
+_EXTERNAL_API_EXACT = {
+    '/api/meta/entities', '/api/dicts/tickets', '/api/dicts/devices',
+    '/api/dicts/rack', '/api/dicts/faults',
+    '/api/fault-categories',
+}
 # 页面/静态前缀（SPA 入口 + 静态资源，照片等上传文件在 static/uploads/ 下）
 _EXTERNAL_PAGE_PREFIXES = ('/app/', '/static/', '/uploads/')
-_EXTERNAL_NAKED_PATHS = {'/', '/login', '/logout', '/healthz'}
+_EXTERNAL_NAKED_PATHS = {'/', '/app', '/login', '/logout', '/healthz'}
 
 # 放行前缀内的敏感子路径（外网仍拒绝）
 _EXTERNAL_BLOCKED_FRAGMENTS = (
     '/export',          # 工单/故障导出（批量数据外泄面）
     '/export-bundle',
+    '/delete',
+    '/batch-delete',
 )
 # 外网禁止的 HTTP 方法（针对具体资源的破坏性操作）
 _EXTERNAL_BLOCKED_METHODS = ('DELETE',)
@@ -38,17 +50,27 @@ def _external_blocked(path, method):
     if method in _EXTERNAL_BLOCKED_METHODS and '/api/' in path:
         return True
     for frag in _EXTERNAL_BLOCKED_FRAGMENTS:
-        if frag in path:
+        if frag in path and path != '/topologies/api/export-file':
             return True
     return False
 
 
 def _external_allowed(path, method):
     """外网请求是否放行"""
+    path = posixpath.normpath(path)
     if _external_blocked(path, method):
         return False
+    # 配置原文件禁止经静态路径绕过 MFA、设备权限与客户范围检查。
+    if path.startswith(('/static/uploads/configs/', '/static/uploads/inspection_configs/',
+                        '/static/uploads/inspection_config_zips/', '/uploads/configs/',
+                        '/uploads/inspection_configs/', '/uploads/inspection_config_zips/')):
+        return False
+    if path in _EXTERNAL_API_EXACT and method in ('GET', 'HEAD'):
+        return True
+    if path.startswith(('/topologies/editor/', '/topologies/api/', '/topologies/download/')):
+        return True
     for prefix in _EXTERNAL_API_PREFIXES:
-        if path.startswith(prefix):
+        if path == prefix.rstrip('/') or path.startswith(prefix.rstrip('/') + '/'):
             return True
     for prefix in _EXTERNAL_PAGE_PREFIXES:
         if path.startswith(prefix):

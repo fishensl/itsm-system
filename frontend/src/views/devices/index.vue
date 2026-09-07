@@ -736,6 +736,7 @@ import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, h } from 'vue'
 import { licenseStatus, licenseNameColor } from './licenseStatus'
 import { inactiveDeviceColor } from '@/utils/deviceName'
+import { requestProtectedBlob } from '@/utils/request'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
@@ -1570,8 +1571,18 @@ function viewBackup(row: DeviceConfigBackup) {
     .catch(() => { /* toast */ })
 }
 
-function downloadBackup(row: DeviceConfigBackup) {
-  window.open(deviceConfigBackupDownloadUrl(row.id), '_blank')
+async function downloadBackup(row: DeviceConfigBackup) {
+  try {
+    const blob = await requestProtectedBlob(deviceConfigBackupDownloadUrl(row.id))
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = row.file_name || `config-${row.id}.txt`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    ui.toast((error as Error).message || '配置下载失败', 'error')
+  }
 }
 
 // ==================== 配置备份写操作（新增/对比/回滚/删除） ====================
