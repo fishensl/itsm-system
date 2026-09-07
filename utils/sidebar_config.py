@@ -186,7 +186,7 @@ def get_default_groups():
 
 
 def _apply_external_sidebar(groups):
-    """外网保留工单/故障及设备、机柜、拓扑；角色权限过滤仍由调用方执行。
+    """外网保留运维管理全部菜单及设备、机柜、拓扑；角色权限过滤仍由调用方执行。
 
     客户管理/合同/备件/销售等分组外网移除；未配置可信网段（全内网）
     或判定异常时不裁剪（兼容存量部署）。
@@ -204,9 +204,7 @@ def _apply_external_sidebar(groups):
             sl['url'] = '/tickets'  # 外网工作台入口直接指向工单（处置主流程）
             out.append({**g, 'single_link': sl})
         elif g['key'] == 'ops':
-            children = [c for c in g.get('children', [])
-                        if c.get('url') in ('/tickets', '/faults')]
-            out.append({**g, 'children': children})
+            out.append({**g, 'children': list(g.get('children', []))})
         elif g['key'] == 'dev':
             children = [c for c in g.get('children', [])
                         if c.get('url') in ('/devices', '/rack', '/topologies')]

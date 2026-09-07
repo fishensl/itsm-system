@@ -3598,6 +3598,11 @@ def api_submission_asset_download(asset_id):
     """下载提交资料文件（配置包/拓扑图/资产清单等，防路径穿越）"""
     from models import SubmissionAsset as _SA
     a = _SA.query.get_or_404(asset_id)
+    if a.asset_type in ('config_text', 'config_zip'):
+        from utils.operation_token import require_op_token
+        denied = require_op_token(external_required=True)(lambda: None)()
+        if denied is not None:
+            return denied
     if not a.file_path:
         return fail('该资料无附件文件', 404)
     return _send_report_file(a.file_path)
@@ -3610,6 +3615,10 @@ def api_submission_asset_content(asset_id):
     """提交资料文本内容在线查看（核心设备文本配置）"""
     from models import SubmissionAsset as _SA
     a = _SA.query.get_or_404(asset_id)
+    from utils.operation_token import require_op_token
+    denied = require_op_token(external_required=True)(lambda: None)()
+    if denied is not None:
+        return denied
     return ok({'id': a.id, 'content': a.content_text or ''})
 
 
@@ -4309,6 +4318,11 @@ def api_v2_inspection_export_bundle():
     from models import Inspection as _I, Customer as _C
     data = _export_body()
     items = {str(x) for x in (data.get('items') or []) if str(x)}
+    if items & {'config_text', 'config_zip'}:
+        from utils.operation_token import require_op_token
+        denied = require_op_token(external_required=True)(lambda: None)()
+        if denied is not None:
+            return denied
     unknown = items - set(BUNDLE_ITEM_LABELS)
     if unknown:
         return fail(f'未知导出项目：{", ".join(sorted(unknown))}', 400)

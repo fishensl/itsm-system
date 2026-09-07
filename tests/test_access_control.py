@@ -33,6 +33,17 @@ def _get(c, url, ip):
     return c.get(url, headers={'X-Real-IP': ip})
 
 
+def test_version_asset_does_not_disclose_configuration():
+    from types import SimpleNamespace
+    from services.submission_version_service import _asset_payload
+    asset = SimpleNamespace(id=1, asset_type='config_text', file_path='', file_name='a.cfg',
+                            device_id=None, content_text='secret-config', target_id=None,
+                            skip_reason='')
+    payload = _asset_payload(asset)
+    assert payload['has_content'] is True
+    assert payload['content_text'] == ''
+
+
 class TestIpMatching:
     def test_cidr_match(self):
         assert ip_in_networks('10.1.2.3', ['10.0.0.0/8'])
@@ -74,28 +85,39 @@ class TestExternalBlocked:
         r = _get(admin_client, '/api/system/overview', '8.8.8.8')
         assert r.status_code == 403
 
-    def test_ticket_export_blocked(self, admin_client):
-        """外网禁止工单导出（批量数据外泄面）"""
-        r = _get(admin_client, '/api/tickets/export', '8.8.8.8')
-        assert r.status_code == 403
+    def test_ticket_export_allowed(self, admin_client):
+        r = admin_client.post('/api/tickets/export', json={}, headers={'X-Real-IP': '8.8.8.8'})
+        assert r.status_code == 200
 
-    def test_ticket_delete_blocked(self, admin_client, app):
+    def test_ticket_delete_allowed(self, admin_client, app):
         with app.app_context():
             from models import Ticket
             db.session.add(Ticket(number='WO-X-1', title='t', customer_id=None))
             db.session.commit()
             tid = Ticket.query.filter_by(number='WO-X-1').first().id
         r = admin_client.delete(f'/api/tickets/{tid}', headers={'X-Real-IP': '8.8.8.8'})
-        assert r.status_code == 403
+        assert r.status_code == 200
 
 
 @pytest.mark.usefixtures('networks')
 class TestExternalAllowed:
+    def test_ops_permissions_and_config_bundle_mfa(self, viewer_client, admin_client):
+        headers = {'X-Real-IP': '8.8.8.8'}
+        denied = viewer_client.delete('/api/task-schedule/999', headers=headers)
+        assert denied.status_code == 403
+        denied = admin_client.post('/api/inspections/export-bundle',
+                                   json={'items': ['config_zip']}, headers=headers)
+        assert denied.status_code == 403
+        assert 'MFA' in denied.get_json()['message']
+
     @pytest.mark.parametrize('url', [
         '/api/devices', '/api/devices/tree', '/api/v2/rack/tree',
         '/api/topologies', '/api/topologies/templates', '/api/topologies/editor-meta',
         '/api/dicts/tickets', '/api/dicts/devices', '/api/dicts/rack',
         '/api/meta/entities?entities=device,ticket',
+        '/api/task-schedule', '/api/inspections', '/api/inspectors',
+        '/api/task-templates', '/api/device-check-templates', '/api/reports',
+        '/api/dicts/inspections', '/api/system/inspection-review-checklist',
     ])
     def test_business_dependencies_allowed(self, admin_client, url):
         assert _get(admin_client, url, '8.8.8.8').status_code == 200
@@ -275,7 +297,9 @@ class TestInternalAccess:
         assert {c['url'] for c in asset['children']} == {'/app/devices', '/app/rack', '/app/topologies'}
         ops = next(g for g in groups if g['key'] == 'ops')
         urls = [c['url'] for c in ops['children']]
-        assert all(('/tickets' in u or '/faults' in u) for u in urls)
+        assert {'/app/tickets', '/app/faults', '/app/task-schedule',
+                '/app/inspectors', '/app/inspections', '/app/task-templates',
+                '/app/device-check-templates', '/app/reports'} == {u.rstrip('/') for u in urls}
         wb = next(g for g in groups if g['key'] == 'workbench')
         assert wb['single_link']['url'].endswith('/tickets')
 

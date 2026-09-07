@@ -110,7 +110,8 @@ def _asset_payload(a):
         'device_id': a.device_id,
         'device_name': device_name,
         'has_content': bool(a.content_text),
-        'content_text': a.content_text or '',
+        # 配置正文只能经带 MFA 守卫的 content 接口读取。
+        'content_text': '',
         'target_id': a.target_id,
         'skip_reason': a.skip_reason or '',
     }

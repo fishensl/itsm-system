@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """内外网访问隔离守卫（before_request 全局注册）
 
-外网放行工单/故障、设备、机柜、拓扑及必要字典；仍受角色和客户范围约束。
-密码及配置读取另行强制账号 MFA；管理模块、批量导出及删除保持内网限制。
+外网放行运维管理全部功能及设备、机柜、拓扑；仍受角色和客户范围约束。
+运维导入导出及删除按原权限执行；密码及配置读取强制账号 MFA。
 
 - API 请求 → 403 JSON {code:1, message}
 - 页面请求 → 302 到 /app/login
@@ -34,6 +34,17 @@ _EXTERNAL_API_EXACT = {
 _EXTERNAL_PAGE_PREFIXES = ('/app/', '/static/', '/uploads/')
 _EXTERNAL_NAKED_PATHS = {'/', '/app', '/login', '/logout', '/healthz'}
 
+# 运维管理全部业务动作交由原路由的 RBAC、审核及数据范围检查处理。
+_EXTERNAL_OPS_PREFIXES = (
+    '/api/tickets', '/api/faults', '/api/inspections', '/api/inspectors',
+    '/api/task-schedule', '/api/task-templates', '/api/device-check-templates',
+    '/api/reports', '/api/v2/export-download', '/reports',
+    '/inspections/export', '/inspections/reports-zip',
+)
+_EXTERNAL_OPS_READ_PATHS = {
+    '/api/dicts/inspections', '/api/system/inspection-review-checklist',
+}
+
 # 放行前缀内的敏感子路径（外网仍拒绝）
 _EXTERNAL_BLOCKED_FRAGMENTS = (
     '/export',          # 工单/故障导出（批量数据外泄面）
@@ -60,6 +71,11 @@ def _external_allowed(path, method):
     path = posixpath.normpath(path)
     # Vite 公共构建文件可能以 export-/delete- 命名；不是业务导出/删除端点。
     if method in ('GET', 'HEAD') and path.startswith('/app/assets/'):
+        return True
+    if path in _EXTERNAL_OPS_READ_PATHS and method in ('GET', 'HEAD'):
+        return True
+    if any(path == prefix or path.startswith(prefix + '/')
+           for prefix in _EXTERNAL_OPS_PREFIXES):
         return True
     if _external_blocked(path, method):
         return False
