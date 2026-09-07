@@ -144,6 +144,7 @@ def api_rack_cabinet_detail(rack_id):
         installs.append({
             'id': i.id,
             'device_id': i.device_id,
+            'is_in_use': i.device_rel.is_in_use if i.device_rel else None,
             'name': name,
             'brand': brand,
             'model': model,

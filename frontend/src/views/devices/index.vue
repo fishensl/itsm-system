@@ -297,8 +297,8 @@
       >
         <template #cell-device_name="{ row }">
           <router-link :to="`/devices/${row.id}`" class="device-name-link" @click.stop
-            :style="{ color: licenseNameColor(row.license_remaining_days) }"
-            :title="licenseStatus(row.license_remaining_days)?.text">
+            :style="{ color: inactiveDeviceColor(row.is_in_use) || licenseNameColor(row.license_remaining_days) }"
+            :title="row.is_in_use === false ? '已停用' : licenseStatus(row.license_remaining_days)?.text">
             {{ row.device_name }}
           </router-link>
         </template>
@@ -735,6 +735,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, h } from 'vue'
 import { licenseStatus, licenseNameColor } from './licenseStatus'
+import { inactiveDeviceColor } from '@/utils/deviceName'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'

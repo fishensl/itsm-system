@@ -19,7 +19,7 @@ describe('授权到期提示', () => {
     expect(source).toContain('query.device_type = \'\'')
     expect(source).toContain('deviceCategories.value = d.device_categories || []')
     expect(source).toContain('#cell-device_name="{ row }"')
-    expect(source).toContain('color: licenseNameColor(row.license_remaining_days)')
+    expect(source).toContain('color: inactiveDeviceColor(row.is_in_use) || licenseNameColor(row.license_remaining_days)')
     expect(source).toContain(':to="`/devices/${row.id}`" class="device-name-link"')
     expect(source).toMatch(/\.device-name-link\s*\{\s*color: var\(--el-color-primary\);\s*text-decoration: none;\s*font-weight: 500;/)
     expect(source).not.toContain('fontWeight: 600')

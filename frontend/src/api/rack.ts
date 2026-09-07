@@ -25,6 +25,7 @@ export interface RackItem {
 }
 
 export interface RackInstall {
+  is_in_use?: boolean | null
   id: number
   rack_id: number
   device_id: number | null

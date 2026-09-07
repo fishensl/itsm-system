@@ -114,7 +114,8 @@
                     <span class="u-label">{{ row.u }}U</span>
                     <span class="u-content">
                       <template v-if="row.install && row.isBlockTop">
-                        <b>{{ row.install.name }}</b>
+                        <b :style="{ color: inactiveDeviceColor(row.install.is_in_use) }"
+                          :title="row.install.is_in_use === false ? '已停用' : undefined">{{ row.install.name }}</b>
                         <span class="u-sub">{{ row.install.brand }} {{ row.install.model }} {{ row.install.ip }}</span>
                       </template>
                       <span v-else-if="!row.install">空</span>
@@ -132,7 +133,12 @@
                   row-key="id"
                   empty-text="暂无上架设备"
                   :column-settings="{ storageKey: 'cols_rack_installs_v2' }"
-                />
+                >
+                  <template #cell-name="{ row }">
+                    <span :style="{ color: inactiveDeviceColor(row.is_in_use) }"
+                      :title="row.is_in_use === false ? '已停用' : undefined">{{ row.name }}</span>
+                  </template>
+                </DataTable>
               </div>
             </div>
           </div>
@@ -257,6 +263,7 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted } from 'vue'
+import { inactiveDeviceColor } from '@/utils/deviceName'
 import { Plus, Refresh, Edit, Delete, Collection, InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
