@@ -196,6 +196,26 @@ class TestExternalAllowed:
         assert r.status_code in (200, 301, 302)
 
 
+@pytest.mark.usefixtures('networks')
+@pytest.mark.parametrize('method', ['GET', 'HEAD'])
+def test_external_export_chunk_is_javascript(client, tmp_path, monkeypatch, method):
+    dist = tmp_path / 'app'
+    assets = dist / 'assets'
+    assets.mkdir(parents=True)
+    (assets / 'export-Drt8K1iI.js').write_text('export const ok = true;', encoding='utf-8')
+    monkeypatch.setattr('blueprints.vue_api._app_dist_dir', lambda: str(dist))
+    response = client.open('/app/assets/export-Drt8K1iI.js', method=method,
+                           environ_overrides={'REMOTE_ADDR': '8.8.8.8'})
+    assert response.status_code == 200
+    assert 'javascript' in response.content_type
+    assert 'Location' not in response.headers
+    if method == 'GET':
+        assert response.data == b'export const ok = true;'
+    from utils.access_guard import _external_allowed
+    assert not _external_allowed('/api/devices/export', 'GET')
+    assert not _external_allowed('/static/uploads/configs/export.txt', 'GET')
+
+
 class TestUploadedStaticFiles:
     def test_anonymous_is_404_and_authenticated_is_allowed(
             self, app, client, admin_client, tmp_path):

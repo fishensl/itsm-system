@@ -58,6 +58,9 @@ def _external_blocked(path, method):
 def _external_allowed(path, method):
     """外网请求是否放行"""
     path = posixpath.normpath(path)
+    # Vite 公共构建文件可能以 export-/delete- 命名；不是业务导出/删除端点。
+    if method in ('GET', 'HEAD') and path.startswith('/app/assets/'):
+        return True
     if _external_blocked(path, method):
         return False
     # 配置原文件禁止经静态路径绕过 MFA、设备权限与客户范围检查。
