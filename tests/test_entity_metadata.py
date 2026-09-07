@@ -69,7 +69,7 @@ def test_device_location_power_and_export_profiles_share_one_contract():
             assert list(preset) == [
                 'customer_name', 'rack_location', 'device_name', 'os_version',
                 'rule_version', 'device_type', 'brand', 'model', 'serial_number', 'ip_address',
-                'build_date', 'license_start', 'license_expiry', 'cert_expiry_date',
+                'license_start', 'license_expiry', 'build_date',
                 'is_in_use', 'remark',
             ]
             assert not {

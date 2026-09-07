@@ -122,15 +122,15 @@ class TestDevicePresets:
         from blueprints.vue_export import DEVICE_PRESETS
         assert DEVICE_PRESETS['version'] == [
             'customer', 'rack_location', 'name', 'os_version', 'rule_version',
-            'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
-            'license_expiry', 'cert_expiry_date', 'is_in_use', 'remark']
+            'type', 'brand', 'model', 'sn', 'ip', 'license_start',
+            'license_expiry', 'build_date', 'is_in_use', 'remark']
         response = op_client.post('/api/v2/devices/export', json={'preset': 'version'})
         header, rows = _decode_xlsx(response)
         assert len(rows) == 2
         assert {row[2] for row in rows} == {'核心交换机', '防火墙'}
         assert header == [
             '客户', '机房位置', '名称', '系统版本', '规则库版本', '类型', '品牌',
-            '型号', '序列号', 'IP', '建设时间', '授权开始', '授权截止', '证书到期日期',
+            '型号', '序列号', 'IP', '授权开始', '授权截止', '建设时间',
             '是否在用', '备注',
         ]
 
