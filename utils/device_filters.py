@@ -1,5 +1,6 @@
 """设备列表、树、普通导出和密码审核导出共用筛选。"""
 from sqlalchemy import and_, or_, not_
+from domain_metadata.device_categories import DEVICE_CATEGORIES
 
 
 NON_ROOM_VALUE = '__non_room__'
@@ -24,6 +25,12 @@ def apply_device_filters(query, device_model, rack_install_model, filters):
         value = str(filters.get(key) or '').strip()
         if value:
             query = query.filter(getattr(device_model, key) == value)
+    category = str(filters.get('device_category') or '').strip()
+    if category:
+        keywords = DEVICE_CATEGORIES.get(category, {}).get('keywords', ())
+        # 未知类别不放宽为全量导出。
+        query = query.filter(or_(*(device_model.device_type.ilike(f'%{word}%')
+                                   for word in keywords)) if keywords else False)
     customer_id = filters.get('customer_id')
     if customer_id not in (None, ''):
         query = query.filter(device_model.customer_id == int(customer_id))

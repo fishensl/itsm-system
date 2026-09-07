@@ -42,6 +42,33 @@ def seed(app):
 
 
 class TestDeviceList:
+    def test_quick_categories(self, app, op_client, seed):
+        from models import RackInstall
+        from utils.device_filters import apply_device_filters
+        with app.app_context():
+            for kind in ('核心交换机', '路由器', 'ips', 'WAF', '上网行为管理', '摄像机'):
+                db.session.add(Device(customer_id=seed['c1'], device_name=kind, device_type=kind))
+            # 名称带交换机不能把其它类型错误归类。
+            db.session.add(Device(customer_id=seed['c1'], device_name='交换机附件', device_type='其它'))
+            db.session.commit()
+            for category, expected in [('network', 3), ('security', 4), ('unknown', 0)]:
+                query = apply_device_filters(Device.query, Device, RackInstall,
+                                             {'device_category': category})
+                assert query.count() == expected
+        result = op_client.get('/api/devices', query_string={
+            'device_category': 'security', 'customer_id': seed['c1']}).get_json()['data']
+        assert {item['device_type'] for item in result['items']} == {'ips', 'WAF', '上网行为管理'}
+        narrowed = op_client.get('/api/devices', query_string={
+            'device_category': 'network', 'device_type': '路由器'}).get_json()['data']
+        assert narrowed['total'] == 1
+        tree = op_client.get('/api/devices/tree', query_string={
+            'device_category': 'security'}).get_json()
+        assert tree['code'] == 0
+        assert 'SW-A' not in str(tree['data'])
+        assert 'FW-B' in str(tree['data'])
+        dictionaries = op_client.get('/api/dicts/devices').get_json()['data']
+        assert [c['label'] for c in dictionaries['device_categories']] == ['网络设备', '安全设备']
+
     def test_list_shape(self, op_client, seed):
         r = op_client.get('/api/devices')
         assert r.status_code == 200

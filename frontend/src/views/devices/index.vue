@@ -229,6 +229,16 @@
           <el-button size="small" text type="primary" :icon="Back" @click="backToTree">返回</el-button>
         </template>
       </div>
+      <div class="device-view-switch">
+        <span class="device-view-label">快捷类别</span>
+        <el-button-group>
+          <el-button size="small" type="primary" :plain="!!query.device_category" @click="selectCategory('')">全部设备</el-button>
+          <el-button v-for="category in deviceCategories" :key="category.key" size="small" type="primary"
+            :plain="query.device_category !== category.key" :title="category.description" @click="selectCategory(category.key)">
+            {{ category.label }}
+          </el-button>
+        </el-button-group>
+      </div>
       <div v-if="mode === 'table'" class="device-view-switch">
         <span class="device-view-label">表格视图</span>
         <el-button-group>
@@ -716,7 +726,8 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, h } from 'vue'
+import { licenseStatus } from './licenseStatus'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
@@ -762,7 +773,7 @@ const ui = useUiStore()
 
 // 筛选 + 字典数据
 const query = reactive<Record<string, unknown>>({
-  search: '', brand: '', device_type: '', customer_id: undefined, room_locations: [],
+  search: '', brand: '', device_type: '', device_category: '', customer_id: undefined, room_locations: [],
 })
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
@@ -1079,7 +1090,14 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'build_date', label: '建设时间', minWidth: 100, defaultVisible: false,
       cellClass: () => 'cell-muted' },
     { key: 'license_start', label: '授权开始', minWidth: 100, type: 'date' },
-    { key: 'license_expiry', label: '授权截止', minWidth: 100, type: 'date' },
+    { key: 'license_expiry', label: '授权截止', minWidth: 150, type: 'custom',
+      render: (r) => {
+        const status = licenseStatus(r.license_remaining_days)
+        return h('div', {}, [
+          h('div', {}, String(r.license_expiry || '-')),
+          status ? h('div', { style: { color: status.color, fontWeight: '600', fontSize: '12px' } }, status.text) : null,
+        ])
+      } },
     { key: 'cert_expiry_date', label: '证书到期日期', minWidth: 110, type: 'date' },
     { key: 'is_maintenance', label: '是否维修', width: 90, valueMap: { 'true': '是', 'false': '否' },
       cellClass: () => 'cell-muted' },
@@ -1170,7 +1188,7 @@ onMounted(() => {
 const tree = ref<DeviceTreeGroup[]>([])
 const treeLoading = ref(false)
 const hasFilter = computed(() =>
-  Boolean(query.search || query.brand || query.device_type ||
+  Boolean(query.search || query.brand || query.device_type || query.device_category ||
     (query.room_locations as string[])?.length))
 
 async function loadTree() {
@@ -1180,6 +1198,7 @@ async function loadTree() {
       search: query.search as string || undefined,
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
+      device_category: query.device_category as string || undefined,
       room_locations: query.room_locations as string[] || undefined,
     })
     tree.value = res.tree
@@ -1242,6 +1261,7 @@ async function onExportSubmit(payload: Record<string, unknown>) {
         search: query.search as string || undefined,
         brand: query.brand as string || undefined,
         device_type: query.device_type as string || undefined,
+        device_category: query.device_category as string || undefined,
         is_in_use: query.is_in_use as number | undefined,
         room_locations: query.room_locations as string[] || undefined,
         device_ids: selectedRows.value.map((row) => Number(row.id)),
@@ -1258,6 +1278,7 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       search: query.search as string || undefined,
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
+      device_category: query.device_category as string || undefined,
       is_in_use: query.is_in_use as number | undefined,
       room_locations: query.room_locations as string[] || undefined,
       device_ids: selectedRows.value.map((row) => Number(row.id)),
@@ -1854,8 +1875,15 @@ function enablePasswordChange() {
 }
 
 // 初始化字典
+const deviceCategories = ref<{ key: string; label: string; description: string }[]>([])
+function selectCategory(key: string) {
+  query.device_category = key
+  query.device_type = ''
+  reload()
+}
 import { fetchDeviceDicts } from '@/api/dicts'
 fetchDeviceDicts().then((d) => {
+  deviceCategories.value = d.device_categories || []
   brands.value = d.brands
   deviceTypes.value = d.device_types
   networkTypes.value = d.network_types || []

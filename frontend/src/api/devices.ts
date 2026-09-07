@@ -85,6 +85,7 @@ export interface DeviceForm {
 }
 
 export interface DeviceQuery {
+  device_category?: string
   page?: number
   page_size?: number
   search?: string
@@ -116,7 +117,7 @@ export interface DeviceTreeGroup {
   children: DeviceTreeCustomer[] | Device[]
 }
 
-export function fetchDeviceTree(params?: Pick<DeviceQuery, 'search' | 'brand' | 'device_type' | 'is_in_use' | 'room_locations'>) {
+export function fetchDeviceTree(params?: Pick<DeviceQuery, 'search' | 'brand' | 'device_type' | 'device_category' | 'is_in_use' | 'room_locations'>) {
   return request<{ tree: DeviceTreeGroup[]; total: number }>({
     url: '/api/devices/tree',
     method: 'GET',
@@ -232,6 +233,7 @@ export function fetchPasswordHistory(id: number) {
 }
 
 export interface DeviceExportParams {
+  device_category?: string
   preset?: string
   columns?: string[]
   search?: string

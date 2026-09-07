@@ -3,6 +3,7 @@ import request from '@/utils/request'
 export interface DeviceDicts {
   brands: string[]
   device_types: { name: string }[]
+  device_categories?: { key: string; label: string; description: string }[]
   network_types: string[]
   customers: { id: number; name: string }[]
   installation_positions: string[]

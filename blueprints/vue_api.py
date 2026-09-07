@@ -12,6 +12,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 import os
 
 from models import db, User
+from domain_metadata.device_categories import DEVICE_CATEGORIES
 from utils.permission import get_user_permissions, has_permission, require_permission
 from utils.operation_token import require_op_token
 from utils.json_fields import dumps_json, parse_json
@@ -2587,6 +2588,10 @@ def api_device_dicts():
     return ok({
         'brands': brands,
         'device_types': types,
+        'device_categories': [
+            {'key': key, 'label': value['label'], 'description': '、'.join(value['keywords'])}
+            for key, value in DEVICE_CATEGORIES.items()
+        ],
         'network_types': network_types,
         'customers': customers,
         'installation_positions': list(DEVICE_INSTALLATION_POSITIONS),
