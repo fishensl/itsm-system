@@ -22,8 +22,9 @@ describe('修改密码中的身份验证器', () => {
       expect(wrapper.find('.page-header').exists()).toBe(false)
       expect(wrapper.findAll('.el-tag')).toHaveLength(1)
       expect(wrapper.find('.el-result').exists()).toBe(false)
-      expect(wrapper.find('.binding-summary').text()).toContain('更换绑定')
-      await wrapper.find('.binding-summary button').trigger('click')
+      expect(wrapper.find('.bind-card').classes()).toContain('summary-only')
+      expect(wrapper.find('.binding-actions').text()).toContain('更换绑定')
+      await wrapper.find('.binding-actions button').trigger('click')
       await flushPromises()
       expect(document.body.textContent).toContain('当前动态码或恢复码')
     } finally { wrapper.unmount() }
@@ -36,7 +37,7 @@ describe('修改密码中的身份验证器', () => {
     try {
       await flushPromises()
       expect(wrapper.text()).toContain('首次登录必须先绑定账号 MFA')
-      await wrapper.find('.binding-summary button').trigger('click')
+      await wrapper.find('.binding-actions button').trigger('click')
       await flushPromises()
       expect(mocks.setup).toHaveBeenCalledTimes(1)
       expect(wrapper.find('.bind-grid').exists()).toBe(true)

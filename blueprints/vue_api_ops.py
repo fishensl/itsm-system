@@ -673,9 +673,18 @@ def _as_dt(v):
     return datetime.min
 
 
+def _is_legacy_generated_inspection_report(rel_path):
+    """仅识别 reports 根目录的旧生成器命名；人工上传目录不受文件名/大小影响。"""
+    import re
+    value = str(rel_path or '').strip().replace('\\', '/')
+    if value.startswith(('uploads/', 'static/uploads/')):
+        return False
+    return bool(re.fullmatch(r'巡检报告_.+_\d{8}_\d{6}\.docx', os.path.basename(value)))
+
+
 def _report_download(rel_path):
     """把记录的报告路径解析为 (文件名, 下载 URL)；支持 reports/ 根目录与 static/uploads 两种存储。"""
-    if not rel_path:
+    if not rel_path or _is_legacy_generated_inspection_report(rel_path):
         return None
     v = str(rel_path).strip().replace('\\', '/')
     if not v:
@@ -683,7 +692,7 @@ def _report_download(rel_path):
     name = os.path.basename(v)
     root_full = os.path.realpath(os.path.join(REPORTS_DIR, name))
     root_base = os.path.realpath(REPORTS_DIR)
-    if root_full.startswith(root_base + os.sep) and os.path.isfile(root_full):
+    if not v.startswith(('uploads/', 'static/uploads/')) and root_full.startswith(root_base + os.sep) and os.path.isfile(root_full):
         return (name, '/reports/' + quote(name))
     if v.startswith('static/uploads/'):
         upload_rel = v[len('static/'):]
@@ -759,6 +768,8 @@ def _scan_report_files(date_from, date_to, customer_id, search):
             continue
         for root, _subs, names in os.walk(d):
             for fname in sorted(names, reverse=True):
+                if d == REPORTS_DIR and _is_legacy_generated_inspection_report(fname):
+                    continue
                 full = os.path.join(root, fname)
                 if not os.path.isfile(full):
                     continue
@@ -769,7 +780,8 @@ def _scan_report_files(date_from, date_to, customer_id, search):
                 if customer_id:
                     if not rec or rec.customer_id != customer_id:
                         continue
-                if search and search not in fname:
+                if search and search.casefold() not in fname.casefold() and (
+                        not rec or search.casefold() not in (rec.title or '').casefold()):
                     continue
                 ftype = '巡检' if '巡检' in fname else ('故障' if '故障' in fname else '其他')
                 cid, cname = _customer_of(rec.customer_rel) if rec else (None, '未关联客户')
@@ -870,6 +882,12 @@ def api_reports():
     if not date_from and not date_to and not customer_id:
         date_from = (datetime.now().date() - timedelta(days=365)).isoformat()
 
+    files = _scan_report_files(date_from, date_to, customer_id, search)
+    matched_record_ids = {'inspection': [], 'fault': [], 'ticket': []}
+    for item in files:
+        kind, _, record_id = str(item['id']).partition(':')
+        if kind in matched_record_ids and record_id.isdigit():
+            matched_record_ids[kind].append(int(record_id))
     rows = []
 
     def _add(cid, cname, payload):
@@ -884,10 +902,10 @@ def api_reports():
         if customer_id:
             q = q.filter(_I.customer_id == customer_id)
         if search:
-            q = q.filter(_I.title.ilike(f'%{search}%'))
+            q = q.filter(or_(_I.title.ilike(f'%{search}%'), _I.id.in_(matched_record_ids['inspection'])))
         for i in q.order_by(_I.inspection_date.desc(), _I.id.desc()).all():
             cid, cname = _customer_of(i.customer_rel)
-            rep = _report_download(i.report_file) or _report_download(i.submitted_report)
+            rep = _report_download(i.submitted_report) or _report_download(i.report_file)
             _add(cid, cname, {
                 'id': i.id, 'type': 'inspection',
                 'title': i.title,
@@ -909,7 +927,7 @@ def api_reports():
         if customer_id:
             q = q.filter(_F.customer_id == customer_id)
         if search:
-            q = q.filter(_F.title.ilike(f'%{search}%'))
+            q = q.filter(or_(_F.title.ilike(f'%{search}%'), _F.id.in_(matched_record_ids['fault'])))
         for f in q.order_by(_F.fault_time.desc(), _F.id.desc()).all():
             cid, cname = _customer_of(f.customer_rel)
             rep = _report_download(f.report_file)
@@ -934,7 +952,7 @@ def api_reports():
         if customer_id:
             q = q.filter(_T.customer_id == customer_id)
         if search:
-            q = q.filter(_T.title.ilike(f'%{search}%'))
+            q = q.filter(or_(_T.title.ilike(f'%{search}%'), _T.id.in_(matched_record_ids['ticket'])))
         for t in q.order_by(_T.created_at.desc(), _T.id.desc()).all():
             cid, cname = _customer_of(t.customer_rel)
             rep = _report_download(t.report_file)
@@ -950,8 +968,20 @@ def api_reports():
                 '_sort_dt': _as_dt(t.created_at),
             })
 
-    if tab in ('all', 'file'):
-        rows.extend(_scan_report_files(date_from, date_to, customer_id, search))
+    # 业务记录是主行，报告附件并入对应巡检/故障/工单，不能再重复计数。
+    records = {f"{row['type']}:{row['id']}": row for row in rows}
+    for file_row in files:
+        record = records.get(file_row['id'])
+        if record is not None:
+            attached = list(file_row['report_files'])
+            if record.get('report_url') and not any(
+                    item['url'] == record['report_url'] for item in attached):
+                attached.insert(0, {'name': record['report_name'], 'url': record['report_url'],
+                                    'size_display': '', 'deletable': False})
+            record.update(report_files=attached, has_report=True,
+                          report_name=attached[0]['name'], report_url=attached[0]['url'])
+        elif tab in ('all', 'file'):
+            rows.append(file_row)
 
     # 统一按时间倒序（记录按各自日期，文件按修改时间）
     rows.sort(key=lambda r: r.get('_sort_dt') or datetime.min, reverse=True)
@@ -959,7 +989,7 @@ def api_reports():
         r.pop('_sort_dt', None)
 
     total = len(rows)
-    stats = {'customers': len({r['customer_id'] for r in rows}), 'total': total}
+    stats = {'customers': len({r['customer_id'] for r in rows if r['customer_id'] is not None}), 'total': total}
     items = rows[(page - 1) * page_size: page * page_size]
     return ok({'items': items, 'total': total, 'stats': stats})
 

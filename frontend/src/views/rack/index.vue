@@ -9,19 +9,19 @@
       </div>
     </div>
 
-    <!-- 左侧：地市 → 客户 → 机柜 树 + 右侧：内联详情 -->
+    <!-- 左侧：客户 → 机房 → 机柜 树 + 右侧：内联详情 -->
     <el-row :gutter="12" class="rack-body">
       <el-col :xs="24" :md="6">
         <el-card shadow="never" class="tree-card">
           <div class="tree-header">
-            <span class="tree-title">机柜（按地市）</span>
+            <span class="tree-title">客户 / 机房 / 机柜</span>
             <el-button size="small" text :icon="Refresh" @click="loadTree" />
           </div>
           <el-tree
             :data="treeData"
             node-key="id"
             :props="{ label: 'label', children: 'children' }"
-            :expand-on-click-node="false"
+            :expand-on-click-node="true"
             :highlight-current="true"
             :current-node-key="currentNodeKey"
             :default-expanded-keys="expandedKeys"
@@ -55,6 +55,7 @@
               <span class="color-dot" :style="{ background: detail.color }"></span>
               <b class="rack-name">{{ detail.name }}</b>
               <span class="text-muted">{{ detail.customer_name }}</span>
+              <span class="text-muted">{{ detail.location || '未填写机房' }}</span>
               <div class="rack-actions">
                 <el-button v-if="user.hasPerm('device:edit')" size="small" type="success"
                   :icon="Plus" @click="openInstall()">设备上架</el-button>
@@ -312,15 +313,8 @@ async function fetchInstallPage(params: Record<string, unknown>) {
   return { items: rows.slice(start, start + page_size), total: rows.length, page, page_size }
 }
 
-// ==================== 地市 → 客户 → 机柜 树 ====================
-interface TreeNode {
-  id: string
-  label: string
-  type: 'city' | 'customer' | 'rack'
-  color?: string
-  install_count?: number
-  children?: TreeNode[]
-}
+// ==================== 客户 → 机房 → 机柜 树 ====================
+import { buildRackTree, type TreeNode } from './tree'
 
 const treeData = ref<TreeNode[]>([])
 const expandedKeys = ref<string[]>([])
@@ -329,29 +323,9 @@ const currentNodeKey = ref<string>('')
 async function loadTree() {
   try {
     const cities = await fetchRackTree()
-    const nodes: TreeNode[] = []
-    for (const city of cities) {
-      const custNodes: TreeNode[] = city.customers.map((c) => ({
-        id: `cust-${c.id}`,
-        label: `${c.name}（${c.racks.length}）`,
-        type: 'customer',
-        children: c.racks.map((r) => ({
-          id: `rack-${r.id}`,
-          label: `${r.name} · ${r.total_u}U`,
-          type: 'rack',
-          color: r.color,
-          install_count: r.install_count,
-        })),
-      }))
-      nodes.push({
-        id: `city-${city.city}`,
-        label: `${city.city}（${custNodes.length}）`,
-        type: 'city',
-        children: custNodes,
-      })
-    }
+    const nodes = buildRackTree(cities)
     treeData.value = nodes
-    expandedKeys.value = nodes.filter((n) => n.type === 'city').map((n) => n.id)
+    expandedKeys.value = nodes.map((n) => n.id)
   } catch { /* toast */ }
 }
 

@@ -31,6 +31,26 @@ def _template_row(module, values):
 
 
 class TestImportTemplates:
+    def test_device_customer_dropdown_uses_named_range(self, admin_client, app):
+        import openpyxl
+        with app.app_context():
+            db.session.add(Customer(name='下拉客户完整名称'))
+            db.session.commit()
+        response = admin_client.get('/exports/download-template/device')
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        sheet = workbook.active
+        col = IMPORT_TEMPLATES['device']['headers'].index('客户') + 1
+        validation = next(v for v in sheet.data_validations.dataValidation
+                          if sheet.cell(2, col).coordinate in v.sqref)
+        assert validation.type == 'list'
+        assert validation.showDropDown is False
+        assert validation.showErrorMessage is True
+        destinations = list(workbook.defined_names[validation.formula1].destinations)
+        assert len(destinations) == 1
+        name, cell_range = destinations[0]
+        assert '下拉客户完整名称' in [cell.value for row in workbook[name][cell_range] for cell in row]
+        workbook.close()
+
     def test_device_template_has_field_prompts_formats_and_validation(self, admin_client):
         import openpyxl
 

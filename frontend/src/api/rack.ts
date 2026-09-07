@@ -133,7 +133,7 @@ export function fetchRackDicts() {
 export interface RackTreeCustomer {
   id: number | null
   name: string
-  racks: { id: number; name: string; total_u: number; color: string; install_count: number }[]
+  racks: { id: number; name: string; location: string; total_u: number; color: string; install_count: number }[]
 }
 
 export interface RackTreeCity {

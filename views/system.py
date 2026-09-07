@@ -239,9 +239,14 @@ def download_template(module):
             target_col = tpl['headers'].index(header) + 1
             letter = openpyxl.utils.get_column_letter(dict_col)
             target_letter = openpyxl.utils.get_column_letter(target_col)
+            # 命名范围兼容 Excel/WPS 的跨工作表下拉，避免直接跨表引用失效。
+            range_name = f'DeviceImportOptions{dict_col}'
+            wb.defined_names.add(openpyxl.workbook.defined_name.DefinedName(
+                range_name, attr_text=f"'数据字典'!${letter}$2:${letter}${len(clean_values) + 1}"))
             validation = DataValidation(
                 type='list',
-                formula1=f"'数据字典'!${letter}$2:${letter}${len(clean_values) + 1}",
+                formula1=range_name,
+                showDropDown=False,
                 allow_blank=True,
                 errorTitle='请从下拉列表选择',
                 error='该值必须与系统当前设置一致。',

@@ -126,7 +126,7 @@ def api_rack_cabinet_detail(rack_id):
     from utils.customer_scope import require_customer_access
     require_customer_access(current_user, r.customer_id)
     installs = []
-    for i in sorted(r.installs, key=lambda x: x.start_u or 0):
+    for i in sorted(r.installs, key=lambda x: (-(x.start_u or 0), x.id)):
         if i.device_id and i.device_rel:
             name = i.device_rel.device_name
             brand = i.device_rel.brand or ''
@@ -461,6 +461,7 @@ def api_rack_tree():
             'id': c.id if c else None,
             'name': c.name if c else '未分配客户',
             'racks': [{'id': r.id, 'name': r.name, 'total_u': r.total_u,
+                       'location': r.location or '',
                        'color': r.color or '#0d6efd',
                        'install_count': len(r.installs)}
                       for r in rack_list],

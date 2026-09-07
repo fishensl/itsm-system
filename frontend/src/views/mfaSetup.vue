@@ -16,16 +16,17 @@
       description="请使用腾讯身份验证器扫码并输入 6 位动态码。绑定成功后，系统会继续引导你修改初始密码。"
     />
 
-    <el-card shadow="never" class="bind-card">
+    <el-card shadow="never" class="bind-card" :class="{ 'summary-only': statusLoaded && !setup }">
       <template #header>
         <div class="card-header">
           <div>
-            <div class="card-title">身份验证器（MFA）</div>
-            <div class="card-subtitle">登录及查看设备密码等高风险操作共用同一身份验证器。</div>
+            <div class="card-title">身份验证器 <el-tag v-if="statusLoaded" :type="enabled ? 'success' : 'warning'" size="small">{{ enabled ? '已绑定' : '未绑定' }}</el-tag></div>
+            <div class="card-subtitle">登录和高风险操作共用，换手机前请先换绑。</div>
           </div>
-          <el-tag v-if="statusLoaded" :type="enabled ? 'success' : 'warning'">
-            {{ enabled ? '已绑定' : '等待绑定' }}
-          </el-tag>
+          <div v-if="statusLoaded && !setup" class="binding-actions">
+            <el-button v-if="enabled" @click="rebindVisible = true">更换绑定</el-button>
+            <el-button v-else type="primary" :loading="saving" @click="start">立即绑定</el-button>
+          </div>
         </div>
       </template>
 
@@ -82,15 +83,6 @@
         </div>
       </template>
 
-      <div v-else-if="enabled" class="binding-summary">
-        <span class="card-subtitle">更换手机或重装验证器前，请先完成换绑。</span>
-        <el-button type="primary" plain @click="rebindVisible = true">更换绑定</el-button>
-      </div>
-
-      <div v-else class="binding-summary">
-        <span class="card-subtitle">扫码并输入 6 位动态码即可绑定。</span>
-        <el-button type="primary" :loading="saving" @click="start">立即绑定</el-button>
-      </div>
     </el-card>
 
     <el-dialog v-model="rebindVisible" title="验证当前身份后换绑" width="min(440px, calc(100vw - 32px))" destroy-on-close append-to-body>
@@ -216,11 +208,17 @@ onMounted(() => {
 <style scoped>
 .security-setup { max-width: 920px; margin: 0 auto; }
 .bind-required-alert { margin-bottom: 14px; }
-.binding-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.binding-actions { flex-shrink: 0; }
+.summary-only :deep(.el-card__body) { display: none; }
+.summary-only :deep(.el-card__header) { border-bottom: 0; }
+.embedded { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--itsm-border); }
+.embedded .bind-card { border: 0; background: transparent; }
+.embedded :deep(.el-card__header) { padding: 0; font-weight: normal; }
+.embedded :deep(.el-card__body) { padding: 16px 0 0; }
 .embedded .bind-grid { grid-template-columns: 1fr; gap: 16px; }
 .card-subtitle, .qr-caption { color: var(--itsm-text-muted); font-size: 12px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.card-title { font-size: 15px; font-weight: 600; }
+.card-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.card-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
 .card-subtitle { margin-top: 4px; }
 .bind-grid { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; align-items: center; margin-top: 20px; }
 .qr-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; }

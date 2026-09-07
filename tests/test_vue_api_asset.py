@@ -321,6 +321,16 @@ class TestRackDicts:
 
 
 class TestRackTree:
+    def test_tree_exposes_room_and_detail_orders_u_descending(self, op_client, seed):
+        tree = op_client.get('/api/v2/rack/tree').get_json()['data']
+        for city in tree:
+            for customer in city['customers']:
+                assert all('location' in rack for rack in customer['racks'])
+        detail = op_client.get(f"/api/v2/rack/cabinets/{seed['r1']}").get_json()['data']
+        positions = [row['start_u'] for row in detail['installs']]
+        assert len(positions) >= 2
+        assert positions == sorted(positions, reverse=True)
+
     def test_group_by_city_customer(self, op_client, seed):
         r = op_client.get('/api/v2/rack/tree')
         assert r.status_code == 200

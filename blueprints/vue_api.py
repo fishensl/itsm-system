@@ -3532,6 +3532,8 @@ def api_inspection_regenerate_report(inspection_id):
 
     幂等：已有报告文件时拒绝（避免覆盖已定稿报告）。
     """
+    if not current_app.config.get('AUTO_GENERATE_INSPECTION_REPORT'):
+        return fail('当前仅支持人工上传报告，自动生成功能未启用', 400)
     from services.inspection_service import _generate_report_for_inspection
     from models import Inspection as _IC
     from utils.constants import REVIEW_APPROVED

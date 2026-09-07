@@ -34,4 +34,13 @@ describe('login form native submission safety', () => {
     expect(routerSource).toContain("redirect: { path: '/', query: { accountSecurity: 'mfa' } }")
     expect(routerSource).toContain("path: 'security/mfa'")
   })
+
+  it('keeps password fields top-aligned and the submit action in the dialog footer', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/layouts/MainLayout.vue'), 'utf8')
+    const dialog = source.slice(source.indexOf('class="account-security-dialog"'), source.indexOf('<!-- Toast 容器 -->'))
+    expect(dialog).toContain('label-position="top"')
+    expect(dialog).not.toContain('label-width="90px"')
+    expect(dialog).toContain('width="min(480px, calc(100vw - 32px))"')
+    expect(dialog.indexOf('@click="savePassword"')).toBeGreaterThan(dialog.indexOf('<template #footer>'))
+  })
 })

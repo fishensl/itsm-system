@@ -210,14 +210,15 @@
     <!-- 修改密码弹窗 -->
     <el-dialog
       v-model="pwdVisible"
+      class="account-security-dialog"
       :title="mustChangePassword ? '首次登录必须修改密码' : '修改密码'"
-      width="min(640px, calc(100vw - 32px))"
+      width="min(480px, calc(100vw - 32px))"
       destroy-on-close
       :show-close="!mustChangePassword"
       :close-on-click-modal="!mustChangePassword"
       :close-on-press-escape="!mustChangePassword"
     >
-      <el-form ref="pwdFormRef" :model="pwdForm" label-width="90px">
+      <el-form ref="pwdFormRef" :model="pwdForm" label-position="top" class="account-password-form" @submit.prevent="savePassword">
         <el-form-item label="原密码" prop="old_password"
           :rules="[{ required: true, message: '请输入原密码', trigger: 'blur' }]">
           <el-input v-model="pwdForm.old_password" type="password" show-password autocomplete="current-password" />
@@ -232,13 +233,11 @@
                    { validator: confirmValidator, trigger: 'blur' }]">
           <el-input v-model="pwdForm.confirm" type="password" show-password autocomplete="new-password" />
         </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="pwdSaving" @click="savePassword">确认修改密码</el-button>
-        </el-form-item>
       </el-form>
       <MfaSetup v-if="pwdVisible" embedded />
       <template #footer>
         <el-button v-if="!mustChangePassword" @click="pwdVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="pwdSaving" @click="savePassword">修改密码</el-button>
       </template>
     </el-dialog>
 
@@ -408,6 +407,10 @@ watch(mustChangePassword, (required) => {
 </script>
 
 <style scoped>
+.account-password-form :deep(.el-form-item) { margin-bottom: 16px; }
+.account-password-form :deep(.el-form-item__label) { margin-bottom: 6px; line-height: 20px; }
+.account-password-form :deep(.el-form-item:last-child) { margin-bottom: 0; }
+.account-password-form :deep(.el-input__wrapper) { min-height: 32px; box-sizing: border-box; }
 .layout {
   display: flex;
   height: 100vh;

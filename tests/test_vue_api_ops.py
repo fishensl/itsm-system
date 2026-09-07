@@ -657,8 +657,8 @@ class TestReports:
             if os.path.exists(full):
                 os.remove(full)
 
-    def test_formal_report_file_row(self, op_client, report_seed, app, report_dirs):
-        """正式报告（reports/ 根目录 + report_file）→ 文件行归属客户、URL 指向 /reports/、可删除"""
+    def test_legacy_generated_report_is_hidden_but_retained(self, op_client, report_seed, app, report_dirs):
+        """旧自动报告不再展示，不删除文件、不修改业务记录。"""
         fname = '巡检报告_报告客户A_20260802_151402.docx'
         full = os.path.join(report_dirs['reports'], fname)
         with open(full, 'wb') as fp:
@@ -669,10 +669,11 @@ class TestReports:
                 insp.report_file = fname
                 db.session.commit()
             data = op_client.get('/api/reports', query_string={'tab': 'file'}).get_json()['data']
-            row = next(i for i in data['items'] if i['report_name'] == fname)
-            assert row['customer_name'] == '报告客户A'
-            assert row['deletable'] is True
-            assert row['report_url'].startswith('/reports/')
+            assert not any(i['report_name'] == fname for i in data['items'])
+            data = op_client.get('/api/reports', query_string={'tab': 'inspection'}).get_json()['data']
+            row = next(i for i in data['items'] if i['id'] == report_seed['insp'])
+            assert row['has_report'] is False
+            assert os.path.exists(full)
         finally:
             if os.path.exists(full):
                 os.remove(full)
@@ -703,10 +704,48 @@ class TestReports:
             assert {item['name'] for item in rows[0]['report_files']} == {
                 formal_name, '现场总结.docx'}
             assert rows[0]['status'] == '巡检报告 · 2 个文件'
+            all_data = op_client.get('/api/reports').get_json()['data']
+            related = [row for row in all_data['items'] if row['title'] == '近期巡检']
+            assert len(related) == 1
+            assert related[0]['type'] == 'inspection'
+            assert len(related[0]['report_files']) == 2
+            search_data = op_client.get('/api/reports', query_string={
+                'tab': 'inspection', 'search': '现场总结',
+            }).get_json()['data']
+            assert search_data['total'] == 1
+            assert search_data['items'][0]['id'] == report_seed['insp']
         finally:
             for path in (formal_full, uploaded_full):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_uploaded_same_name_as_generator_is_preserved(self, op_client, report_seed, app, report_dirs):
+        # 即便名称和大小相同，上传件也不能因旧自动报告隐藏规则而丢失。
+        fname = '巡检报告_同名报告_20260902_090601.docx'
+        generated = os.path.join(report_dirs['reports'], fname)
+        uploaded = os.path.join(report_dirs['uploads'], 'inspection_reports', 'same', fname)
+        os.makedirs(os.path.dirname(uploaded), exist_ok=True)
+        for full in (generated, uploaded):
+            with open(full, 'wb') as fp:
+                fp.write(b'x' * 37683)
+        try:
+            with app.app_context():
+                insp = db.session.get(Inspection, report_seed['insp'])
+                insp.report_file = fname
+                insp.submitted_report = 'uploads/inspection_reports/same/' + fname
+                db.session.commit()
+            for tab in ('all', 'inspection', 'file'):
+                data = op_client.get('/api/reports', query_string={'tab': tab}).get_json()['data']
+                rows = [row for row in data['items'] if row['title'] == '近期巡检']
+                assert len(rows) == 1
+                assert len(rows[0]['report_files']) == 1
+                assert rows[0]['report_url'].startswith('/api/reports/file/inspection_reports/same/')
+            assert os.path.exists(generated)
+            assert os.path.exists(uploaded)
+        finally:
+            for full in (generated, uploaded):
+                if os.path.exists(full):
+                    os.remove(full)
 
     def test_download_ok(self, op_client, report_dirs):
         full = os.path.join(report_dirs['uploads'], 'inspection_reports', 'down', 'ok.docx')
