@@ -532,8 +532,11 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="`${fieldLabel('device', 'brand', '品牌', 'form')} / ${fieldLabel('device', 'model', '型号', 'form')}`">
-              <div class="flex-gap">
-                <el-input v-model="form.brand" placeholder="品牌" />
+              <div class="brand-model-fields">
+                <el-select v-model="form.brand" filterable allow-create clearable
+                  placeholder="选择或输入品牌" aria-label="品牌">
+                  <el-option v-for="brand in brands" :key="brand" :label="brand" :value="brand" />
+                </el-select>
                 <el-input v-model="form.model" placeholder="型号" />
               </div>
             </el-form-item>
@@ -1881,6 +1884,8 @@ fetchDeviceDicts().then((d) => {
 </script>
 
 <style scoped>
+.brand-model-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; width: 100%; }
+.brand-model-fields > * { min-width: 0; }
 .filter-card {
   margin-bottom: 12px;
 }
