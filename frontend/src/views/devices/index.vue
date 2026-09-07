@@ -296,8 +296,8 @@
         @selection-change="onSelectionChange"
       >
         <template #cell-device_name="{ row }">
-          <router-link :to="`/app/devices/${row.id}`" @click.stop
-            :style="{ color: licenseNameColor(row.license_remaining_days), fontWeight: 600 }"
+          <router-link :to="`/devices/${row.id}`" class="device-name-link" @click.stop
+            :style="{ color: licenseNameColor(row.license_remaining_days) }"
             :title="licenseStatus(row.license_remaining_days)?.text">
             {{ row.device_name }}
           </router-link>
@@ -1929,6 +1929,11 @@ fetchDeviceDicts().then((d) => {
 </script>
 
 <style scoped>
+.device-name-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
 .brand-model-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; width: 100%; }
 .brand-model-fields > * { min-width: 0; }
 .filter-card {
