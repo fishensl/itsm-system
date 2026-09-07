@@ -1,9 +1,8 @@
 <template>
-  <div class="page-container security-setup">
-    <div class="page-header">
+  <div class="security-setup" :class="{ 'page-container': !embedded, embedded }">
+    <div v-if="!embedded" class="page-header">
       <div>
         <h2 class="page-title">身份验证器</h2>
-        <p class="page-subtitle">一个账号只绑定一个身份验证器，同时用于登录和高风险操作再次确认。</p>
       </div>
     </div>
 
@@ -17,24 +16,12 @@
       description="请使用腾讯身份验证器扫码并输入 6 位动态码。绑定成功后，系统会继续引导你修改初始密码。"
     />
 
-    <el-card shadow="never" class="status-card">
-      <div class="account-status">
-        <span class="purpose-main">
-          <span class="purpose-title">账号 MFA</span>
-          <span class="purpose-desc">登录时验证；查看设备密码等高风险操作时复用同一个 6 位动态码</span>
-        </span>
-        <el-tag :type="enabled ? 'success' : 'warning'" effect="light">
-          {{ enabled ? '已绑定' : '未绑定' }}
-        </el-tag>
-      </div>
-    </el-card>
-
     <el-card shadow="never" class="bind-card">
       <template #header>
         <div class="card-header">
           <div>
-            <div class="card-title">账号 MFA</div>
-            <div class="card-subtitle">同一绑定保护登录，并为查看密码等高风险操作提供再次验证</div>
+            <div class="card-title">身份验证器（MFA）</div>
+            <div class="card-subtitle">登录及查看设备密码等高风险操作共用同一身份验证器。</div>
           </div>
           <el-tag v-if="statusLoaded" :type="enabled ? 'success' : 'warning'">
             {{ enabled ? '已绑定' : '等待绑定' }}
@@ -95,24 +82,18 @@
         </div>
       </template>
 
-      <el-result
-        v-else-if="enabled"
-        icon="success"
-        title="账号 MFA 已绑定"
-        sub-title="登录和高风险操作均使用这一身份验证器。更换手机或重新安装时，请先完成换绑。"
-      >
-        <template #extra>
-          <el-button type="primary" plain @click="rebindVisible = true">更换绑定</el-button>
-        </template>
-      </el-result>
+      <div v-else-if="enabled" class="binding-summary">
+        <span class="card-subtitle">更换手机或重装验证器前，请先完成换绑。</span>
+        <el-button type="primary" plain @click="rebindVisible = true">更换绑定</el-button>
+      </div>
 
-      <el-empty v-else description="账号 MFA 尚未绑定">
+      <div v-else class="binding-summary">
+        <span class="card-subtitle">扫码并输入 6 位动态码即可绑定。</span>
         <el-button type="primary" :loading="saving" @click="start">立即绑定</el-button>
-        <p class="empty-hint">绑定过程只需扫码并输入一次 6 位动态码。</p>
-      </el-empty>
+      </div>
     </el-card>
 
-    <el-dialog v-model="rebindVisible" title="验证当前身份后换绑" width="440px" destroy-on-close>
+    <el-dialog v-model="rebindVisible" title="验证当前身份后换绑" width="min(440px, calc(100vw - 32px))" destroy-on-close append-to-body>
       <el-alert
         type="info"
         :closable="false"
@@ -150,6 +131,7 @@ import { useUserStore } from '@/stores/user'
 import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
+defineProps<{ embedded?: boolean }>()
 const user = useUserStore()
 const status = ref({ account_enabled: false, login_enabled: false, operation_enabled: false,
   operation_uses_account_mfa: true,
@@ -233,15 +215,10 @@ onMounted(() => {
 
 <style scoped>
 .security-setup { max-width: 920px; margin: 0 auto; }
-.bind-required-alert, .status-card { margin-bottom: 14px; }
-.account-status {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  width: 100%; padding: 16px; color: var(--itsm-text); text-align: left;
-  background: var(--itsm-card-bg); border: 1px solid var(--itsm-border); border-radius: 10px;
-}
-.purpose-main { display: flex; flex-direction: column; gap: 4px; }
-.purpose-title { font-size: 15px; font-weight: 600; }
-.purpose-desc, .card-subtitle, .empty-hint, .qr-caption { color: var(--itsm-text-muted); font-size: 12px; }
+.bind-required-alert { margin-bottom: 14px; }
+.binding-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.embedded .bind-grid { grid-template-columns: 1fr; gap: 16px; }
+.card-subtitle, .qr-caption { color: var(--itsm-text-muted); font-size: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .card-title { font-size: 15px; font-weight: 600; }
 .card-subtitle { margin-top: 4px; }
@@ -259,7 +236,6 @@ onMounted(() => {
 .confirm-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 8px; }
 .codes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .codes code { padding: 9px; text-align: center; background: var(--el-fill-color-light); border-radius: 6px; }
-.empty-hint { margin: 10px 0 0; }
 .rebind-form { margin-top: 16px; }
 @media (max-width: 680px) {
   .bind-grid { grid-template-columns: 1fr; }

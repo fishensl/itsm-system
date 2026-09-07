@@ -28,8 +28,10 @@ describe('login form native submission safety', () => {
     const routerSource = readFileSync(resolve(process.cwd(), 'src/router/index.ts'), 'utf8')
 
     expect(layoutSource).toContain('当前账号尚未绑定 MFA')
-    expect(layoutSource).toContain("user.user?.mfa_enabled ? '管理账号 MFA' : '绑定账号 MFA'")
-    expect(layoutSource).toContain("router.push('/security/mfa')")
+    expect(layoutSource).toContain('<MfaSetup v-if="pwdVisible" embedded />')
+    expect(layoutSource).not.toContain('<el-dropdown-item command="mfa">')
+    expect(layoutSource).toContain('const openMfaSettings = () => openPwdDialog()')
+    expect(routerSource).toContain("redirect: { path: '/', query: { accountSecurity: 'mfa' } }")
     expect(routerSource).toContain("path: 'security/mfa'")
   })
 })

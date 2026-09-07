@@ -44,8 +44,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'security/mfa',
         name: 'account-mfa',
-        component: () => import('@/views/mfaSetup.vue'),
-        meta: { title: '身份验证器' },
+        redirect: { path: '/', query: { accountSecurity: 'mfa' } },
       },
       {
         path: 'customers',
