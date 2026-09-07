@@ -885,6 +885,9 @@ def api_v2_device_import():
                 from utils.json_fields import parse_json
                 previous_result = parse_json(previous.result_json, default={})
                 previous_result['duplicate_submission'] = True
+                # 批次记录与业务数据同事务落库；兼容旧批次尚无 committed 字段。
+                previous_result['committed'] = True
+                previous_result['dry_run'] = False
                 return ok(previous_result)
         from utils.customer_scope import apply_customer_scope, has_full_customer_scope
         customers = {c.name: c for c in apply_customer_scope(
@@ -909,6 +912,7 @@ def api_v2_device_import():
             'unknown_network_types': prepared['unknown_network_types'],
             'network_type_options': prepared['network_type_options'],
             'dry_run': dry_run,
+            'committed': False,
             'batch_id': batch_id,
             'file_sha256': file_sha256,
         }
@@ -934,6 +938,11 @@ def api_v2_device_import():
             }
         if dry_run or prepared['counts']['failed']:
             db.session.rollback()
+            if not dry_run:
+                from blueprints.vue_api_sys import audit_log
+                audit_log('device:import_rejected', 'device', None,
+                          f'批次={batch_id}; 模式={mode}; '
+                          f'失败={response["failed"]}; 设备整批未写入')
             return ok(response)
         try:
             result = execute_device_import(
@@ -943,6 +952,8 @@ def api_v2_device_import():
             current_app.logger.exception('设备批量导入执行失败: %s', exc)
             return fail(f'设备导入执行失败：{exc}', 400)
         from utils.json_fields import dumps_json
+        # 该回执与设备变更一起提交；commit 失败只返回错误，不返回成功回执。
+        response['committed'] = True
         db.session.add(DeviceImportBatch(
             batch_id=batch_id, user_id=current_user.id, file_sha256=file_sha256,
             mode=mode, clear_empty=clear_empty, result_json=dumps_json(response)))
@@ -956,7 +967,7 @@ def api_v2_device_import():
             _sync_device_count(customer_id)
         from blueprints.vue_api_sys import audit_log
         audit_log('device:import', 'device', None,
-                  f'模式={mode}; 新增={response["create"]}; 更新={response["update"]}; '
+                  f'批次={batch_id}; 模式={mode}; 新增={response["create"]}; 更新={response["update"]}; '
                   f'无变化={response["unchanged"]}; 密码更新={result["password_updates"]}; '
                   f'传输={"信封" if encrypted_transport else "兼容通道"}')
         return ok(response)

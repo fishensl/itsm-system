@@ -6,7 +6,7 @@
 import re
 from datetime import date, datetime
 
-from models import db, Device, PasswordHistory, Rack, RackInstall
+from models import db, Device, PasswordHistory, Rack, RackInstall, Brand, DeviceType
 from services.base import ServiceError
 from services.device_service import (
     _parse_date,
@@ -189,6 +189,8 @@ def _normalized_values(row, existing=None, clear_empty=False):
     for field in TEXT_FIELDS:
         if _present(row, field, clear_empty):
             values[field] = str(row.get(field) or '').strip()
+            if field in {'device_type', 'brand'} and len(values[field]) > 64:
+                raise ServiceError('设备类型和品牌名称不能超过64个字符')
     if _present(row, 'port', clear_empty):
         raw_port = row.get('port')
         if raw_port in ('', None) and clear_empty:
@@ -441,6 +443,10 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
         )
         name_occurrences[name_key] = name_occurrences.get(name_key, 0) + 1
     counts = {'create': 0, 'update': 0, 'unchanged': 0, 'skipped': 0, 'failed': 0}
+    known_dicts = {
+        'device_type': {name for (name,) in db.session.query(DeviceType.name).all()},
+        'brand': {name for (name,) in db.session.query(Brand.name).all()},
+    }
     skip_details = []
     for row in rows:
         row_no = row['_row']
@@ -520,7 +526,9 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
                     row, customer, existing, clear_empty, planned_slots,
                     claimed_install_ids, snapshot_side_hints)
                 changed = (any(getattr(existing, key) != value for key, value in values.items()) or
-                           bool(password) or location_changed)
+                           bool(password) or location_changed or
+                           any(values.get(field) and values[field] not in names
+                               for field, names in known_dicts.items()))
                 action = 'update' if changed else 'unchanged'
             else:
                 _validate_rack_placement(
@@ -552,6 +560,30 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
             'error_details': error_details, 'skip_details': skip_details,
             'unknown_network_types': unknown,
             'network_type_options': sorted(valid_networks), 'clear_empty': clear_empty}
+
+
+def _sync_import_dictionaries(prepared):
+    """与设备同事务补齐字典；并发同名导入不重复创建，不单独 commit。"""
+    from sqlalchemy import func
+    dialect = db.session.get_bind().dialect.name
+    if dialect == 'postgresql':
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == 'sqlite':
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise ServiceError('当前数据库不支持设备导入字典同步')
+    for field, model in (('device_type', DeviceType), ('brand', Brand)):
+        names = list(dict.fromkeys(
+            item['values'][field] for item in prepared['plan']
+            if item['action'] in {'create', 'update'} and item['values'].get(field)))
+        if not names:
+            continue
+        existing = {name for (name,) in db.session.query(model.name).filter(model.name.in_(names))}
+        missing = [name for name in names if name not in existing]
+        last_order = db.session.query(func.max(model.sort_order)).scalar() or 0
+        for offset, name in enumerate(missing, 1):
+            db.session.execute(insert(model).values(name=name, sort_order=last_order + offset)
+                               .on_conflict_do_nothing(index_elements=['name']))
 
 
 def execute_device_import(prepared, operator_name=''):
@@ -619,4 +651,5 @@ def execute_device_import(prepared, operator_name=''):
             _sync_rack_placement(device, placement)
         if device.customer_id:
             affected_customers.add(device.customer_id)
+    _sync_import_dictionaries(prepared)
     return {'password_updates': password_updates, 'customer_ids': affected_customers}

@@ -245,7 +245,7 @@ def download_template(module):
                 allow_blank=True,
                 errorTitle='请从下拉列表选择',
                 error='该值必须与系统当前设置一致。',
-                showErrorMessage=True,
+                showErrorMessage=header not in {'机房位置', '机柜号', '品牌', '类型'},
             )
             ws.add_data_validation(validation)
             validation.add(f'{target_letter}2:{target_letter}5000')
@@ -263,23 +263,30 @@ def download_template(module):
             validation.add(f'{target_letter}2:{target_letter}5000')
         dict_ws.sheet_state = 'hidden'
 
+        from utils.import_template_guidance import (
+            apply_device_template_guidance, NETWORK_INTERFACE_EXAMPLE, MEETING_INTERFACE_EXAMPLE)
+        field_guide_rows = apply_device_template_guidance(ws, tpl['fields'])
         guide = wb.create_sheet('填写说明')
         guide_rows = [
-            ('字段/主题', '填写规则'),
+            ('字段/主题', '填写格式与规则', '示例'),
+            ('单元格提示', '选中单元格可查看填写提示；有下拉箭头的字段可选择。粘贴数据可能绕过Excel校验，仍须完成系统预检。'),
             ('示例行', '第 2 行仅用于说明，正式导入前请删除。'),
-            ('设备ID（可选）', '系统导出后再导入时优先按设备ID匹配；否则按“客户 + 名称”精确匹配。'),
+            ('更新匹配', '优先按设备ID匹配；无ID时使用客户、名称及序列号、IP、机柜位置等定位。同名设备不能只靠名称区分。'),
             ('空值覆盖', '默认空单元格不覆盖原值；只有在导入界面明确勾选“允许空值清除”时才清空。登录密码空白永不清除。'),
-            ('机房位置 / 机柜号', '请填写该客户已存在的机房和机柜；机柜、起始U位、占用U数作为一个位置组合校验。'),
-            ('起始U位 / 占用U数', '例如起始U位 27、占用U数 4，表示占用 27U-30U；不得超出机柜范围或与其他设备冲突。'),
-            ('电源配置', '从下拉选择单电源、双电源或四电源；该字段表示冗余方式，不用于倍增额定功率。'),
-            ('额定功率', '填写设备整机额定输入功率，单位 W，仅允许非负整数；不要把多个电源模块铭牌功率简单相加。'),
-            ('网络类型', '必须从系统当前网络类型选择；未知值会在预检中聚合提示，确认映射后才可导入。'),
+            ('机房位置 / 机柜号', '可选择现有机房和机柜，也可手填；必须属于该客户。新机柜需配套提供机房位置；实际U位范围、安装面与冲突由系统预检。'),
             ('导入模式', '仅新增：已存在则跳过；仅更新：不存在则跳过；新增并更新：不存在新增、存在更新。'),
         ]
+        guide_rows.extend(field_guide_rows)
+        guide_rows.extend([
+            ('网络设备接口示例', NETWORK_INTERFACE_EXAMPLE, ''),
+            ('会议设备接口示例', MEETING_INTERFACE_EXAMPLE, ''),
+            ('接口填写规则', '按实际设备逐项填写。光电复用口不要重复算作两组独立端口；会议输入、输出分开列出。型号、数量不明时先核实，不强行套用示例。', ''),
+        ])
         for row in guide_rows:
             guide.append(row)
         guide.column_dimensions['A'].width = 24
-        guide.column_dimensions['B'].width = 110
+        guide.column_dimensions['B'].width = 80
+        guide.column_dimensions['C'].width = 32
         guide.freeze_panes = 'A2'
         for cell in guide[1]:
             cell.font = header_font
@@ -287,6 +294,11 @@ def download_template(module):
             cell.alignment = header_align
             cell.border = thin_border
         for row in guide.iter_rows(min_row=2):
+            guide.row_dimensions[row[0].row].height = 48
+            if row[0].value == '接口':
+                guide.row_dimensions[row[0].row].height = 150
+            elif row[0].value in {'网络设备接口示例', '会议设备接口示例'}:
+                guide.row_dimensions[row[0].row].height = 64
             for cell in row:
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
                 cell.border = thin_border

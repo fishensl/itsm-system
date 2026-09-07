@@ -336,6 +336,7 @@ export function importDevices(formData: FormData) {
     unknown_network_types: Record<string, number[]>
     network_type_options: string[]
     dry_run: boolean
+    committed: boolean
     batch_id: string
     file_sha256: string
     duplicate_submission?: boolean

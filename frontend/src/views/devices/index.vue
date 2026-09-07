@@ -49,14 +49,14 @@
       </div>
       <el-form label-width="92px" class="mb-2">
         <el-form-item label="导入模式">
-          <el-radio-group v-model="importMode" @change="importPreview = null">
+          <el-radio-group v-model="importMode" @change="resetImportPreview">
             <el-radio-button value="create">仅新增</el-radio-button>
             <el-radio-button value="update">仅更新</el-radio-button>
             <el-radio-button value="upsert">新增并更新</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="空值处理">
-          <el-checkbox v-model="importClearEmpty" @change="importPreview = null">
+          <el-checkbox v-model="importClearEmpty" @change="resetImportPreview">
             允许空单元格清空原值（密码除外）
           </el-checkbox>
         </el-form-item>
@@ -67,12 +67,19 @@
         <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>
       </el-upload>
       <el-card v-if="importPreview" shadow="never" class="mt-2">
+        <el-alert class="mb-2" type="info" :closable="false" show-icon
+          title="预检／校验结果：以下新增／更新数量为预计值，不代表已写入设备。" />
+        <el-alert v-if="importExecutionError" class="mb-2" type="error" :closable="false"
+          show-icon :title="importExecutionError" />
         <div class="import-summary">
-          <el-tag type="success">新增 {{ importPreview.create }}</el-tag>
-          <el-tag type="primary">更新 {{ importPreview.update }}</el-tag>
+          <el-tag type="info">预计新增 {{ importPreview.create }}</el-tag>
+          <el-tag type="info">预计更新 {{ importPreview.update }}</el-tag>
           <el-tag type="info">无变化 {{ importPreview.unchanged }}</el-tag>
           <el-tag type="warning">跳过 {{ importPreview.skipped }}</el-tag>
           <el-tag type="danger">失败 {{ importPreview.failed }}</el-tag>
+        </div>
+        <div v-if="importPreview.errors.length" class="import-skip-details mt-2">
+          <div v-for="(error, index) in importPreview.errors" :key="index">{{ error }}</div>
         </div>
         <el-alert v-if="importNoActionMessage" class="mt-2" type="warning" :closable="false"
           show-icon :title="importNoActionMessage" />
@@ -1189,13 +1196,19 @@ type ImportPreview = Awaited<ReturnType<typeof importDevicesEncrypted>>
 const importMode = ref<DeviceImportMode>('create')
 const importClearEmpty = ref(false)
 const importPreview = ref<ImportPreview | null>(null)
+const importExecutionError = ref('')
 const importHasActions = computed(() => hasExecutableDeviceImport(importPreview.value))
 const importNoActionMessage = computed(() =>
   deviceImportNoActionMessage(importPreview.value, importMode.value))
 const networkMappings = reactive<Record<string, string>>({})
 
-function onImportFileChange(f: UploadFile) {
+function resetImportPreview() {
   importPreview.value = null
+  importExecutionError.value = ''
+}
+
+function onImportFileChange(f: UploadFile) {
+  resetImportPreview()
   Object.keys(networkMappings).forEach((key) => delete networkMappings[key])
   importFile.value = f.raw ?? null
 }
@@ -1314,6 +1327,7 @@ async function doImport() {
     return
   }
   importing.value = true
+  importExecutionError.value = ''
   try {
     const execute = Boolean(importPreview.value && !importPreview.value.failed && importHasActions.value)
     const fields: Record<string, string> = {
@@ -1324,6 +1338,21 @@ async function doImport() {
     }
     if (execute && importPreview.value?.batch_id) fields.batch_id = importPreview.value.batch_id
     const res = await importDevicesEncrypted(importFile.value, fields)
+    if (execute && (res.failed > 0 || res.dry_run !== false || res.committed !== true)) {
+      importPreview.value = res
+      importExecutionError.value = res.failed > 0
+        ? `确认执行被拒绝：${res.failed} 条校验失败，设备整批未写入。请查看下方明细。`
+        : res.dry_run === true
+          ? '服务器仅返回预检结果，尚未写入设备，不能视为导入成功。'
+          : '未收到数据库提交确认，结果待核实；请保留本批次，不要另建批次重复导入。'
+      ui.toast(importExecutionError.value, 'error')
+      return
+    }
+    if (execute && !hasExecutableDeviceImport(res)) {
+      importPreview.value = res
+      ui.toast(deviceImportNoActionMessage(res, importMode.value), 'warning')
+      return
+    }
     if (!execute) {
       importPreview.value = res
       for (const value of Object.keys(res.unknown_network_types)) {
@@ -1332,7 +1361,7 @@ async function doImport() {
       const noActionMessage = deviceImportNoActionMessage(res, importMode.value)
       if (res.failed) ui.toast('预检完成，请处理失败项', 'warning')
       else if (noActionMessage) ui.toast(noActionMessage, 'warning')
-      else ui.toast('预检通过，请确认执行', 'success')
+      else ui.toast('预检通过，尚未写入设备，请确认执行', 'info')
       if (res.errors.length) {
         ElMessageBox.alert(res.errors.join('\n'), '预检明细', {
           customStyle: { maxHeight: '70vh', overflow: 'auto', whiteSpace: 'pre-wrap' },
@@ -1340,7 +1369,7 @@ async function doImport() {
       }
       return
     }
-    const msg = `导入完成：新增 ${res.create} 条，更新 ${res.update} 条，无变化 ${res.unchanged} 条`
+    const msg = `导入已提交：新增 ${res.create} 条，更新 ${res.update} 条，无变化 ${res.unchanged} 条；批次 ${res.batch_id}`
     ui.toast(msg, 'success')
     if (res.errors.length) {
       ElMessageBox.alert(res.errors.join('\n'), '导入错误明细', {
@@ -1349,7 +1378,13 @@ async function doImport() {
     }
     importVisible.value = false
     importPreview.value = null
-    loadTree()
+    // 导入入口也在客户设备表格中，必须刷新当前视图，不能只更新后台的客户树。
+    reload()
+    // 导入可能新增类型和品牌，成功后同步刷新筛选及编辑下拉。
+    fetchDeviceDicts().then((dicts) => {
+      deviceTypes.value = dicts.device_types
+      brands.value = dicts.brands
+    }).catch(() => { ui.toast('导入已提交，类型和品牌下拉刷新失败，请刷新页面', 'warning') })
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
