@@ -295,6 +295,13 @@
         @row-click="openDetail"
         @selection-change="onSelectionChange"
       >
+        <template #cell-device_name="{ row }">
+          <router-link :to="`/app/devices/${row.id}`" @click.stop
+            :style="{ color: licenseNameColor(row.license_remaining_days), fontWeight: 600 }"
+            :title="licenseStatus(row.license_remaining_days)?.text">
+            {{ row.device_name }}
+          </router-link>
+        </template>
         <template #cell-password="{ row }">
           <div class="password-cell" @click.stop>
             <code>{{ inlinePassword.displayValue(Number(row.id), Boolean(row.has_password)) }}</code>
@@ -727,7 +734,7 @@
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, h } from 'vue'
-import { licenseStatus } from './licenseStatus'
+import { licenseStatus, licenseNameColor } from './licenseStatus'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
@@ -773,7 +780,7 @@ const ui = useUiStore()
 
 // 筛选 + 字典数据
 const query = reactive<Record<string, unknown>>({
-  search: '', brand: '', device_type: '', device_category: '', customer_id: undefined, room_locations: [],
+  search: '', brand: '', device_type: '', device_category: '', device_view: '', customer_id: undefined, room_locations: [],
 })
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
@@ -1160,7 +1167,14 @@ function applyDeviceView(key: string) {
   if (!preset) return
   inlinePassword.clear()
   activeDeviceView.value = key as DeviceViewKey
+  const scope = key === 'version' ? 'version' : ''
+  const scopeChanged = query.device_view !== scope
+  query.device_view = scope
   tableRef.value?.applyColumnPreset?.(preset)
+  if (scopeChanged) {
+    clearSelection()
+    reload()
+  }
 }
 
 async function toggleInlinePassword(row: Record<string, unknown>) {
@@ -1199,6 +1213,7 @@ async function loadTree() {
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
       device_category: query.device_category as string || undefined,
+      device_view: query.device_view as string || undefined,
       room_locations: query.room_locations as string[] || undefined,
     })
     tree.value = res.tree
@@ -1262,6 +1277,7 @@ async function onExportSubmit(payload: Record<string, unknown>) {
         brand: query.brand as string || undefined,
         device_type: query.device_type as string || undefined,
         device_category: query.device_category as string || undefined,
+        device_view: query.device_view as string || undefined,
         is_in_use: query.is_in_use as number | undefined,
         room_locations: query.room_locations as string[] || undefined,
         device_ids: selectedRows.value.map((row) => Number(row.id)),
@@ -1279,6 +1295,7 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
       device_category: query.device_category as string || undefined,
+      device_view: query.device_view as string || undefined,
       is_in_use: query.is_in_use as number | undefined,
       room_locations: query.room_locations as string[] || undefined,
       device_ids: selectedRows.value.map((row) => Number(row.id)),

@@ -26,6 +26,10 @@ def apply_device_filters(query, device_model, rack_install_model, filters):
         if value:
             query = query.filter(getattr(device_model, key) == value)
     category = str(filters.get('device_category') or '').strip()
+    if filters.get('device_view') == 'version' or filters.get('preset') == 'version':
+        version_keywords = [word for group in DEVICE_CATEGORIES.values() for word in group['keywords']]
+        query = query.filter(or_(*(device_model.device_type.ilike(f'%{word}%')
+                                   for word in version_keywords)))
     if category:
         keywords = DEVICE_CATEGORIES.get(category, {}).get('keywords', ())
         # 未知类别不放宽为全量导出。

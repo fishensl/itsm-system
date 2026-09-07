@@ -61,6 +61,11 @@ class TestDeviceList:
         narrowed = op_client.get('/api/devices', query_string={
             'device_category': 'network', 'device_type': '路由器'}).get_json()['data']
         assert narrowed['total'] == 1
+        version = op_client.get('/api/devices', query_string={
+            'device_view': 'version'}).get_json()['data']
+        assert version['total'] == 7
+        assert not {'摄像机', '其它'} & {item['device_type'] for item in version['items']}
+        assert op_client.get('/api/devices').get_json()['data']['total'] == 9
         tree = op_client.get('/api/devices/tree', query_string={
             'device_category': 'security'}).get_json()
         assert tree['code'] == 0

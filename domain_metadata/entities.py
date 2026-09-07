@@ -85,7 +85,7 @@ DEVICE_EXPORT_PRESETS = {
                  'ip_address', 'port', 'login_method', 'username', 'password',
                  'is_in_use', 'pwd_changed_by', 'pwd_changed_at',
                  'rack_name', 'location', 'rack_slot', 'serial_number'),
-    'version': ('customer_name', 'rack_location', 'device_name', 'interface', 'os_version', 'rule_version',
+    'version': ('customer_name', 'rack_location', 'device_name', 'os_version', 'rule_version',
                 'device_type', 'brand', 'model', 'serial_number', 'ip_address', 'build_date',
                 'license_start', 'license_expiry', 'cert_expiry_date', 'is_in_use', 'remark'),
     'update': ('customer_name', 'device_name', 'device_type', 'rack_location', 'rack_name',
