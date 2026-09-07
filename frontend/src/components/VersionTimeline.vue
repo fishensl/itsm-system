@@ -242,8 +242,9 @@ function timelineType(v: SubmissionVersion): 'primary' | 'success' | 'warning' |
   return 'primary'
 }
 
-function download(v: SubmissionVersion) {
-  window.open(versionReportUrl(props.entityType, v.id), '_blank')
+async function download(v: SubmissionVersion) {
+  const { downloadProtectedFile } = await import('@/utils/request')
+  await downloadProtectedFile(versionReportUrl(props.entityType, v.id), v.report_name)
 }
 </script>
 

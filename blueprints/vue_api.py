@@ -4001,6 +4001,7 @@ def api_ticket_report_download(version_id):
     return _send_report_file(v.report_file, download_name=download_name)
 
 
+@require_op_token(external_required=True)
 def _send_report_file(rel_path, download_name=None):
     """安全下载 static/uploads/ 下的报告文件：realpath 校验防路径穿越。
 
@@ -4308,6 +4309,7 @@ def api_v2_inspection_export():
 @vue_api_bp.route('/api/inspections/export-bundle', methods=['POST'])
 @login_required
 @require_permission('inspection:view')
+@require_op_token(external_required=True)
 def api_v2_inspection_export_bundle():
     """巡检资料包 zip：客户/巡检{id}_{标题}/项目/ 目录 + 记录明细.xlsx（仅最新版本）"""
     from sqlalchemy.orm import joinedload as _jl
@@ -4696,6 +4698,7 @@ def api_v2_fault_import():
 
 @vue_api_bp.route('/api/v2/export-download/<token>', methods=['GET'])
 @login_required
+@require_op_token(external_required=True)
 def api_v2_export_download(token):
     """一次性文件下载（bundle zip / 设备密码包；GET 后即删；密码包经响应头下发密码）"""
     from blueprints.vue_export import serve_export_file

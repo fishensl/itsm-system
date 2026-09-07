@@ -51,7 +51,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { ref, reactive, computed, onMounted, h, type VNode } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
-import { http } from '@/utils/request'
+import { http, downloadProtectedFile } from '@/utils/request'
 import type { PageResult } from '@/types'
 import {
   fetchReports, REPORT_TYPE_TAG, REPORT_TYPE_MAP, type ReportTab,
@@ -90,7 +90,10 @@ function reportCell(row: Record<string, any>): string | VNode {
     h('div', { class: 'report-file-item' }, [
       h('span', { class: 'report-name', title: file.name }, file.name),
       h('span', { class: 'report-size' }, file.size_display ? `（${file.size_display}）` : ''),
-      h('a', { class: 'report-download', href: file.url, target: '_blank' }, '下载'),
+      h('a', { class: 'report-download', href: file.url, onClick: (event: MouseEvent) => {
+        event.preventDefault()
+        void downloadProtectedFile(file.url, file.name)
+      } }, '下载'),
     ])))
 }
 
@@ -142,7 +145,7 @@ async function fetchReportsData(params: Record<string, any>): Promise<PageResult
 function reload() { tableRef.value?.refresh() }
 
 function downloadReport(row: Record<string, unknown>) {
-  if (row.report_url) window.open(row.report_url as string, '_blank')
+  if (row.report_url) void downloadProtectedFile(row.report_url as string)
 }
 
 async function deleteFile(row: Record<string, unknown>) {

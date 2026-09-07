@@ -101,6 +101,29 @@ class TestExternalBlocked:
 
 @pytest.mark.usefixtures('networks')
 class TestExternalAllowed:
+    def test_report_download_mfa_only_external(self, app, admin_client, tmp_path, monkeypatch):
+        from models import User
+        from utils.totp import issue_operation_token
+        monkeypatch.setattr('blueprints.vue_api_ops.UPLOADS_DIR', str(tmp_path))
+        (tmp_path / 'report.pdf').write_bytes(b'%PDF-test')
+        path = '/api/reports/file/report.pdf'
+        headers = {'X-Real-IP': '8.8.8.8'}
+        denied = admin_client.get(path, headers=headers)
+        assert denied.status_code == 403
+        assert '绑定账号 MFA' in denied.get_json()['message']
+        assert _get(admin_client, path, '10.1.2.3').data == b'%PDF-test'
+        with app.app_context():
+            user = User.query.filter_by(username='admin').one()
+            user.mfa_enabled = True
+            db.session.commit()
+            token = issue_operation_token(user.id, user.auth_version)
+        assert admin_client.get(path, headers=headers).get_json()['message'] == '需要操作动态码验证'
+        allowed = admin_client.get(path, headers={**headers, 'X-Operation-Token': token})
+        assert allowed.status_code == 200
+        assert allowed.data == b'%PDF-test'
+        for url in ('/reports/test.docx', '/api/v2/export-download/test'):
+            assert admin_client.get(url, headers=headers).status_code == 403
+
     def test_ops_permissions_and_config_bundle_mfa(self, viewer_client, admin_client):
         headers = {'X-Real-IP': '8.8.8.8'}
         denied = viewer_client.delete('/api/task-schedule/999', headers=headers)

@@ -850,6 +850,10 @@ def _scan_report_files(date_from, date_to, customer_id, search):
 @require_permission('report:view')
 def api_report_file_download(rel_path):
     """报告中心通用下载：static/uploads 下上传的报告文件（realpath 防路径穿越）"""
+    from utils.operation_token import require_op_token
+    denied = require_op_token(external_required=True)(lambda: None)()
+    if denied is not None:
+        return denied
     full = os.path.realpath(os.path.join(UPLOADS_DIR, rel_path))
     base = os.path.realpath(UPLOADS_DIR)
     if not full.startswith(base + os.sep) or not os.path.isfile(full):

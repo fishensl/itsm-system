@@ -99,6 +99,10 @@ def inspection_export():
 @require_permission('inspection:view')
 def inspection_reports_zip():
     """巡检记录+报告文件打包下载（按客户/时间段筛选）"""
+    from utils.operation_token import require_op_token
+    denied = require_op_token(external_required=True)(lambda: None)()
+    if denied is not None:
+        return denied
     from datetime import date
     from utils.excel_export import export_xlsx, send_temp_export
     from utils.report_zip import build_records_zip

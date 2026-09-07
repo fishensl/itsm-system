@@ -55,9 +55,8 @@ async function load() {
     return
   }
   try {
-    const resp = await fetch(props.url!, { credentials: 'same-origin' })
-    if (!resp.ok) throw new Error('加载失败')
-    const blob = await resp.blob()
+    const { requestProtectedBlob } = await import('@/utils/request')
+    const blob = await requestProtectedBlob(props.url!)
     if (k === 'docx') {
       const { renderAsync } = await import('docx-preview')
       const buf = await blob.arrayBuffer()
@@ -93,8 +92,9 @@ function cleanup() {
   if (docxBox.value) docxBox.value.innerHTML = ''
 }
 
-function download() {
-  window.open(props.url, '_blank')
+async function download() {
+  const { downloadProtectedFile } = await import('@/utils/request')
+  if (props.url) await downloadProtectedFile(props.url, props.fileName)
 }
 
 watch(() => [props.url, props.text], load, { immediate: true })

@@ -69,6 +69,11 @@ def _external_blocked(path, method):
 def _external_allowed(path, method):
     """外网请求是否放行"""
     path = posixpath.normpath(path)
+    # 报告原文件只能从受 MFA 保护的报告下载入口访问。
+    if path.startswith(('/static/uploads/inspection_reports/', '/static/uploads/ticket_reports/',
+                        '/static/uploads/reports/', '/uploads/inspection_reports/',
+                        '/uploads/ticket_reports/', '/uploads/reports/')):
+        return False
     # Vite 公共构建文件可能以 export-/delete- 命名；不是业务导出/删除端点。
     if method in ('GET', 'HEAD') and path.startswith('/app/assets/'):
         return True
