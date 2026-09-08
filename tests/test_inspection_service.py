@@ -28,6 +28,22 @@ def inspection(ctx):
 
 
 class TestReviewFlow:
+    def test_disabled_generation_blocks_legacy_endpoint(self, admin_client, app, monkeypatch):
+        monkeypatch.setitem(app.config, 'AUTO_GENERATE_INSPECTION_REPORT', False)
+        response = admin_client.post('/api/inspections/999999/regenerate-report')
+        assert response.status_code == 400
+        assert '仅支持人工上传报告' in response.get_json()['message']
+
+    def test_approve_does_not_generate_when_disabled(self, ctx, inspection, monkeypatch, app):
+        monkeypatch.setitem(app.config, 'AUTO_GENERATE_INSPECTION_REPORT', False)
+        generate = []
+        monkeypatch.setattr(inspection_service, '_generate_report_for_inspection',
+                            lambda record: generate.append(record.id))
+        inspection_service.submit_for_review(inspection, 'op')
+        inspection_service.review_inspection(inspection, True, 'admin')
+        assert db.session.get(Inspection, inspection).review_status == '已通过'
+        assert generate == []
+
     def test_submit_for_review(self, ctx, inspection):
         inspection_service.submit_for_review(inspection, 'op')
         i = Inspection.query.get(inspection)

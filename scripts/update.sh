@@ -91,9 +91,52 @@ GITHUB_RELEASE_SHA_URL=""
 GITHUB_RELEASE_BASE=""
 ITSM_AVAILABLE=()
 
-# 探测 URL 可用性（Range 请求 1 字节，HTTP 200/206 即可用，每个 ≤10s）
+# 探测 URL 可用性（Range 请求 1 字节，任意 2xx 即可用，每个 ≤10s）。
+#
+# 注意：这里不能使用 curl -f 并吞掉 stderr。否则 DNS、连接超时、TLS、403/404
+# 和镜像不支持 Range 都会被错误地显示成“通道不可达”，现场无法判断真正原因。
+# 探测结果写入以下全局变量，调用方会把它们带到日志中：
+#   PROBE_HTTP_CODE / PROBE_CURL_RC / PROBE_ERROR
 probe_url() {
-    curl -sfL -r 0-0 -o /dev/null --connect-timeout 5 --max-time 10 "$@" >/dev/null 2>&1
+    local result rc
+    PROBE_HTTP_CODE=""
+    PROBE_CURL_RC=0
+    PROBE_ERROR=""
+
+    result=$(curl -sS -L -r 0-0 -o /dev/null \
+        --connect-timeout 5 --max-time 10 \
+        -w $'HTTP_STATUS:%{http_code}' "$@" 2>&1) || rc=$?
+    rc=${rc:-0}
+    PROBE_CURL_RC=${rc}
+    PROBE_HTTP_CODE="${result##*HTTP_STATUS:}"
+    if [[ "${result}" == *HTTP_STATUS:* ]]; then
+        PROBE_ERROR="${result%HTTP_STATUS:*}"
+    else
+        PROBE_ERROR="${result}"
+    fi
+    PROBE_ERROR=$(printf '%s' "${PROBE_ERROR}" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g' | cut -c1-240)
+
+    # curl 可能在 HTTP 状态码非 2xx 时仍返回 0（因为这里故意不使用 -f），
+    # 因此同时检查传输返回码和最终 HTTP 状态码。
+    if [ "${rc}" -ne 0 ]; then
+        return "${rc}"
+    fi
+    case "${PROBE_HTTP_CODE}" in
+        2??) return 0 ;;
+        *) return 22 ;;
+    esac
+}
+
+probe_reason() {
+    if [ "${PROBE_CURL_RC:-0}" -ne 0 ]; then
+        printf 'curl=%s%s' "${PROBE_CURL_RC}" \
+            "${PROBE_ERROR:+，${PROBE_ERROR}}"
+    elif [ -n "${PROBE_HTTP_CODE:-}" ] && [ "${PROBE_HTTP_CODE}" != "000" ]; then
+        printf 'HTTP %s%s' "${PROBE_HTTP_CODE}" \
+            "${PROBE_ERROR:+，${PROBE_ERROR}}"
+    else
+        printf '%s' "${PROBE_ERROR:-未知错误}"
+    fi
 }
 
 # 探测全部通道（代理/直连/镜像），可用项写入全局 ITSM_AVAILABLE（格式 kind|url）
@@ -106,12 +149,17 @@ probe_all_channels() {
             ITSM_AVAILABLE+=("proxy|$p")
             echo "  [OK] 代理可用: $p"
         else
-            echo "  [WARN] 代理不可达: $p"
+            echo "  [WARN] 代理不可用: $p ($(probe_reason))"
         fi
     done
-    if [ ${#ITSM_PROXY_ARRAY[@]} -eq 0 ] && probe_url "${GITHUB_RELEASE_URL}"; then
+
+    # 直连必须始终单独测试。此前只有“未配置代理”时才测试直连，
+    # 导致服务器继承了失效 HTTPS_PROXY 后，脚本实际根本没有测直连。
+    if probe_url "${GITHUB_RELEASE_URL}"; then
         ITSM_AVAILABLE+=("direct|")
         echo "  [OK] 直连可用"
+    else
+        echo "  [WARN] 直连不可用: $(probe_reason)"
     fi
     if [ "${ITSM_SKIP_MIRRORS:-0}" != "1" ]; then
         for m in "${ITSM_MIRROR_PREFIX[@]+"${ITSM_MIRROR_PREFIX[@]}"}"; do
@@ -119,6 +167,8 @@ probe_all_channels() {
             if probe_url "${m}/${GITHUB_RELEASE_URL}"; then
                 ITSM_AVAILABLE+=("mirror|${m}/${GITHUB_RELEASE_URL}")
                 echo "  [OK] 镜像可用: $m"
+            else
+                echo "  [WARN] 镜像不可用: $m ($(probe_reason))"
             fi
         done
         for m in "${ITSM_MIRROR_DOMAIN[@]+"${ITSM_MIRROR_DOMAIN[@]}"}"; do
@@ -126,6 +176,8 @@ probe_all_channels() {
             if probe_url "${m}/${GITHUB_RELEASE_BASE}"; then
                 ITSM_AVAILABLE+=("mirror|${m}/${GITHUB_RELEASE_BASE}")
                 echo "  [OK] 镜像可用: $m"
+            else
+                echo "  [WARN] 镜像不可用: $m ($(probe_reason))"
             fi
         done
     fi

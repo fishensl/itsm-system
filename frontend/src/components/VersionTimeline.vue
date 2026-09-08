@@ -216,8 +216,17 @@ function viewContent(a: SubmissionAsset) {
     .catch(() => { /* toast */ })
 }
 
-function downloadAsset(a: SubmissionAsset) {
-  window.open(submissionAssetUrl(a.id), '_blank')
+async function downloadAsset(a: SubmissionAsset) {
+  try {
+    const { requestProtectedBlob } = await import('@/utils/request')
+    const blob = await requestProtectedBlob(submissionAssetUrl(a.id))
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = a.file_name || '资料附件'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch { /* request displays MFA and error feedback */ }
 }
 
 function openTopology() {
@@ -233,8 +242,9 @@ function timelineType(v: SubmissionVersion): 'primary' | 'success' | 'warning' |
   return 'primary'
 }
 
-function download(v: SubmissionVersion) {
-  window.open(versionReportUrl(props.entityType, v.id), '_blank')
+async function download(v: SubmissionVersion) {
+  const { downloadProtectedFile } = await import('@/utils/request')
+  await downloadProtectedFile(versionReportUrl(props.entityType, v.id), v.report_name)
 }
 </script>
 

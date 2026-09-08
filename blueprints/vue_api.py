@@ -12,6 +12,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 import os
 
 from models import db, User
+from domain_metadata.device_categories import DEVICE_CATEGORIES
 from utils.permission import get_user_permissions, has_permission, require_permission
 from utils.operation_token import require_op_token
 from utils.json_fields import dumps_json, parse_json
@@ -436,10 +437,17 @@ def api_dashboard_overview():
     deadline = today + timedelta(days=30)
     expiring_devices = []
     if role in ('admin', 'operator', 'viewer'):
-        for d in Device.query.filter(
-                Device.license_expiry.isnot(None),
-                Device.license_expiry <= deadline
-        ).order_by(Device.license_expiry).limit(8).all():
+        # 两侧各取最近 8 条再合并，避免旧过期记录挤掉最近到期项；
+        # 使用日期比较兼容 PostgreSQL / SQLite，不做数据库特定的日期减法。
+        expired = Device.query.filter(Device.license_expiry < today).order_by(
+            Device.license_expiry.desc(), Device.id).limit(8).all()
+        upcoming = Device.query.filter(
+            Device.license_expiry >= today, Device.license_expiry <= deadline
+        ).order_by(Device.license_expiry, Device.id).limit(8).all()
+        nearest = sorted(expired + upcoming, key=lambda d: (
+            abs((d.license_expiry - today).days), d.license_expiry, d.id
+        ))[:8]
+        for d in nearest:
             expiring_devices.append({
                 'id': d.id, 'device_name': d.device_name,
                 'customer_name': customer_map.get(d.customer_id, '-'),
@@ -891,6 +899,9 @@ def api_v2_device_import():
                 from utils.json_fields import parse_json
                 previous_result = parse_json(previous.result_json, default={})
                 previous_result['duplicate_submission'] = True
+                # 批次记录与业务数据同事务落库；兼容旧批次尚无 committed 字段。
+                previous_result['committed'] = True
+                previous_result['dry_run'] = False
                 return ok(previous_result)
         from utils.customer_scope import apply_customer_scope, has_full_customer_scope
         customers = {c.name: c for c in apply_customer_scope(
@@ -915,6 +926,7 @@ def api_v2_device_import():
             'unknown_network_types': prepared['unknown_network_types'],
             'network_type_options': prepared['network_type_options'],
             'dry_run': dry_run,
+            'committed': False,
             'batch_id': batch_id,
             'file_sha256': file_sha256,
         }
@@ -940,6 +952,11 @@ def api_v2_device_import():
             }
         if dry_run or prepared['counts']['failed']:
             db.session.rollback()
+            if not dry_run:
+                from blueprints.vue_api_sys import audit_log
+                audit_log('device:import_rejected', 'device', None,
+                          f'批次={batch_id}; 模式={mode}; '
+                          f'失败={response["failed"]}; 设备整批未写入')
             return ok(response)
         try:
             result = execute_device_import(
@@ -949,6 +966,8 @@ def api_v2_device_import():
             current_app.logger.exception('设备批量导入执行失败: %s', exc)
             return fail(f'设备导入执行失败：{exc}', 400)
         from utils.json_fields import dumps_json
+        # 该回执与设备变更一起提交；commit 失败只返回错误，不返回成功回执。
+        response['committed'] = True
         db.session.add(DeviceImportBatch(
             batch_id=batch_id, user_id=current_user.id, file_sha256=file_sha256,
             mode=mode, clear_empty=clear_empty, result_json=dumps_json(response)))
@@ -962,7 +981,7 @@ def api_v2_device_import():
             _sync_device_count(customer_id)
         from blueprints.vue_api_sys import audit_log
         audit_log('device:import', 'device', None,
-                  f'模式={mode}; 新增={response["create"]}; 更新={response["update"]}; '
+                  f'批次={batch_id}; 模式={mode}; 新增={response["create"]}; 更新={response["update"]}; '
                   f'无变化={response["unchanged"]}; 密码更新={result["password_updates"]}; '
                   f'传输={"信封" if encrypted_transport else "兼容通道"}')
         return ok(response)
@@ -1333,7 +1352,7 @@ def api_v2_device_batch_delete():
 @limiter.limit('5 per minute;30 per hour')
 @login_required
 @require_permission('device:reveal')
-@require_op_token()
+@require_op_token(external_required=True)
 def api_device_reveal_password(device_id):
     """查看设备明文密码（审计）。
 
@@ -1461,6 +1480,7 @@ def api_device_config_backups(device_id):
 @vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/download', methods=['GET'])
 @login_required
 @require_permission('device:view')
+@require_op_token(external_required=True)
 def api_device_config_backup_download(backup_id):
     """配置备份文件受控下载（防路径穿越，替代静态裸暴露）"""
     from models import DeviceConfigBackup as _DCB
@@ -1473,19 +1493,28 @@ def api_device_config_backup_download(backup_id):
     base = os.path.realpath(os.path.join('static', 'uploads'))
     if not full.startswith(base + os.sep) or not os.path.isfile(full):
         return fail('文件不存在', 404)
-    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:config_download', 'device', b.device_id, f'下载配置备份 {b.id}')
+    response = send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @vue_api_bp.route('/api/devices/config-backup/<int:backup_id>/content', methods=['GET'])
 @login_required
 @require_permission('device:view')
+@require_op_token(external_required=True)
 def api_device_config_backup_content(backup_id):
     """配置文本在线查看"""
     from models import DeviceConfigBackup as _DCB
     b = _DCB.query.get_or_404(backup_id)
     from utils.customer_scope import require_device_access
     require_device_access(current_user, b.device_rel)
-    return ok({'id': b.id, 'content': b.config_content or ''})
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:config_view', 'device', b.device_id, f'查看配置备份 {b.id}')
+    response = ok({'id': b.id, 'content': b.config_content or ''})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @vue_api_bp.route('/api/devices/<int:device_id>/config-backup', methods=['POST'])
@@ -1589,6 +1618,7 @@ def api_device_config_backup_rollback(backup_id):
 @vue_api_bp.route('/api/devices/config-backup/diff', methods=['GET'])
 @login_required
 @require_permission('device:view')
+@require_op_token(external_required=True)
 def api_device_config_backup_diff():
     """两版本逐行对比"""
     from blueprints.asset.config_backups import _compute_config_diff
@@ -1604,7 +1634,11 @@ def api_device_config_backup_diff():
     from utils.customer_scope import require_device_access
     require_device_access(current_user, ba.device_rel)
     require_device_access(current_user, bb.device_rel)
-    return ok({'lines': _compute_config_diff(ba.config_content or '', bb.config_content or '')})
+    from blueprints.vue_api_sys import audit_log
+    audit_log('device:config_diff', 'device', ba.device_id, f'对比配置备份 {a_id}/{b_id}')
+    response = ok({'lines': _compute_config_diff(ba.config_content or '', bb.config_content or '')})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 def _sync_device_count(customer_id):
@@ -1984,15 +2018,15 @@ def _ticket_payload(t, customer_map=None, timing=None):
         'title': t.title,
         'status': t.status,
         'priority': t.priority,
-        'customer_id': None if external else t.customer_id,
+        'customer_id': t.customer_id,
         'customer_name': customer_name,
         # 外网工单客户最小集（名称/办公室/门牌号/地图定位）；内网为 None
         'customer': customer_min,
         'reporter': t.reporter or '',
         'reporter_phone': t.reporter_phone or '',
         'fault_location': t.fault_location or '',
-        'related_device_id': None if external else t.related_device_id,
-        'related_device_name': '' if external else (related_device.device_name if related_device else ''),
+        'related_device_id': t.related_device_id,
+        'related_device_name': related_device.device_name if related_device else '',
         'assigned_to': t.assigned_to or '',
         'created_by': t.created_by or '',
         'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
@@ -2165,16 +2199,18 @@ def api_ticket_create():
     from services.ticket_service import create_ticket, assign_ticket, accept_ticket
     data = request.get_json(silent=True) or {}
     me = current_user.realname or current_user.username
-    # 外网：不绑定客户主数据（下拉已被禁），仅存手填客户名；内网完整
-    external = False
+    # 内外网均保留客户关联，并校验调用者数据范围。
+    from utils.customer_scope import require_customer_access, require_device_access
     try:
-        from utils.access_control import is_internal_request
-        external = not is_internal_request()
-    except Exception:
-        pass
-    if external:
-        data['customer_id'] = None
-        data['customer_name'] = (data.get('customer_name') or '').strip()
+        customer_id = int(data['customer_id']) if data.get('customer_id') else None
+        related_device_id = int(data['related_device_id']) if data.get('related_device_id') else None
+    except (TypeError, ValueError):
+        return fail('客户或设备 ID 无效', 400)
+    if customer_id:
+        require_customer_access(current_user, customer_id)
+    if related_device_id:
+        from models import Device
+        require_device_access(current_user, Device.query.get_or_404(related_device_id))
     try:
         t = create_ticket(data, me)
         # 自接单：录单+派单+接单一体
@@ -2539,8 +2575,10 @@ def api_ticket_dicts():
     ]
     priorities = ['紧急', '高', '中', '低']
     from utils.permission import SEVERITY_LEVELS
+    from utils.customer_scope import apply_customer_scope
+    device_query = apply_customer_scope(_D.query, _D, current_user)
     devices = [{'id': d.id, 'device_name': d.device_name, 'customer_id': d.customer_id}
-               for d in _D.query.order_by(_D.device_name).all()]
+               for d in device_query.order_by(_D.device_name).all()]
     return ok({'customers': customers, 'fault_types': fault_types,
                'statuses': statuses, 'priorities': priorities, 'severity_levels': list(SEVERITY_LEVELS),
                'devices': devices})
@@ -2584,6 +2622,10 @@ def api_device_dicts():
     return ok({
         'brands': brands,
         'device_types': types,
+        'device_categories': [
+            {'key': key, 'label': value['label'], 'description': '、'.join(value['keywords'])}
+            for key, value in DEVICE_CATEGORIES.items()
+        ],
         'network_types': network_types,
         'customers': customers,
         'installation_positions': list(DEVICE_INSTALLATION_POSITIONS),
@@ -3537,6 +3579,8 @@ def api_inspection_regenerate_report(inspection_id):
 
     幂等：已有报告文件时拒绝（避免覆盖已定稿报告）。
     """
+    if not current_app.config.get('AUTO_GENERATE_INSPECTION_REPORT'):
+        return fail('当前仅支持人工上传报告，自动生成功能未启用', 400)
     from services.inspection_service import _generate_report_for_inspection
     from models import Inspection as _IC
     from utils.constants import REVIEW_APPROVED
@@ -3572,6 +3616,11 @@ def api_submission_asset_download(asset_id):
     a = _SA.query.get_or_404(asset_id)
     from utils.file_access_security import require_submission_access
     require_submission_access(a.version_rel)
+    if a.asset_type in ('config_text', 'config_zip'):
+        from utils.operation_token import require_op_token
+        denied = require_op_token(external_required=True)(lambda: None)()
+        if denied is not None:
+            return denied
     if not a.file_path:
         return fail('该资料无附件文件', 404)
     return _send_report_file(a.file_path)
@@ -3586,6 +3635,10 @@ def api_submission_asset_content(asset_id):
     a = _SA.query.get_or_404(asset_id)
     from utils.file_access_security import require_submission_access
     require_submission_access(a.version_rel)
+    from utils.operation_token import require_op_token
+    denied = require_op_token(external_required=True)(lambda: None)()
+    if denied is not None:
+        return denied
     return ok({'id': a.id, 'content': a.content_text or ''})
 
 
@@ -3974,6 +4027,7 @@ def api_ticket_report_download(version_id):
     return _send_report_file(v.report_file, download_name=download_name)
 
 
+@require_op_token(external_required=True)
 def _send_report_file(rel_path, download_name=None):
     """安全下载 static/uploads/ 下的报告文件：realpath 校验防路径穿越。
 
@@ -4281,6 +4335,7 @@ def api_v2_inspection_export():
 @vue_api_bp.route('/api/inspections/export-bundle', methods=['POST'])
 @login_required
 @require_permission('inspection:view')
+@require_op_token(external_required=True)
 def api_v2_inspection_export_bundle():
     """巡检资料包 zip：客户/巡检{id}_{标题}/项目/ 目录 + 记录明细.xlsx（仅最新版本）"""
     from sqlalchemy.orm import joinedload as _jl
@@ -4291,6 +4346,11 @@ def api_v2_inspection_export_bundle():
     from models import Inspection as _I, Customer as _C
     data = _export_body()
     items = {str(x) for x in (data.get('items') or []) if str(x)}
+    if items & {'config_text', 'config_zip'}:
+        from utils.operation_token import require_op_token
+        denied = require_op_token(external_required=True)(lambda: None)()
+        if denied is not None:
+            return denied
     unknown = items - set(BUNDLE_ITEM_LABELS)
     if unknown:
         return fail(f'未知导出项目：{", ".join(sorted(unknown))}', 400)
@@ -4664,6 +4724,7 @@ def api_v2_fault_import():
 
 @vue_api_bp.route('/api/v2/export-download/<token>', methods=['GET'])
 @login_required
+@require_op_token(external_required=True)
 def api_v2_export_download(token):
     """一次性文件下载（bundle zip / 设备密码包；GET 后即删；密码包经响应头下发密码）"""
     from blueprints.vue_export import serve_export_file

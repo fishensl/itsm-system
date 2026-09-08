@@ -321,6 +321,27 @@ class TestRackDicts:
 
 
 class TestRackTree:
+    @pytest.mark.parametrize('in_use', [True, False])
+    def test_rack_install_device_usage_status(self, op_client, seed, app, in_use):
+        with app.app_context():
+            db.session.get(Device, seed['d1']).is_in_use = in_use
+            db.session.commit()
+        # seed 持有外层 app context 和已加载关系；使其读取刚提交的真实状态。
+        db.session.expire_all()
+        detail = op_client.get(f"/api/v2/rack/cabinets/{seed['r1']}").get_json()['data']
+        for row in detail['installs']:
+            assert row['is_in_use'] is (in_use if row['device_id'] else None)
+
+    def test_tree_exposes_room_and_detail_orders_u_descending(self, op_client, seed):
+        tree = op_client.get('/api/v2/rack/tree').get_json()['data']
+        for city in tree:
+            for customer in city['customers']:
+                assert all('location' in rack for rack in customer['racks'])
+        detail = op_client.get(f"/api/v2/rack/cabinets/{seed['r1']}").get_json()['data']
+        positions = [row['start_u'] for row in detail['installs']]
+        assert len(positions) >= 2
+        assert positions == sorted(positions, reverse=True)
+
     def test_group_by_city_customer(self, op_client, seed):
         r = op_client.get('/api/v2/rack/tree')
         assert r.status_code == 200

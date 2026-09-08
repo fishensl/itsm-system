@@ -14,7 +14,7 @@ def boundary(app):
 
 
 def test_spoofed_ip_cannot_bypass_boundary(admin_client, boundary):
-    response = admin_client.get('/api/devices', environ_overrides={'REMOTE_ADDR': '8.8.8.8'},
+    response = admin_client.get('/api/users', environ_overrides={'REMOTE_ADDR': '8.8.8.8'},
                                 headers={'X-Real-IP': '127.0.0.1', 'X-Forwarded-For': '10.1.2.3'})
     assert response.status_code == 403
 
@@ -41,11 +41,18 @@ def test_report_requires_mfa_but_templates_do_not(admin_client, app, boundary, t
     with admin_client.session_transaction() as sess:
         sess['auth_strength'] = 'mfa_totp'
         sess['mfa_verified_at'] = sess['login_at']
-    allowed = admin_client.get(url, headers=external)
+    from models import User
+    from utils.totp import issue_operation_token
+    with app.app_context():
+        user = User.query.filter_by(username='admin').first()
+        user.mfa_enabled = True
+        db.session.commit()
+        token = issue_operation_token(user.id, user.auth_version)
+    allowed = admin_client.get(url, headers={**external, 'X-Operation-Token': token})
     assert allowed.status_code == 200
     assert 'no-store' in allowed.headers['Cache-Control']
     assert allowed.headers['X-Content-Type-Options'] == 'nosniff'
-    assert admin_client.get('/api/devices', headers=external).status_code == 403
+    assert admin_client.get('/api/devices', headers=external).status_code == 200
     assert admin_client.post('/api/devices/1/reveal-password', headers=external).status_code == 403
     # Expired MFA sessions cannot download even when their MFA fields remain set.
     with admin_client.session_transaction() as sess:
@@ -86,9 +93,11 @@ def test_external_operation_verification_cannot_be_disabled(app, monkeypatch):
     monkeypatch.setattr('utils.access_control.is_internal_request', lambda: False)
     with app.app_context():
         user = User.query.filter_by(username='admin').first()
+        user.mfa_enabled = True
+        db.session.commit()
         uid, version = user.id, user.auth_version
         token = issue_operation_token(uid, version)
-    protected = require_op_token()(lambda: 'protected')
+    protected = require_op_token(external_required=True)(lambda: 'protected')
     with app.test_request_context('/'):
         session['_user_id'] = str(uid)
         response, status = protected()

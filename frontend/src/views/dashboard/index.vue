@@ -59,12 +59,14 @@
           <template #header>
             <div class="section-header"><span>30 天内到期授权</span></div>
           </template>
-          <div v-for="d in data.expiring_devices" :key="d.id" class="expiring-item">
-            <span class="expiring-name">{{ d.device_name }}</span>
-            <span class="expiring-cust">{{ d.customer_name }}</span>
-            <el-tag size="small" :type="d.remaining_days < 0 ? 'danger' : 'warning'">
-              {{ d.remaining_days < 0 ? `已过期 ${-d.remaining_days} 天` : `剩 ${d.remaining_days} 天` }}
-            </el-tag>
+          <div v-for="d in data.expiring_devices" :key="d.id" class="license-expiry-item">
+            <div class="license-customer" :title="d.customer_name">{{ d.customer_name }}</div>
+            <div class="license-detail">
+              <span class="expiring-name" :title="d.device_name">{{ d.device_name }}</span>
+              <el-tag size="small" :type="d.remaining_days < 0 ? 'danger' : 'warning'">
+                {{ d.remaining_days < 0 ? `已过期 ${-d.remaining_days} 天` : `剩 ${d.remaining_days} 天` }}
+              </el-tag>
+            </div>
           </div>
         </el-card>
 
@@ -376,6 +378,26 @@ const go = (url: string) => {
   font-size: 11px;
   color: var(--itsm-text-muted);
 }
+.license-expiry-item {
+  min-width: 0;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.license-customer {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--itsm-text-muted);
+  margin-bottom: 4px;
+}
+.license-detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.license-detail .expiring-name { min-width: 0; }
+.license-detail .el-tag { flex-shrink: 0; }
 .expiring-item {
   display: flex;
   align-items: center;

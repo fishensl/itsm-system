@@ -137,9 +137,6 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="mfa">
-                  {{ user.user?.mfa_enabled ? '管理账号 MFA' : '绑定账号 MFA' }}
-                </el-dropdown-item>
                 <el-dropdown-item command="password">
                   修改密码
                 </el-dropdown-item>
@@ -213,14 +210,15 @@
     <!-- 修改密码弹窗 -->
     <el-dialog
       v-model="pwdVisible"
+      class="account-security-dialog"
       :title="mustChangePassword ? '首次登录必须修改密码' : '修改密码'"
-      width="420px"
+      width="min(480px, calc(100vw - 32px))"
       destroy-on-close
       :show-close="!mustChangePassword"
       :close-on-click-modal="!mustChangePassword"
       :close-on-press-escape="!mustChangePassword"
     >
-      <el-form ref="pwdFormRef" :model="pwdForm" label-width="90px">
+      <el-form ref="pwdFormRef" :model="pwdForm" label-position="top" class="account-password-form" @submit.prevent="savePassword">
         <el-form-item label="原密码" prop="old_password"
           :rules="[{ required: true, message: '请输入原密码', trigger: 'blur' }]">
           <el-input v-model="pwdForm.old_password" type="password" show-password autocomplete="current-password" />
@@ -236,9 +234,10 @@
           <el-input v-model="pwdForm.confirm" type="password" show-password autocomplete="new-password" />
         </el-form-item>
       </el-form>
+      <MfaSetup v-if="pwdVisible" embedded />
       <template #footer>
-        <el-button v-if="!mustChangePassword" @click="pwdVisible = false">取消</el-button>
-        <el-button type="primary" :loading="pwdSaving" @click="savePassword">确认修改</el-button>
+        <el-button v-if="!mustChangePassword" @click="pwdVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="pwdSaving" @click="savePassword">修改密码</el-button>
       </template>
     </el-dialog>
 
@@ -268,6 +267,7 @@ import {
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import OpVerifyDialog from '@/components/OpVerifyDialog.vue'
+import MfaSetup from '@/views/mfaSetup.vue'
 import { sidebarTarget, isRouteActive } from '@/utils/sidebarNav'
 import { loadOpenGroups, saveOpenGroups, clearOpenGroups } from '@/utils/sidebarState'
 import { changePassword } from '@/api/auth'
@@ -329,7 +329,7 @@ const onUserCommand = (cmd: string) => {
   else if (cmd === 'mfa') openMfaSettings()
 }
 
-const openMfaSettings = () => router.push('/security/mfa')
+const openMfaSettings = () => openPwdDialog()
 
 // 修改密码（SPA 弹窗，替代 /me/change_password 整页跳转）
 const pwdVisible = ref(false)
@@ -348,6 +348,15 @@ function openPwdDialog() {
   pwdForm.confirm = ''
   pwdVisible.value = true
 }
+
+// 兼容旧 MFA 入口，统一打开修改密码中的身份验证器管理。
+watch(() => route.query.accountSecurity, (value) => {
+  if (value !== 'mfa') return
+  openPwdDialog()
+  const query = { ...route.query }
+  delete query.accountSecurity
+  void router.replace({ path: route.path, query, hash: route.hash })
+}, { immediate: true })
 
 async function savePassword() {
   try { await pwdFormRef.value?.validate() } catch { return }
@@ -398,6 +407,10 @@ watch(mustChangePassword, (required) => {
 </script>
 
 <style scoped>
+.account-password-form :deep(.el-form-item) { margin-bottom: 16px; }
+.account-password-form :deep(.el-form-item__label) { margin-bottom: 6px; line-height: 20px; }
+.account-password-form :deep(.el-form-item:last-child) { margin-bottom: 0; }
+.account-password-form :deep(.el-input__wrapper) { min-height: 32px; box-sizing: border-box; }
 .layout {
   display: flex;
   height: 100vh;

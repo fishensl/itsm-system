@@ -27,7 +27,8 @@ export function handleExportResult(
 ) {
   if (res.download_url) {
     // 一次性链接下载（bundle zip）
-    window.open(res.download_url, '_blank')
+    void import('@/utils/request').then(({ downloadProtectedFile }) =>
+      downloadProtectedFile(res.download_url!, res.filename))
   } else if (res.content && res.filename) {
     saveBase64Blob(res.content, res.filename)
   }

@@ -24,7 +24,7 @@ def _mark_legacy_device_password_api(response):
 @asset_bp.route('/api/devices/<int:id>/reveal-password', methods=['POST'])
 @login_required
 @require_permission('device:reveal')
-@require_op_token()
+@require_op_token(external_required=True)
 def api_device_reveal_password(id):
     """按需查看设备明文密码（当前密码或指定历史密码）。
 

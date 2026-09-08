@@ -28,8 +28,19 @@ describe('login form native submission safety', () => {
     const routerSource = readFileSync(resolve(process.cwd(), 'src/router/index.ts'), 'utf8')
 
     expect(layoutSource).toContain('当前账号尚未绑定 MFA')
-    expect(layoutSource).toContain("user.user?.mfa_enabled ? '管理账号 MFA' : '绑定账号 MFA'")
-    expect(layoutSource).toContain("router.push('/security/mfa')")
+    expect(layoutSource).toContain('<MfaSetup v-if="pwdVisible" embedded />')
+    expect(layoutSource).not.toContain('<el-dropdown-item command="mfa">')
+    expect(layoutSource).toContain('const openMfaSettings = () => openPwdDialog()')
+    expect(routerSource).toContain("redirect: { path: '/', query: { accountSecurity: 'mfa' } }")
     expect(routerSource).toContain("path: 'security/mfa'")
+  })
+
+  it('keeps password fields top-aligned and the submit action in the dialog footer', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/layouts/MainLayout.vue'), 'utf8')
+    const dialog = source.slice(source.indexOf('class="account-security-dialog"'), source.indexOf('<!-- Toast 容器 -->'))
+    expect(dialog).toContain('label-position="top"')
+    expect(dialog).not.toContain('label-width="90px"')
+    expect(dialog).toContain('width="min(480px, calc(100vw - 32px))"')
+    expect(dialog.indexOf('@click="savePassword"')).toBeGreaterThan(dialog.indexOf('<template #footer>'))
   })
 })

@@ -49,14 +49,14 @@
       </div>
       <el-form label-width="92px" class="mb-2">
         <el-form-item label="导入模式">
-          <el-radio-group v-model="importMode" @change="importPreview = null">
+          <el-radio-group v-model="importMode" @change="resetImportPreview">
             <el-radio-button value="create">仅新增</el-radio-button>
             <el-radio-button value="update">仅更新</el-radio-button>
             <el-radio-button value="upsert">新增并更新</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="空值处理">
-          <el-checkbox v-model="importClearEmpty" @change="importPreview = null">
+          <el-checkbox v-model="importClearEmpty" @change="resetImportPreview">
             允许空单元格清空原值（密码除外）
           </el-checkbox>
         </el-form-item>
@@ -67,12 +67,19 @@
         <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>
       </el-upload>
       <el-card v-if="importPreview" shadow="never" class="mt-2">
+        <el-alert class="mb-2" type="info" :closable="false" show-icon
+          title="预检／校验结果：以下新增／更新数量为预计值，不代表已写入设备。" />
+        <el-alert v-if="importExecutionError" class="mb-2" type="error" :closable="false"
+          show-icon :title="importExecutionError" />
         <div class="import-summary">
-          <el-tag type="success">新增 {{ importPreview.create }}</el-tag>
-          <el-tag type="primary">更新 {{ importPreview.update }}</el-tag>
+          <el-tag type="info">预计新增 {{ importPreview.create }}</el-tag>
+          <el-tag type="info">预计更新 {{ importPreview.update }}</el-tag>
           <el-tag type="info">无变化 {{ importPreview.unchanged }}</el-tag>
           <el-tag type="warning">跳过 {{ importPreview.skipped }}</el-tag>
           <el-tag type="danger">失败 {{ importPreview.failed }}</el-tag>
+        </div>
+        <div v-if="importPreview.errors.length" class="import-skip-details mt-2">
+          <div v-for="(error, index) in importPreview.errors" :key="index">{{ error }}</div>
         </div>
         <el-alert v-if="importNoActionMessage" class="mt-2" type="warning" :closable="false"
           show-icon :title="importNoActionMessage" />
@@ -222,6 +229,16 @@
           <el-button size="small" text type="primary" :icon="Back" @click="backToTree">返回</el-button>
         </template>
       </div>
+      <div class="device-view-switch">
+        <span class="device-view-label">快捷类别</span>
+        <el-button-group>
+          <el-button size="small" type="primary" :plain="!!query.device_category" @click="selectCategory('')">全部设备</el-button>
+          <el-button v-for="category in deviceCategories" :key="category.key" size="small" type="primary"
+            :plain="query.device_category !== category.key" :title="category.description" @click="selectCategory(category.key)">
+            {{ category.label }}
+          </el-button>
+        </el-button-group>
+      </div>
       <div v-if="mode === 'table'" class="device-view-switch">
         <span class="device-view-label">表格视图</span>
         <el-button-group>
@@ -278,6 +295,13 @@
         @row-click="openDetail"
         @selection-change="onSelectionChange"
       >
+        <template #cell-device_name="{ row }">
+          <router-link :to="`/devices/${row.id}`" class="device-name-link" @click.stop
+            :style="{ color: inactiveDeviceColor(row.is_in_use) || licenseNameColor(row.license_remaining_days) }"
+            :title="row.is_in_use === false ? '已停用' : licenseStatus(row.license_remaining_days)?.text">
+            {{ row.device_name }}
+          </router-link>
+        </template>
         <template #cell-password="{ row }">
           <div class="password-cell" @click.stop>
             <code>{{ inlinePassword.displayValue(Number(row.id), Boolean(row.has_password)) }}</code>
@@ -525,8 +549,11 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="`${fieldLabel('device', 'brand', '品牌', 'form')} / ${fieldLabel('device', 'model', '型号', 'form')}`">
-              <div class="flex-gap">
-                <el-input v-model="form.brand" placeholder="品牌" />
+              <div class="brand-model-fields">
+                <el-select v-model="form.brand" filterable allow-create clearable
+                  placeholder="选择或输入品牌" aria-label="品牌">
+                  <el-option v-for="brand in brands" :key="brand" :label="brand" :value="brand" />
+                </el-select>
                 <el-input v-model="form.model" placeholder="型号" />
               </div>
             </el-form-item>
@@ -706,7 +733,10 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, h } from 'vue'
+import { licenseStatus, licenseNameColor } from './licenseStatus'
+import { inactiveDeviceColor } from '@/utils/deviceName'
+import { requestProtectedBlob } from '@/utils/request'
 import { Plus, Search, View, Download, Upload, UploadFilled, OfficeBuilding, Back, Setting, Document } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import GroupTree from '@/components/GroupTree.vue'
@@ -752,7 +782,7 @@ const ui = useUiStore()
 
 // 筛选 + 字典数据
 const query = reactive<Record<string, unknown>>({
-  search: '', brand: '', device_type: '', customer_id: undefined, room_locations: [],
+  search: '', brand: '', device_type: '', device_category: '', device_view: '', customer_id: undefined, room_locations: [],
 })
 const brands = ref<string[]>([])
 const deviceTypes = ref<{ name: string }[]>([])
@@ -1069,7 +1099,14 @@ const columns = computed<DataColumn[]>(() => {
     { key: 'build_date', label: '建设时间', minWidth: 100, defaultVisible: false,
       cellClass: () => 'cell-muted' },
     { key: 'license_start', label: '授权开始', minWidth: 100, type: 'date' },
-    { key: 'license_expiry', label: '授权截止', minWidth: 100, type: 'date' },
+    { key: 'license_expiry', label: '授权截止', minWidth: 150, type: 'custom',
+      render: (r) => {
+        const status = licenseStatus(r.license_remaining_days)
+        return h('div', {}, [
+          h('div', {}, String(r.license_expiry || '-')),
+          status ? h('div', { style: { color: status.color, fontWeight: '600', fontSize: '12px' } }, status.text) : null,
+        ])
+      } },
     { key: 'cert_expiry_date', label: '证书到期日期', minWidth: 110, type: 'date' },
     { key: 'is_maintenance', label: '是否维修', width: 90, valueMap: { 'true': '是', 'false': '否' },
       cellClass: () => 'cell-muted' },
@@ -1132,7 +1169,14 @@ function applyDeviceView(key: string) {
   if (!preset) return
   inlinePassword.clear()
   activeDeviceView.value = key as DeviceViewKey
+  const scope = key === 'version' ? 'version' : ''
+  const scopeChanged = query.device_view !== scope
+  query.device_view = scope
   tableRef.value?.applyColumnPreset?.(preset)
+  if (scopeChanged) {
+    clearSelection()
+    reload()
+  }
 }
 
 async function toggleInlinePassword(row: Record<string, unknown>) {
@@ -1160,7 +1204,7 @@ onMounted(() => {
 const tree = ref<DeviceTreeGroup[]>([])
 const treeLoading = ref(false)
 const hasFilter = computed(() =>
-  Boolean(query.search || query.brand || query.device_type ||
+  Boolean(query.search || query.brand || query.device_type || query.device_category ||
     (query.room_locations as string[])?.length))
 
 async function loadTree() {
@@ -1170,6 +1214,8 @@ async function loadTree() {
       search: query.search as string || undefined,
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
+      device_category: query.device_category as string || undefined,
+      device_view: query.device_view as string || undefined,
       room_locations: query.room_locations as string[] || undefined,
     })
     tree.value = res.tree
@@ -1189,13 +1235,19 @@ type ImportPreview = Awaited<ReturnType<typeof importDevicesEncrypted>>
 const importMode = ref<DeviceImportMode>('create')
 const importClearEmpty = ref(false)
 const importPreview = ref<ImportPreview | null>(null)
+const importExecutionError = ref('')
 const importHasActions = computed(() => hasExecutableDeviceImport(importPreview.value))
 const importNoActionMessage = computed(() =>
   deviceImportNoActionMessage(importPreview.value, importMode.value))
 const networkMappings = reactive<Record<string, string>>({})
 
-function onImportFileChange(f: UploadFile) {
+function resetImportPreview() {
   importPreview.value = null
+  importExecutionError.value = ''
+}
+
+function onImportFileChange(f: UploadFile) {
+  resetImportPreview()
   Object.keys(networkMappings).forEach((key) => delete networkMappings[key])
   importFile.value = f.raw ?? null
 }
@@ -1226,6 +1278,8 @@ async function onExportSubmit(payload: Record<string, unknown>) {
         search: query.search as string || undefined,
         brand: query.brand as string || undefined,
         device_type: query.device_type as string || undefined,
+        device_category: query.device_category as string || undefined,
+        device_view: query.device_view as string || undefined,
         is_in_use: query.is_in_use as number | undefined,
         room_locations: query.room_locations as string[] || undefined,
         device_ids: selectedRows.value.map((row) => Number(row.id)),
@@ -1242,6 +1296,8 @@ async function onExportSubmit(payload: Record<string, unknown>) {
       search: query.search as string || undefined,
       brand: query.brand as string || undefined,
       device_type: query.device_type as string || undefined,
+      device_category: query.device_category as string || undefined,
+      device_view: query.device_view as string || undefined,
       is_in_use: query.is_in_use as number | undefined,
       room_locations: query.room_locations as string[] || undefined,
       device_ids: selectedRows.value.map((row) => Number(row.id)),
@@ -1314,6 +1370,7 @@ async function doImport() {
     return
   }
   importing.value = true
+  importExecutionError.value = ''
   try {
     const execute = Boolean(importPreview.value && !importPreview.value.failed && importHasActions.value)
     const fields: Record<string, string> = {
@@ -1324,6 +1381,21 @@ async function doImport() {
     }
     if (execute && importPreview.value?.batch_id) fields.batch_id = importPreview.value.batch_id
     const res = await importDevicesEncrypted(importFile.value, fields)
+    if (execute && (res.failed > 0 || res.dry_run !== false || res.committed !== true)) {
+      importPreview.value = res
+      importExecutionError.value = res.failed > 0
+        ? `确认执行被拒绝：${res.failed} 条校验失败，设备整批未写入。请查看下方明细。`
+        : res.dry_run === true
+          ? '服务器仅返回预检结果，尚未写入设备，不能视为导入成功。'
+          : '未收到数据库提交确认，结果待核实；请保留本批次，不要另建批次重复导入。'
+      ui.toast(importExecutionError.value, 'error')
+      return
+    }
+    if (execute && !hasExecutableDeviceImport(res)) {
+      importPreview.value = res
+      ui.toast(deviceImportNoActionMessage(res, importMode.value), 'warning')
+      return
+    }
     if (!execute) {
       importPreview.value = res
       for (const value of Object.keys(res.unknown_network_types)) {
@@ -1332,7 +1404,7 @@ async function doImport() {
       const noActionMessage = deviceImportNoActionMessage(res, importMode.value)
       if (res.failed) ui.toast('预检完成，请处理失败项', 'warning')
       else if (noActionMessage) ui.toast(noActionMessage, 'warning')
-      else ui.toast('预检通过，请确认执行', 'success')
+      else ui.toast('预检通过，尚未写入设备，请确认执行', 'info')
       if (res.errors.length) {
         ElMessageBox.alert(res.errors.join('\n'), '预检明细', {
           customStyle: { maxHeight: '70vh', overflow: 'auto', whiteSpace: 'pre-wrap' },
@@ -1340,7 +1412,7 @@ async function doImport() {
       }
       return
     }
-    const msg = `导入完成：新增 ${res.create} 条，更新 ${res.update} 条，无变化 ${res.unchanged} 条`
+    const msg = `导入已提交：新增 ${res.create} 条，更新 ${res.update} 条，无变化 ${res.unchanged} 条；批次 ${res.batch_id}`
     ui.toast(msg, 'success')
     if (res.errors.length) {
       ElMessageBox.alert(res.errors.join('\n'), '导入错误明细', {
@@ -1349,7 +1421,13 @@ async function doImport() {
     }
     importVisible.value = false
     importPreview.value = null
-    loadTree()
+    // 导入入口也在客户设备表格中，必须刷新当前视图，不能只更新后台的客户树。
+    reload()
+    // 导入可能新增类型和品牌，成功后同步刷新筛选及编辑下拉。
+    fetchDeviceDicts().then((dicts) => {
+      deviceTypes.value = dicts.device_types
+      brands.value = dicts.brands
+    }).catch(() => { ui.toast('导入已提交，类型和品牌下拉刷新失败，请刷新页面', 'warning') })
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   } finally {
@@ -1493,8 +1571,18 @@ function viewBackup(row: DeviceConfigBackup) {
     .catch(() => { /* toast */ })
 }
 
-function downloadBackup(row: DeviceConfigBackup) {
-  window.open(deviceConfigBackupDownloadUrl(row.id), '_blank')
+async function downloadBackup(row: DeviceConfigBackup) {
+  try {
+    const blob = await requestProtectedBlob(deviceConfigBackupDownloadUrl(row.id))
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = row.file_name || `config-${row.id}.txt`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    ui.toast((error as Error).message || '配置下载失败', 'error')
+  }
 }
 
 // ==================== 配置备份写操作（新增/对比/回滚/删除） ====================
@@ -1816,8 +1904,15 @@ function enablePasswordChange() {
 }
 
 // 初始化字典
+const deviceCategories = ref<{ key: string; label: string; description: string }[]>([])
+function selectCategory(key: string) {
+  query.device_category = key
+  query.device_type = ''
+  reload()
+}
 import { fetchDeviceDicts } from '@/api/dicts'
 fetchDeviceDicts().then((d) => {
+  deviceCategories.value = d.device_categories || []
   brands.value = d.brands
   deviceTypes.value = d.device_types
   networkTypes.value = d.network_types || []
@@ -1846,6 +1941,13 @@ fetchDeviceDicts().then((d) => {
 </script>
 
 <style scoped>
+.device-name-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.brand-model-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; width: 100%; }
+.brand-model-fields > * { min-width: 0; }
 .filter-card {
   margin-bottom: 12px;
 }

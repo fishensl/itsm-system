@@ -5,6 +5,7 @@ from flask import request, redirect, flash, send_from_directory, current_app, ab
 from flask_login import login_required, current_user
 from models import (Inspection, Ticket, Fault, SubmissionVersion)
 from utils.permission import require_permission
+from utils.operation_token import require_op_token
 from blueprints.ops import ops_bp
 
 
@@ -56,6 +57,7 @@ def report_delete(filename):
 @ops_bp.route('/reports/<path:filename>')
 @login_required
 @require_permission('report:view')
+@require_op_token(external_required=True)
 def report_download(filename):
     full = _safe_report_path(filename)
     if full is None:

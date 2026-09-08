@@ -59,8 +59,15 @@ def register_file_access_security(app):
                 external = not is_internal_request()
             except Exception:
                 external = True
-            if external and not credential_session_context(current_user):
-                return jsonify({'code': 1, 'message': '外网访问敏感文件或密码需要完成 MFA 登录验证'}), 403
+            if external:
+                if path.startswith(('/static/uploads/', '/uploads/')):
+                    if not credential_session_context(current_user):
+                        return jsonify({'code': 1, 'message': '外网访问现场图片需要完成 MFA 登录验证'}), 403
+                else:
+                    if request.endpoint == 'vue_api.api_topology_file_download' and credential_session_context(current_user):
+                        return None  # 图片/编辑器资源请求不能附带 JS 内存中的操作令牌。
+                    from utils.operation_token import require_op_token
+                    return require_op_token(external_required=True)(lambda: None)()
         return None
 
     @app.after_request

@@ -32,9 +32,9 @@ instance.interceptors.request.use((config) => {
   const method = (config.method || 'get').toUpperCase()
   if (method !== 'GET') {
     config.headers.set('X-CSRFToken', getCsrfToken())
-    const operationToken = currentOperationToken()
-    if (operationToken) config.headers.set('X-Operation-Token', operationToken)
   }
+  const operationToken = currentOperationToken()
+  if (operationToken) config.headers.set('X-Operation-Token', operationToken)
   return config
 })
 
@@ -95,4 +95,38 @@ export async function request<T>(config: ItsmRequestConfig): Promise<T> {
 }
 
 export const http = instance
+
+/** 使用操作令牌下载附件，令牌不写入地址栏。 */
+export async function downloadProtectedFile(url: string, filename = ''): Promise<void> {
+  try {
+    const blob = await requestProtectedBlob(url)
+    const objectUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = filename || decodeURIComponent(url.split('/').pop()?.split('?')[0] || '附件')
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  } catch { /* request handles MFA prompts and errors */ }
+}
+/** 受保护附件走同源请求携带操作令牌，不把令牌写入 URL。 */
+export async function requestProtectedBlob(url: string): Promise<Blob> {
+  const load = () => instance.get<Blob>(url, { responseType: 'blob' })
+  try {
+    return (await load()).data
+  } catch (error) {
+    const response = (error as AxiosError<Blob>).response
+    if (response?.data instanceof Blob) {
+      const body = JSON.parse(await response.data.text()) as { message?: string }
+      if (response.status === 403 && body.message === '需要操作动态码验证') {
+        await requestOperationToken()
+        return (await load()).data
+      }
+      window.dispatchEvent(new CustomEvent('itsm:toast', {
+        detail: { message: body.message || '附件下载失败', type: 'error' },
+      }))
+      throw new Error(body.message || '附件下载失败')
+    }
+    throw error
+  }
+}
 export default request

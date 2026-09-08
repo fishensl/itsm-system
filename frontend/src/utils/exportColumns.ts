@@ -60,8 +60,8 @@ export const DEVICE_PRESETS: { key: string; label: string; columns: string[] }[]
     key: 'version',
     label: '网络安全版本控制表',
     columns: ['customer', 'rack_location', 'name', 'os_version', 'rule_version',
-      'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
-      'license_expiry', 'is_in_use', 'remark'],
+      'type', 'brand', 'model', 'sn', 'ip', 'license_start',
+      'license_expiry', 'build_date', 'is_in_use', 'remark'],
   },
   {
     key: 'update',

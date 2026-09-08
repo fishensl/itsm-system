@@ -3,6 +3,8 @@
 import io
 from datetime import date, datetime
 
+import pytest
+
 from domain_metadata import get_entity_schema
 from models import (db, Customer, CustomerCategory, Device, Fault, Inspection,
                     NetworkType, Rack, RackInstall, Region, SparePart, SpareStock)
@@ -29,6 +31,117 @@ def _template_row(module, values):
 
 
 class TestImportTemplates:
+    def test_device_customer_dropdown_uses_named_range(self, admin_client, app):
+        import openpyxl
+        with app.app_context():
+            db.session.add(Customer(name='下拉客户完整名称'))
+            db.session.commit()
+        response = admin_client.get('/exports/download-template/device')
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        sheet = workbook.active
+        col = IMPORT_TEMPLATES['device']['headers'].index('客户') + 1
+        validation = next(v for v in sheet.data_validations.dataValidation
+                          if sheet.cell(2, col).coordinate in v.sqref)
+        assert validation.type == 'list'
+        assert validation.showDropDown is False
+        assert validation.showErrorMessage is True
+        destinations = list(workbook.defined_names[validation.formula1].destinations)
+        assert len(destinations) == 1
+        name, cell_range = destinations[0]
+        assert '下拉客户完整名称' in [cell.value for row in workbook[name][cell_range] for cell in row]
+        workbook.close()
+
+    def test_device_template_has_field_prompts_formats_and_validation(self, admin_client):
+        import openpyxl
+
+        response = admin_client.get('/exports/download-template/device')
+        assert response.status_code == 200
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        sheet = workbook.active
+        assert [c.value for c in sheet[1]] == IMPORT_TEMPLATES['device']['headers']
+        assert sheet.freeze_panes == 'C2'
+        by_field = {field: sheet.cell(2, col) for col, (_label, field) in
+                    enumerate(IMPORT_TEMPLATES['device']['fields'], 1)}
+        for field, cell in by_field.items():
+            validations = [v for v in sheet.data_validations.dataValidation
+                           if cell.coordinate in v.sqref]
+            assert len(validations) == 1, field
+            validation = validations[0]
+            assert validation.showInputMessage is True
+            assert validation.prompt and len(validation.prompt) <= 255
+            assert f'{cell.column_letter}5000' in validation.sqref
+            assert cell.fill.fgColor.rgb == '00FFF2CC'
+        for field in ('build_date', 'license_start', 'license_expiry', 'cert_expiry_date'):
+            cell = by_field[field]
+            validation = next(v for v in sheet.data_validations.dataValidation
+                              if cell.coordinate in v.sqref)
+            assert validation.type == 'date'
+            assert validation.showErrorMessage is True
+            assert validation.allow_blank is True
+            assert 'YYYY-MM-DD' in validation.prompt
+            assert isinstance(cell.value, (date, datetime))
+            assert cell.number_format == 'yyyy-mm-dd'
+            assert sheet[f'{cell.column_letter}5000'].number_format == 'yyyy-mm-dd'
+        for field in ('serial_number', 'model', 'username', 'rule_version', 'os_version'):
+            assert by_field[field].number_format == '@'
+        for field in ('port', 'rack_start_u', 'rack_occupy_u', 'rated_power_w', 'device_id'):
+            validation = next(v for v in sheet.data_validations.dataValidation
+                              if by_field[field].coordinate in v.sqref)
+            assert validation.type == 'whole'
+            assert validation.showErrorMessage is True
+        guide = workbook['填写说明']
+        guide_text = '\n'.join(str(cell.value or '') for row in guide for cell in row)
+        assert 'YYYY-MM-DD' in guide_text
+        assert '不附加00:00:00' in guide_text
+        assert '不是Excel行号' in guide_text
+        assert '粘贴数据可能绕过Excel校验' in guide_text
+        from utils.import_template_guidance import NETWORK_INTERFACE_EXAMPLE, MEETING_INTERFACE_EXAMPLE
+        assert NETWORK_INTERFACE_EXAMPLE in guide_text
+        assert MEETING_INTERFACE_EXAMPLE in guide_text
+        assert '自动' in guide_text
+        for field in ('rack_start_u', 'rack_occupy_u'):
+            validation = next(v for v in sheet.data_validations.dataValidation
+                              if by_field[field].coordinate in v.sqref)
+            assert '设备占用23-24U，起始U位填23，占用U数填2' in validation.prompt
+            assert '不是结束U号' in validation.prompt
+        assert by_field['rack_start_u'].value == 23
+        assert by_field['rack_occupy_u'].value == 2
+        assert '设备占用23-24U，起始U位填23，占用U数填2' in guide_text
+        workbook.close()
+
+    def test_formatted_device_template_roundtrips_dates_and_text(self, admin_client, app):
+        import openpyxl
+
+        with app.app_context():
+            db.session.add(Customer(name='格式验证客户'))
+            db.session.commit()
+        response = admin_client.get('/exports/download-template/device')
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        sheet = workbook.active
+        values = {
+            'customer_name': '格式验证客户', 'device_name': '格式验证设备',
+            'serial_number': '001234567890123456', 'rule_version': '2026-08-07',
+            'build_date': date(2024, 10, 10), 'license_start': date(2024, 10, 10),
+            'license_expiry': date(2027, 9, 30), 'cert_expiry_date': date(2027, 9, 30),
+        }
+        for col, (_header, field) in enumerate(IMPORT_TEMPLATES['device']['fields'], 1):
+            sheet.cell(2, col).value = values.get(field)
+        body = io.BytesIO()
+        workbook.save(body)
+        workbook.close()
+        body.seek(0)
+        result = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (body, 'formatted.xlsx'), 'mode': 'create',
+        }, content_type='multipart/form-data')
+        assert result.status_code == 200, result.get_json()
+        assert result.get_json()['data']['create'] == 1
+        assert result.get_json()['data']['failed'] == 0
+        with app.app_context():
+            device = Device.query.filter_by(device_name='格式验证设备').one()
+            for field, value in values.items():
+                if field != 'customer_name':
+                    assert getattr(device, field) == value, field
+
     def test_every_batch_import_has_downloadable_template(self, admin_client):
         """全部现有批量导入模块都能下载同口径 xlsx 模板。"""
         import openpyxl
@@ -163,6 +276,87 @@ class TestImportTemplates:
 
 
 class TestDeviceCustomerImport:
+    @pytest.mark.parametrize('date_storage', ['slash_text', 'native_date', 'datetime_text'])
+    def test_lifecycle_dates_create_update_and_readback(self, admin_client, app,
+                                                      date_storage):
+        """用户原表头/斜杠日期经过预检与确认后，DB、列表和详情均必须保留。"""
+        fields = ('build_date', 'license_start', 'license_expiry', 'cert_expiry_date')
+        headers = ['客户', '名称', '建设时间', '授权开始日期', '授权截止日期', '证书到期日期']
+        samples = [
+            ['2021/1/1', '2025/3/27', '2026/3/26', '2026/3/26'],
+            ['2013/1/1', '', '', ''],
+            ['2023/6/18', '2023/6/18', '2026/6/27', '2026/6/27'],
+            ['', '', '', ''],
+            ['2021/1/1', '2025/7/29', '2026/7/28', '2026/7/28'],
+            ['2024/1/1', '2024/1/1', '2027/10/12', '2027/10/12'],
+            ['2023/1/1', '', '', ''],
+            ['2024/10/10', '2024/10/10', '2027/9/30', '2027/9/30'],
+        ]
+        customer_name = '日期全链路客户'
+        with app.app_context():
+            customer = Customer(name=customer_name)
+            db.session.add(customer)
+            db.session.commit()
+            customer_id = customer.id
+
+        def cell_date(value):
+            if not value or date_storage == 'slash_text':
+                return value
+            parsed = datetime.strptime(value, '%Y/%m/%d')
+            return parsed if date_storage == 'native_date' else str(parsed)
+
+        def workbook(rows):
+            return _xlsx(headers, [
+                [customer_name, f'日期设备-{index}', *map(cell_date, values)]
+                for index, values in enumerate(rows)
+            ])
+
+        def run_import(rows, mode):
+            content = workbook(rows)
+            preview = admin_client.post('/api/v2/devices/import', data={
+                'import_file': (io.BytesIO(content), '日期设备.xlsx'),
+                'mode': mode, 'dry_run': '1',
+            }, content_type='multipart/form-data')
+            assert preview.status_code == 200, preview.get_json()
+            result = preview.get_json()['data']
+            assert result['committed'] is False
+            assert result['failed'] == result['skipped'] == 0, result
+            assert result[mode] == len(rows), result
+            response = admin_client.post('/api/v2/devices/import', data={
+                'import_file': (io.BytesIO(content), '日期设备.xlsx'),
+                'mode': mode, 'batch_id': result['batch_id'],
+            }, content_type='multipart/form-data')
+            assert response.status_code == 200, response.get_json()
+            assert response.get_json()['data'][mode] == len(rows)
+            assert response.get_json()['data']['committed'] is True
+
+        def assert_readback(rows):
+            items = admin_client.get('/api/devices', query_string={
+                'customer_id': customer_id,
+            }).get_json()['data']['items']
+            assert len(items) == len(rows)
+            by_name = {item['device_name']: item for item in items}
+            for index, values in enumerate(rows):
+                item = by_name[f'日期设备-{index}']
+                expected = {
+                    field: datetime.strptime(value, '%Y/%m/%d').date().isoformat()
+                    if value else '' for field, value in zip(fields, values)
+                }
+                assert {field: item[field] for field in fields} == expected
+                detail = admin_client.get(f"/api/devices/{item['id']}").get_json()['data']
+                assert {field: detail[field] for field in fields} == expected
+                with app.app_context():
+                    device = db.session.get(Device, item['id'])
+                    assert {field: getattr(device, field).isoformat()
+                            if getattr(device, field) else '' for field in fields} == expected
+
+        run_import(samples, 'create')
+        assert_readback(samples)
+        updates = [['2024/10/10', '2025/3/27', '2027/10/12', '2027/9/30']
+                   for _row in samples]
+        run_import(updates, 'update')
+        assert_readback(updates)
+
     def test_device_template_imports_all_editable_fields(self, admin_client, app):
         with app.app_context():
             customer = Customer(name='完整设备模板客户')

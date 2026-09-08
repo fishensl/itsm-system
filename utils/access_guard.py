@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """内外网访问隔离守卫（before_request 全局注册）
 
-外网（非可信网段）放行只读工作台概览及工单/故障处置流程：登录改密、站内通知、工单/故障
-增删改查+挂起/进展/审核/照片、SPA 入口与静态资源；其余敏感模块
-（客户/设备/合同/销售/备件/巡检/用户/报表/AI/通知渠道配置等）一律拒绝。
+外网放行运维管理全部功能及设备、机柜、拓扑；仍受角色和客户范围约束。
+运维导入导出及删除按原权限执行；密码及配置读取强制账号 MFA。
 
-- API 与导入模板下载请求 → 403 JSON {code:1, message}
+- API 请求 → 403 JSON {code:1, message}
 - 页面请求 → 302 到 /app/login
 
 未配置可信网段（全部内网）时本守卫不生效（兼容存量零配置部署）。
 """
 from flask import request, jsonify, redirect, abort
 from flask_login import current_user
+import posixpath
 
 # 外网放行的路径前缀（其余 /api/* 一律拒绝）
 _EXTERNAL_API_PREFIXES = (
@@ -19,17 +19,38 @@ _EXTERNAL_API_PREFIXES = (
     '/api/notifications',  # 站内通知铃铛
     '/api/tickets',    # 工单主流程
     '/api/faults',     # 故障主流程
+    '/api/devices',
+    '/api/v2/devices',
+    '/api/v2/rack',
+    '/api/topologies',
+    '/api/security/credential-envelope',
 )
+_EXTERNAL_API_EXACT = {
+    '/api/dashboard/overview', '/api/meta/entities', '/api/dicts/tickets', '/api/dicts/devices',
+    '/api/dicts/rack', '/api/dicts/faults',
+    '/api/fault-categories',
+}
 # 页面/静态前缀（SPA 入口 + 静态资源，照片等上传文件在 static/uploads/ 下）
 _EXTERNAL_PAGE_PREFIXES = ('/app/', '/static/', '/uploads/')
-_EXTERNAL_NAKED_PATHS = {'/', '/login', '/logout', '/healthz'}
-# 工作台展示内外网一致；卡片链接指向的业务接口仍走各自的外网边界。
-_EXTERNAL_READONLY_PATHS = {'/api/dashboard/overview'}
+_EXTERNAL_NAKED_PATHS = {'/', '/app', '/login', '/logout', '/healthz'}
+
+# 运维管理全部业务动作交由原路由的 RBAC、审核及数据范围检查处理。
+_EXTERNAL_OPS_PREFIXES = (
+    '/api/tickets', '/api/faults', '/api/inspections', '/api/inspectors',
+    '/api/task-schedule', '/api/task-templates', '/api/device-check-templates',
+    '/api/reports', '/api/v2/export-download', '/reports',
+    '/inspections/export', '/inspections/reports-zip',
+)
+_EXTERNAL_OPS_READ_PATHS = {
+    '/api/dicts/inspections', '/api/system/inspection-review-checklist',
+}
 
 # 放行前缀内的敏感子路径（外网仍拒绝）
 _EXTERNAL_BLOCKED_FRAGMENTS = (
     '/export',          # 工单/故障导出（批量数据外泄面）
     '/export-bundle',
+    '/delete',
+    '/batch-delete',
 )
 # 外网禁止的 HTTP 方法（针对具体资源的破坏性操作）
 _EXTERNAL_BLOCKED_METHODS = ('DELETE',)
@@ -40,19 +61,40 @@ def _external_blocked(path, method):
     if method in _EXTERNAL_BLOCKED_METHODS and '/api/' in path:
         return True
     for frag in _EXTERNAL_BLOCKED_FRAGMENTS:
-        if frag in path:
+        if frag in path and path != '/topologies/api/export-file':
             return True
     return False
 
 
 def _external_allowed(path, method):
     """外网请求是否放行"""
+    path = posixpath.normpath(path)
+    # 报告原文件只能从受 MFA 保护的报告下载入口访问。
+    if path.startswith(('/static/uploads/inspection_reports/', '/static/uploads/ticket_reports/',
+                        '/static/uploads/reports/', '/uploads/inspection_reports/',
+                        '/uploads/ticket_reports/', '/uploads/reports/')):
+        return False
+    # Vite 公共构建文件可能以 export-/delete- 命名；不是业务导出/删除端点。
+    if method in ('GET', 'HEAD') and path.startswith('/app/assets/'):
+        return True
+    if path in _EXTERNAL_OPS_READ_PATHS and method in ('GET', 'HEAD'):
+        return True
+    if any(path == prefix or path.startswith(prefix + '/')
+           for prefix in _EXTERNAL_OPS_PREFIXES):
+        return True
     if _external_blocked(path, method):
         return False
-    if path in _EXTERNAL_READONLY_PATHS and method in ('GET', 'HEAD'):
+    # 配置原文件禁止经静态路径绕过 MFA、设备权限与客户范围检查。
+    if path.startswith(('/static/uploads/configs/', '/static/uploads/inspection_configs/',
+                        '/static/uploads/inspection_config_zips/', '/uploads/configs/',
+                        '/uploads/inspection_configs/', '/uploads/inspection_config_zips/')):
+        return False
+    if path in _EXTERNAL_API_EXACT and method in ('GET', 'HEAD'):
+        return True
+    if path.startswith(('/topologies/editor/', '/topologies/api/', '/topologies/download/')):
         return True
     for prefix in _EXTERNAL_API_PREFIXES:
-        if path.startswith(prefix):
+        if path == prefix.rstrip('/') or path.startswith(prefix.rstrip('/') + '/'):
             return True
     for prefix in _EXTERNAL_PAGE_PREFIXES:
         if path.startswith(prefix):
@@ -93,7 +135,6 @@ def register_access_guard(app):
             return None
         if _external_allowed(request.path, request.method):
             return None
-        # 仅放行已注册的模板只读端点；视图继续校验登录和模块权限，无额外 MFA 要求。
         if request.endpoint == 'download_template' and request.method in ('GET', 'HEAD'):
             return None
         return _deny()

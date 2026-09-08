@@ -42,6 +42,38 @@ def seed(app):
 
 
 class TestDeviceList:
+    def test_quick_categories(self, app, op_client, seed):
+        from models import RackInstall
+        from utils.device_filters import apply_device_filters
+        with app.app_context():
+            for kind in ('核心交换机', '路由器', 'ips', 'WAF', '上网行为管理', '摄像机'):
+                db.session.add(Device(customer_id=seed['c1'], device_name=kind, device_type=kind))
+            # 名称带交换机不能把其它类型错误归类。
+            db.session.add(Device(customer_id=seed['c1'], device_name='交换机附件', device_type='其它'))
+            db.session.commit()
+            for category, expected in [('network', 3), ('security', 4), ('unknown', 0)]:
+                query = apply_device_filters(Device.query, Device, RackInstall,
+                                             {'device_category': category})
+                assert query.count() == expected
+        result = op_client.get('/api/devices', query_string={
+            'device_category': 'security', 'customer_id': seed['c1']}).get_json()['data']
+        assert {item['device_type'] for item in result['items']} == {'ips', 'WAF', '上网行为管理'}
+        narrowed = op_client.get('/api/devices', query_string={
+            'device_category': 'network', 'device_type': '路由器'}).get_json()['data']
+        assert narrowed['total'] == 1
+        version = op_client.get('/api/devices', query_string={
+            'device_view': 'version'}).get_json()['data']
+        assert version['total'] == 7
+        assert not {'摄像机', '其它'} & {item['device_type'] for item in version['items']}
+        assert op_client.get('/api/devices').get_json()['data']['total'] == 9
+        tree = op_client.get('/api/devices/tree', query_string={
+            'device_category': 'security'}).get_json()
+        assert tree['code'] == 0
+        assert 'SW-A' not in str(tree['data'])
+        assert 'FW-B' in str(tree['data'])
+        dictionaries = op_client.get('/api/dicts/devices').get_json()['data']
+        assert [c['label'] for c in dictionaries['device_categories']] == ['网络设备', '安全设备']
+
     def test_list_shape(self, op_client, seed):
         r = op_client.get('/api/devices')
         assert r.status_code == 200
@@ -659,14 +691,159 @@ class TestDeviceImportSync:
                                content_type='multipart/form-data')
         assert first.status_code == 200
         assert first.get_json()['data']['created'] == 1
+        assert first.get_json()['data']['committed'] is True
+        # 已发布的历史批次没有 committed 字段，仍须从已落库批次确认幂等结果。
+        from models import DeviceImportBatch
+        from utils.json_fields import dumps_json, parse_json
+        with app.app_context():
+            batch = DeviceImportBatch.query.filter_by(batch_id='batch-idempotency-001').one()
+            old_result = parse_json(batch.result_json, default={})
+            old_result.pop('committed')
+            batch.result_json = dumps_json(old_result)
+            db.session.commit()
         second = op_client.post('/api/v2/devices/import', data={
             'import_file': (io.BytesIO(raw), 'devices.xlsx'),
             'batch_id': 'batch-idempotency-001',
         }, content_type='multipart/form-data')
         assert second.status_code == 200
         assert second.get_json()['data']['duplicate_submission'] is True
+        assert second.get_json()['data']['committed'] is True
+        assert second.get_json()['data']['dry_run'] is False
         with app.app_context():
             assert Device.query.filter_by(device_name='SW-IDEMPOTENT').count() == 1
+
+    def test_confirm_validation_failure_has_no_success_receipt_or_partial_write(
+            self, op_client, seed, app):
+        from models import AuditLog, DeviceImportBatch
+        headers = ['客户', '名称', '设备ID', '建设时间']
+        valid = self._make_xlsx([
+            ['设备API客户A', 'SW-A', seed['d1'], '2024/10/10'],
+            ['设备API客户B', 'FW-B', seed['d2'], '2021/1/1'],
+        ], headers=headers).getvalue()
+        preview = op_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(valid), 'dates.xlsx'),
+            'mode': 'update', 'dry_run': '1',
+        }, content_type='multipart/form-data').get_json()['data']
+        assert preview['update'] == 2
+        assert preview['committed'] is False
+        with app.app_context():
+            assert DeviceImportBatch.query.count() == 0
+            assert db.session.get(Device, seed['d1']).build_date is None
+
+        invalid = self._make_xlsx([
+            ['设备API客户A', 'SW-A', seed['d1'], '2024/10/10'],
+            ['设备API客户B', 'FW-B', seed['d2'], '不是日期'],
+        ], headers=headers)
+        response = op_client.post('/api/v2/devices/import', data={
+            'import_file': (invalid, 'dates.xlsx'),
+            'mode': 'update', 'batch_id': preview['batch_id'], 'dry_run': '0',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200  # 返回可展示的整批校验明细，不代表提交成功
+        result = response.get_json()['data']
+        assert result['failed'] == 1
+        assert result['committed'] is False
+        assert result['dry_run'] is False
+        assert '建设时间格式无效' in result['errors'][0]
+        with app.app_context():
+            assert db.session.get(Device, seed['d1']).build_date is None
+            assert db.session.get(Device, seed['d2']).build_date is None
+            assert DeviceImportBatch.query.count() == 0
+            assert AuditLog.query.filter_by(action='device:import').count() == 0
+            rejected = AuditLog.query.filter_by(action='device:import_rejected').one()
+            assert preview['batch_id'] in rejected.detail
+
+    def test_commit_failure_never_returns_committed_or_persists_dates(
+            self, op_client, seed, app):
+        from sqlalchemy import event
+        from sqlalchemy.orm import Session
+        from models import DeviceImportBatch
+
+        def reject_batch_commit(session):
+            if any(isinstance(item, DeviceImportBatch) for item in session.new):
+                raise RuntimeError('simulated batch commit failure')
+
+        event.listen(Session, 'before_commit', reject_batch_commit)
+        try:
+            response = op_client.post('/api/v2/devices/import', data={
+                'import_file': (self._make_xlsx([
+                    ['设备API客户A', 'SW-A', seed['d1'], '2024/10/10', '回滚类型', '回滚品牌'],
+                ], headers=['客户', '名称', '设备ID', '建设时间', '类型', '品牌']), 'dates.xlsx'),
+                'mode': 'update', 'batch_id': 'date-commit-failure',
+            }, content_type='multipart/form-data')
+        finally:
+            event.remove(Session, 'before_commit', reject_batch_commit)
+        assert response.status_code == 400
+        assert response.get_json()['code'] != 0
+        with app.app_context():
+            assert db.session.get(Device, seed['d1']).build_date is None
+            assert DeviceImportBatch.query.count() == 0
+            from models import Brand, DeviceType
+            assert Brand.query.filter_by(name='回滚品牌').count() == 0
+            assert DeviceType.query.filter_by(name='回滚类型').count() == 0
+
+    def test_import_custom_dictionaries_and_interface_examples(self, op_client, seed, app):
+        from models import Brand, DeviceType
+        from utils.import_template_guidance import NETWORK_INTERFACE_EXAMPLE, MEETING_INTERFACE_EXAMPLE
+        from utils.json_fields import parse_json
+        raw = self._make_xlsx([
+            ['设备API客户A', '自定义网络', ' 新类型 ', ' 新品牌 ', NETWORK_INTERFACE_EXAMPLE],
+            ['设备API客户A', '自定义会议', '新类型', '新品牌', MEETING_INTERFACE_EXAMPLE],
+        ], headers=['客户', '名称', '类型', '品牌', '接口']).getvalue()
+        def submit(dry_run):
+            return op_client.post('/api/v2/devices/import', data={
+                'import_file': (io.BytesIO(raw), 'custom.xlsx'),
+                'mode': 'create', 'dry_run': dry_run,
+            }, content_type='multipart/form-data').get_json()['data']
+        assert submit('1')['create'] == 2
+        with app.app_context():
+            assert DeviceType.query.filter_by(name='新类型').count() == 0
+            assert Brand.query.filter_by(name='新品牌').count() == 0
+        assert submit('0')['committed'] is True
+        with app.app_context():
+            assert DeviceType.query.filter_by(name='新类型').count() == 1
+            assert Brand.query.filter_by(name='新品牌').count() == 1
+            for name, example in [('自定义网络', NETWORK_INTERFACE_EXAMPLE),
+                                  ('自定义会议', MEETING_INTERFACE_EXAMPLE)]:
+                device = Device.query.filter_by(device_name=name).one()
+                assert device.device_type == '新类型'
+                assert device.brand == '新品牌'
+                assert parse_json(device.interface, default=[]) == example.split('、')
+
+    def test_update_backfills_missing_dictionary_without_device_value_change(self, op_client, seed, app):
+        from models import Brand
+        with app.app_context():
+            db.session.get(Device, seed['d1']).brand = '历史自定义品牌'
+            db.session.commit()
+        raw = self._make_xlsx([
+            ['设备API客户A', 'SW-A', seed['d1'], '历史自定义品牌'],
+        ], headers=['客户', '名称', '设备ID', '品牌']).getvalue()
+        for dry_run in ('1', '0'):
+            result = op_client.post('/api/v2/devices/import', data={
+                'import_file': (io.BytesIO(raw), 'backfill.xlsx'),
+                'mode': 'update', 'dry_run': dry_run,
+            }, content_type='multipart/form-data').get_json()['data']
+            assert result['update'] == 1
+        with app.app_context():
+            assert Brand.query.filter_by(name='历史自定义品牌').count() == 1
+
+    @pytest.mark.parametrize('mode,device_type,failed,skipped', [
+        ('update', '不应新增类型', 0, 1),
+        ('create', '长' * 65, 1, 0),
+    ])
+    def test_skipped_or_invalid_import_does_not_create_dictionaries(
+            self, op_client, seed, app, mode, device_type, failed, skipped):
+        from models import Brand, DeviceType
+        result = op_client.post('/api/v2/devices/import', data={
+            'import_file': (self._make_xlsx([
+                ['设备API客户A', '不存在的设备', device_type, '不应新增品牌'],
+            ], headers=['客户', '名称', '类型', '品牌']), 'invalid.xlsx'),
+            'mode': mode,
+        }, content_type='multipart/form-data').get_json()['data']
+        assert result['failed'] == failed
+        assert result['skipped'] == skipped
+        with app.app_context():
+            assert Brand.query.filter_by(name='不应新增品牌').count() == 0
+            assert DeviceType.query.filter_by(name=device_type).count() == 0
 
     def test_import_creates_distinct_same_name_rows(self, op_client, seed, app):
         """Excel 一行代表一台设备；同客户同名但 IP 不同不能被误合并。"""

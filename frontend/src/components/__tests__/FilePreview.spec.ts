@@ -2,6 +2,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import FilePreview from '@/components/FilePreview.vue'
 
+vi.mock('@/utils/request', () => ({
+  requestProtectedBlob: vi.fn().mockRejectedValue(new Error('外网访问敏感文件或密码需要完成 MFA 登录验证')),
+}))
+
 afterEach(() => vi.unstubAllGlobals())
 
 it('shows the MFA denial instead of silently leaving an empty preview', async () => {
