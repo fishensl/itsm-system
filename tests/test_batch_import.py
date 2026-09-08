@@ -31,6 +31,40 @@ def _template_row(module, values):
 
 
 class TestImportTemplates:
+    @pytest.mark.parametrize('enforce,linked', [(False, False), (True, True), (True, False)])
+    def test_device_customer_candidates_follow_import_scope(
+            self, app, op_client, monkeypatch, enforce, linked):
+        import openpyxl
+        from models import User
+        monkeypatch.setitem(app.config, 'CUSTOMER_SCOPE_ENFORCE', enforce)
+        with app.app_context():
+            allowed = Customer(name='设备可导入客户')
+            other = Customer(name='其他客户')
+            db.session.add_all([allowed, other])
+            user = User.query.filter_by(username='op').one()
+            user.customers = [allowed] if linked else []
+            db.session.commit()
+        response = op_client.get('/exports/download-template/device')
+        assert response.status_code == 200
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        sheet = workbook.active
+        col = IMPORT_TEMPLATES['device']['headers'].index('客户') + 1
+        cell = sheet.cell(2, col)
+        validation = next(v for v in sheet.data_validations.dataValidation if cell.coordinate in v.sqref)
+        if enforce and not linked:
+            assert cell.value is None
+            assert '当前没有可用于设备导入的客户' in validation.prompt
+            assert validation.type is None
+        else:
+            assert validation.type == 'list'
+            assert validation.showDropDown is False
+            assert validation.showErrorMessage is False
+            name, span = next(workbook.defined_names[validation.formula1].destinations)
+            values = {c.value for row in workbook[name][span] for c in row}
+            assert values == ({'设备可导入客户'} if enforce else {'设备可导入客户', '其他客户'})
+            assert cell.value in values
+        workbook.close()
+
     def test_device_customer_dropdown_uses_named_range(self, admin_client, app):
         import openpyxl
         with app.app_context():

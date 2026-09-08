@@ -195,15 +195,18 @@ def download_template(module):
             dict_ws.sheet_state = 'hidden'
 
     if module == 'device':
-        from models import DeviceType, Brand, NetworkType, Rack
+        from models import Customer, DeviceType, Brand, NetworkType, Rack
         from services.device_service import get_power_supply_choices
         from utils.constants import DEVICE_INSTALLATION_POSITIONS, DEVICE_LOGIN_METHODS
-        from utils.customer_scope import customer_dropdown_options
+        from utils.customer_scope import customer_dropdown_options, apply_customer_scope
 
         customer_options = customer_dropdown_options(current_user)
         visible_customer_ids = {item['id'] for item in customer_options}
         dictionaries = {
-            '客户': [item['name'] for item in customer_options],
+            # Match the effective scope used by the device import preflight.
+            # Legacy dropdown scope may be empty while scope enforcement is off.
+            '客户': [item.name for item in apply_customer_scope(
+                Customer.query, Customer, current_user).order_by(Customer.name).all()],
             '类型': [item.name for item in DeviceType.query.order_by(
                 DeviceType.sort_order, DeviceType.id).all()],
             '品牌': [item.name for item in Brand.query.order_by(Brand.sort_order, Brand.id).all()],
@@ -271,6 +274,12 @@ def download_template(module):
         from utils.import_template_guidance import (
             apply_device_template_guidance, NETWORK_INTERFACE_EXAMPLE, MEETING_INTERFACE_EXAMPLE)
         field_guide_rows = apply_device_template_guidance(ws, tpl['fields'])
+        if not dictionaries['客户']:
+            customer_col = tpl['headers'].index('客户') + 1
+            ws.cell(2, customer_col).value = None
+            coordinate = ws.cell(2, customer_col).coordinate
+            validation = next(v for v in ws.data_validations.dataValidation if coordinate in v.sqref)
+            validation.prompt = '当前没有可用于设备导入的客户，无法提供下拉。请先创建客户或联系管理员配置客户数据范围，再重新下载模板；也可手填有权限的完整客户名称。'
         guide = wb.create_sheet('填写说明')
         guide_rows = [
             ('字段/主题', '填写格式与规则', '示例'),
