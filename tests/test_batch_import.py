@@ -44,12 +44,43 @@ class TestImportTemplates:
                           if sheet.cell(2, col).coordinate in v.sqref)
         assert validation.type == 'list'
         assert validation.showDropDown is False
-        assert validation.showErrorMessage is True
+        assert validation.showErrorMessage is False
+        assert '手动填写完整客户名称' in validation.prompt
+        assert '不会随设备导入自动新增' in validation.prompt
+        assert f'{sheet.cell(5000, col).coordinate}' in validation.sqref
         destinations = list(workbook.defined_names[validation.formula1].destinations)
         assert len(destinations) == 1
         name, cell_range = destinations[0]
         assert '下拉客户完整名称' in [cell.value for row in workbook[name][cell_range] for cell in row]
+        assert workbook[name].sheet_state == 'hidden'
+        # A typed value outside the download-time list survives save/reopen.
+        sheet.cell(3, col, '下载后新增的客户')
+        out = io.BytesIO()
+        workbook.save(out)
+        reopened = openpyxl.load_workbook(io.BytesIO(out.getvalue()))
+        assert reopened.active.cell(3, col).value == '下载后新增的客户'
+        reopened.close()
         workbook.close()
+
+    @pytest.mark.parametrize('exists', [True, False])
+    def test_device_typed_customer_is_checked_at_import(self, admin_client, app, exists):
+        # Users can type a name not present when the template was downloaded.
+        assert admin_client.get('/exports/download-template/device').status_code == 200
+        if exists:
+            with app.app_context():
+                db.session.add(Customer(name='下载后新增客户'))
+                db.session.commit()
+        content = _xlsx(['客户', '名称'], [['下载后新增客户', '手填客户设备']])
+        response = admin_client.post('/api/v2/devices/import', data={
+            'import_file': (io.BytesIO(content), '手填客户设备.xlsx'),
+            'mode': 'create', 'dry_run': '1',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200, response.get_json()
+        result = response.get_json()['data']
+        assert result['failed'] == (0 if exists else 1), result
+        assert result['create'] == (1 if exists else 0), result
+        with app.app_context():
+            assert Customer.query.filter_by(name='下载后新增客户').count() == int(exists)
 
     def test_device_template_has_field_prompts_formats_and_validation(self, admin_client):
         import openpyxl

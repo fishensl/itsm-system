@@ -250,7 +250,7 @@ def download_template(module):
                 allow_blank=True,
                 errorTitle='请从下拉列表选择',
                 error='该值必须与系统当前设置一致。',
-                showErrorMessage=header not in {'机房位置', '机柜号', '品牌', '类型'},
+                showErrorMessage=header not in {'客户', '机房位置', '机柜号', '品牌', '类型'},
             )
             ws.add_data_validation(validation)
             validation.add(f'{target_letter}2:{target_letter}5000')
