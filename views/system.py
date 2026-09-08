@@ -159,7 +159,7 @@ def download_template(module):
     if not tpl:
         abort(404)
     if not has_permission(tpl['permission']):
-        abort(403)
+        return jsonify({'code': 1, 'message': '无权下载该模板'}), 403
 
     wb = openpyxl.Workbook()
     ws = wb.active

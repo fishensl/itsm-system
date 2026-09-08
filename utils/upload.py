@@ -22,7 +22,8 @@ def _sanitize_filename(fname):
     导致上传的「巡检报告2026.docx」保存成「2026.docx」。改为仅替换非法字符。
     """
     name = re.sub(SAFE_FILENAME_RE, '_', fname or '').strip().replace(' ', '_')
-    name = name[:150]
+    stem, ext = os.path.splitext(name)
+    name = stem[:max(0, 150 - len(ext))] + ext if len(name) > 150 else name
     return name or 'upload'
 
 
@@ -53,6 +54,12 @@ def validate_upload(f, allowed_ext, max_size_mb=20):
     if size > max_size_mb * 1024 * 1024:
         return False, f'文件过大（{size//1024}KB > {max_size_mb}MB）', None
 
+    from utils.upload_content import inspect_content, UnsafeUpload
+    try:
+        inspect_content(f, ext, min(max_size_mb * 4, 1024) * 1024 * 1024)
+    except UnsafeUpload as exc:
+        return False, str(exc), None
+
     return True, None, safe_name
 
 
@@ -72,20 +79,26 @@ def open_excel(path, app=None, max_rows=MAX_IMPORT_ROWS):
     """
     import openpyxl
     try:
-        wb = openpyxl.load_workbook(path)
+        from utils.upload_content import inspect_content
+        with open(path, 'rb') as source:
+            inspect_content(source, '.xlsx')
+        wb = openpyxl.load_workbook(path, read_only=True, keep_links=False)
         ws = wb.active
     except Exception as e:
         if app:
             app.logger.exception('Excel 解析失败: %s', path)
         return None, None, ('无法解析 Excel: %s' % e, 'danger', 'redirect')
 
-    if ws.max_row > max_rows:
+    if (ws.max_row or 0) > max_rows or (ws.max_column or 0) > 256:
+        wb.close()
         return None, None, (
-            '导入文件行数超限（%d > %d）' % (ws.max_row, max_rows),
+            '导入文件行数或列数超限（最多 %d 行、256 列）' % max_rows,
             'danger',
             'redirect',
         )
-    return wb, ws, None
+    wb.close()
+    wb = openpyxl.load_workbook(path, keep_links=False)
+    return wb, wb.active, None
 
 
 def cleanup_temp_file(path):

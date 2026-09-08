@@ -3,8 +3,7 @@
 
 - 可信网段存 SystemSetting key 'trusted_networks'（每行一个 CIDR，如 192.168.0.0/16）；
   配置为空 = 全部视为内网（存量部署零配置不锁死）。
-- 客户端 IP：优先 X-Real-IP（反代 proxy_set_header X-Real-IP $remote_addr 覆盖伪造值），
-  其次 X-Forwarded-For 首段，最后 request.remote_addr。
+- 仅从 TRUSTED_PROXY_NETWORKS 接收转发头；代理需覆盖 X-Real-IP 和清理 X-Forwarded-For。
 - 本模块只做判定；外网拦截由 utils/access_guard.py 的 before_request 执行。
 """
 import ipaddress
@@ -17,13 +16,10 @@ def get_trusted_networks():
     """读取后台配置的可信网段列表。
 
     返回 list[str]（含默认回环/私网兜底）或 None（未配置 = 全部视为内网）。
-    失败静默回退 None，保证访问控制异常不阻断业务。
+    数据读取错误向上抛出，由访问守卫关闭敏感路径。
     """
-    try:
-        from models import SystemSetting
-        row = SystemSetting.query.get(TRUSTED_NETWORKS_KEY)
-    except Exception:
-        return None
+    from models import SystemSetting
+    row = SystemSetting.query.get(TRUSTED_NETWORKS_KEY)
     if not row or not (row.value or '').strip():
         return None
     lines = [ln.strip() for ln in (row.value or '').splitlines() if ln.strip()]
@@ -32,7 +28,11 @@ def get_trusted_networks():
 
 def client_ip():
     """获取客户端真实 IP（反代场景）：X-Real-IP 优先 → X-Forwarded-For 首段 → remote_addr"""
-    from flask import request
+    from flask import current_app, request
+    peer = request.remote_addr or ''
+    proxies = current_app.config.get('TRUSTED_PROXY_NETWORKS', ['127.0.0.1', '::1'])
+    if not ip_in_networks(peer, proxies):
+        return peer
     x_real = request.headers.get('X-Real-IP', '').strip()
     if x_real:
         return x_real.split(',')[0].strip()
@@ -58,7 +58,8 @@ def ip_in_networks(ip, networks):
             if '/' in net:
                 network = ipaddress.ip_network(net, strict=False)
             else:
-                network = ipaddress.ip_network(net + '/32', strict=False)
+                addr_net = ipaddress.ip_address(net)
+                network = ipaddress.ip_network(f'{net}/{addr_net.max_prefixlen}', strict=False)
         except ValueError:
             continue
         if addr in network:
@@ -74,6 +75,10 @@ def is_internal_request():
     networks = get_trusted_networks()
     if networks is None:
         return True
+    from flask import current_app, request
+    if (request.headers.get('X-Real-IP') or request.headers.get('X-Forwarded-For')) and not ip_in_networks(
+            request.remote_addr or '', current_app.config.get('TRUSTED_PROXY_NETWORKS', ['127.0.0.1', '::1'])):
+        return False
     ip = client_ip()
     if ip_in_networks(ip, _DEFAULT_INTERNAL):
         return True

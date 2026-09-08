@@ -61,7 +61,7 @@
           </el-checkbox>
         </el-form-item>
       </el-form>
-      <el-upload ref="importUploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx,.xls"
+      <el-upload ref="importUploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx"
         :on-change="onImportFileChange" :on-remove="() => importFile = null">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>

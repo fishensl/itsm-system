@@ -12,7 +12,8 @@ def require_op_token(when=None):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            if not setting_bool('op_code_enforce', False):
+            from utils.access_control import is_internal_request
+            if is_internal_request() and not setting_bool('op_code_enforce', False):
                 return func(*args, **kwargs)
             if when is not None and not when():
                 return func(*args, **kwargs)

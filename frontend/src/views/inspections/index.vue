@@ -85,7 +85,7 @@
             <el-empty v-else description="该版本未上传现场报告（豁免提交）" :image-size="60" />
           </div>
           <div v-else-if="previewTab === 'config_text'" class="preview-body">
-            <FilePreview :text="pendingTextAsset?.content_text || ''" :file-name="pendingTextAsset?.file_name" />
+            <FilePreview :text="pendingTextContent" :file-name="pendingTextAsset?.file_name" />
           </div>
           <div v-else class="preview-body">
             <FilePreview :url="formalReportUrl2" :file-name="formalReportName" />
@@ -195,7 +195,7 @@
           <el-input v-model="form.conclusion" type="textarea" :rows="3" placeholder="巡检结论（可选）" />
         </el-form-item>
         <el-form-item v-if="!form.id" label="现场报告">
-          <el-upload ref="reportUploadRef" drag :auto-upload="false" :limit="1" accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+          <el-upload ref="reportUploadRef" drag :auto-upload="false" :limit="1" accept=".docx,.pdf,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
             :on-change="onReportChange" :on-remove="() => form.reportFile = null">
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
             <div class="el-upload__text">拖拽或点击上传现场报告（可选，创建后直接进入提交审核）</div>
@@ -225,7 +225,7 @@
         </el-form-item>
         <el-form-item v-if="!actionRow?.submitted_report" label="现场报告" required>
           <el-upload ref="submitReportUploadRef" drag :auto-upload="false" :limit="1"
-        accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+        accept=".docx,.pdf,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
         :on-change="onSubmitReportChange" :on-remove="() => submitReportFile = null">
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
             <div class="el-upload__text">拖拽或点击上传现场报告（Word/PDF/Excel/图片）</div>
@@ -245,7 +245,7 @@
 <script setup lang="ts">
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Search, Download, FolderOpened, Upload, UploadFilled, MagicStick } from '@element-plus/icons-vue'
 import DataTable, { type DataColumn } from '@/components/DataTable.vue'
@@ -258,7 +258,7 @@ import { useUiStore } from '@/stores/ui'
 import {
   fetchInspections, fetchInspection, createInspection, updateInspection, deleteInspection,
   submitInspection, reviewInspection, analyzeInspectionAI, fetchInspectionDicts, fetchInspectionVersions,
-  fetchReviewChecklist,
+  fetchReviewChecklist, fetchSubmissionAssetContent,
   versionReportUrl, formalReportUrl,
   exportInspections, exportInspectionBundle, importInspections,
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type InspectionDicts,
@@ -442,6 +442,19 @@ const formalReportName = computed(() => detail.value?.report_file_name || '')
 const formalReportUrl2 = computed(() => (formalReportName.value ? formalReportUrl(formalReportName.value) : ''))
 const pendingTextAsset = computed(() =>
   pendingVersion.value?.assets?.find((a) => a.asset_type === 'config_text' && a.has_content) || null)
+const pendingTextContent = ref('')
+watch(() => [previewTab.value, pendingTextAsset.value?.id] as const, async ([tab, id], _, onCleanup) => {
+  let active = true
+  onCleanup(() => { active = false })
+  pendingTextContent.value = ''
+  if (tab !== 'config_text' || !id) return
+  try {
+    const result = await fetchSubmissionAssetContent(id)
+    if (active) pendingTextContent.value = result.content
+  } catch (error) {
+    if (active) ui.toast((error as Error).message, 'error')
+  }
+})
 
 async function openReview(row: Inspection, approved: boolean) {
   actionRow.value = row

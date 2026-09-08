@@ -130,7 +130,7 @@
       <el-form label-width="90px">
         <el-form-item label="故障报告（可选）">
           <el-upload ref="submitUploadRef" drag :auto-upload="false" :limit="1"
-            accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+            accept=".docx,.pdf,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
             :on-change="onSubmitFileChange" :on-remove="() => submitFile = null">
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
             <div class="el-upload__text">已有故障报告可在此上传；没有报告也可直接提交审核</div>

@@ -50,6 +50,8 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     # 巡检配置备份可能包含多台网络/安全设备文件，不能沿用普通附件的 100MB 上限。
     # 总请求与配置 ZIP 分开配置，其他上传端点仍由各自 validate_upload 上限约束。
+    TRUSTED_PROXY_NETWORKS = [value.strip() for value in os.environ.get(
+        'ITSM_TRUSTED_PROXY_NETWORKS', '127.0.0.1,::1').split(',') if value.strip()]
     MAX_CONTENT_LENGTH = max(1, int(os.environ.get('ITSM_MAX_UPLOAD_MB', 1024))) * 1024 * 1024
     INSPECTION_CONFIG_MAX_MB = max(
         1, int(os.environ.get('ITSM_INSPECTION_CONFIG_MAX_MB', 900)))
@@ -128,7 +130,7 @@ def setup_security_headers(app):
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-        if app.config.get('CSP_ENABLED'):
+        if app.config.get('CSP_ENABLED') and 'Content-Security-Policy' not in response.headers:
             response.headers['Content-Security-Policy'] = (
                 "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
                 "script-src 'self'; connect-src 'self'; font-src 'self' data:; "

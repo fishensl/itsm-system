@@ -186,7 +186,7 @@ def get_default_groups():
 
 
 def _apply_external_sidebar(groups):
-    """外网裁剪：仅保留工作台（入口指向工单）+ 运维管理的工单/故障两项。
+    """外网裁剪：保留工作台原入口 + 运维管理的工单/故障两项。
 
     客户/设备/合同/备件/销售等敏感分组外网一律移除；未配置可信网段（全内网）
     或判定异常时不裁剪（兼容存量部署）。
@@ -200,9 +200,7 @@ def _apply_external_sidebar(groups):
     out = []
     for g in groups:
         if g['key'] == 'workbench':
-            sl = dict(g.get('single_link') or {})
-            sl['url'] = '/tickets'  # 外网工作台入口直接指向工单（处置主流程）
-            out.append({**g, 'single_link': sl})
+            out.append(g)
         elif g['key'] == 'ops':
             children = [c for c in g.get('children', [])
                         if c.get('url') in ('/tickets', '/faults')]

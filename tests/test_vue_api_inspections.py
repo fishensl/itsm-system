@@ -45,7 +45,11 @@ def seed(app):
 
 
 def _dummy_file(name='report.docx'):
-    return io.BytesIO(b'fake docx content'), name
+    from docx import Document
+    buffer = io.BytesIO()
+    Document().save(buffer)
+    buffer.seek(0)
+    return buffer, name
 
 
 class TestInspectionList:
@@ -368,7 +372,7 @@ class TestInspectionUploadReportFlow:
         r = op_client.post(f'/api/inspections/task/{tid}/report',
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
-        assert r.status_code == 400
+        assert r.status_code == 403
         # 管理员（有 inspection:review）可代传
         r = admin_client.post(f'/api/inspections/task/{tid}/report',
                               data={'report_file': _dummy_file()},
@@ -792,11 +796,11 @@ class TestTaskSubmissionAssets:
         r = op_client.post(f'/api/inspections/task/{tid}/report',
                            data={
                                'report_file': _dummy_file(),
-                               'config_zip': (io.BytesIO(b'zip'), 'full.zip'),
+                               'config_zip': (_valid_zip(), 'full.zip'),
                                'config_zip_device_id': str(did),
                                'config_text_file_0': (io.BytesIO(b'hostname core-a\n'), 'core-a.cfg'),
                                'config_text_device_id_0': str(did),
-                               'topology_file': (io.BytesIO(b'png'), 'topo.png'),
+                               'topology_file': (_valid_png(), 'topo.png'),
                                'asset_list': (_xlsx_bytes([
                                    ['设备名称', '设备类型', 'IP地址'],
                                    ['核心交换机A', '核心交换机', '10.0.0.1'],
@@ -853,7 +857,7 @@ class TestTaskSubmissionAssets:
 
         supplement = op_client.post(f'/api/inspections/task/{tid}/report', data={
             'mode': 'supplement',
-            'config_zip': (io.BytesIO(b'zip'), 'supplement.zip'),
+            'config_zip': (_valid_zip(), 'supplement.zip'),
             'config_zip_device_id': str(did),
             'asset_list': (_xlsx_bytes([
                 ['设备名称', '设备类型', 'IP地址'],
@@ -1259,3 +1263,20 @@ class TestInspectionExport:
 
     def test_export_requires_login(self, client):
         assert client.get('/inspections/export').status_code == 302  # SSR 未登录重定向登录页
+
+
+def _valid_zip():
+    import zipfile
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as archive:
+        archive.writestr('core.cfg', 'hostname core')
+    buffer.seek(0)
+    return buffer
+
+
+def _valid_png():
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new('RGB', (2, 2)).save(buffer, format='PNG')
+    buffer.seek(0)
+    return buffer

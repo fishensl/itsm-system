@@ -822,6 +822,12 @@ def api_v2_device_import():
         extension = os.path.splitext(original_name)[1].lower()
         if extension not in {'.xlsx', '.xls'}:
             return fail('不支持的设备导入文件类型', 400)
+        from io import BytesIO
+        from utils.upload_content import inspect_content, UnsafeUpload
+        try:
+            inspect_content(BytesIO(file_bytes), extension)
+        except UnsafeUpload as exc:
+            return fail(str(exc), 400)
         handle = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
         try:
             handle.write(file_bytes)
@@ -1489,7 +1495,8 @@ def api_device_config_backup_add(device_id):
     """新增配置备份（multipart：config_content / backup_type / config_file）"""
     import hashlib
     from datetime import date as _date
-    from werkzeug.utils import secure_filename
+    from utils.upload import validate_upload
+    from utils.upload_content import TEXT_EXTENSIONS
     from models import DeviceConfigBackup as _DCB
     from models import Device as _D
     from utils.customer_scope import require_device_access
@@ -1500,11 +1507,13 @@ def api_device_config_backup_add(device_id):
     file_path = ''
     f = request.files.get('config_file')
     if f and f.filename:
+        valid, error, safe_name = validate_upload(f, TEXT_EXTENSIONS, max_size_mb=20)
+        if not valid:
+            return fail(error, 400)
         upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'configs', str(device_id))
         os.makedirs(upload_dir, exist_ok=True)
-        safe_name = secure_filename(f.filename) or 'config.txt'
-        from datetime import datetime as _dt
-        ts = _dt.now().strftime('%Y%m%d_%H%M%S')
+        from uuid import uuid4
+        ts = uuid4().hex
         name_base, name_ext = os.path.splitext(safe_name)
         safe_name = f'{name_base}_{ts}{name_ext}'
         full_path = os.path.join(upload_dir, safe_name)
@@ -2334,8 +2343,10 @@ def api_ticket_action(ticket_id):
             if not ok_flag:
                 return fail(err or '文件校验失败')
             t3 = _T3.query.get_or_404(ticket_id)
-            os.makedirs(os.path.join('static', 'uploads', 'ticket_reports', str(t3.id)), exist_ok=True)
-            report_path = '/'.join(('uploads', 'ticket_reports', str(t3.id), safe_name))
+            from uuid import uuid4
+            report_dir = '/'.join(('uploads', 'ticket_reports', str(t3.id), uuid4().hex))
+            os.makedirs(os.path.join('static', report_dir), exist_ok=True)
+            report_path = '/'.join((report_dir, safe_name))
             f.save(os.path.join('static', report_path))
 
         # V28: 处置进展照片（多图，multipart 字段 photos）
@@ -2351,6 +2362,8 @@ def api_ticket_action(ticket_id):
                 ok_flag, err, safe_name = validate_upload(pf, ALLOWED_IMG, max_size_mb=20)
                 if not ok_flag:
                     return fail(err or '现场照片校验失败')
+                from uuid import uuid4
+                safe_name = f'{uuid4().hex}_{safe_name}'
                 pf.save(os.path.join(pdir, safe_name))
                 progress_photos.append(f'uploads/ticket_progress/{t4.id}/{safe_name}')
 
@@ -2498,6 +2511,8 @@ def api_ticket_report_latest(ticket_id):
         .order_by(_SV.version_no.desc()).first()
     if not v:
         return fail('报告不存在', 404)
+    from utils.file_access_security import require_submission_access
+    require_submission_access(v)
     return _send_report_file(v.report_file)
 
 
@@ -3282,7 +3297,8 @@ def api_inspection_submit(inspection_id):
         ok_flag, err, safe_name = validate_upload(request.files['report_file'], ALLOWED_REPORT_EXT, max_size_mb=50)
         if not ok_flag:
             return fail(err, 400)
-        subdir = 'inspection_reports'
+        from uuid import uuid4
+        subdir = f'inspection_reports/{i.id}/{uuid4().hex}'
         os.makedirs(os.path.join('static', 'uploads', subdir), exist_ok=True)
         report_path = os.path.join(subdir, safe_name)
         request.files['report_file'].save(os.path.join('static', 'uploads', report_path))
@@ -3554,6 +3570,8 @@ def api_submission_asset_download(asset_id):
     """下载提交资料文件（配置包/拓扑图/资产清单等，防路径穿越）"""
     from models import SubmissionAsset as _SA
     a = _SA.query.get_or_404(asset_id)
+    from utils.file_access_security import require_submission_access
+    require_submission_access(a.version_rel)
     if not a.file_path:
         return fail('该资料无附件文件', 404)
     return _send_report_file(a.file_path)
@@ -3566,6 +3584,8 @@ def api_submission_asset_content(asset_id):
     """提交资料文本内容在线查看（核心设备文本配置）"""
     from models import SubmissionAsset as _SA
     a = _SA.query.get_or_404(asset_id)
+    from utils.file_access_security import require_submission_access
+    require_submission_access(a.version_rel)
     return ok({'id': a.id, 'content': a.content_text or ''})
 
 
@@ -3645,12 +3665,9 @@ def api_inspection_upload_report(task_id):
         ok_flag, err, safe_name = validate_upload(f, allowed, max_size_mb=max_mb)
         if not ok_flag:
             return None, err
+        from uuid import uuid4
+        subdir = f'{subdir}/{uuid4().hex}'
         os.makedirs(os.path.join('static', 'uploads', subdir), exist_ok=True)
-        target = os.path.join('static', 'uploads', subdir, safe_name)
-        if os.path.exists(target):
-            from uuid import uuid4
-            stem, ext = os.path.splitext(safe_name)
-            safe_name = f'{stem}_{uuid4().hex[:8]}{ext}'
         rel = '/'.join(('uploads', subdir, safe_name))
         f.save(os.path.join('static', rel))
         saved_paths.append(rel)
@@ -3666,6 +3683,9 @@ def api_inspection_upload_report(task_id):
         return fail(message, status)
 
     task = _IT.query.get_or_404(task_id)
+    if (not current_user.is_admin and task.assigned_to_user_id and
+            task.assigned_to_user_id != current_user.id):
+        return fail('仅任务执行人可以上传资料', 403)
     mode = (request.form.get('mode') or 'submit').strip().lower()
     if mode not in ('submit', 'supplement'):
         return fail('未知上传模式', 400)
@@ -3909,6 +3929,8 @@ def api_inspection_report_latest(inspection_id):
         .order_by(_SV.version_no.desc()).first()
     if not v:
         return fail('报告不存在', 404)
+    from utils.file_access_security import require_submission_access
+    require_submission_access(v)
     return _send_report_file(v.report_file)
 
 
@@ -3927,6 +3949,8 @@ def api_inspection_report_download(version_id):
     download_name = report_display_name('inspection', customer_name, title,
                                         storage_name, v.version_no,
                                         v.review_status == _const.REVIEW_APPROVED)
+    from utils.file_access_security import require_submission_access
+    require_submission_access(v)
     return _send_report_file(v.report_file, download_name=download_name)
 
 
@@ -3945,6 +3969,8 @@ def api_ticket_report_download(version_id):
     download_name = report_display_name('ticket', customer_name, title,
                                         storage_name, v.version_no,
                                         v.review_status == _const.REVIEW_APPROVED)
+    from utils.file_access_security import require_submission_access
+    require_submission_access(v)
     return _send_report_file(v.report_file, download_name=download_name)
 
 
@@ -4645,4 +4671,3 @@ def api_v2_export_download(token):
     if resp is None:
         return fail('下载链接不存在、已失效或已使用', 404)
     return resp
-

@@ -152,7 +152,7 @@ def api_editor_meta():
                 import_type = None
             if import_type:
                 import_info = {
-                    'url': url_for('static', filename=t.file_path),
+                    'url': url_for('vue_api.api_topology_file_download', topology_id=t.id, kind='original'),
                     'name': t.name,
                     'customer_id': t.customer_id,
                     'region_id': t.region_id,

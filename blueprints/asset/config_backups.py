@@ -15,17 +15,20 @@ from blueprints.asset import asset_bp
 def api_config_backup_upload(id):
     """巡检表单中 config_backup 字段类型上传配置文件时调用，自动创建一条 DeviceConfigBackup 记录。"""
     import hashlib
-    from werkzeug.utils import secure_filename
+    from utils.upload import validate_upload
+    from utils.upload_content import TEXT_EXTENSIONS
     from utils.customer_scope import require_device_access
     require_device_access(current_user, Device.query.get_or_404(id))
     f = request.files.get('file')
     if not f or not f.filename:
         return jsonify({'error': '未选择文件'}), 400
+    valid, error, safe_name = validate_upload(f, TEXT_EXTENSIONS, max_size_mb=20)
+    if not valid:
+        return jsonify({'code': 1, 'message': error}), 400
     upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'configs', str(id))
     os.makedirs(upload_dir, exist_ok=True)
-    safe_name = secure_filename(f.filename) or 'config.txt'
-    from datetime import datetime as _dt
-    ts = _dt.now().strftime('%Y%m%d_%H%M%S')
+    from uuid import uuid4
+    ts = uuid4().hex
     name_base, name_ext = os.path.splitext(safe_name)
     safe_name = f'{name_base}_{ts}{name_ext}'
     full_path = os.path.join(upload_dir, safe_name)

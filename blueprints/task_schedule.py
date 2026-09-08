@@ -487,8 +487,10 @@ def upload_report(task_id):
     if not ok_flag:
         flash(err or '文件校验失败', 'danger')
         return redirect(url_for('task_schedule.task_detail', task_id=task_id))
-    os.makedirs(os.path.join('static', 'uploads', 'inspection_reports', str(task.id)), exist_ok=True)
-    rel_path = '/'.join(('uploads', 'inspection_reports', str(task.id), safe_name))
+    from uuid import uuid4
+    folder = '/'.join(('uploads', 'inspection_reports', str(task.id), uuid4().hex))
+    os.makedirs(os.path.join('static', folder), exist_ok=True)
+    rel_path = '/'.join((folder, safe_name))
     f.save(os.path.join('static', rel_path))
     conclusion = (request.form.get('conclusion') or '').strip()
     remark = (request.form.get('remark') or '').strip()

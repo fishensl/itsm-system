@@ -9,13 +9,11 @@
 """
 import ipaddress
 import os
-import time
 from datetime import date
 
 from flask import request, url_for, current_app
 from flask_login import login_required, current_user
 from sqlalchemy.orm import joinedload, selectinload
-from werkzeug.utils import secure_filename
 
 from blueprints.vue_api import vue_api_bp, ok, fail
 from models import db
@@ -477,8 +475,8 @@ def _topo_cust_name(t):
     return t.customer_rel.name if t.customer_rel else '未关联客户'
 
 
-def _topo_static_url(path):
-    return url_for('static', filename=path) if path else ''
+def _topo_file_url(topology, kind, path):
+    return url_for('vue_api.api_topology_file_download', topology_id=topology.id, kind=kind) if path else ''
 
 
 def _topo_file_payload(f):
@@ -488,11 +486,11 @@ def _topo_file_payload(f):
         'file_type': f.file_type,
         'source': f.source,
         'file_path': f.file_path or '',
-        'url': _topo_static_url(f.file_path),
-        'thumbnail': _topo_static_url(f.thumbnail_path),
-        'pdf': _topo_static_url(f.pdf_path),
-        'vsdx': _topo_static_url(f.vsdx_path),
-        'svg': _topo_static_url(f.svg_path),
+        'url': _topo_file_url(f, 'original', f.file_path),
+        'thumbnail': _topo_file_url(f, 'thumbnail', f.thumbnail_path),
+        'pdf': _topo_file_url(f, 'pdf', f.pdf_path),
+        'vsdx': _topo_file_url(f, 'vsdx', f.vsdx_path),
+        'svg': _topo_file_url(f, 'svg', f.svg_path),
         'upload_by': f.upload_by or '',
         'created_at': f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else '',
     }
@@ -624,6 +622,25 @@ def api_topology_create():
     return ok({'id': t.id})
 
 
+@vue_api_bp.route('/api/topologies/<int:topology_id>/files/<kind>/download', methods=['GET'])
+@login_required
+@require_permission('topology:view')
+def api_topology_file_download(topology_id, kind):
+    from flask import send_from_directory
+    from models import Topology
+    from utils.customer_scope import require_customer_access
+    topology = Topology.query.get_or_404(topology_id)
+    require_customer_access(current_user, topology.customer_id)
+    field = {'original': 'file_path', 'thumbnail': 'thumbnail_path', 'pdf': 'pdf_path',
+             'vsdx': 'vsdx_path', 'svg': 'svg_path'}.get(kind)
+    path = getattr(topology, field, '') if field else ''
+    base = os.path.realpath(os.path.join(current_app.root_path, 'static', 'uploads'))
+    full = os.path.realpath(os.path.join(current_app.root_path, 'static', path))
+    if not path or not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return fail('文件不存在', 404)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full), as_attachment=True)
+
+
 @vue_api_bp.route('/api/topologies/dicts', methods=['GET'])
 @login_required
 @require_permission('topology:view')
@@ -666,6 +683,10 @@ def api_topology_upload():
     ext = os.path.splitext(name_lower)[1]
     if ext not in allowed:
         return fail(f'不支持的文件类型 {ext}', 400)
+    from utils.upload import validate_upload
+    valid, error, safe_name = validate_upload(f, allowed, max_size_mb=50)
+    if not valid:
+        return fail(error, 400)
     if file_type == 'drawio':
         raw_xml = f.read()
         try:
@@ -682,9 +703,9 @@ def api_topology_upload():
 
     upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'topologies')
     os.makedirs(upload_dir, exist_ok=True)
-    safe_name = secure_filename(f.filename) or ('topology' + ext)
     base, e = os.path.splitext(safe_name)
-    safe_name = f"{base}_{int(time.time())}{e}"
+    from uuid import uuid4
+    safe_name = f"{base}_{uuid4().hex}{e}"
     full_path = os.path.join(upload_dir, safe_name)
     f.save(full_path)
 

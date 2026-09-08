@@ -45,6 +45,10 @@ def _save_kb_attachments(files, kb_id):
         ext = os.path.splitext(f.filename)[1].lower()
         if ext not in ALLOWED_KB_EXTS:
             continue
+        from utils.upload import validate_upload
+        valid, error, _ = validate_upload(f, ALLOWED_KB_EXTS, max_size_mb=50)
+        if not valid:
+            abort(400, description=error)
         safe_name = f'{_uuid.uuid4().hex}{ext}'
         full = os.path.join(sub_dir, safe_name)
         f.save(full)

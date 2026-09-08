@@ -42,7 +42,13 @@ class TestSanitizeFilename:
 
 class TestValidateUpload:
     def test_valid_chinese_name(self):
-        ok, err, name = validate_upload(_FakeFile('巡检报告2026.docx'), {'.docx'})
+        from io import BytesIO
+        from docx import Document
+        from werkzeug.datastructures import FileStorage
+        buffer = BytesIO()
+        Document().save(buffer)
+        buffer.seek(0)
+        ok, err, name = validate_upload(FileStorage(buffer, filename='巡检报告2026.docx'), {'.docx'})
         assert ok is True
         assert name == '巡检报告2026.docx'
 

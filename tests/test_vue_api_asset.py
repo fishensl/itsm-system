@@ -582,14 +582,23 @@ class TestTopologyUpload:
             return t
 
     def test_upload_image_auto_name(self, admin_client, seed, app):
+        from PIL import Image
+        picture = io.BytesIO()
+        Image.new('RGB', (2, 2)).save(picture, format='PNG')
+        picture.seek(0)
         r = admin_client.post('/api/topologies/upload',
-                              data={'topo_file': (io.BytesIO(b'pngdata'), 'net.png'),
+                              data={'topo_file': (picture, 'net.png'),
                                     'topo_type': '网络拓扑图',
                                     'customer_id': str(seed['c1'])},
                               content_type='multipart/form-data')
         assert r.status_code == 200
         body = r.get_json()
         assert body['code'] == 0
+        tid = body['data']['id']
+        download = admin_client.get(f'/api/topologies/{tid}/files/original/download')
+        assert download.status_code == 200
+        assert download.data.startswith(b'\x89PNG')
+        download.close()
         t = self._remove_uploaded(app, body['data']['id'])
         assert t.file_type == 'image'
         assert t.customer_id == seed['c1']
@@ -608,8 +617,14 @@ class TestTopologyUpload:
         assert t.file_type == 'drawio'
 
     def test_upload_custom_name_pdf(self, admin_client, seed, app):
+        from reportlab.pdfgen.canvas import Canvas
+        pdf = io.BytesIO()
+        canvas = Canvas(pdf)
+        canvas.drawString(10, 10, 'Topology')
+        canvas.save()
+        pdf.seek(0)
         r = admin_client.post('/api/topologies/upload',
-                              data={'topo_file': (io.BytesIO(b'%PDF'), 'a.pdf'),
+                              data={'topo_file': (pdf, 'a.pdf'),
                                     'name': '自定义名', 'description': '备注'},
                               content_type='multipart/form-data')
         assert r.status_code == 200

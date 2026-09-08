@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """内外网访问隔离守卫（before_request 全局注册）
 
-外网（非可信网段）仅放行工单/故障处置流程：登录改密、站内通知、工单/故障
+外网（非可信网段）放行只读工作台概览及工单/故障处置流程：登录改密、站内通知、工单/故障
 增删改查+挂起/进展/审核/照片、SPA 入口与静态资源；其余敏感模块
 （客户/设备/合同/销售/备件/巡检/用户/报表/AI/通知渠道配置等）一律拒绝。
 
-- API 请求 → 403 JSON {code:1, message}
+- API 与导入模板下载请求 → 403 JSON {code:1, message}
 - 页面请求 → 302 到 /app/login
 
 未配置可信网段（全部内网）时本守卫不生效（兼容存量零配置部署）。
@@ -23,6 +23,8 @@ _EXTERNAL_API_PREFIXES = (
 # 页面/静态前缀（SPA 入口 + 静态资源，照片等上传文件在 static/uploads/ 下）
 _EXTERNAL_PAGE_PREFIXES = ('/app/', '/static/', '/uploads/')
 _EXTERNAL_NAKED_PATHS = {'/', '/login', '/logout', '/healthz'}
+# 工作台展示内外网一致；卡片链接指向的业务接口仍走各自的外网边界。
+_EXTERNAL_READONLY_PATHS = {'/api/dashboard/overview'}
 
 # 放行前缀内的敏感子路径（外网仍拒绝）
 _EXTERNAL_BLOCKED_FRAGMENTS = (
@@ -47,6 +49,8 @@ def _external_allowed(path, method):
     """外网请求是否放行"""
     if _external_blocked(path, method):
         return False
+    if path in _EXTERNAL_READONLY_PATHS and method in ('GET', 'HEAD'):
+        return True
     for prefix in _EXTERNAL_API_PREFIXES:
         if path.startswith(prefix):
             return True
@@ -59,7 +63,7 @@ def _external_allowed(path, method):
 
 
 def _deny(message='该功能仅限内网/VPN 访问'):
-    if '/api/' in request.path:
+    if '/api/' in request.path or request.path.startswith('/exports/download-template/'):
         return jsonify({'code': 1, 'message': message}), 403
     return redirect('/app/login')
 
@@ -88,5 +92,8 @@ def register_access_guard(app):
                 return _deny('访问控制状态异常，敏感接口已临时关闭')
             return None
         if _external_allowed(request.path, request.method):
+            return None
+        # 仅放行已注册的模板只读端点；视图继续校验登录和模块权限，无额外 MFA 要求。
+        if request.endpoint == 'download_template' and request.method in ('GET', 'HEAD'):
             return None
         return _deny()

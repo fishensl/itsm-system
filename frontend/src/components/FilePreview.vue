@@ -1,9 +1,10 @@
 <template>
   <div class="file-preview" :class="{ 'has-content': !!content }">
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon />
     <!-- 图片 -->
-    <img v-if="kind === 'image' && objectUrl" :src="objectUrl" class="preview-image" alt="预览" />
+    <img v-else-if="kind === 'image' && objectUrl" :src="objectUrl" class="preview-image" alt="预览" />
     <!-- PDF -->
-    <iframe v-else-if="kind === 'pdf' && objectUrl" :src="objectUrl" class="preview-frame" title="PDF 预览" />
+    <iframe v-else-if="kind === 'pdf' && objectUrl" :src="objectUrl" sandbox="" class="preview-frame" title="PDF 预览" />
     <!-- Word（docx-preview 渲染） -->
     <div v-else-if="kind === 'docx'" ref="docxBox" class="preview-docx" />
     <!-- 文本 -->
@@ -30,6 +31,7 @@ const props = defineProps<{
 const objectUrl = ref('')
 const docxBox = ref<HTMLElement>()
 const content = ref('')
+const loadError = ref('')
 
 const ext = computed(() => {
   const name = (props.fileName || props.url?.split('?')[0].split('/').pop() || '').toLowerCase()
@@ -48,6 +50,7 @@ const kind = computed(() => {
 async function load() {
   cleanup()
   content.value = ''
+  loadError.value = ''
   const k = kind.value
   if (k === 'other') return
   if (k === 'text' && props.text !== undefined) {
@@ -56,7 +59,11 @@ async function load() {
   }
   try {
     const resp = await fetch(props.url!, { credentials: 'same-origin' })
-    if (!resp.ok) throw new Error('加载失败')
+    if (resp.redirected) throw new Error('登录状态已失效，请重新登录')
+    if (!resp.ok) {
+      const body = resp.headers.get('content-type')?.includes('application/json') ? await resp.json() : null
+      throw new Error(body?.message || '文件加载失败或无访问权限')
+    }
     const blob = await resp.blob()
     if (k === 'docx') {
       const { renderAsync } = await import('docx-preview')
@@ -82,7 +89,7 @@ async function load() {
     // 图片/PDF：Blob URL（type 兜底按扩展名）
     const mime = k === 'pdf' ? 'application/pdf' : undefined
     objectUrl.value = URL.createObjectURL(mime ? new Blob([blob], { type: mime }) : blob)
-  } catch { /* 静默失败：保持空 */ }
+  } catch (error) { loadError.value = error instanceof Error ? error.message : '文件加载失败' }
 }
 
 function cleanup() {

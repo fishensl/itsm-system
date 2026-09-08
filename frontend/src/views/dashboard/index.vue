@@ -1,5 +1,7 @@
 <template>
   <div class="page-container">
+    <el-alert v-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
+    <div v-else v-loading="loading">
     <!-- 统计卡（桌面一行 8 卡） -->
     <el-row :gutter="12" class="metric-row">
       <el-col v-for="m in data?.metrics || []" :key="m.label" :xs="12" :sm="8" :lg="3">
@@ -110,6 +112,7 @@
         </el-card>
       </el-col>
     </el-row>
+    </div>
   </div>
 </template>
 
@@ -130,6 +133,7 @@ const OVERALL_TAG = OVERALL_STATUS_TAG
 const router = useRouter()
 const data = ref<DashboardData | null>(null)
 const loading = ref(false)
+const loadError = ref('')
 const pieRef = ref<HTMLElement>()
 let pieChart: echarts.ECharts | null = null
 
@@ -185,8 +189,8 @@ onMounted(async () => {
   loading.value = true
   try {
     data.value = await fetchDashboard()
-  } catch {
-    /* 错误提示由拦截器统一处理 */
+  } catch (error) {
+    loadError.value = error instanceof Error ? error.message : '工作台加载失败，请刷新重试'
   } finally {
     loading.value = false
   }

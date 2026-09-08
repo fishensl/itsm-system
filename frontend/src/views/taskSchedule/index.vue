@@ -5,7 +5,7 @@
       <div class="header-actions">
         <el-button plain :icon="Download" @click="openExport">导出Excel</el-button>
         <el-button plain :icon="Download" @click="downloadTemplate">导入模板</el-button>
-        <input ref="importInput" type="file" accept=".xlsx,.xls" style="display: none" @change="onImportFile" />
+        <input ref="importInput" type="file" accept=".xlsx" style="display: none" @change="onImportFile" />
         <el-button plain :icon="Upload" @click="importInput?.click()">批量导入</el-button>
         <el-button plain :type="bulkMode ? 'primary' : undefined" @click="toggleBulkMode">
           {{ bulkMode ? '退出批量' : '批量操作' }}
@@ -466,7 +466,7 @@
         <el-form-item :label="assetLabel('report')" :required="isRequired('report')">
           <div class="asset-row">
             <el-upload ref="reportUploadRef" :auto-upload="false" :limit="1"
-              accept=".doc,.docx,.pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
+              accept=".docx,.pdf,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.zip"
               :on-change="(f: UploadFile) => uploadFile = f.raw ?? null" :on-remove="() => uploadFile = null">
               <el-button size="small" :icon="UploadFilled">选择报告文件</el-button>
             </el-upload>
@@ -537,7 +537,7 @@
         <el-form-item :label="assetLabel('topology')" :required="isRequired('topology')">
           <div class="asset-row">
             <el-upload :auto-upload="false" :limit="1"
-              accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.pdf,.vsd,.vsdx,.drawio,.xml"
+              accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.pdf,.vsdx,.drawio,.xml"
               :on-change="(f: UploadFile) => topologyFile = f.raw ?? null" :on-remove="() => topologyFile = null">
               <el-button size="small" :icon="UploadFilled">选择拓扑图文件</el-button>
             </el-upload>
@@ -551,7 +551,7 @@
         <!-- 资产清单 -->
         <el-form-item :label="assetLabel('asset_list')" :required="isRequired('asset_list')">
           <div class="asset-row">
-            <el-upload :auto-upload="false" :limit="1" accept=".xlsx,.xls"
+            <el-upload :auto-upload="false" :limit="1" accept=".xlsx"
               :on-change="(f: UploadFile) => assetListFile = f.raw ?? null" :on-remove="() => assetListFile = null">
               <el-button size="small" :icon="UploadFilled">选择资产清单 Excel</el-button>
             </el-upload>

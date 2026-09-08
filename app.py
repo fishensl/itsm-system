@@ -291,6 +291,9 @@ def create_app(test_config=None):
     from utils.session_security import register_session_security
     register_session_security(app)
 
+    from utils.file_access_security import register_file_access_security
+    register_file_access_security(app)
+
     from utils.password_change_guard import register_password_change_guard
     register_password_change_guard(app)
 

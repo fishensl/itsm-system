@@ -56,6 +56,12 @@ class TestIpMatching:
 
 @pytest.mark.usefixtures('networks')
 class TestExternalBlocked:
+    def test_template_permission_denial_preserves_login(self, viewer_client):
+        r = _get(viewer_client, '/exports/download-template/device', '8.8.8.8')
+        assert r.status_code == 403
+        assert 'Location' not in r.headers
+        assert _get(viewer_client, '/api/auth/me', '8.8.8.8').status_code == 200
+
     def test_customers_blocked(self, admin_client):
         r = _get(admin_client, '/api/customers', '8.8.8.8')
         assert r.status_code == 403
@@ -91,6 +97,33 @@ class TestExternalBlocked:
 
 @pytest.mark.usefixtures('networks')
 class TestExternalAllowed:
+    def test_template_download_without_mfa_preserves_login(self, op_client):
+        with op_client.session_transaction() as sess:
+            assert sess['auth_strength'] == 'password'
+        r = _get(op_client, '/exports/download-template/device', '8.8.8.8')
+        assert r.status_code == 200
+        assert 'spreadsheetml' in r.content_type
+        assert r.data.startswith(b'PK')
+        assert 'Location' not in r.headers
+        assert _get(op_client, '/api/auth/me', '8.8.8.8').status_code == 200
+
+    def test_template_still_requires_login(self, client):
+        r = _get(client, '/exports/download-template/device', '8.8.8.8')
+        assert r.status_code in (302, 401)
+
+    def test_dashboard_matches_internal_without_opening_business_modules(self, admin_client):
+        internal = _get(admin_client, '/api/dashboard/overview', '10.1.2.3')
+        external = _get(admin_client, '/api/dashboard/overview', '8.8.8.8')
+        assert internal.status_code == external.status_code == 200
+        assert internal.get_json()['data'] == external.get_json()['data']
+        assert _get(admin_client, '/api/devices', '8.8.8.8').status_code == 403
+        assert _get(admin_client, '/api/customers', '8.8.8.8').status_code == 403
+
+    def test_dashboard_allowance_is_exact_and_readonly(self):
+        from utils.access_guard import _external_allowed
+        assert not _external_allowed('/api/dashboard/overview', 'POST')
+        assert not _external_allowed('/api/dashboard/overview/export', 'GET')
+
     def test_ticket_list_allowed(self, admin_client):
         r = _get(admin_client, '/api/tickets', '8.8.8.8')
         assert r.status_code == 200
@@ -114,7 +147,7 @@ class TestExternalAllowed:
 
 
 class TestUploadedStaticFiles:
-    def test_anonymous_is_404_and_authenticated_is_allowed(
+    def test_sensitive_static_files_are_not_served_even_when_authenticated(
             self, app, client, admin_client, tmp_path):
         original = app.static_folder
         static_dir = tmp_path / 'static'
@@ -128,8 +161,7 @@ class TestUploadedStaticFiles:
         finally:
             app.static_folder = original
         assert anonymous.status_code == 404
-        assert authenticated.status_code == 200
-        assert authenticated.data == b'protected'
+        assert authenticated.status_code == 404
 
 
 def test_access_control_exception_fails_closed_for_sensitive_api(
@@ -163,7 +195,7 @@ class TestInternalAccess:
         assert 'customer' in keys
 
     def test_sidebar_external_trimmed(self, admin_client):
-        """外网侧栏仅工作台(→工单)+运维管理(仅工单/故障)"""
+        """外网侧栏保留真实工作台入口及工单/故障。"""
         r = _get(admin_client, '/api/auth/sidebar-groups', '8.8.8.8')
         groups = r.get_json()['data']
         keys = [g['key'] for g in groups]
@@ -172,7 +204,55 @@ class TestInternalAccess:
         urls = [c['url'] for c in ops['children']]
         assert all(('/tickets' in u or '/faults' in u) for u in urls)
         wb = next(g for g in groups if g['key'] == 'workbench')
-        assert wb['single_link']['url'].endswith('/tickets')
+        internal = _get(admin_client, '/api/auth/sidebar-groups', '10.1.2.3').get_json()['data']
+        internal_wb = next(g for g in internal if g['key'] == 'workbench')
+        assert wb['single_link']['url'] == internal_wb['single_link']['url']
+
+
+@pytest.mark.usefixtures('networks')
+def test_external_mfa_dashboard_and_template_download_keep_session(client, app):
+    import pyotp
+    from models import User
+    from utils.crypto import encrypt_password
+
+    secret = pyotp.random_base32()
+    with app.app_context():
+        user = User.query.filter_by(username='op').first()
+        user.mfa_enabled = True
+        user.mfa_secret_encrypted = encrypt_password(secret)
+        db.session.commit()
+    headers = {'X-Real-IP': '8.8.8.8'}
+    login = client.post('/api/auth/login', json={
+        'username': 'op', 'password': 'test123456',
+    }, headers=headers)
+    assert login.get_json()['data']['mfa_required'] is True
+    assert client.get('/api/dashboard/overview', headers=headers).status_code == 401
+    verified = client.post('/api/auth/mfa/verify', json={
+        'code': pyotp.TOTP(secret).now(),
+    }, headers=headers)
+    assert verified.status_code == 200
+    overview = client.get('/api/dashboard/overview', headers=headers)
+    assert overview.status_code == 200
+    assert overview.get_json()['data']['metrics']
+    download = client.get('/exports/download-template/device', headers=headers)
+    assert download.status_code == 200
+    assert 'spreadsheetml' in download.content_type
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from utils.import_templates import get_import_template
+    workbook = load_workbook(BytesIO(download.data))
+    assert [cell.value for cell in workbook.active[1]] == get_import_template('device')['headers']
+    assert 'Location' not in download.headers
+    assert client.get('/api/auth/me', headers=headers).status_code == 200
+    assert client.get('/api/devices', headers=headers).status_code == 403
+
+    # 同一个已通过 MFA 的会话撤销模板权限后，仍然不能下载。
+    from models import UserPermission
+    with app.app_context():
+        user = User.query.filter_by(username='op').first()
+        db.session.add(UserPermission(user_id=user.id, permission_code='device:add', grant_type='deny'))
+        db.session.commit()
+    assert client.get('/exports/download-template/device', headers=headers).status_code == 403
 
 
 @pytest.mark.usefixtures('networks')

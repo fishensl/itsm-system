@@ -7,7 +7,7 @@
         下载导入模板
       </el-button>
     </div>
-    <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx,.xls"
+    <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx"
       :on-change="onFileChange" :on-remove="clearFile">
       <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
       <div class="el-upload__text">拖拽或点击选择 Excel 文件</div>

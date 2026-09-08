@@ -255,7 +255,7 @@ class TestTicketVersionedSubmit:
         r = op_client.post(f"/api/tickets/{seed['t']}/action", data={
             'action': 'submit', 'diagnosis': '光模块故障', 'solution': '更换光模块',
             'note': '客户要求工作时段外上门，已协调',
-            'report_file': (io.BytesIO(b'fake report'), 'handle.docx'),
+            'report_file': (_valid_docx(), 'handle.docx'),
         }, content_type='multipart/form-data')
         assert r.status_code == 200, r.get_json()
         with app.app_context():
@@ -306,7 +306,7 @@ class TestTicketVersionedSubmit:
         # 重新提交 v2
         r = op_client.post(f"/api/tickets/{seed['t']}/action", data={
             'action': 'submit', 'diagnosis': 'd2', 'solution': 's2',
-            'report_file': (io.BytesIO(b'v2'), 'v2.docx'),
+            'report_file': (_valid_docx(), 'v2.docx'),
         }, content_type='multipart/form-data')
         assert r.status_code == 200
         with app.app_context():
@@ -391,7 +391,7 @@ class TestTicketVersionedSubmit:
     def test_report_download(self, op_client, seed, app):
         self._to_processing(op_client, seed['t'])
         r = op_client.post(f"/api/tickets/{seed['t']}/action", data={
-            'action': 'submit', 'report_file': (io.BytesIO(b'real'), 'r.docx'),
+            'action': 'submit', 'report_file': (_valid_docx(), 'r.docx'),
         }, content_type='multipart/form-data')
         assert r.status_code == 200
         with app.app_context():
@@ -399,7 +399,8 @@ class TestTicketVersionedSubmit:
             vid = v.id
         r = op_client.get(f'/api/tickets/report/{vid}')
         assert r.status_code == 200
-        assert r.data == b'real'
+        from docx import Document
+        assert Document(io.BytesIO(r.data)) is not None
 
 
 class TestTicketExport:
@@ -442,3 +443,11 @@ class TestTicketExport:
     def test_date_filter_no_match(self, admin_client, seed):
         r = admin_client.get('/tickets/export', query_string={'date_to': '2020-01-01'})
         assert r.status_code == 200  # 空结果也导出（仅表头）
+
+
+def _valid_docx():
+    from docx import Document
+    buffer = io.BytesIO()
+    Document().save(buffer)
+    buffer.seek(0)
+    return buffer
