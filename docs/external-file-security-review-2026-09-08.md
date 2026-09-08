@@ -83,6 +83,10 @@
 
 ## 推送前合并验证
 
+### 上线白屏回归修复
+
+生产反馈 `/app/` 收到 `sandbox; default-src 'none'`：`send_from_directory` 为应用 HTML/JS/CSS 同样设置 Content-Disposition，原下载响应判断过宽；此外 `/app/assets/` 会匹配敏感文件路径片段。现按已匹配的 `vue_api.vue_spa` 和非上传 `static` 端点识别可信应用资源，保留站点 CSP，避免误触发操作 MFA。上传路径仍先规范化，不因静态端点豁免而放行上传文件。新增实际 SPA 视图 GET/HEAD 回归覆盖匿名/已登录外网、首页/历史路由/JS/CSS/favicon，以及文档 sandbox 与上传路径拒绝。
+
 合并远端 `4b8ceb0` 后重新执行外网边界专项、文件安全专项及前端构建。远端已加入受保护文件下载助手，本次预览保留该 MFA 弹窗与重试机制，并叠加错误显示和 PDF 沙箱。此前测试数字是合并前的局部验证记录，不冒充最终全量测试。
 
 合并后结果：`tests/test_access_control.py` 与 `tests/test_external_file_security.py` 共 63 项通过；前端文件预览/模板下载/request 共 6 项通过，生产构建、全仓 Ruff 与 diff 检查通过。

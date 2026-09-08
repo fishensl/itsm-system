@@ -9,6 +9,13 @@ from utils.access_control import is_internal_request
 from utils.session_security import credential_session_context
 
 
+def _is_application_resource(path):
+    """Only trusted application endpoints may bypass document-specific guards."""
+    return (request.endpoint == 'vue_api.vue_spa' or
+            (request.endpoint == 'static' and
+             not path.startswith(('/static/uploads/', '/uploads/'))))
+
+
 def require_submission_access(version):
     from models import Inspection, Ticket
     from utils.permission import apply_scope_filter
@@ -24,6 +31,8 @@ def register_file_access_security(app):
     @app.before_request
     def enforce_file_access():
         path = '/' + posixpath.normpath(request.path.replace('\\', '/')).lstrip('/')
+        if _is_application_resource(path):
+            return None
         # Business documents must use their authenticated, permission-checked routes.
         # Only existing ticket progress pictures retain a static compatibility URL.
         if path.startswith(('/static/uploads/', '/uploads/')):
@@ -72,8 +81,13 @@ def register_file_access_security(app):
 
     @app.after_request
     def protect_file_response(response):
+        path = '/' + posixpath.normpath(request.path.replace('\\', '/')).lstrip('/')
+        # send_from_directory adds Content-Disposition even for SPA HTML/JS/CSS.
+        # Those responses retain the site CSP; uploaded documents keep sandboxing.
+        if _is_application_resource(path):
+            return response
         if ('Content-Disposition' in response.headers or
-                request.path.startswith(('/static/uploads/', '/uploads/'))):
+                path.startswith(('/static/uploads/', '/uploads/'))):
             response.headers['X-Content-Type-Options'] = 'nosniff'
             response.headers['Cache-Control'] = 'no-store'
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'"
