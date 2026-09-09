@@ -34,6 +34,7 @@ export const TASK_STATUS = {
   "SCHEDULED": "已安排",
   "RUNNING": "执行中",
   "REVIEWING": "待审核",
+  "RETURNED": "退回修改",
   "DONE": "已完成",
   "CANCELLED": "已取消",
   "CONTRACT_REVIEW": "合同审批"
@@ -44,6 +45,7 @@ export const TASK_STATUS_TAG: Record<string, TagType> = {
   "已安排": "info",
   "执行中": "primary",
   "待审核": "warning",
+  "退回修改": "danger",
   "已完成": "success",
   "已取消": "info",
   "合同审批": "danger"

@@ -377,6 +377,7 @@ def api_dashboard_overview():
                     _const.TASK_SCHEDULED,
                     _const.TASK_RUNNING,
                     _const.TASK_REVIEWING,
+                    _const.TASK_RETURNED,
                 ])),
             current_user,
         )[0].order_by(InspectionTask.id.desc()).limit(5).all()
@@ -1794,7 +1795,7 @@ def _task_payload(t, customer_map=None):
     from services.task_schedule_service import task_timing_payload
     today = date.today()
     overdue = (
-        t.status in (_const.TASK_PENDING, _const.TASK_SCHEDULED, _const.TASK_RUNNING)
+        t.status in (_const.TASK_PENDING, _const.TASK_SCHEDULED, _const.TASK_RUNNING, _const.TASK_RETURNED)
         and t.planned_end
         and t.planned_end < today
     )
@@ -1859,6 +1860,7 @@ def api_task_board():
         _const.TASK_SCHEDULED,
         _const.TASK_RUNNING,
         _const.TASK_REVIEWING,
+        _const.TASK_RETURNED,
         _const.TASK_DONE,
     ):
         groups[st] = [_task_payload(t, customer_map) for t in tasks if t.status == st]
@@ -1872,6 +1874,7 @@ def api_task_board():
         'scheduled': len(groups[_const.TASK_SCHEDULED]),
         'running': len(groups[_const.TASK_RUNNING]),
         'reviewing': len(groups[_const.TASK_REVIEWING]),
+        'returned': len(groups[_const.TASK_RETURNED]),
         'done': len(groups[_const.TASK_DONE]),
         'scope': scope,
         'scope_label': {'all': '全部任务', 'dept': '部门任务', 'mine': '我的任务'}[scope],
@@ -3509,6 +3512,10 @@ def api_inspection_review(inspection_id):
     remark = data.get('remark') or ''
     requirements = data.get('requirements') or ''
     checklist = data.get('checklist')
+    if not approved and not requirements and isinstance(checklist, dict):
+        need_fix = [name for name, status in checklist.items() if status == '需修改']
+        if need_fix:
+            requirements = '请完善：' + '、'.join(need_fix)
     try:
         review_inspection(
             inspection_id, approved, current_user.realname or current_user.username,
@@ -3549,7 +3556,7 @@ def api_inspection_review(inspection_id):
                 else '审核已通过')
             notify(target_uid, 'inspection',
                    f'巡检「{i.title if i else ""}」审核{"通过" if approved else "退回"}',
-                   (remark or requirements) or (
+                   '\n'.join(filter(None, [remark, requirements])) or (
                        approved_message if approved else '请按修改要求重新提交'),
                    f'/app/inspections/{inspection_id}')
     except Exception:
@@ -3563,7 +3570,7 @@ def api_inspection_review(inspection_id):
                 notify_task_status_changed(
                     task, task_old_status,
                     current_user.realname or current_user.username,
-                    current_user.id)
+                    current_user.id, review_reason=remark, review_requirements=requirements)
         except Exception:
             current_app.logger.warning(
                 '巡检审核任务状态通知失败 inspection_id=%s',

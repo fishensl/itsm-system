@@ -1400,7 +1400,7 @@ def api_task_schedule_board():
         if t.status == _const.TASK_SCHEDULED:
             candidates = (t.scheduled_start, t.planned_start, t.actual_start)
         elif t.status in (
-                _const.TASK_RUNNING, _const.TASK_REVIEWING, _const.TASK_DONE):
+                _const.TASK_RUNNING, _const.TASK_RETURNED, _const.TASK_REVIEWING, _const.TASK_DONE):
             candidates = (t.actual_start, t.scheduled_start, t.planned_start)
         else:
             candidates = (t.planned_start, t.scheduled_start, t.actual_start)
@@ -1463,6 +1463,7 @@ def api_task_schedule_board():
         'scheduled': sum(1 for t in items if t['status'] == _const.TASK_SCHEDULED),
         'running': sum(1 for t in items if t['status'] == _const.TASK_RUNNING),
         'reviewing': sum(1 for t in items if t['status'] == _const.TASK_REVIEWING),
+        'returned': sum(1 for t in items if t['status'] == _const.TASK_RETURNED),
         'done': sum(1 for t in items if t['status'] == _const.TASK_DONE),
         'contract_review': sum(
             1 for t in items if t['status'] == _const.TASK_CONTRACT_REVIEW
@@ -1486,6 +1487,7 @@ def api_task_schedule_board():
                       _const.TASK_SCHEDULED,
                       _const.TASK_RUNNING,
                       _const.TASK_REVIEWING,
+                      _const.TASK_RETURNED,
                       _const.TASK_DONE,
                   )}
         data = {'status_groups': groups, 'engineers': engineers, 'view': 'status'}

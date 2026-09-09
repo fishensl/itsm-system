@@ -196,9 +196,9 @@ def inspection_record_review_notification_content(inspection, actor_name=''):
     return '\n'.join(line for line in lines if line)
 
 
-def task_status_notification_content(task, old_status, actor_name=''):
+def task_status_notification_content(task, old_status, actor_name='', review_reason='', review_requirements=''):
     """按目标状态展示必要时效，避免合同时效与实施信息混在一起。"""
-    from utils.constants import TASK_DONE, TASK_REVIEWING, TASK_RUNNING
+    from utils.constants import TASK_DONE, TASK_REVIEWING, TASK_RUNNING, TASK_RETURNED
 
     customer = getattr(task, 'customer_rel', None)
     assignee = getattr(task, 'assignee_rel', None)
@@ -214,7 +214,7 @@ def task_status_notification_content(task, old_status, actor_name=''):
         _line('任务期限', _format_period(
             getattr(task, 'scheduled_start', None), getattr(task, 'scheduled_end', None))),
     ]
-    if new_status in {TASK_RUNNING, TASK_REVIEWING, TASK_DONE}:
+    if new_status in {TASK_RUNNING, TASK_REVIEWING, TASK_RETURNED, TASK_DONE}:
         lines.append(_line(
             '实施开始', actual_start.strftime('%Y年%m月%d日 %H:%M')
             if actual_start else ''))
@@ -222,11 +222,17 @@ def task_status_notification_content(task, old_status, actor_name=''):
         lines.append(_line(
             '实施结束', actual_end.strftime('%Y年%m月%d日 %H:%M')
             if actual_end else ''))
+    if new_status == TASK_RETURNED:
+        lines.append(_line('审核结果', '退回修改'))
+        lines.append(_line('退回原因', review_reason or review_requirements or '审核人未填写原因'))
+        if review_requirements:
+            lines.append(_line('修改要求', review_requirements))
     lines.append(_line('操作人', actor_name))
     return '\n'.join(line for line in lines if line)
 
 
-def notify_task_status_changed(task, old_status, actor_name='', actor_user_id=None):
+def notify_task_status_changed(task, old_status, actor_name='', actor_user_id=None,
+                               review_reason='', review_requirements=''):
     """任务状态真正变更后向所有启用渠道分发；同值保存不重复通知。"""
     new_status = getattr(task, 'status', '') or ''
     if not old_status or old_status == new_status:
@@ -238,7 +244,7 @@ def notify_task_status_changed(task, old_status, actor_name='', actor_user_id=No
     return wecom_broadcast(
         EVENT_INSPECTION_STATUS_CHANGED,
         getattr(task, 'title', '') or '巡检任务',
-        task_status_notification_content(task, old_status, actor_name),
+        task_status_notification_content(task, old_status, actor_name, review_reason, review_requirements),
         '', target_user_ids=target_user_ids, mode='markdown')
 
 

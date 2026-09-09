@@ -450,15 +450,23 @@ class TestInspectionUploadReportFlow:
         assert '合同时效' not in sent[-1]['content']
         assert sent[-1]['mode'] == 'markdown'
 
-    def test_review_reject_reverts_task(self, op_client, admin_client, seed, app):
+    def test_review_reject_reverts_task(self, op_client, admin_client, seed, app, monkeypatch):
+        sent = []
+        monkeypatch.setattr(
+            "utils.wecom_notify.wecom_broadcast",
+            lambda event, title, content="", *args, **kwargs: sent.append(content) or (1, 0))
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
         assert r.status_code == 200
         with app.app_context():
             assert db.session.get(InspectionTask, seed['t1']).status == '待审核'
+        empty = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
+            'approved': False, 'remark': ' '})
+        assert empty.status_code == 400
+        assert '退回原因' in empty.get_json()['message']
         r = admin_client.post(f"/api/inspections/{seed['i1']}/review", json={
-            'approved': False, 'remark': '报告缺少照片，退回'})
+            'approved': False, 'remark': '报告缺少照片，退回', 'requirements': '补充现场照片'})
         assert r.status_code == 200
         with app.app_context():
             i = Inspection.query.get(seed['i1'])
@@ -466,7 +474,15 @@ class TestInspectionUploadReportFlow:
             assert i.overall_status == '异常'
             assert i.review_comment == '报告缺少照片，退回'
             t = db.session.get(InspectionTask, seed['t1'])
-            assert t.status == '执行中'
+            assert t.status == '退回修改'
+            assert t.actual_start is not None
+            assert t.actual_end is None
+        assert '待审核 → 退回修改' in sent[-1]
+        assert '退回原因：**报告缺少照片，退回' in sent[-1]
+        assert '修改要求：**补充现场照片' in sent[-1]
+        board = admin_client.get('/api/task-schedule?view=status').get_json()['data']
+        assert board['kpi']['returned'] >= 1
+        assert any(t['id'] == seed['t1'] for t in board['status_groups']['退回修改'])
 
     def test_review_pending_double_submit_rejected(self, op_client, seed, app):
         """任务已有待审核记录时不可重复上传"""
@@ -1173,8 +1189,11 @@ class TestReviewChecklist:
         assert [it['name'] for it in items] == ['链路状态', '设备除尘']
         assert items[1]['enabled'] is False
 
-    def test_checklist_written_to_version(self, op_client, admin_client, seed, app):
+    def test_checklist_written_to_version(self, op_client, admin_client, seed, app, monkeypatch):
         """审核提交 checklist → 版本落库 + 版本列表 API 输出 + 退回自动拼装"""
+        sent = []
+        monkeypatch.setattr('utils.wecom_notify.wecom_broadcast',
+                            lambda event, title, content='', *args, **kwargs: sent.append(content) or (1, 0))
         r = op_client.post(f"/api/inspections/task/{seed['t1']}/report",
                            data={'report_file': _dummy_file()},
                            content_type='multipart/form-data')
@@ -1195,6 +1214,8 @@ class TestReviewChecklist:
         data = r.get_json()['data']
         assert data[-1]['checklist']['拓扑图'] == '需修改'
         assert '请完善：拓扑图、现场图片' in data[-1]['revision_requirements']
+        assert '请完善：拓扑图、现场图片' in sent[-1]
+        assert '两项不合格' in sent[-1]
 
     def test_preview_content_types(self, admin_client, app, seed):
         """预览数据流：受控下载端点 Content-Type 按扩展名"""

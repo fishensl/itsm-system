@@ -101,7 +101,7 @@
 
     <!-- 按状态视图 -->
     <div v-if="data?.view === 'status'" class="board-cols">
-      <div v-for="st in [TASK_STATUS.CONTRACT_REVIEW, TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
+      <div v-for="st in [TASK_STATUS.CONTRACT_REVIEW, TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.RETURNED, TASK_STATUS.REVIEWING, TASK_STATUS.DONE]" :key="st" class="board-col">
         <div class="col-head" :class="`col-${st}`">
           {{ st }}
           <span class="col-count">{{ data.status_groups?.[st]?.length || 0 }}</span>
@@ -133,7 +133,7 @@
                   <el-option v-for="e in data?.engineers || []" :key="e.id" :label="e.name" :value="e.id" />
                 </el-select>
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
-                  :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
+                  :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.RETURNED || t.status === TASK_STATUS.CONTRACT_REVIEW"
                   :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
                   <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
                     :key="s" :label="s" :value="s" :disabled="s === TASK_STATUS.DONE" />
@@ -253,7 +253,7 @@
                   <el-option v-for="eng in data?.engineers || []" :key="eng.id" :label="eng.name" :value="eng.id" />
                 </el-select>
                 <el-select v-model="inlineForm.status" size="small" class="ie-select"
-                  :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.CONTRACT_REVIEW"
+                  :disabled="t.status === TASK_STATUS.REVIEWING || t.status === TASK_STATUS.RETURNED || t.status === TASK_STATUS.CONTRACT_REVIEW"
                   :placeholder="t.status === TASK_STATUS.CONTRACT_REVIEW ? '合同审批中' : t.status === TASK_STATUS.REVIEWING ? '待审核中' : '状态'">
                   <el-option v-for="s in [TASK_STATUS.PENDING, TASK_STATUS.SCHEDULED, TASK_STATUS.RUNNING, TASK_STATUS.DONE, TASK_STATUS.CANCELLED]"
                     :key="s" :label="s" :value="s" :disabled="s === TASK_STATUS.DONE" />
@@ -789,6 +789,7 @@ function assetLabel(key: string) {
 const uploadHint = computed(() => {
   const st = detail.value?.status
   if (st === TASK_STATUS.SCHEDULED) return '任务只已排期，尚未开始计时；请先切换为「执行中」'
+  if (st === TASK_STATUS.RETURNED) return '审核已退回，请按退回原因和修改要求修订资料后重新提交审核'
   if (st === TASK_STATUS.REVIEWING) return '当前版本正在审核，可继续补传漏交的配置、拓扑或资产清单；不会重复提交审核'
   if (st === TASK_STATUS.DONE) return '任务已完成，可补传报告/资料（补传不改变任务状态）'
   if (st === TASK_STATUS.CANCELLED) return '任务已取消，不可上传'
@@ -806,6 +807,7 @@ const kpiCards = computed(() => {
     { key: 'scheduled', label: TASK_STATUS.SCHEDULED, value: k.scheduled, cls: 'scheduled', status: TASK_STATUS.SCHEDULED },
     { key: 'running', label: TASK_STATUS.RUNNING, value: k.running, cls: 'primary', status: TASK_STATUS.RUNNING },
     { key: 'reviewing', label: TASK_STATUS.REVIEWING, value: k.reviewing, cls: 'info', status: TASK_STATUS.REVIEWING },
+    { key: 'returned', label: TASK_STATUS.RETURNED, value: k.returned, cls: 'danger', status: TASK_STATUS.RETURNED },
     { key: 'done', label: TASK_STATUS.DONE, value: k.done, cls: 'success', status: TASK_STATUS.DONE },
     { key: 'contract_review', label: TASK_STATUS.CONTRACT_REVIEW, value: k.contract_review,
       cls: 'danger', status: TASK_STATUS.CONTRACT_REVIEW },
@@ -1416,6 +1418,7 @@ onMounted(() => {
 }
 .col-待执行 { color: var(--el-color-warning); border-bottom: 3px solid var(--el-color-warning); }
 .col-已安排 { color: var(--itsm-scheduled); border-bottom: 3px solid var(--itsm-scheduled); }
+.col-退回修改 { color: var(--el-color-danger); border-bottom: 3px solid var(--el-color-danger); }
 .col-执行中 { color: var(--el-color-primary); border-bottom: 3px solid var(--el-color-primary); }
 .col-待审核 { color: var(--el-color-info); border-bottom: 3px solid var(--el-color-info); }
 .col-已完成 { color: var(--el-color-success); border-bottom: 3px solid var(--el-color-success); }
@@ -1454,6 +1457,7 @@ onMounted(() => {
 }
 .dot-待执行 { color: var(--el-color-warning); }
 .dot-已安排 { color: var(--itsm-scheduled); }
+.dot-退回修改 { color: var(--el-color-danger); }
 .dot-执行中 { color: var(--el-color-primary); }
 .dot-待审核 { color: var(--el-color-info); }
 .dot-已完成 { color: var(--el-color-success); }

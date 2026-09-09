@@ -18,6 +18,7 @@ from utils.constants import (
     TASK_PENDING,
     TASK_SCHEDULED,
     TASK_REVIEWING,
+    TASK_RETURNED,
     TASK_RUNNING,
     TASK_STATUSES,
     TASK_TRANSITIONS,
@@ -36,7 +37,7 @@ def local_now():
     return datetime.now(_BEIJING).replace(tzinfo=None)
 
 
-_ACTIVE_TIMING_STATUSES = frozenset({TASK_RUNNING, TASK_REVIEWING})
+_ACTIVE_TIMING_STATUSES = frozenset({TASK_RUNNING, TASK_REVIEWING, TASK_RETURNED})
 def workday_duration_seconds(start, end):
     """Return Beijing business-time seconds between two naive datetimes.
 
@@ -145,7 +146,7 @@ def validate_task_schedule_period(task, status=None):
 STATUS_FROM_EXCEL = {
     '未开始': TASK_PENDING, TASK_PENDING: TASK_PENDING,
     TASK_SCHEDULED: TASK_SCHEDULED,
-    '进行中': TASK_RUNNING, TASK_RUNNING: TASK_RUNNING,
+    '进行中': TASK_RUNNING, TASK_RUNNING: TASK_RUNNING, TASK_RETURNED: TASK_RETURNED,
     TASK_DONE: TASK_DONE, '完成': TASK_DONE,
     TASK_CANCELLED: TASK_CANCELLED, '取消': TASK_CANCELLED,
 }
@@ -343,7 +344,7 @@ def import_task_excel(file_storage, user):
                 existing.scheduled_end = scheduled_end or existing.scheduled_end
                 if actual_start:
                     existing.actual_start = actual_start
-                if status in (TASK_RUNNING, TASK_REVIEWING) and not existing.actual_start:
+                if status in (TASK_RUNNING, TASK_REVIEWING, TASK_RETURNED) and not existing.actual_start:
                     existing.actual_start = local_now()
                 if actual_end:
                     existing.actual_end = actual_end
@@ -362,7 +363,7 @@ def import_task_excel(file_storage, user):
                 if status == TASK_SCHEDULED and (
                         not scheduled_start or not scheduled_end):
                     raise ValueError(f'第{r}行：「已安排」任务必须填写完整的任务期限')
-                if status in (TASK_RUNNING, TASK_REVIEWING) and not actual_start:
+                if status in (TASK_RUNNING, TASK_REVIEWING, TASK_RETURNED) and not actual_start:
                     actual_start = local_now()
                 if status == TASK_DONE and not actual_end:
                     actual_end = local_now()
@@ -402,7 +403,8 @@ def import_task_excel(file_storage, user):
 
 
 def check_task_transition(task, new_status, allow_reopen=False,
-                          allow_contract_review=False, allow_review_complete=False):
+                          allow_contract_review=False, allow_review_complete=False,
+                          allow_review_return=False):
     """任务状态机校验（SSR 看板 / Vue 看板共用）。
 
     - 合法转换见 utils.constants.TASK_TRANSITIONS；
@@ -422,6 +424,8 @@ def check_task_transition(task, new_status, allow_reopen=False,
         return '合同审批任务只能通过合同例外审核接口流转'
     if new_status == TASK_DONE and not allow_review_complete:
         return '已完成状态只能由巡检记录审核通过后自动生成'
+    if new_status == TASK_RETURNED and not allow_review_return:
+        return '退回修改状态只能由巡检记录审核退回后自动生成'
     allowed = TASK_TRANSITIONS.get(task.status, set())
     if new_status in allowed:
         if new_status == TASK_DONE and not any(
@@ -440,7 +444,7 @@ def check_task_transition(task, new_status, allow_reopen=False,
 
 def apply_task_status(task, new_status, allow_reopen=False,
                       allow_contract_review=False, allow_review_complete=False,
-                      now=None):
+                      now=None, allow_review_return=False):
     """改任务状态 + 状态机校验 + 自动维护 actual_start/actual_end。
 
     与 blueprints/task_schedule._apply_status 行为一致，供 Vue API 复用；
@@ -449,7 +453,7 @@ def apply_task_status(task, new_status, allow_reopen=False,
     err = check_task_transition(
         task, new_status, allow_reopen=allow_reopen,
         allow_contract_review=allow_contract_review,
-        allow_review_complete=allow_review_complete)
+        allow_review_complete=allow_review_complete, allow_review_return=allow_review_return)
     if err:
         raise ValueError(err)
     now = now or local_now()

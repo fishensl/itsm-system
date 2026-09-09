@@ -43,6 +43,7 @@ export interface TaskScheduleData {
     scheduled: number
     running: number
     reviewing: number
+    returned: number
     done: number
     contract_review: number
     overdue: number

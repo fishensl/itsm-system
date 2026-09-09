@@ -13,7 +13,7 @@ from .base import ServiceError, transaction
 from .submission_version_service import add_version, review_version, latest_pending_version
 from .task_schedule_service import apply_task_status
 from utils.constants import (REVIEW_PENDING, REVIEW_APPROVED, REVIEW_REJECTED,
-                             TASK_PENDING, TASK_REVIEWING, TASK_RUNNING, TASK_DONE)
+                             TASK_PENDING, TASK_REVIEWING, TASK_RUNNING, TASK_RETURNED, TASK_DONE)
 from utils.json_fields import dumps_json, parse_json
 
 
@@ -259,7 +259,7 @@ def _sync_task_to_reviewing(i, current_user_id=None):
     task = _task_from_inspection(i)
     if not task:
         return None
-    if task.status == TASK_RUNNING:
+    if task.status in (TASK_RUNNING, TASK_RETURNED):
         apply_task_status(task, TASK_REVIEWING)
     elif task.status == TASK_PENDING:
         apply_task_status(task, TASK_RUNNING)
@@ -267,11 +267,11 @@ def _sync_task_to_reviewing(i, current_user_id=None):
     return task
 
 
-def _revert_task_to_running(i):
-    """记录被退回 → 关联任务回「执行中」（若任务处于待审核）。"""
+def _return_task_for_revision(i):
+    """记录被退回 → 关联任务进入「退回修改」（若任务处于待审核）。"""
     task = _task_from_inspection(i)
     if task and task.status == TASK_REVIEWING:
-        apply_task_status(task, TASK_RUNNING)
+        apply_task_status(task, TASK_RETURNED, allow_review_return=True)
 
 
 @transaction
@@ -302,8 +302,8 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
     from .submission_version_service import add_asset
 
     task = InspectionTask.query.get_or_404(task_id)
-    if task.status not in (TASK_RUNNING, TASK_REVIEWING, TASK_PENDING, TASK_DONE):
-        raise ServiceError('任务状态「%s」不允许上传报告（仅执行中/待审核/待执行/已完成的任务可上传）' % task.status)
+    if task.status not in (TASK_RUNNING, TASK_RETURNED, TASK_REVIEWING, TASK_PENDING, TASK_DONE):
+        raise ServiceError('任务状态「%s」不允许上传报告（仅执行中/退回修改/待审核/待执行/已完成的任务可上传）' % task.status)
 
     if not force and task.assigned_to_user_id and current_user_id \
             and int(task.assigned_to_user_id) != int(current_user_id):
@@ -329,7 +329,7 @@ def upload_report_for_task(task_id, report_path, conclusion, current_user_id,
         if pending and pending.review_status == REVIEW_PENDING:
             raise ServiceError('该任务已有「待审核」版本（版本 %d），请等待审核结果后再上传' % pending.version_no)
     else:
-        if task.status not in (TASK_RUNNING, TASK_PENDING, TASK_DONE):
+        if task.status not in (TASK_RUNNING, TASK_RETURNED, TASK_PENDING, TASK_DONE):
             raise ServiceError('任务「%s」状态不能创建巡检记录' % task.status)
         # 巡检人员优先取任务指派工程师（管理员代传时记录真实执行人，上传者由版本留档）
         assignee = task.assignee_rel
@@ -407,7 +407,7 @@ def supplement_report_assets_for_task(
     from .submission_version_service import add_asset
 
     task = InspectionTask.query.get_or_404(task_id)
-    if task.status not in (TASK_RUNNING, TASK_REVIEWING, TASK_PENDING, TASK_DONE):
+    if task.status not in (TASK_RUNNING, TASK_RETURNED, TASK_REVIEWING, TASK_PENDING, TASK_DONE):
         raise ServiceError('任务状态「%s」不允许补传资料' % task.status)
     if not force and task.assigned_to_user_id and current_user_id \
             and int(task.assigned_to_user_id) != int(current_user_id):
@@ -673,7 +673,7 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
         - review_status = '已退回'，overall_status = '异常'
         - 退回原因 remark + 需要修改的内容 requirements 写回版本；
           requirements 为空时由「需修改」检查项自动拼装（"请完善：×××、×××"）
-        - 关联任务「待审核 → 执行中」，工程师按修改要求重传
+        - 关联任务「待审核 → 退回修改」，工程师按修改要求重传
     """
     from models import User as _User
     i = Inspection.query.get_or_404(inspection_id)
@@ -692,6 +692,8 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
         need_fix = [name for name, st in checklist.items() if st == '需修改']
         if need_fix:
             requirements = '请完善：%s' % '、'.join(need_fix)
+    if not approved and not str(remark or '').strip() and not str(requirements or '').strip():
+        raise ServiceError('审核退回必须填写退回原因或修改要求')
 
     pending = latest_pending_version('inspection', i.id)
     if pending:
@@ -723,7 +725,7 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
                 except Exception:
                     pass
     else:
-        _revert_task_to_running(i)
+        _return_task_for_revision(i)
     return i
 
 
