@@ -190,7 +190,7 @@
               </div>
               <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
-              <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
+              <span v-if="t.actual_start">结束：{{ t.actual_end || (t.status === TASK_STATUS.RUNNING ? '执行中' : '未记录实施结束') }}</span>
               <span v-if="t.actual_start" class="task-timing-total">
                 实施耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
               </span>
@@ -310,7 +310,7 @@
               </div>
               <span v-if="t.actual_start" class="task-period-label">实施时效</span>
               <span v-if="t.actual_start">开始：{{ t.actual_start }}</span>
-              <span v-if="t.actual_start">结束：{{ t.actual_end || '进行中（待审核完成）' }}</span>
+              <span v-if="t.actual_start">结束：{{ t.actual_end || (t.status === TASK_STATUS.RUNNING ? '执行中' : '未记录实施结束') }}</span>
               <span v-if="t.actual_start" class="task-timing-total">
                 实施耗时：{{ t.actual_duration_text || '-' }} · {{ t.actual_effort ?? 0 }} 人天
               </span>

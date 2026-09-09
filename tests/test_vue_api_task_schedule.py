@@ -17,7 +17,7 @@ def test_task_work_calendar_uses_published_holiday_source(admin_client):
     assert workdays['2026-02-14'] == '春节调休上班'
 
 
-def test_task_timing_payload_uses_workday_execution_to_approval_window():
+def test_task_timing_payload_uses_workday_execution_window():
     from services.task_schedule_service import task_timing_payload
 
     task = InspectionTask(
@@ -29,6 +29,61 @@ def test_task_timing_payload_uses_workday_execution_to_approval_window():
     assert timing['actual_duration_hours'] == 7.5
     assert timing['actual_duration_text'] == '7小时30分钟'
     assert timing['actual_effort'] == 0.94
+
+
+def test_submission_freezes_execution_across_return_resubmit_and_approval():
+    from models import Inspection
+    from services.task_schedule_service import apply_task_status, task_timing_payload
+    from utils.constants import TASK_RUNNING, TASK_REVIEWING, TASK_RETURNED, TASK_DONE, REVIEW_APPROVED
+    start = datetime(2026, 9, 7, 8, 30)
+    submitted = datetime(2026, 9, 7, 10, 0)
+    task = InspectionTask(title='提交即完成实施', status=TASK_RUNNING, actual_start=start)
+    apply_task_status(task, TASK_REVIEWING, now=submitted)
+    expected = task_timing_payload(task, now=submitted)
+    assert task.actual_end == submitted
+    assert expected['actual_duration_hours'] == 1.5
+    for status, kwargs in [(TASK_RETURNED, {'allow_review_return': True}),
+                           (TASK_REVIEWING, {}),
+                           (TASK_DONE, {'allow_review_complete': True})]:
+        if status == TASK_DONE:
+            task.records.append(Inspection(title='已审核', review_status=REVIEW_APPROVED))
+        apply_task_status(task, status, now=datetime(2026, 9, 11, 17, 30), **kwargs)
+        assert task.actual_start == start
+        assert task.actual_end == submitted
+        assert task_timing_payload(task, now=datetime(2026, 9, 18, 17, 30)) == expected
+
+
+def test_legacy_review_without_submission_boundary_does_not_keep_timing():
+    from services.task_schedule_service import task_timing_payload
+    from utils.constants import TASK_REVIEWING, TASK_RETURNED
+    for status in (TASK_REVIEWING, TASK_RETURNED):
+        task = InspectionTask(title='历史无边界任务', status=status,
+                              actual_start=datetime(2026, 9, 7, 8, 30))
+        assert task_timing_payload(task, now=datetime(2026, 9, 18))['actual_duration_hours'] is None
+
+
+def test_legacy_review_end_uses_original_utc_submission(app):
+    from models import Inspection, SubmissionVersion
+    from services.task_schedule_service import apply_task_status, task_timing_payload
+    from utils.constants import TASK_REVIEWING, TASK_RETURNED
+    with app.app_context():
+        customer = Customer(name='计时测试客户')
+        db.session.add(customer)
+        db.session.flush()
+        task = InspectionTask(title='旧审核计时', customer_id=customer.id, status=TASK_REVIEWING,
+                              actual_start=datetime(2026, 9, 7, 8, 30))
+        db.session.add(task)
+        db.session.flush()
+        record = Inspection(title='原始提交', customer_id=customer.id, task_id=task.id)
+        db.session.add(record)
+        db.session.flush()
+        db.session.add(SubmissionVersion(entity_type='inspection', entity_id=record.id,
+                                        version_no=1, submitted_at=datetime(2026, 9, 7, 2, 0)))
+        db.session.flush()
+        apply_task_status(task, TASK_RETURNED, allow_review_return=True,
+                          now=datetime(2026, 9, 11, 17, 30))
+        assert task.actual_end == datetime(2026, 9, 7, 10, 0)
+        assert task_timing_payload(task)['actual_duration_hours'] == 1.5
 
 
 def test_task_timing_excludes_night_lunch_and_weekend():

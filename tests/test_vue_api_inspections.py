@@ -476,7 +476,7 @@ class TestInspectionUploadReportFlow:
             t = db.session.get(InspectionTask, seed['t1'])
             assert t.status == '退回修改'
             assert t.actual_start is not None
-            assert t.actual_end is None
+            assert t.actual_end is not None
         assert '待审核 → 退回修改' in sent[-1]
         assert '退回原因：**报告缺少照片，退回' in sent[-1]
         assert '修改要求：**补充现场照片' in sent[-1]

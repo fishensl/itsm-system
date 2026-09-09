@@ -218,7 +218,7 @@ def task_status_notification_content(task, old_status, actor_name='', review_rea
         lines.append(_line(
             '实施开始', actual_start.strftime('%Y年%m月%d日 %H:%M')
             if actual_start else ''))
-    if new_status == TASK_DONE:
+    if new_status in {TASK_REVIEWING, TASK_RETURNED, TASK_DONE}:
         lines.append(_line(
             '实施结束', actual_end.strftime('%Y年%m月%d日 %H:%M')
             if actual_end else ''))

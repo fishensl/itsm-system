@@ -668,7 +668,7 @@ def review_inspection(inspection_id, approved, current_user_name, remark='', req
     审核通过 (approved=True):
         - review_status = '已通过'，overall_status = '正常'
         - 仅在 ITSM_AUTO_GENERATE_INSPECTION_REPORT 开启时生成正式 Word 报告
-        - 关联任务「待审核 → 已完成」（写 actual_end）
+        - 关联任务「待审核 → 已完成」（保留提交时冻结的 actual_end）
     审核退回修改 (approved=False):
         - review_status = '已退回'，overall_status = '异常'
         - 退回原因 remark + 需要修改的内容 requirements 写回版本；

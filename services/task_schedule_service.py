@@ -37,7 +37,7 @@ def local_now():
     return datetime.now(_BEIJING).replace(tzinfo=None)
 
 
-_ACTIVE_TIMING_STATUSES = frozenset({TASK_RUNNING, TASK_REVIEWING, TASK_RETURNED})
+_ACTIVE_TIMING_STATUSES = frozenset({TASK_RUNNING})
 def workday_duration_seconds(start, end):
     """Return Beijing business-time seconds between two naive datetimes.
 
@@ -49,10 +49,10 @@ def workday_duration_seconds(start, end):
 
 
 def task_actual_duration_seconds(task, now=None):
-    """Return working-time seconds from first execution to final approval.
+    """Return execution time, frozen at submission rather than approval.
 
-    Running/reviewing tasks are calculated up to ``now``. Completed tasks use
-    their frozen ``actual_end``. Tasks without a reliable start/end boundary
+    Only running tasks are calculated up to ``now``. Reviewing/returned/completed
+    tasks use their frozen ``actual_end``. Tasks without a reliable start/end boundary
     return ``None`` so historical manual effort can remain a fallback.
     """
     if not task.actual_start:
@@ -472,19 +472,23 @@ def apply_task_status(task, new_status, allow_reopen=False,
         task.actual_end = None
         task.actual_effort = None
     task.status = new_status
-    if new_status == TASK_DONE:
-        # 历史异常数据可能没有起点，用最早任务记录创建时间兜底；新流程
-        # 始终已在进入执行中时记录 actual_start。
-        if not task.actual_start:
-            record_starts = [r.created_at for r in task.records if r.created_at]
-            # Inspection.created_at 历史上以 UTC naive 存储；任务实际时间采用
-            # 北京本地 naive，兜底时补 +08:00，避免旧数据平白多算 8 小时。
-            task.actual_start = (
-                min(record_starts) + timedelta(hours=8) if record_starts else now
-            )
-        if not task.actual_end:
-            task.actual_end = now
-        task.actual_effort = task_actual_effort(task, now=now)
+    if new_status == TASK_REVIEWING and previous_status == TASK_RUNNING and not task.actual_end:
+        # 首次提交表示实施完成；退回重传不得把审核/修改等待时间追加进来。
+        task.actual_end = now
+    if new_status in (TASK_REVIEWING, TASK_RETURNED, TASK_DONE):
+        # 历史待审核记录可能没有结束时间，只采用真实提交记录，不以审核时间兜底。
+        if not task.actual_end and task.id:
+            from models import Inspection, SubmissionVersion
+            submitted_at = db.session.query(db.func.min(SubmissionVersion.submitted_at)).join(
+                Inspection, Inspection.id == SubmissionVersion.entity_id).filter(
+                SubmissionVersion.entity_type == 'inspection',
+                Inspection.task_id == task.id).scalar()
+            if submitted_at:
+                submitted_local = submitted_at + timedelta(hours=8)
+                if not task.actual_start or submitted_local >= task.actual_start:
+                    task.actual_end = submitted_local
+        if task.actual_end:
+            task.actual_effort = task_actual_effort(task, now=now)
     return task
 
 
