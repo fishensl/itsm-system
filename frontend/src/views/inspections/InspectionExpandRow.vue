@@ -24,7 +24,7 @@
         </el-descriptions-item>
         <el-descriptions-item :label="label('task_actual_start', '实施开始')">{{ detail.task_actual_start || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('task_actual_end', '实施结束')">
-          {{ detail.task_actual_start ? (detail.task_actual_end || '进行中') : '-' }}
+          {{ detail.task_actual_start ? (detail.task_actual_end || (detail.task_status === TASK_STATUS.RUNNING ? '进行中' : '未记录实施结束')) : '-' }}
         </el-descriptions-item>
         <el-descriptions-item :label="label('task_actual_duration', '实施耗时')">{{ detail.task_actual_duration || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="label('task_actual_effort', '实施人天')">
@@ -100,7 +100,7 @@ import {
   OVERALL_STATUS_TAG, REVIEW_STATUS_TAG, type Inspection, type SubmissionVersion,
 } from '@/api/inspections'
 import { entityFieldLabel, fetchEntityMeta, type EntityMeta } from '@/api/meta'
-import { REVIEW_STATUS } from '@/utils/status'
+import { REVIEW_STATUS, TASK_STATUS } from '@/utils/status'
 
 const { isMobile } = useMobile()
 // 移动端降为 2 列，避免每项过窄

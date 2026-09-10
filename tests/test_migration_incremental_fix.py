@@ -38,6 +38,36 @@ def _run_alembic(app, db_uri, func, rev=None):
 
 
 class TestMigrationIncrementalFix:
+    def test_upgrade_repairs_existing_rejected_task_timing(self, mig_app):
+        from datetime import datetime
+        from models import Customer, Inspection, InspectionTask, SubmissionVersion, db
+        app, db_uri = mig_app
+        _run_alembic(app, db_uri, command.upgrade, 'f2a3b4c5d6e7')
+        with app.app_context():
+            customer = Customer(name='历史退回客户')
+            db.session.add(customer)
+            db.session.flush()
+            task = InspectionTask(title='历史退回任务', customer_id=customer.id,
+                                  status='执行中', actual_start=datetime(2026, 9, 8, 8, 22),
+                                  actual_effort=2.31)
+            db.session.add(task)
+            db.session.flush()
+            record = Inspection(title='已退回报告', customer_id=customer.id, task_id=task.id,
+                                review_status='已退回')
+            db.session.add(record)
+            db.session.flush()
+            db.session.add(SubmissionVersion(entity_type='inspection', entity_id=record.id,
+                                            version_no=1, review_status='已退回',
+                                            submitted_at=datetime(2026, 9, 8, 0, 49)))
+            db.session.commit()
+            task_id = task.id
+        _run_alembic(app, db_uri, command.upgrade, 'head')
+        with app.app_context():
+            task = db.session.get(InspectionTask, task_id)
+            assert task.status == '退回修改'
+            assert task.actual_end == datetime(2026, 9, 8, 8, 49)
+            assert task.actual_effort == 0.04
+
     def test_rule_version_midnight_cleanup_is_shape_limited(self, mig_app):
         """只清理 Excel 日期化产生的午夜尾巴，不改真实规则库版本文本。"""
         app, db_uri = mig_app
