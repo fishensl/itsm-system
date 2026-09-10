@@ -33,7 +33,7 @@ IMPORT_TEMPLATE_FIELDS = {
         ('登录密码', 'password'), ('接口', 'interface'), ('系统版本', 'os_version'),
         ('规则库版本', 'rule_version'), ('建设时间', 'build_date'),
         ('授权开始', 'license_start'), ('授权截止', 'license_expiry'),
-        ('证书到期日期', 'cert_expiry_date'), ('是否维修', 'is_maintenance'),
+        ('是否维修', 'is_maintenance'),
         ('是否在用', 'is_in_use'), ('备注', 'remark'),
         ('设备ID（可选）', 'device_id'),
     ),
@@ -83,7 +83,7 @@ IMPORT_TEMPLATES = {
             '中心机房', '1', '正面', 23, 2, '双电源', 800, '示例品牌', '示例型号',
             'SN-DEMO', '192.0.2.1', '内网', 22, 'SSH', 'admin', '',
             '24个千兆电口、4个千兆光口', '', '',
-            '2026-01-01', '2026-01-01', '2026-12-31', '2026-12-31', '否', '是', '', '',
+            '2026-01-01', '2026-01-01', '2026-12-31', '否', '是', '', '',
         ],
     },
     'inspection': {
@@ -136,6 +136,7 @@ IMPORT_TEMPLATE_HEADER_ALIASES = {
         '授权截止日期': 'license_expiry',
         '授权截止时间': 'license_expiry',
         '证书到期': 'cert_expiry_date',
+        '证书到期日期': 'cert_expiry_date',
     },
 }
 

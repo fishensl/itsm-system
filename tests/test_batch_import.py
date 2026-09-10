@@ -31,6 +31,23 @@ def _template_row(module, values):
 
 
 class TestImportTemplates:
+    def test_device_download_omits_certificate_expiry_without_shifting_examples(self, admin_client):
+        import openpyxl
+        response = admin_client.get('/exports/download-template/device')
+        assert response.status_code == 200
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        headers = [cell.value for cell in workbook.active[1]]
+        assert '证书到期日期' not in headers
+        assert '证书到期' not in headers
+        for sheet in workbook:
+            assert all('证书到期' not in str(cell.value or '')
+                       for row in sheet for cell in row)
+        examples = dict(zip(headers, [cell.value for cell in workbook.active[2]]))
+        assert examples['是否维修'] == '是'  # 当前布尔下拉首项，不得残留日期值。
+        assert examples['是否在用'] == '是'
+        assert headers[-1] == '设备ID（可选）'
+        workbook.close()
+
     @pytest.mark.parametrize('enforce,linked', [(False, False), (True, True), (True, False)])
     def test_device_customer_candidates_follow_import_scope(
             self, app, op_client, monkeypatch, enforce, linked):
@@ -136,7 +153,7 @@ class TestImportTemplates:
             assert validation.prompt and len(validation.prompt) <= 255
             assert f'{cell.column_letter}5000' in validation.sqref
             assert cell.fill.fgColor.rgb == '00FFF2CC'
-        for field in ('build_date', 'license_start', 'license_expiry', 'cert_expiry_date'):
+        for field in ('build_date', 'license_start', 'license_expiry'):
             cell = by_field[field]
             validation = next(v for v in sheet.data_validations.dataValidation
                               if cell.coordinate in v.sqref)
@@ -187,7 +204,7 @@ class TestImportTemplates:
             'customer_name': '格式验证客户', 'device_name': '格式验证设备',
             'serial_number': '001234567890123456', 'rule_version': '2026-08-07',
             'build_date': date(2024, 10, 10), 'license_start': date(2024, 10, 10),
-            'license_expiry': date(2027, 9, 30), 'cert_expiry_date': date(2027, 9, 30),
+            'license_expiry': date(2027, 9, 30),
         }
         for col, (_header, field) in enumerate(IMPORT_TEMPLATES['device']['fields'], 1):
             sheet.cell(2, col).value = values.get(field)
@@ -261,7 +278,7 @@ class TestImportTemplates:
                 'password', 'login_method', 'rack_location', 'rack_name', 'location',
                 'rack_start_u', 'rack_occupy_u', 'power_supply', 'interface',
                 'os_version', 'rule_version', 'build_date', 'license_start',
-                'license_expiry', 'cert_expiry_date', 'is_maintenance', 'is_in_use',
+                'license_expiry', 'is_maintenance', 'is_in_use',
                 'remark', 'rated_power_w', 'device_id',
             },
             'customer': {
@@ -336,6 +353,9 @@ class TestImportTemplates:
                 aliases.get(module, {}).get(field, field)
                 for field in get_entity_schema(module).profiles['form']
             }
+            if module == 'device':
+                # 证书日期保留详情与旧表导入，但用户已明确从新模板移除。
+                form_fields.discard('cert_expiry_date')
             assert form_fields <= template_fields, (
                 f'{module} 模板缺少编辑字段：{sorted(form_fields - template_fields)}')
 
@@ -439,7 +459,7 @@ class TestDeviceCustomerImport:
             'interface': 'GE0/0/1、GE0/0/2', 'os_version': 'V1',
             'rule_version': datetime(2026, 8, 7, 0, 0), 'build_date': date(2026, 1, 2),
             'license_start': datetime(2026, 2, 1, 0, 0), 'license_expiry': '2027/2/1',
-            'cert_expiry_date': '2027-03-01', 'is_maintenance': '是',
+            'is_maintenance': '是',
             'is_in_use': '是', 'remark': '完整字段导入',
         }
         data = _xlsx(IMPORT_TEMPLATES['device']['headers'], [
@@ -471,7 +491,7 @@ class TestDeviceCustomerImport:
             assert device.build_date.isoformat() == '2026-01-02'
             assert device.license_start.isoformat() == '2026-02-01'
             assert device.license_expiry.isoformat() == '2027-02-01'
-            assert device.cert_expiry_date.isoformat() == '2027-03-01'
+            assert device.cert_expiry_date is None
             assert device.is_maintenance is True
             assert device.is_in_use is True
             assert device.remark == '完整字段导入'
