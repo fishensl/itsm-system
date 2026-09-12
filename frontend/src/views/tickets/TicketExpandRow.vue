@@ -215,11 +215,13 @@
         </el-timeline-item>
       </el-timeline>
       <el-empty v-else description="暂无日志" :image-size="50" />
+      <NotificationHistory v-if="user.hasPerm('notify:view')" entity-type="ticket" :entity-id="Number(row.id)" />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
+import NotificationHistory from '@/components/NotificationHistory.vue'
 import { ref, watch, computed } from 'vue'
 import { useMobile } from '@/utils/useMobile'
 import VersionTimeline from '@/components/VersionTimeline.vue'

@@ -1,5 +1,8 @@
 <template>
   <div class="page-container">
+    <CustomerNotifyDialog ref="notifyDialog"
+      :enabled-label="fieldLabel('notify_enabled', '启用通知', 'notify')"
+      :binding-label="fieldLabel('has_wecom_webhook', '绑定状态', 'notify')" />
     <div class="page-header">
       <h2 class="page-title">客户管理</h2>
       <div class="header-actions">
@@ -35,6 +38,7 @@
     </el-dialog>
 
     <!-- 筛选 -->
+    <MobileFilterPanel :filters="query">
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <el-input v-model="query.search" placeholder="搜索名称 / 联系人 / 电话" clearable class="filter-search"
@@ -48,6 +52,7 @@
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
       </div>
     </el-card>
+    </MobileFilterPanel>
 
     <!-- 列表（按地区折叠：市 → 客户） -->
     <el-card shadow="never" v-loading="treeLoading">
@@ -80,6 +85,8 @@
                 设备 {{ node.device_count }}
               </el-tag>
               <span class="row-actions" @click.stop>
+                <el-button v-if="user.hasPerm('customer:notify')" size="small" link type="primary"
+                  @click="notifyDialog?.open((node as Customer).id, node.name)">通知设置</el-button>
                 <el-button v-if="user.hasPerm('customer:edit')" size="small" link type="primary"
                   @click="editFromRow(node as Customer)">编辑</el-button>
                 <el-button v-if="user.hasPerm('customer:delete')" size="small" link type="danger"
@@ -344,6 +351,8 @@
 </template>
 
 <script setup lang="ts">
+import MobileFilterPanel from '@/components/MobileFilterPanel.vue'
+import CustomerNotifyDialog from '@/components/CustomerNotifyDialog.vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -364,6 +373,7 @@ import {
 } from '@/api/customers'
 
 const route = useRoute()
+const notifyDialog = ref<InstanceType<typeof CustomerNotifyDialog>>()
 const user = useUserStore()
 const ui = useUiStore()
 const metadata = ref<EntityMeta>()
@@ -745,4 +755,10 @@ onMounted(() => {
 .ml-2 { margin-left: 4px; }
 .tree-name { font-weight: 600; flex-shrink: 0; }
 .tree-district { font-size: 12px; color: var(--itsm-text-muted); font-weight: 400; }
+@media (max-width: 767px) {
+  .cust-leaf { flex-wrap: wrap; gap: 8px; min-height: 44px; }
+  .cust-leaf .tree-name { flex: 1 1 180px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .cust-leaf .row-actions { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; }
+  .cust-leaf .row-actions .el-button { min-height: 44px; margin-left: 0; flex: 1; }
+}
 </style>

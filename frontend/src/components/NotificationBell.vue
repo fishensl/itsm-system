@@ -170,7 +170,7 @@ watch(
 .notif-time {
   margin-left: auto;
   color: var(--itsm-text-muted);
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   flex-shrink: 0;
 }
 .notif-item-content {

@@ -65,6 +65,10 @@ if [ -f "${ENV_FILE}" ]; then
 fi
 
 echo "停止服务..."
+if systemctl cat itsm-notifications.service >/dev/null 2>&1; then
+    systemctl disable --now itsm-notifications
+    echo "通知消费者已停用；核对保留队列和目标版本后再手工启用。"
+fi
 systemctl stop itsm
 
 # ---- PostgreSQL 分支：pg_dump 自定义格式 .dump ----

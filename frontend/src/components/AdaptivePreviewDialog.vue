@@ -113,7 +113,7 @@ function onClosed() {
 }
 .resize-hint {
   color: var(--el-text-color-placeholder);
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   white-space: nowrap;
 }
 .preview-window-actions {

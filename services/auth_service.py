@@ -125,11 +125,10 @@ def verify_operation_code(user, code):
     if locked:
         user.op_locked_until = now + timedelta(minutes=15)
         user.op_fail_count = 0
-    db.session.commit()
     if locked:
-        from utils.security_events import emit_security_event
-        emit_security_event('操作验证码连续失败',
-                            f'用户={user.username}，已锁定15分钟')
+        from services.notification_outbox import queue_internal
+        queue_internal('security_event', '操作验证码连续失败', f'用户={user.username}，已锁定15分钟', commit=False)
+    db.session.commit()
     raise ServiceError('账号 MFA 动态码不正确')
 
 

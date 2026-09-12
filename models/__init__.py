@@ -27,5 +27,6 @@ from models.rack import Rack, RackInstall  # noqa: F401
 from models.notification import Notification  # noqa: F401
 from models.audit import AuditLog  # noqa: F401
 from models.setting import SystemSetting  # noqa: F401
-from models.notify import NotifyChannelConfig, NotifyRule  # noqa: F401
+from models.notify import NotifyChannelConfig, NotifyRule, CustomerNotifyBinding, CustomerNotifyDelivery  # noqa: F401
+from models.notify import NotificationEvent, NotificationDelivery, NotificationAttempt, NotificationPreference, NotificationWorkerState  # noqa: F401
 from models.security import CredentialDownloadTicket, CredentialEnvelopeChallenge  # noqa: F401

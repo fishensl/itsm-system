@@ -1,5 +1,10 @@
 /* Vue 单轨全局视觉规范与设计变量。 */
-:root {
+:root,
+html.dark {
+  --itsm-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --itsm-font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  --font-mono: var(--itsm-font-mono);
+  --el-font-family: var(--itsm-font-family);
   --itsm-primary: #2563eb;
   --itsm-primary-soft: #dbeafe;
   --itsm-success: #16a34a;
@@ -43,6 +48,7 @@
   --el-color-warning: var(--itsm-warning);
   --el-color-danger: var(--itsm-danger);
   --el-color-info: var(--itsm-info);
+  --el-bg-color-page: var(--itsm-bg);
   --el-bg-color: var(--itsm-card-bg);
   --el-bg-color-overlay: var(--itsm-card-bg);
   --el-text-color-primary: var(--itsm-text);
@@ -85,7 +91,7 @@ body,
   margin: 0;
   background: var(--itsm-bg);
   color: var(--itsm-text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--itsm-font-family);
   font-size: var(--itsm-font-md);
 }
 
@@ -195,4 +201,38 @@ body,
   .el-descriptions__body .el-descriptions__table {
     table-layout: fixed;
   }
+}
+
+/* Form controls use the same CJK fallback as surrounding business text. */
+button, input, select, textarea { font-family: var(--itsm-font-family); }
+.page-container { min-width: 0; }
+.filter-row > .el-select { width: 220px; max-width: 100%; }
+.notification-content { overflow-wrap: anywhere; white-space: pre-wrap; }
+.notification-section { margin-top: var(--itsm-space-4); }
+
+/* Touch controls remain reachable without changing desktop table density. */
+@media (max-width: 767px) {
+  .page-header .el-button,
+  .filter-row .el-button,
+  .el-dialog__footer .el-button,
+  .card-actions .el-button,
+  .mobile-menu-btn { min-height: 44px; margin-left: 0; }
+  .el-input__wrapper, .el-select__wrapper, .el-select__wrapper.is-small { min-height: 40px; }
+  .el-input__inner, .el-textarea__inner { font-size: 16px; }
+  .header-actions { width: 100%; }
+  .header-actions > .el-button { flex: 1 1 auto; }
+  .el-dialog {
+    display: flex; flex-direction: column;
+    max-height: calc(100dvh - 24px - env(safe-area-inset-bottom));
+    margin-top: 12px; margin-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .el-dialog__body { flex: 1 1 auto; min-height: 0; }
+  .el-dialog__footer, .el-dialog__header { flex: 0 0 auto; }
+  .el-dialog__footer { padding-bottom: env(safe-area-inset-bottom); }
+  .el-dialog__header { padding-right: 32px; overflow-wrap: anywhere; }
+  .el-dialog__headerbtn { width: 44px; height: 44px; }
+  .card-actions .el-button { flex: 1 1 auto; }
+  .search-popover { max-width: calc(100vw - 24px); }
+  .search-popover .search-item { min-height: 44px; flex-wrap: wrap; }
+  .filter-row .el-radio-button__inner { min-height: 40px; display: inline-flex; align-items: center; }
 }

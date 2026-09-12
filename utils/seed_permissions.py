@@ -20,6 +20,7 @@ from models import db, Role, RolePermission, Permission
 
 # 角色元信息：code -> (name, description, sort_order)
 ROLE_DEFS = [
+    ('customer_contact', '客户联系人', '仅访问明确关联客户的公开服务消息与可选反馈；数据范围必须设为本人', 5),
     ('admin',    '系统管理员',  '拥有系统全部权限', 1),
     ('operator', '运维工程师',  '负责设备/巡检/工单/故障/知识库等运维操作', 2),
     ('sales',    '销售人员',    '负责客户/商机/报价/合同/销售等业务', 3),

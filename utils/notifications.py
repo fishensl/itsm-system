@@ -226,18 +226,19 @@ def notify_contract_expiring():
                 content = f'距 {end_str} 还剩 {remaining} 天，请提前与客户沟通续签。'
             # 目标：客户关联工程师 + 销售 + admin
             eng_ids = [u.id for u in c.engineer_users if u.is_active]
-            for uid in dict.fromkeys(eng_ids + sales_ids + admins):
-                notify(uid, 'contract', title, content, '/app/customers')
-                sent += 1
-            # 多渠道推送
-            from utils.wecom_notify import wecom_broadcast, EVENT_CONTRACT_EXPIRING
-            wecom_broadcast(EVENT_CONTRACT_EXPIRING, title, content,
-                            '/app/customers',
-                            target_user_ids=eng_ids + sales_ids + admins)
+            ids = list(dict.fromkeys(eng_ids + sales_ids + admins))
+            from services.notification_outbox import insert_event, queue_internal
+            insert_event(db.session.connection(), 'contract_expiring', {'title': title, 'content': content, 'link': '/app/customers'},
+                audience='inbox', customer_id=c.id, key=f'contract-expiry:{c.id}:{end_str}:{today}',
+                targets=[{'target_key':f'inbox:{uid}', 'user_id':uid, 'channel_type':'inbox'} for uid in ids])
+            queue_internal('contract_expiring', title, content, '/app/customers', ids, commit=False,
+                           customer_id=c.id, key=f'internal-contract-expiry:{c.id}:{end_str}:{today}')
+            sent += len(ids)
             c.contract_expiry_notified = today
         db.session.commit()
         return sent
     except Exception:
+        db.session.rollback()
         from flask import current_app
         try:
             current_app.logger.exception('客户合同到期提醒失败')
@@ -280,16 +281,20 @@ def notify_suspended_tickets():
             if eng:
                 ids.append(eng.id)
             ids += sup_ids + sales_ids
-            for uid in dict.fromkeys(ids):
-                notify(uid, 'ticket', title, content, link)
-                sent += 1
-            from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_SUSPENDED_TIMEOUT
-            wecom_broadcast(EVENT_TICKET_SUSPENDED_TIMEOUT, title, content, link,
-                            target_user_ids=ids)
+            ids = list(dict.fromkeys(ids))
+            from services.notification_outbox import insert_event, queue_internal
+            key = f'suspend-timeout:{t.id}:{t.suspended_at.isoformat()}'
+            insert_event(db.session.connection(), 'ticket_suspended_timeout', {'title': title, 'content': content, 'link': link},
+                audience='inbox', customer_id=t.customer_id, entity_type='ticket', entity_id=t.id, key=key,
+                targets=[{'target_key':f'inbox:{uid}', 'user_id':uid, 'channel_type':'inbox'} for uid in ids])
+            queue_internal('ticket_suspended_timeout', title, content, link, ids, commit=False,
+                           customer_id=t.customer_id, entity_type='ticket', entity_id=t.id, key='internal-'+key)
+            sent += len(ids)
             t.suspend_timeout_notified_at = datetime.utcnow()
         db.session.commit()
         return sent
     except Exception:
+        db.session.rollback()
         from flask import current_app
         try:
             current_app.logger.exception('工单挂起超时提醒失败')

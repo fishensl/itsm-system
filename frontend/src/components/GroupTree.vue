@@ -156,4 +156,9 @@ watch(
 .tree-badge { margin-left: auto; }
 .row-actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
 .tree-children { padding: 4px 8px 4px 14px; }
+@media (max-width: 767px) {
+  .tree-row { flex-wrap: wrap; min-height: 44px; }
+  .tree-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .tree-children { padding-left: 6px; padding-right: 2px; }
+}
 </style>

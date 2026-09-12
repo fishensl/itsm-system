@@ -70,6 +70,8 @@ PERMISSION_MAP = {
     # 业务管理
     'customer:view': '客户管理-查看', 'customer:add': '客户管理-新增',
     'customer:edit': '客户管理-编辑', 'customer:delete': '客户管理-删除',
+    'customer:notify': '客户管理-通知配置与测试',
+    'customer:confirm': '客户服务-查看通知与反馈',
     'customer:manage': '客户管理-管理', 'customer:export': '客户管理-导出',
     'region:view': '地区管理-查看', 'region:add': '地区管理-新增',
     'region:edit': '地区管理-编辑', 'region:delete': '地区管理-删除',
@@ -164,6 +166,7 @@ VIEWER_PERMISSIONS = [
 ]
 
 ROLE_PERMISSIONS_MAP = {
+    'customer_contact': ['customer:confirm'],
     'admin': ADMIN_PERMISSIONS,
     'operator': OPERATOR_PERMISSIONS,
     'sales': SALES_PERMISSIONS,
@@ -171,6 +174,7 @@ ROLE_PERMISSIONS_MAP = {
 }
 
 ROLE_LABELS = {
+    'customer_contact': '客户联系人',
     'admin': '系统管理员',
     'operator': '运维工程师',
     'sales': '销售人员',

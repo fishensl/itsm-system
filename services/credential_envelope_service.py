@@ -71,6 +71,8 @@ CREDENTIAL_ENVELOPE_PURPOSES = {
         'POST', '/api/ai-config', 'ai:edit', target_type='ai_config'),
     'ai.credential.update': PurposeRule(
         'PUT', '/api/ai-config/{target_id}', 'ai:edit', target_type='ai_config'),
+    'customer.notify.credential.update': PurposeRule(
+        'PUT', '/api/customers/{target_id}/notify-webhook', 'customer:notify', target_type='customer'),
     'notification.credential.update': PurposeRule(
         'PUT', '/api/notify/channels/{target_id}', 'notify:edit',
         target_type='notify_channel'),
@@ -238,6 +240,13 @@ def _aad(row, direction):
 
 
 def _check_target_scope(rule, target_id):
+    if rule.target_type == 'customer':
+        from services.customer_notify_service import require_notify_customer_access
+        try:
+            customer_id = int(target_id)
+        except (TypeError, ValueError):
+            raise ServiceError('敏感操作目标不存在') from None
+        require_notify_customer_access(current_user, customer_id)
     if rule.target_type == 'device' and target_id is not None:
         device = Device.query.get(int(target_id))
         if not device:

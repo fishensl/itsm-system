@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from models import db, Customer, Fault, Ticket, TicketLog, SubmissionVersion
+from models import db, Customer, Fault, Ticket, TicketLog, SubmissionVersion, User, customer_engineers
 
 
 @pytest.fixture()
@@ -13,6 +13,7 @@ def seed(app):
         c = Customer(name='工单API客户')
         db.session.add(c)
         db.session.flush()
+        db.session.execute(customer_engineers.insert().values(customer_id=c.id, engineer_id=User.query.filter_by(username='op').one().id))
         t = Ticket(number='WO-TEST-001', title='测试工单', customer_id=c.id,
                    priority='高', status='待派单', created_by='admin')
         db.session.add(t)

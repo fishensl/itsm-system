@@ -51,7 +51,11 @@ class WecomChannel(NotifyChannel):
         if not enc:
             raise ChannelError('企业微信 Webhook 未配置')
         try:
-            return validate_webhook_url(decrypt_password(enc))
+            url = validate_webhook_url(decrypt_password(enc))
+            if self.cfg.get('channel_type') == 'wecom':
+                from services.customer_notify_service import ensure_destination_available
+                ensure_destination_available(url)
+            return url
         except ChannelError:
             raise
         except Exception as exc:
@@ -60,10 +64,13 @@ class WecomChannel(NotifyChannel):
 
     def _send_payload(self, payload):
         try:
-            self._request_json(self._webhook_url(), payload)
-        except ChannelError as exc:
-            log.warning('企业微信群机器人发送失败: %s', exc)
-            raise
+            result = self._request_json(self._webhook_url(), payload)
+            if not isinstance(result, dict) or result.get('errcode') != 0:
+                raise ChannelError('企业微信接口未返回有效确认')
+        except Exception:
+            # Connection exceptions may embed the full robot URL including its key.
+            log.warning('企业微信群机器人发送结果未确认')
+            raise ChannelError('企业微信群机器人发送结果未确认') from None
 
     def _upload_file(self, file_path):
         if not os.path.isfile(file_path):
@@ -79,12 +86,13 @@ class WecomChannel(NotifyChannel):
                 upload_url,
                 files={'media': (os.path.basename(file_path), fp)},
                 timeout=15,
+                allow_redirects=False,
             )
         try:
             data = resp.json()
         except ValueError:
             data = {}
-        if resp.status_code >= 400 or data.get('errcode') or not data.get('media_id'):
+        if resp.status_code >= 300 or data.get('errcode') or not data.get('media_id'):
             raise ChannelError(
                 f'企业微信文件上传失败：{redact_mapping(data)}')
         return data['media_id']

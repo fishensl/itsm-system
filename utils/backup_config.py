@@ -102,6 +102,12 @@ def record_backup_result(success: bool, error: str = '', duration_seconds=None):
         _upsert('backup_last_failure_at', now)
         _upsert('backup_last_error', safe_error)
         _upsert('backup_consecutive_failures', current['consecutive_failures'] + 1)
+        from services.notification_outbox import queue_internal
+        queue_internal('backup_failure', '自动备份失败', f'连续失败 {current["consecutive_failures"] + 1} 次，请在备份管理中检查。', commit=False)
+        from services.notification_outbox import insert_event
+        from models import User
+        targets = [{'target_key': f'inbox:{u.id}', 'user_id': u.id, 'channel_type': 'inbox'} for u in User.query.filter_by(is_active=True).all() if u.is_admin]
+        insert_event(db.session.connection(), 'backup_failure', {'title': '自动备份失败', 'content': f'连续失败 {current["consecutive_failures"] + 1} 次，请检查备份管理。'}, audience='inbox', targets=targets)
     db.session.commit()
     return get_backup_status()
 

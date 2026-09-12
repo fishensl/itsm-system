@@ -84,7 +84,7 @@ function goBack() {
 
 .err-id {
   margin-top: 20px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--itsm-font-mono);
 }
 
 @media (max-width: 767px) {

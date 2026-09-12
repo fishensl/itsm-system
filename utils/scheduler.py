@@ -43,14 +43,14 @@ def _daily_job():
             db.session.rollback()
             log.exception('调度：客户频率任务生成失败')
         try:
-            from utils.notifications import notify_overdue_tasks
-            notified = notify_overdue_tasks()
+            from services.notification_jobs import periodic
+            notified = periodic()
         except Exception:
             db.session.rollback()
             log.exception('调度：逾期提醒失败')
         try:
-            from utils.notifications import notify_review_timeout
-            timeout_notified = notify_review_timeout()
+            # Review reminders share the same durable daily jobs and event keys.
+            timeout_notified = 0
         except Exception:
             db.session.rollback()
             log.exception('调度：审核超时提醒失败')
@@ -102,9 +102,7 @@ def _backup_job():
     script = os.path.join(base, 'scripts', 'backup.sh')
     if not os.path.isfile(script):
         log.warning('调度：backup.sh 不存在（%s），跳过自动备份', script)
-        status = record_backup_result(False, 'backup.sh 不存在')
-        from utils.notifications import notify_backup_failure
-        notify_backup_failure(f'备份脚本不存在；连续失败 {status["consecutive_failures"]} 次')
+        record_backup_result(False, 'backup.sh 不存在')
         return 0
     try:
         started = time.monotonic()
@@ -119,19 +117,13 @@ def _backup_job():
             log.info('调度：自动备份完成（保留 %s 份）', keep)
             return 1
         error = f'backup.sh 返回码 {result.returncode}: {result.stderr[-300:]}'
-        status = record_backup_result(False, error, time.monotonic() - started)
+        record_backup_result(False, error, time.monotonic() - started)
         log.error('调度：自动备份失败 rc=%s\n%s', result.returncode, result.stderr[-1000:])
-        from utils.notifications import notify_backup_failure
-        notify_backup_failure(
-            f'backup.sh 返回码 {result.returncode}；连续失败 {status["consecutive_failures"]} 次')
     except Exception as exc:
         db.session.rollback()
         log.exception('调度：自动备份执行异常')
         try:
-            status = record_backup_result(False, f'{type(exc).__name__}: {exc}')
-            from utils.notifications import notify_backup_failure
-            notify_backup_failure(
-                f'自动备份执行异常；连续失败 {status["consecutive_failures"]} 次')
+            record_backup_result(False, f'{type(exc).__name__}: {exc}')
         except Exception:
             db.session.rollback()
             log.exception('调度：记录备份失败状态或发送告警时异常')

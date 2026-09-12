@@ -1351,6 +1351,8 @@ def api_notify_channel_save(channel_type):
         from utils.notify_channels.wecom import validate_webhook_url
         try:
             validate_webhook_url(incoming['webhook_url'])
+            from services.customer_notify_service import ensure_destination_available
+            ensure_destination_available(incoming['webhook_url'])
         except Exception as exc:
             return fail(str(exc) or '企业微信 Webhook 地址无效', 400)
     # 敏感项加密存储

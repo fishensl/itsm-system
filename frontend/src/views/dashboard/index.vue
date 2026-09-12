@@ -270,7 +270,7 @@ const go = (url: string) => {
   white-space: nowrap;
 }
 .metric-sub {
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   color: var(--itsm-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -324,7 +324,7 @@ const go = (url: string) => {
 }
 .task-type {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   padding: 1px 6px;
   border-radius: 4px;
   color: var(--itsm-text-inverse);
@@ -375,7 +375,7 @@ const go = (url: string) => {
   font-weight: 500;
 }
 .quick-sub {
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   color: var(--itsm-text-muted);
 }
 .license-expiry-item {

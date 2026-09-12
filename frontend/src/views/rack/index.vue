@@ -602,10 +602,10 @@ onMounted(() => {
   border-radius: 6px; min-height: 36px; padding: 4px 6px; display: flex;
   align-items: baseline; justify-content: center; gap: 5px; min-width: 0; }
 .stat-num { font-size: 14px; font-weight: 600; white-space: nowrap; }
-.stat-label { color: var(--itsm-text-muted); font-size: 11px; line-height: 1.2;
+.stat-label { color: var(--itsm-text-muted); font-size: var(--itsm-font-xs); line-height: 1.2;
   min-width: 0; }
 .capacity-status { min-height: 22px; margin-bottom: 6px; display: flex; align-items: center;
-  gap: 12px; flex-wrap: wrap; font-size: 11px; }
+  gap: 12px; flex-wrap: wrap; font-size: var(--itsm-font-xs); }
 .capacity-warning { color: var(--el-color-warning); }
 .capacity-danger { color: var(--el-color-danger); font-weight: 600; }
 .capacity-help { color: var(--itsm-text-muted); display: inline-flex; align-items: center;
@@ -628,7 +628,7 @@ onMounted(() => {
 .u-row .u-label { width: 30px; flex-shrink: 0; opacity: 0.75; font-family: var(--font-mono, monospace); }
 .u-row .u-content { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .u-sub { margin-left: 6px; opacity: 0.85; }
-.rack-frame-hint { text-align: center; font-size: 11px; padding-top: 3px; }
+.rack-frame-hint { text-align: center; font-size: var(--itsm-font-xs); padding-top: 3px; }
 .install-table-wrap { flex: 1; min-width: 420px; overflow-x: auto; }
 
 /* S7-6 窄屏：U 位图占满宽，设备表不强制最小宽（横向滚动） */

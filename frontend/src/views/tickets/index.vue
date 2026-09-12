@@ -18,6 +18,7 @@
       title="导出工单报告包" @submit="onBundleSubmit" />
 
     <!-- 筛选 -->
+    <MobileFilterPanel :filters="{ search: query.search, status: query.status, priority: query.priority, customer: query.customer_id, mine: query.scope === 'mine', dates: dateRange, incomplete: incompleteOnly }">
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <el-input v-model="query.search" placeholder="搜索标题 / 单号" clearable class="filter-search"
@@ -40,6 +41,7 @@
         <el-button type="primary" plain :icon="Search" @click="reload">查询</el-button>
       </div>
     </el-card>
+    </MobileFilterPanel>
 
     <!-- 列表（点击行内展开详情） -->
     <DataTable
@@ -297,6 +299,7 @@
 </template>
 
 <script setup lang="ts">
+import MobileFilterPanel from '@/components/MobileFilterPanel.vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'

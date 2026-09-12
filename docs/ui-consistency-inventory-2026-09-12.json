@@ -1,0 +1,657 @@
+{
+  "scope": "All frontend/src Vue files; regex candidates require manual review",
+  "files": 65,
+  "items": [
+    {
+      "file": "frontend/src/App.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/AdaptivePreviewDialog.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 116,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 131,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/components/BatchImportDialog.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/CustomerNotifyDialog.vue",
+      "data_table": false,
+      "native_table": true,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/DataTable.vue",
+      "data_table": false,
+      "native_table": true,
+      "findings": [
+        {
+          "rule": "fixed_layout",
+          "line": 580,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/components/ExportDialog.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/FilePreview.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 120,
+          "text": "font-family: Consolas, Monaco, monospace"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/components/GlobalSearch.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/GroupTree.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/NotificationBell.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 173,
+          "text": "font-size: 11px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/components/NotificationHistory.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/NotificationPolicy.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/NotificationTemplates.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/OpVerifyDialog.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/components/VersionTimeline.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 277,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 299,
+          "text": "font-size: 11px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/layouts/MainLayout.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 647,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 588,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/contractTasks/index.vue",
+      "data_table": true,
+      "native_table": true,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/customerCategories/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/customers/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "fixed_layout",
+          "line": 747,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/customers/notifications.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "bare_heading",
+          "line": 3,
+          "text": "<h2>"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/dashboard/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 273,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 327,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 378,
+          "text": "font-size: 11px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/deviceCheckTemplates/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/devices/dicts.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/devices/DictTable.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/devices/index.vue",
+      "data_table": true,
+      "native_table": true,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 2108,
+          "text": "font-family: Consolas, Monaco, monospace"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/errors/Forbidden.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/errors/NotFound.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 87,
+          "text": "font-family: ui-monospace, SFMono-Regular, Consolas, monospace"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 90,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/faults/FaultCategories.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/faults/FaultExpandRow.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/faults/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/firmwares/index.vue",
+      "data_table": true,
+      "native_table": true,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/inspections/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "fixed_layout",
+          "line": 702,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/inspections/InspectionExpandRow.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/inspectors/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/knowledge/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 429,
+          "text": "font-size: 11px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/login/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "bare_heading",
+          "line": 11,
+          "text": "<h1>"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/mfaSetup.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "fixed_layout",
+          "line": 209,
+          "text": "width: 920px"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 238,
+          "text": "width: 680px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/notifications.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "bare_heading",
+          "line": 3,
+          "text": "<h2>"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/rack/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 605,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 608,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 622,
+          "text": "font-size: 10px"
+        },
+        {
+          "rule": "small_text",
+          "line": 631,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "literal_font",
+          "line": 628,
+          "text": "font-family: var(--font-mono, monospace)"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 635,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/regions/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/reports/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 185,
+          "text": "font-family: Consolas, monospace"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/sales/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/spare/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/spare/PartExpandRow.vue",
+      "data_table": false,
+      "native_table": true,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/accessControl.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/aiConfig.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/audit.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/backup.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 390,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 403,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 413,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "literal_font",
+          "line": 415,
+          "text": "font-family: var(--font-mono, monospace)"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 416,
+          "text": "width: 900px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/system/exportReviews.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/notificationCenter.vue",
+      "data_table": true,
+      "native_table": true,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/notifyChannels.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/notifyRules.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/overview.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 321,
+          "text": "font-family: var(--font-mono, monospace)"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/system/permissions.vue",
+      "data_table": true,
+      "native_table": true,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 451,
+          "text": "font-size: 10px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/system/ReviewChecklist.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/security.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "fixed_layout",
+          "line": 74,
+          "text": "width: 900px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/system/sidebar.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/system/users.vue",
+      "data_table": true,
+      "native_table": true,
+      "findings": [
+        {
+          "rule": "fixed_layout",
+          "line": 648,
+          "text": "width: 640px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/taskSchedule/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "small_text",
+          "line": 1471,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 1527,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 1563,
+          "text": "font-size: 11px"
+        },
+        {
+          "rule": "small_text",
+          "line": 1598,
+          "text": "font-size: 11px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/taskTemplates/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/tickets/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/tickets/TicketExpandRow.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": []
+    },
+    {
+      "file": "frontend/src/views/tools/index.vue",
+      "data_table": false,
+      "native_table": false,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 228,
+          "text": "font-family: var(--font-mono, monospace)"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/tools/PacketAnalyzer.vue",
+      "data_table": false,
+      "native_table": true,
+      "findings": [
+        {
+          "rule": "literal_font",
+          "line": 352,
+          "text": "font-family: var(--font-mono, monospace)"
+        },
+        {
+          "rule": "literal_font",
+          "line": 356,
+          "text": "font-family: var(--font-mono, monospace)"
+        },
+        {
+          "rule": "fixed_layout",
+          "line": 371,
+          "text": "width: 767px"
+        }
+      ]
+    },
+    {
+      "file": "frontend/src/views/topology/index.vue",
+      "data_table": true,
+      "native_table": false,
+      "findings": []
+    }
+  ]
+}

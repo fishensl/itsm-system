@@ -211,6 +211,35 @@ def test_wecom_webhook_uses_notification_credential_envelope(admin_client, app):
     assert '传输信封' in raw.get_json()['message']
 
 
+def test_customer_webhook_envelope_is_bound_to_customer(admin_client, app, monkeypatch):
+    from models import Customer, CustomerNotifyBinding
+    purpose = 'customer.notify.credential.update'
+    monkeypatch.setitem(app.config, 'CREDENTIAL_ENVELOPE_MODE', 'required')
+    monkeypatch.setitem(app.config, 'CREDENTIAL_ENVELOPE_PURPOSES', purpose)
+    _enable_mfa_session(admin_client)
+    with app.app_context():
+        a, b = Customer(name='信封客户A'), Customer(name='信封客户B')
+        db.session.add_all([a, b])
+        db.session.commit()
+        aid, bid = a.id, b.id
+    challenge, key, _ = _issue(admin_client, purpose, target_id=aid)
+    envelope = _request_envelope(challenge, key, {'secret': 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=customer-test'})
+    wrong = admin_client.put(f'/api/customers/{bid}/notify-webhook', json={
+        'notify_enabled': True, 'credential_envelope': envelope})
+    assert wrong.status_code == 400
+    challenge, key, _ = _issue(admin_client, purpose, target_id=aid)
+    envelope = _request_envelope(challenge, key, {'secret': 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=customer-test'})
+    response = admin_client.put(f'/api/customers/{aid}/notify-webhook', json={
+        'notify_enabled': True, 'credential_envelope': envelope})
+    assert response.status_code == 200, response.get_json()
+    assert 'customer-test' not in response.get_data(as_text=True)
+    replay = admin_client.put(f'/api/customers/{aid}/notify-webhook', json={
+        'notify_enabled': True, 'credential_envelope': envelope})
+    assert replay.status_code == 400
+    with app.app_context():
+        assert CustomerNotifyBinding.query.count() == 1
+
+
 def test_envelope_rejects_ciphertext_tamper_and_cross_target(admin_client, app):
     app.config.update(
         CREDENTIAL_ENVELOPE_MODE='required',

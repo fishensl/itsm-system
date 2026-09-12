@@ -446,7 +446,7 @@ class TestInspectionUploadReportFlow:
         assert [item['event'] for item in sent] == [
             'inspection_review_pending', 'inspection_status_changed']
         assert sent[-1]['title'] == '核心机房月度巡检任务'
-        assert '**任务状态：**待审核 → 已完成' in sent[-1]['content']
+        assert '**任务状态：**已完成' in sent[-1]['content']
         assert '合同时效' not in sent[-1]['content']
         assert sent[-1]['mode'] == 'markdown'
 
@@ -477,7 +477,7 @@ class TestInspectionUploadReportFlow:
             assert t.status == '退回修改'
             assert t.actual_start is not None
             assert t.actual_end is not None
-        assert '待审核 → 退回修改' in sent[-1]
+        assert '任务状态：**退回修改' in sent[-1]
         assert '退回原因：**报告缺少照片，退回' in sent[-1]
         assert '修改要求：**补充现场照片' in sent[-1]
         board = admin_client.get('/api/task-schedule?view=status').get_json()['data']

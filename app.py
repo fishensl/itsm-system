@@ -332,6 +332,8 @@ def create_app(test_config=None):
         except Exception:
             app.logger.warning('后台调度器启动失败（非致命）', exc_info=True)
 
+    from services.notification_outbox import register_business_events
+    register_business_events()
     return app
 
 

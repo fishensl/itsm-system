@@ -116,13 +116,14 @@
       <header class="topbar">
         <el-button
           class="mobile-menu-btn"
+          aria-label="打开导航菜单"
           text
           :icon="Menu"
           @click="ui.mobileSidebarOpen = true"
         />
         <div class="topbar-right">
           <!-- 全局搜索 -->
-          <GlobalSearch class="global-search" />
+          <div class="global-search"><GlobalSearch /></div>
           <!-- 通知铃铛 -->
           <NotificationBell class="notif-bell" />
           <!-- 用户菜单 -->
@@ -177,28 +178,29 @@
       >
         <el-icon><HomeFilled /></el-icon><span>工作台</span>
       </router-link>
-      <div
+      <button type="button"
         class="bottom-nav-item"
         @click="mobileNotif = true"
       >
         <el-icon><Bell /></el-icon><span>消息</span>
-      </div>
-      <div
+      </button>
+      <button type="button"
         class="bottom-nav-item"
         @click="mobileSearch = true"
       >
         <el-icon><Search /></el-icon><span>搜索</span>
-      </div>
-      <div
+      </button>
+      <button type="button"
         class="bottom-nav-item"
         @click="ui.mobileSidebarOpen = true"
       >
         <el-icon><Menu /></el-icon><span>菜单</span>
-      </div>
+      </button>
     </nav>
 
     <!-- 移动端全屏搜索层 -->
     <div v-if="mobileSearch" class="mobile-search-layer" @click.self="mobileSearch = false">
+      <div class="mobile-search-header"><strong>全局搜索</strong><el-button @click="mobileSearch = false">关闭搜索</el-button></div>
       <GlobalSearch />
     </div>
 
@@ -615,6 +617,9 @@ watch(mustChangePassword, (required) => {
     padding-top: max(16px, env(safe-area-inset-top));
     overflow-y: auto;
   }
+  .mobile-search-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .mobile-search-header .el-button { min-height: 44px; }
+  .mobile-search-layer :deep(.search-wrap) { width: 100%; }
   .user-name {
     display: none;
   }
@@ -638,13 +643,16 @@ watch(mustChangePassword, (required) => {
     padding-bottom: env(safe-area-inset-bottom);
   }
   .bottom-nav-item {
+    border: 0;
+    background: transparent;
+    min-height: 52px;
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
     padding: 8px 0;
-    font-size: 11px;
+    font-size: var(--itsm-font-xs);
     color: var(--itsm-text-muted);
     cursor: pointer;
     text-decoration: none;

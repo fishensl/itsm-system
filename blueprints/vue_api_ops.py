@@ -1579,6 +1579,13 @@ def api_task_schedule_quick_add():
     )
     db.session.add(t)
     db.session.commit()
+    if t.assigned_to_user_id and status != _const.TASK_CONTRACT_REVIEW:
+        try:
+            from services.customer_notify_service import notify_task
+            notify_task(t, 'inspection_assign')
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning('客户巡检安排通知未确认 task_id=%s', t.id)
     if status == _const.TASK_CONTRACT_REVIEW:
         try:
             from utils.notifications import notify_contract_review_request
@@ -1685,6 +1692,13 @@ def api_task_schedule_update(task_id):
     if data.get('remark') is not None:
         t.remark = (data['remark'] or '').strip()
     db.session.commit()
+    if assignee_changed and t.assigned_to_user_id and t.assigned_to_user_id != old_uid:
+        try:
+            from services.customer_notify_service import notify_task
+            notify_task(t, 'inspection_assign')
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning('客户任务指派通知未确认 task_id=%s', task_id)
     if t.status != old_status:
         try:
             from utils.wecom_notify import notify_task_status_changed

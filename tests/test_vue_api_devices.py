@@ -814,6 +814,8 @@ class TestDeviceImportSync:
         with app.app_context():
             db.session.get(Device, seed['d1']).brand = '历史自定义品牌'
             db.session.commit()
+        # The seed fixture holds its own session across the request.
+        db.session.expire_all()
         raw = self._make_xlsx([
             ['设备API客户A', 'SW-A', seed['d1'], '历史自定义品牌'],
         ], headers=['客户', '名称', '设备ID', '品牌']).getvalue()
@@ -822,7 +824,10 @@ class TestDeviceImportSync:
                 'import_file': (io.BytesIO(raw), 'backfill.xlsx'),
                 'mode': 'update', 'dry_run': dry_run,
             }, content_type='multipart/form-data').get_json()['data']
-            assert result['update'] == 1
+            assert result['update'] == 0
+            assert result['unchanged'] == 1
+            with app.app_context():
+                assert Brand.query.filter_by(name='历史自定义品牌').count() == (0 if dry_run == '1' else 1)
         with app.app_context():
             assert Brand.query.filter_by(name='历史自定义品牌').count() == 1
 

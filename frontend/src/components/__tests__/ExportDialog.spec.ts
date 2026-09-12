@@ -70,8 +70,8 @@ describe('ExportDialog 设备预设自动勾选', () => {
     expect(labels).toHaveLength(15)
     expect(DEVICE_PRESETS.find((item) => item.key === 'version')?.columns).toEqual([
       'customer', 'rack_location', 'name', 'os_version', 'rule_version',
-      'type', 'brand', 'model', 'sn', 'ip', 'build_date', 'license_start',
-      'license_expiry', 'is_in_use', 'remark',
+      'type', 'brand', 'model', 'sn', 'ip', 'license_start', 'license_expiry',
+      'build_date', 'is_in_use', 'remark',
     ])
     expect(labels).toContain('系统版本')
     expect(labels).toContain('规则库版本')

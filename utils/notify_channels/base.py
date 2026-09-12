@@ -68,7 +68,7 @@ class NotifyChannel:
     # ---- 通用 HTTP 骨架 ----
     def _request_json(self, url, payload=None, headers=None, method='POST'):
         import requests
-        kw = {'headers': headers or {}, 'timeout': 8}
+        kw = {'headers': headers or {}, 'timeout': 8, 'allow_redirects': False}
         if payload is not None:
             kw['json'] = payload
         resp = requests.request(method, url, **kw)
@@ -76,6 +76,6 @@ class NotifyChannel:
             data = resp.json()
         except ValueError:
             data = {}
-        if resp.status_code >= 400 or data.get('errcode') or data.get('code'):
+        if resp.status_code >= 300 or data.get('errcode') or data.get('code'):
             raise ChannelError(f'接口返回 {resp.status_code}: {redact_mapping(data)}')
         return data

@@ -443,10 +443,6 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
         )
         name_occurrences[name_key] = name_occurrences.get(name_key, 0) + 1
     counts = {'create': 0, 'update': 0, 'unchanged': 0, 'skipped': 0, 'failed': 0}
-    known_dicts = {
-        'device_type': {name for (name,) in db.session.query(DeviceType.name).all()},
-        'brand': {name for (name,) in db.session.query(Brand.name).all()},
-    }
     skip_details = []
     for row in rows:
         row_no = row['_row']
@@ -526,9 +522,7 @@ def prepare_device_import(rows, customers, accessible_device_ids, allow_unassign
                     row, customer, existing, clear_empty, planned_slots,
                     claimed_install_ids, snapshot_side_hints)
                 changed = (any(getattr(existing, key) != value for key, value in values.items()) or
-                           bool(password) or location_changed or
-                           any(values.get(field) and values[field] not in names
-                               for field, names in known_dicts.items()))
+                           bool(password) or location_changed)
                 action = 'update' if changed else 'unchanged'
             else:
                 _validate_rack_placement(
@@ -575,7 +569,7 @@ def _sync_import_dictionaries(prepared):
     for field, model in (('device_type', DeviceType), ('brand', Brand)):
         names = list(dict.fromkeys(
             item['values'][field] for item in prepared['plan']
-            if item['action'] in {'create', 'update'} and item['values'].get(field)))
+            if item['action'] in {'create', 'update', 'unchanged'} and item['values'].get(field)))
         if not names:
             continue
         existing = {name for (name,) in db.session.query(model.name).filter(model.name.in_(names))}

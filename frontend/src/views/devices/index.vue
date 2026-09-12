@@ -193,6 +193,7 @@
     </el-dialog>
 
     <!-- 筛选栏 -->
+    <MobileFilterPanel :filters="query">
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <el-input
@@ -249,6 +250,7 @@
         </el-button-group>
       </div>
     </el-card>
+    </MobileFilterPanel>
 
     <!-- 树模式：按地区折叠（市 → 客户），点击客户进入表格模式 -->
     <el-card v-if="mode === 'tree'" shadow="never" v-loading="treeLoading">
@@ -731,6 +733,7 @@
 </template>
 
 <script setup lang="ts">
+import MobileFilterPanel from '@/components/MobileFilterPanel.vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, h } from 'vue'
@@ -2105,7 +2108,7 @@ fetchDeviceDicts().then((d) => {
 .diff-row {
   display: flex;
   gap: 8px;
-  font-family: Consolas, Monaco, monospace;
+  font-family: var(--itsm-font-mono);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2121,4 +2124,10 @@ fetchDeviceDicts().then((d) => {
 .diff-delete { background: var(--itsm-danger-soft); color: var(--itsm-danger); }
 .diff-insert { background: var(--itsm-success-soft); color: var(--itsm-success); }
 .diff-replace { background: var(--itsm-warning-soft); color: var(--itsm-warning); }
+@media (max-width: 767px) {
+  .cust-leaf { flex-wrap: wrap; gap: 8px; min-height: 44px; }
+  .cust-leaf .tree-name { flex: 1 1 180px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .cust-leaf .row-actions { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; }
+  .cust-leaf .row-actions .el-button { min-height: 44px; margin-left: 0; flex: 1; }
+}
 </style>

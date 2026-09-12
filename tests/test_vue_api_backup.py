@@ -87,13 +87,10 @@ class TestBackupApi:
 
     def test_scheduler_failure_records_state_and_alerts_admins(self, app, monkeypatch):
         import subprocess
-        import utils.notifications as notifications
         import utils.scheduler as scheduler
 
-        alerts = []
         monkeypatch.setattr(subprocess, 'run', lambda *args, **kwargs:
                             subprocess.CompletedProcess(args[0], 2, '', 'pg_dump failed'))
-        monkeypatch.setattr(notifications, 'notify_backup_failure', alerts.append)
         with app.app_context():
             from utils.backup_config import get_backup_status, save_backup_config
             save_backup_config({'backup_enabled': '1'})
@@ -101,7 +98,11 @@ class TestBackupApi:
             status = get_backup_status()
             assert status['health'] == 'failed'
             assert status['consecutive_failures'] == 1
-            assert alerts and '连续失败 1 次' in alerts[0]
+            from models import NotificationEvent, Notification
+            from services.notification_worker import process_one
+            assert NotificationEvent.query.filter_by(event_type='backup_failure', audience='inbox').count() == 1
+            process_one()
+            assert any('连续失败 1 次' in n.content for n in Notification.query.all())
 
     def test_external_backup_timer_due_rules(self):
         from utils.scheduler import backup_is_due

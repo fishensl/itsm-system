@@ -182,7 +182,7 @@ onMounted(() => {
 .report-tabs { margin-bottom: 8px; }
 .report-cell { display: grid; gap: 4px; }
 .report-file-item { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.report-name { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
+.report-name { font-family: var(--itsm-font-family); font-size: var(--itsm-font-sm); word-break: break-all; }
 .report-size { color: var(--itsm-text-muted); font-size: 12px; }
 .report-download { color: var(--el-color-primary); font-size: 12px; }
 .report-none { color: var(--itsm-text-muted); font-size: 12px; }

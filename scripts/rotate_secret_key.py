@@ -27,13 +27,15 @@ from cryptography.fernet import Fernet
 
 from app import create_app
 from models import (db, Device, DeviceCredential, PasswordHistory, AIConfig,
-                    ExportFile, DeviceExportRequest, User, NotifyChannelConfig)
+                    ExportFile, DeviceExportRequest, User, NotifyChannelConfig, CustomerNotifyBinding, NotificationEvent)
 from utils.json_fields import dumps_json, parse_json
 
 KEY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.secret.key')
 
 # (模型, 加密列名)
 _TARGETS = [
+    (CustomerNotifyBinding, 'webhook_encrypted'),
+    (CustomerNotifyBinding, 'signing_secret_encrypted'),
     (Device, 'password_encrypted'),
     (DeviceCredential, 'password_encrypted'),
     (PasswordHistory, 'password_encrypted'),
@@ -44,7 +46,7 @@ _TARGETS = [
     (User, 'mfa_op_secret_encrypted'),
 ]
 
-_JSON_SECRET_KEYS = {'secret_encrypted', 'app_secret_encrypted', 'token_encrypted',
+_JSON_SECRET_KEYS = {'encrypted', 'webhook_url_encrypted', 'secret_encrypted', 'app_secret_encrypted', 'token_encrypted',
                      'api_key_encrypted', 'password_encrypted'}
 
 
@@ -68,8 +70,8 @@ def _collect_rows():
 
 def _collect_json_rows():
     rows = []
-    for record in NotifyChannelConfig.query.all():
-        config = parse_json(record.config_json or '', default={}, field_name='notify_config')
+    for record in NotifyChannelConfig.query.all() + NotificationEvent.query.filter_by(audience='internal').all():
+        config = parse_json(getattr(record, 'config_json', getattr(record, 'payload_json', '')) or '', default={}, field_name='notify_config')
         keys = [key for key in _JSON_SECRET_KEYS if config.get(key)] if isinstance(config, dict) else []
         if keys:
             rows.append((record, config, keys))
@@ -125,7 +127,7 @@ def main():
                 for key in keys:
                     identity = f'NotifyChannelConfig#{row.id}.{key}'
                     config[key] = _b64enc(new_f.encrypt(plain_values[identity]))
-                row.config_json = dumps_json(config)
+                setattr(row, 'config_json' if isinstance(row, NotifyChannelConfig) else 'payload_json', dumps_json(config))
             db.session.flush()
             # 提交前用新密钥全量回读校验（任何一条不符则整体回滚）
             for row, col in rows:

@@ -259,6 +259,8 @@ SPARE_EXPORT_AVAILABLE = tuple(dict.fromkeys(SPARE_EXPORT_DEFAULT + SPARE_DETAIL
 
 
 CUSTOMER_FIELDS = (
+    F('notify_enabled', '启用通知', data_type='boolean', group='notify', default_visible=False),
+    F('has_wecom_webhook', '绑定状态', data_type='boolean', group='notify', default_visible=False),
     F('name', '客户名称', required=True, min_width=180, sortable=True),
     F('parent_name', '上级单位', min_width=180, group='hierarchy'),
     F('hierarchy_path', '层级路径', min_width=240, group='hierarchy'),
@@ -291,7 +293,7 @@ CUSTOMER_FIELDS = (
 )
 CUSTOMER_LIST = ('name', 'parent_name', 'hierarchy_path', 'region_name', 'city', 'level',
                  'contract_status', 'device_count')
-CUSTOMER_DETAIL = tuple(item.key for item in CUSTOMER_FIELDS)
+CUSTOMER_DETAIL = tuple(item.key for item in CUSTOMER_FIELDS if item.group != 'notify')
 CUSTOMER_FORM = ('name', 'parent_name', 'contact_person', 'phone', 'email', 'region_name', 'city', 'address',
                  'category_name', 'level', 'office_room', 'map_location', 'has_onsite',
                  'onsite_contact', 'onsite_phone', 'onsite_office', 'has_drill',
@@ -662,6 +664,17 @@ TOPOLOGY_FIELDS = (
     F('created_at', '上传时间', data_type='datetime', width=140, sortable=True),
 )
 
+NOTIFICATION_DELIVERY_FIELDS = (
+    F('event', '事件', min_width=160),
+    F('customer_id', '客户编号', data_type='number', width=100),
+    F('target', '目的地', min_width=140),
+    F('channel', '渠道', width=100),
+    F('status', '状态', width=120),
+    F('attempts', '尝试次数', data_type='number', width=100),
+    F('error_code', '处理原因', min_width=150),
+    F('created_at', '生成时间', data_type='datetime', min_width=180),
+)
+
 NOTIFY_RULE_FIELDS = (
     F('label', '通知类型', min_width=140),
     F('event_type', '事件标识', min_width=180),
@@ -748,6 +761,7 @@ ENTITY_SCHEMAS = {
         'export_default': SPARE_EXPORT_DEFAULT, 'export_available': SPARE_EXPORT_AVAILABLE,
     }),
     'customer': EntitySchema('customer', '客户', 'customer:view', CUSTOMER_FIELDS, {
+        'notify': ('notify_enabled', 'has_wecom_webhook'),
         'list': CUSTOMER_LIST, 'detail': CUSTOMER_DETAIL, 'form': CUSTOMER_FORM,
         'export_default': CUSTOMER_EXPORT_DEFAULT,
         'export_available': CUSTOMER_EXPORT_AVAILABLE,
@@ -873,6 +887,10 @@ ENTITY_SCHEMAS = {
         'list': ('name', 'description', 'upload_by', 'created_at'),
         'detail': tuple(item.key for item in TOPOLOGY_FIELDS),
         'form': ('file_type', 'name', 'description', 'customer_name', 'region_name', 'file_name'),
+    }),
+    'notification_delivery': EntitySchema('notification_delivery', '通知投递', 'notify:view', NOTIFICATION_DELIVERY_FIELDS, {
+        'list': tuple(item.key for item in NOTIFICATION_DELIVERY_FIELDS),
+        'detail': tuple(item.key for item in NOTIFICATION_DELIVERY_FIELDS),
     }),
     'notify_rule': EntitySchema('notify_rule', '通知规则', 'notify:view', NOTIFY_RULE_FIELDS, {
         'list': tuple(item.key for item in NOTIFY_RULE_FIELDS),

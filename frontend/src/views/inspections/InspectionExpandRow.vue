@@ -85,11 +85,13 @@
         <el-button v-if="user.hasPerm('inspection:delete')" size="small" type="danger" plain
           @click="emit('delete')">删除</el-button>
       </div>
+      <NotificationHistory v-if="user.hasPerm('notify:view') && detail.task_id" entity-type="task" :entity-id="Number(detail.task_id)" />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
+import NotificationHistory from '@/components/NotificationHistory.vue'
 import { ref, watch, computed } from 'vue'
 import { useMobile } from '@/utils/useMobile'
 import VersionTimeline from '@/components/VersionTimeline.vue'

@@ -283,9 +283,9 @@ class TestTaskScheduleApi:
         assert len(sent) == 1
         assert sent[0]['event'] == 'inspection_status_changed'
         assert sent[0]['title'] == '2026年二季度巡检'
-        assert '**任务状态：**待执行 → 执行中' in sent[0]['content']
+        assert '**任务状态：**执行中' in sent[0]['content']
         assert '**巡检地点：**看板客户' in sent[0]['content']
-        assert '**任务期限：**2026-08-31 至 2026-09-04' in sent[0]['content']
+        assert '**计划时间：**2026-08-31 至 2026-09-04' in sent[0]['content']
         assert '**实施开始：**' in sent[0]['content']
         assert '合同时效' not in sent[0]['content']
         assert sent[0]['target_user_ids'] == [op_id]

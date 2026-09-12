@@ -32,6 +32,9 @@ SIDEBAR_GROUPS = [
         'default_order': 20,
         'children': [
             # 主要功能：工单与故障
+            {'name': '通知中心', 'url': '/app/notification-center', 'icon': 'bi-bell', 'perm': 'notify:view'},
+            {'name': '我的通知', 'url': '/app/notifications', 'icon': 'bi-envelope', 'perm': 'dashboard:view'},
+            {'name': '客户服务通知', 'url': '/app/customer-notifications', 'icon': 'bi-check-circle', 'perm': 'customer:confirm'},
             {'name': '工单管理', 'url': '/tickets', 'icon': 'bi-ticket-detailed', 'perm': 'ticket:view'},
             {'name': '故障记录', 'url': '/faults', 'icon': 'bi-exclamation-triangle', 'perm': 'fault:view'},
             # V16: 任务安排看板（导入 + 三视图）

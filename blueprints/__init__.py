@@ -17,6 +17,8 @@ from blueprints.vue_api_ops import vue_api_bp as _vb_ops  # noqa: F401 (注册�
 from blueprints.vue_api_sales import vue_api_bp as _vb_sales  # noqa: F401
 from blueprints.vue_api_asset import vue_api_bp as _vb_asset  # noqa: F401
 from blueprints.vue_api_sys import vue_api_bp as _vb_sys  # noqa: F401
+from blueprints.vue_api_customer_notify import vue_api_bp as _vb_customer_notify  # noqa: F401
+from blueprints.vue_api_notification_center import vue_api_bp as _vb_notify_center  # noqa: F401
 from blueprints.vue_api_auth import vue_api_bp as _vb_auth  # noqa: F401
 from blueprints.vue_api_security import vue_api_bp as _vb_security  # noqa: F401
 

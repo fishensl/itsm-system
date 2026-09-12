@@ -268,12 +268,15 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/system/accessControl.vue'),
         meta: { title: '访问控制', perm: 'system:access_control' },
       },
-      {
-        path: 'system/notify-channels',
+        {
+          path: 'system/notify-channels',
         name: 'sys-notify-channels',
         component: () => import('@/views/system/notifyChannels.vue'),
         meta: { title: '通知渠道', perm: 'notify:view' },
-      },
+        },
+        { path: 'notification-center', name: 'notification-center', component: () => import('@/views/system/notificationCenter.vue'), meta: { title: '通知中心', perm: 'notify:view' } },
+        { path: 'notifications', name: 'notifications', component: () => import('@/views/notifications.vue'), meta: { title: '我的通知' } },
+        { path: 'customer-notifications', name: 'customer-notifications', component: () => import('@/views/customers/notifications.vue'), meta: { title: '客户服务通知', perm: 'customer:confirm' } },
       {
         path: 'system/notify-rules',
         name: 'sys-notify-rules',
@@ -310,6 +313,7 @@ router.beforeEach(async (to) => {
   }
   // 外网工作台在侧栏配置中指向工单，登录默认首页也使用同一入口。
   if (to.path === '/') {
+    if (!userStore.hasPerm('dashboard:view') && userStore.hasPerm('customer:confirm')) return { path: '/customer-notifications' }
     const entry = userStore.sidebarGroups.find(group => group.key === 'workbench')?.single_link?.url
     if (entry === '/app/tickets' || entry === '/tickets') return { path: '/tickets' }
   }

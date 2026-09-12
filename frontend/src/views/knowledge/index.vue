@@ -426,7 +426,7 @@ onMounted(() => {
 }
 .att-inline-name:hover { text-decoration: underline; }
 .att-inline-op {
-  cursor: pointer; font-size: 11px; color: var(--itsm-text-muted);
+  cursor: pointer; font-size: var(--itsm-font-xs); color: var(--itsm-text-muted);
   flex-shrink: 0; padding: 0 2px;
 }
 .att-inline-op:hover { color: var(--itsm-primary); }

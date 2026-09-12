@@ -136,6 +136,10 @@
               <span v-if="act.label">{{ act.label }}</span>
             </el-button>
           </div>
+          <el-button v-if="expandable" class="card-detail-toggle" plain
+            :aria-expanded="expandedKeys.has(String(row[rowKey]))" @click.stop="onRowClick(row)">
+            {{ expandedKeys.has(String(row[rowKey])) ? '收起详情' : '查看详情' }}
+          </el-button>
           <div v-if="expandable && expandedKeys.has(String(row[rowKey]))" class="mobile-expand" @click.stop>
             <slot name="expand" :row="row" />
           </div>
@@ -725,4 +729,5 @@ const hasPerm = (code?: string) => useUserStore().hasPerm(code)
   padding-top: 10px;
   border-top: 1px dashed var(--itsm-border);
 }
+.card-detail-toggle { width: 100%; min-height: 44px; margin-top: 10px; }
 </style>

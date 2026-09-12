@@ -48,14 +48,16 @@ function deepElementPlusResolver() {
       if (name !== 'ElIcon' && name.startsWith('ElIcon')) {
         return { name: name.slice(2), from: '@element-plus/icons-vue' }
       }
-      const dir = EP_SPECIAL_DIRS[name] || name.slice(2)
+      const componentDir = name.slice(2)
         .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
         .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2')
         .toLowerCase()
+      const dir = EP_SPECIAL_DIRS[name] || componentDir
       return {
         name,
         from: `element-plus/es/components/${dir}/index`,
-        sideEffects: [`element-plus/es/components/${dir}/style/css`],
+        // Child components export JS from a parent module but own separate CSS.
+        sideEffects: [`element-plus/es/components/${componentDir}/style/css`],
       }
     },
   }

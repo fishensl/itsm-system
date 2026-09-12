@@ -11,6 +11,7 @@ export type CredentialPurpose =
   | 'ai.credential.create'
   | 'ai.credential.update'
   | 'notification.credential.update'
+  | 'customer.notify.credential.update'
 
 export interface CredentialChallenge {
   version: 1

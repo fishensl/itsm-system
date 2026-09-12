@@ -12,6 +12,7 @@
 from flask import request, jsonify, redirect, abort
 from flask_login import current_user
 import posixpath
+import re
 
 # 外网放行的路径前缀（其余 /api/* 一律拒绝）
 _EXTERNAL_API_PREFIXES = (
@@ -69,6 +70,25 @@ def _external_blocked(path, method):
 def _external_allowed(path, method):
     """外网请求是否放行"""
     path = posixpath.normpath(path)
+    if path == '/api/notification-policy':
+        return method in {'GET', 'PUT'}
+    if path == '/api/notify-templates':
+        return method == 'GET'
+    if re.fullmatch(r'/api/notify-templates/[a-z_]+', path):
+        return method == 'PUT'
+    if path in ('/api/notify-center', '/api/notification-preferences', '/api/customer-progress', '/api/customer-notifications', '/api/my-notifications'):
+        return method in ({'GET', 'PUT'} if path == '/api/notification-preferences' else {'POST'} if path == '/api/customer-progress' else {'GET'})
+    if re.fullmatch(r'/api/notify-center/[0-9]+/(retry|attempts)', path):
+        return method == ('POST' if path.endswith('/retry') else 'GET')
+    if re.fullmatch(r'/api/customer-notifications/[a-f0-9-]{36}/confirm', path):
+        return method == 'POST'
+    # Customer robot management keeps its own scoped RBAC and external MFA guard.
+    match = re.fullmatch(r'/api/customers/[0-9]+/(notify-settings|notify-deliveries|notify-webhook(?:/test)?)', path)
+    if match:
+        return method in {
+            'notify-settings': {'GET', 'HEAD'}, 'notify-deliveries': {'GET', 'HEAD'},
+            'notify-webhook': {'PUT', 'DELETE'}, 'notify-webhook/test': {'POST'},
+        }[match.group(1)]
     # 报告原文件只能从受 MFA 保护的报告下载入口访问。
     if path.startswith(('/static/uploads/inspection_reports/', '/static/uploads/ticket_reports/',
                         '/static/uploads/reports/', '/uploads/inspection_reports/',

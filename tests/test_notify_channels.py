@@ -60,10 +60,10 @@ class TestRuleSeed:
             scheduled_end=date(2026, 9, 4),
         )
         content = inspection_assignment_notification_content(task, '邱斌')
-        assert content.splitlines()[0] == '> **巡检任务已安排给工程师：邱斌**'
+        assert content.splitlines()[0] == '> **通知事项：**巡检已安排'
         assert '**巡检地点：**江西省水利科学院德安基地' in content
         assert '**巡检工程师：**邱斌' in content
-        assert '**任务期限：**2026-08-31 至 2026-09-04' in content
+        assert '**计划时间：**2026-08-31 至 2026-09-04' in content
         assert '合同时效' not in content
 
     def test_seed_idempotent(self, app, seeded):
@@ -152,14 +152,14 @@ class TestChannelDispatch:
         """分发异常被 wecom_broadcast 吞掉，不向调用方抛"""
         def _boom(*a, **k):
             raise RuntimeError('网络错误')
-        monkeypatch.setattr('utils.notify_channels.send_all_channels', _boom)
+        monkeypatch.setattr('services.notification_outbox.queue_internal', _boom)
         n, failed = wecom_broadcast(EVENT_TICKET_SUSPENDED_TIMEOUT, 't', 'c')
         assert n == 0 and failed == 0
 
     def test_broadcast_expands_relative_link_from_current_request(self, app, monkeypatch):
         captured = []
         monkeypatch.setattr(
-            'utils.notify_channels.send_all_channels',
+            'services.notification_outbox.queue_internal',
             lambda *args, **kwargs: captured.append((args, kwargs)) or (1, 0))
         with app.test_request_context(
                 '/api/tickets/1/action', base_url='http://172.16.123.124:5000'):
@@ -337,7 +337,7 @@ class TestWecomWebhookAdapter:
         monkeypatch.setattr(channel, '_webhook_url', lambda: webhook)
         monkeypatch.setattr(
             channel, '_request_json',
-            lambda url, payload=None, **kwargs: calls.append((url, payload)) or {})
+            lambda url, payload=None, **kwargs: calls.append((url, payload)) or {'errcode': 0})
 
         channel.send_text('', '标题', '正文', '/app/tickets/1')
         channel.send_markdown('', '标题2', '正文2')

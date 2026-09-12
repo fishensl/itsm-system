@@ -54,6 +54,7 @@
     </div>
 
     <!-- 筛选 -->
+    <MobileFilterPanel :filters="{ search: query.q, customer: query.customer_id, status: query.status, overdue: onlyOverdue }">
     <el-card shadow="never" class="filter-card">
       <div class="filter-row">
         <el-radio-group v-model="query.view" size="small" @change="reload">
@@ -83,6 +84,7 @@
         <em>{{ workCalendar.covered_years.length ? `${workCalendar.covered_years.join('、')} 年法定安排` : '法定日历加载中' }}</em>
       </div>
     </el-card>
+    </MobileFilterPanel>
 
     <!-- 批量操作条 -->
     <div v-if="bulkMode && selectedIds.length" class="batch-bar">
@@ -580,6 +582,7 @@
 </template>
 
 <script setup lang="ts">
+import MobileFilterPanel from '@/components/MobileFilterPanel.vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
 import { ref, reactive, computed, onMounted } from 'vue'
@@ -1468,7 +1471,7 @@ onMounted(() => {
 }
 .task-badges { display: flex; gap: 4px; flex-shrink: 0; }
 .tag-badge {
-  font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 3px;
+  font-size: var(--itsm-font-xs); line-height: 1; padding: 2px 5px; border-radius: 3px;
   color: var(--itsm-text-inverse);
 }
 .tag-overdue { background: var(--el-color-danger); }
@@ -1524,7 +1527,7 @@ onMounted(() => {
 .task-calendar-summary,
 .create-calendar-summary {
   color: var(--el-color-warning);
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -1560,7 +1563,7 @@ onMounted(() => {
 }
 :deep(.inline-schedule-date .el-input__inner) {
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   text-align: center;
 }
 :deep(.inline-schedule-date .el-input__prefix) { display: none; }
@@ -1595,7 +1598,7 @@ onMounted(() => {
   padding: 6px 12px 8px;
   border-top: 1px solid var(--el-border-color-lighter);
   color: var(--el-text-color-secondary);
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   line-height: 1.4;
   text-align: center;
   content: '工作日（默认） · 周末（橙） · 法定节假日（红） · 调休上班（蓝）';
@@ -1622,5 +1625,13 @@ onMounted(() => {
   display: flex; justify-content: space-between; align-items: center; gap: 6px;
   margin-top: 8px; border-top: 1px dashed var(--itsm-border);
   padding-top: 8px; flex-wrap: nowrap;
+}
+@media (max-width: 767px) {
+  .kpi-row { grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
+  .kpi-card { padding: 8px 2px; }
+  .kpi-value { font-size: 18px; }
+  .batch-bar { flex-wrap: wrap; }
+  .board-cols { scroll-snap-type: x proximity; }
+  .board-col { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; }
 }
 </style>

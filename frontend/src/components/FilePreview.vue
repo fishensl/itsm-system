@@ -117,7 +117,7 @@ onBeforeUnmount(cleanup)
 .preview-docx { height: 100%; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; }
 .preview-text {
   box-sizing: border-box; width: 100%; height: 100%; overflow: auto; margin: 0; padding: 12px;
-  font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.55;
+  font-family: var(--itsm-font-mono); font-size: 13px; line-height: 1.55;
   background: var(--el-fill-color-light); border-radius: 4px; white-space: pre-wrap; word-break: break-all;
 }
 :deep(.preview-docx .docx-wrapper) { min-height: 100%; padding: 16px; }

@@ -16,6 +16,7 @@ describe('DataTable responsive cell slots', () => {
   it('renders the same editable cell slots in mobile cards', async () => {
     const wrapper = mount(DataTable, {
       props: {
+        expandable: true,
         columns: [
           { key: 'name', label: '名称', asTitle: true },
           { key: 'enabled', label: '启用' },
@@ -31,6 +32,7 @@ describe('DataTable responsive cell slots', () => {
         }),
       },
       slots: {
+        expand: () => h('div', { 'data-testid': 'detail' }, '详情内容'),
         'cell-name': ({ row }: { row: Record<string, unknown> }) =>
           h('input', { 'data-testid': 'name-editor', value: row.name }),
         'cell-enabled': ({ row }: { row: Record<string, unknown> }) =>
@@ -61,6 +63,11 @@ describe('DataTable responsive cell slots', () => {
     expect(wrapper.find('[data-testid="enabled-editor"]').text()).toBe('true')
     expect(wrapper.find('.card-actions button').text()).toBe('锁定')
     expect(wrapper.find('.card-actions button').attributes('disabled')).toBeDefined()
+    await wrapper.get('.card-detail-toggle').trigger('click')
+    expect(wrapper.get('.card-detail-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-testid="detail"]').text()).toBe('详情内容')
+    await wrapper.get('.card-detail-toggle').trigger('click')
+    expect(wrapper.find('[data-testid="detail"]').exists()).toBe(false)
   })
 
   it('applies a quick column preset in preset order and persists it', async () => {

@@ -34,6 +34,11 @@ echo ""
 echo "[1/6] 备份数据库..."
 bash "${APP_DIR}/scripts/backup.sh" "${APP_DIR}"
 
+# Stop the old consumer before code or schema changes. A failed update leaves it stopped.
+if systemctl cat itsm-notifications.service >/dev/null 2>&1; then
+    systemctl stop itsm-notifications
+fi
+
 # ---- 2. 已跟踪工作区必须干净 ----
 echo "[2/6] 检查工作区..."
 cd "${APP_DIR}"
@@ -518,6 +523,12 @@ if ! wait_for_readyz; then
         echo "[FATAL] 上一版前端自动恢复失败；请按本次配对备份执行人工回滚" >&2
     fi
     exit 1
+fi
+
+if [ -f "${APP_DIR}/scripts/install-notification-worker.sh" ]; then
+    bash "${APP_DIR}/scripts/install-notification-worker.sh" "${APP_DIR}"
+    systemctl restart itsm-notifications
+    systemctl --no-pager -l status itsm-notifications
 fi
 
 echo "更新完成！"

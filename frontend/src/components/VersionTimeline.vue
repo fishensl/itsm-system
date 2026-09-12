@@ -274,7 +274,7 @@ async function download(v: SubmissionVersion) {
 .vt-check-summary {
   margin-left: auto;
   color: var(--el-text-color-secondary);
-  font-size: 11px;
+  font-size: var(--itsm-font-xs);
   white-space: nowrap;
 }
 .vt-checklist {
@@ -296,7 +296,7 @@ async function download(v: SubmissionVersion) {
 .vt-check-row.is-qualified { background: var(--el-color-success-light-9); border-color: var(--el-color-success-light-7); }
 .vt-check-row.needs-change { background: var(--el-color-danger-light-9); border-color: var(--el-color-danger-light-7); }
 .vt-check-name { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.vt-check-status { margin-left: auto; flex-shrink: 0; font-size: 11px; font-weight: 600; }
+.vt-check-status { margin-left: auto; flex-shrink: 0; font-size: var(--itsm-font-xs); font-weight: 600; }
 .is-qualified .vt-check-status { color: var(--el-color-success); }
 .needs-change .vt-check-status { color: var(--el-color-danger); }
 .not-applicable .vt-check-status { color: var(--el-text-color-placeholder); }

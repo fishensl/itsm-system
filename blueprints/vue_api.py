@@ -137,11 +137,10 @@ def api_login():
         if locked:
             user.login_locked_until = now + timedelta(minutes=15)
             user.login_fail_count = 0
-        db.session.commit()
         if locked:
-            from utils.security_events import emit_security_event
-            emit_security_event('登录连续失败',
-                                f'用户={username}，IP={client_ip()}，已锁定15分钟')
+            from services.notification_outbox import queue_internal
+            queue_internal('security_event', '登录连续失败', f'用户={username}，IP={client_ip()}，已锁定15分钟', commit=False)
+        db.session.commit()
     current_app.logger.warning(f'用户 [{username}] 登录失败(Vue)')
     return fail('用户名或密码错误', 401)
 
@@ -2227,10 +2226,17 @@ def api_ticket_create():
         return fail(str(e) or '工单创建失败', 400)
     # V28: 工单新建 → 多渠道通知（规则接收人：如销售）
     try:
+        from services.customer_notify_service import notify_ticket
+        notify_ticket(t, 'ticket_new')
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning('客户工单通知未确认 id=%s', t.id)
+    try:
         from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_NEW
         from utils.wecom_notify import ticket_notification_content
+        from utils.notification_content import ticket_subject
         wecom_broadcast(
-            EVENT_TICKET_NEW, f'新建工单 {t.number} · {t.title}',
+            EVENT_TICKET_NEW, ticket_subject(t),
             ticket_notification_content(t, actor=me),
             f'/app/tickets/{t.id}', mode='markdown')
     except Exception:
@@ -2343,7 +2349,7 @@ def api_ticket_action(ticket_id):
                                          audit_ticket, accept_check_ticket, close_ticket,
                                          unassign_ticket, reopen_ticket,
                                          suspend_ticket, resume_ticket, add_progress,
-                                         contract_review_ticket, ticket_summary_text)
+                                         contract_review_ticket)
     data = request.get_json(silent=True) or {}
     if request.form:
         for k, v in request.form.items():
@@ -2491,6 +2497,7 @@ def api_ticket_action(ticket_id):
                             f'{me} 提交了工单「{t.title}」的处理结果',
                             f'/app/tickets/{t.id}')
         # 派发：多渠道通知被指派人
+        from utils.notification_content import ticket_subject
         if action == 'assign':
             from utils.wecom_notify import (
                 EVENT_TICKET_ASSIGN, ticket_notification_content, wecom_broadcast)
@@ -2501,7 +2508,7 @@ def api_ticket_action(ticket_id):
                              if assign_target else (data.get('assignee') or ''))
             wecom_broadcast(
                 EVENT_TICKET_ASSIGN,
-                f'工单 {t.number} 已派发给 {assignee_name}',
+                ticket_subject(t),
                 ticket_notification_content(t, actor=me, assignee=assignee_name),
                 f'/app/tickets/{t.id}',
                 target_user_ids=[assign_target.id] if assign_target else [],
@@ -2512,20 +2519,29 @@ def api_ticket_action(ticket_id):
             progress_text = (data.get('content') or data.get('remark') or '').strip()
             wecom_broadcast(
                 EVENT_TICKET_PROGRESS,
-                f'工单 {t.number} 处置进展 · {t.title}',
+                ticket_subject(t),
                 ticket_notification_content(
                     t, actor=me, assignee=t.assigned_to, progress=progress_text),
                 f'/app/tickets/{t.id}', mode='markdown')
         # 审核通过（已验收）：工单完成 → 多渠道 markdown 摘要通知（规则接收人）
         if action == 'audit' and data.get('approved'):
             from utils.wecom_notify import wecom_broadcast, EVENT_TICKET_COMPLETED
-            from services.ticket_service import ticket_summary_text
+            from utils.wecom_notify import ticket_notification_content
             wecom_broadcast(EVENT_TICKET_COMPLETED,
-                            f'【工单完成】{t.number}',
-                            ticket_summary_text(t),
+                            ticket_subject(t),
+                            '通知事项：审核通过\n' + ticket_notification_content(t, actor=me),
                             f'/app/tickets/{t.id}', mode='markdown')
     except Exception:
         current_app.logger.warning('工单通知发送失败 ticket_id=%s', ticket_id)
+    try:
+        from services.customer_notify_service import notify_ticket
+        if action == 'assign':
+            notify_ticket(t, 'ticket_assign')
+        elif action == 'audit' and data.get('approved'):
+            notify_ticket(t, 'ticket_completed')
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning('客户工单通知未确认 id=%s', ticket_id)
     return ok(None)
 
 
@@ -3361,6 +3377,14 @@ def api_inspection_submit(inspection_id):
         return fail(str(e) or '提交审核失败', 400)
     # 提交审核：只通知本轮明确选择的审核人。
     try:
+        from services.customer_notify_service import notify_task
+        from models import SubmissionVersion
+        if i.task_rel and SubmissionVersion.query.filter_by(entity_type='inspection', entity_id=i.id).count() <= 1:
+            notify_task(i.task_rel, 'inspection_field_completed')
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning('客户巡检结束通知未确认 inspection_id=%s', inspection_id)
+    try:
         from utils.notifications import notify
         notify(
             i.reviewer_id, 'inspection',
@@ -3931,6 +3955,13 @@ def api_inspection_upload_report(task_id):
             current_app.logger.warning('巡检资料同步审计失败 task_id=%s', task_id)
 
     if not supplementing:
+        if version.version_no == 1:
+            try:
+                from services.customer_notify_service import notify_task
+                notify_task(task, 'inspection_field_completed')
+            except Exception:
+                db.session.rollback()
+                current_app.logger.warning('客户巡检结束通知未确认 task_id=%s', task_id)
         # 首次/退回重提才发送审核通知；补传不重复制造审核通知。
         try:
             from utils.notifications import notify
