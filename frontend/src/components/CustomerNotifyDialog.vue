@@ -16,8 +16,8 @@
           <el-input v-model="secret" type="password" autocomplete="new-password" placeholder="已绑定时留空保持不变" />
         </el-form-item>
         <el-form-item v-if="channel !== 'wecom'" label="加签密钥"><el-input v-model="signingSecret" type="password" autocomplete="new-password" placeholder="可选；留空保持原密钥" /></el-form-item>
-        <el-form-item label="订阅事件"><el-checkbox-group v-model="subscribed"><el-checkbox v-for="(label, key) in events" :key="key" :value="key">{{ label }}</el-checkbox></el-checkbox-group></el-form-item>
-        <el-form-item label="静默时段"><div class="filter-row"><el-input-number v-model="quietStart" :min="0" :max="23" /> 至 <el-input-number v-model="quietEnd" :min="0" :max="23" /> 时（北京时间，相同则关闭）</div></el-form-item>
+        <el-form-item label="订阅事件"><el-checkbox-group v-model="subscribed" class="notify-events"><el-checkbox v-for="(label, key) in events" :key="key" :value="key">{{ label }}</el-checkbox></el-checkbox-group></el-form-item>
+        <el-form-item label="静默时段"><div class="notify-quiet"><div class="notify-quiet-inputs"><el-input-number v-model="quietStart" :min="0" :max="23" controls-position="right" aria-label="静默开始小时" /><span>至</span><el-input-number v-model="quietEnd" :min="0" :max="23" controls-position="right" aria-label="静默结束小时" /></div><span class="notify-hint">北京时间，相同则关闭</span></div></el-form-item>
         <el-form-item label="进展合并"><el-select v-model="digestMinutes"><el-option v-for="n in [0, 5, 15, 30, 60]" :key="n" :value="n" :label="n ? `${n} 分钟` : '关闭'" /></el-select></el-form-item>
       </el-form>
       <h4>最近 50 条投递记录</h4>
@@ -147,15 +147,28 @@ function newBinding() {
 <style>
 .customer-notify-dialog .notify-group-name { display: flex; gap: 8px; width: 100%; }
 .customer-notify-dialog .notify-group-name .el-input { flex: 1; min-width: 0; }
-.customer-notify-dialog .notify-channel-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-left: 110px; }
-.customer-notify-dialog .notify-channel-row .el-form-item { display: flex; flex-direction: column; min-width: 0; }
-.customer-notify-dialog .notify-channel-row .el-form-item__label { width: auto !important; justify-content: flex-start; }
-.customer-notify-dialog .notify-channel-row .el-form-item__content { margin-left: 0 !important; min-height: 44px; width: 100%; }
+.customer-notify-dialog .el-form-item { margin-bottom: 14px; }
+.customer-notify-dialog .notify-channel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; }
+.customer-notify-dialog .notify-channel-row .el-form-item { display: flex; flex-direction: row; align-items: center; min-width: 0; }
+.customer-notify-dialog .notify-channel-row .el-form-item__label { flex-shrink: 0; }
+.customer-notify-dialog .notify-channel-row .el-form-item:not(:first-child) .el-form-item__label { width: auto !important; padding-right: 8px; }
+.customer-notify-dialog .notify-channel-row .el-form-item__content { margin-left: 0 !important; min-width: 0; flex-wrap: nowrap; }
+.customer-notify-dialog .notify-channel-row .el-select { min-width: 100px; }
+.customer-notify-dialog .notify-channel-row .el-form-item__content > span { white-space: nowrap; }
+.customer-notify-dialog .notify-events { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; width: 100%; }
+.customer-notify-dialog .notify-events .el-checkbox { margin-right: 0; min-width: 0; height: auto; min-height: 32px; white-space: normal; }
+.customer-notify-dialog .notify-events .el-checkbox__label { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.customer-notify-dialog .notify-quiet { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.customer-notify-dialog .notify-quiet-inputs { display: flex; align-items: center; gap: 8px; }
+.customer-notify-dialog .notify-quiet-inputs .el-input-number { width: 88px; }
+.customer-notify-dialog .notify-hint { color: var(--el-text-color-secondary); font-size: 12px; }
 @media (max-width: 767px) {
-  .customer-notify-dialog .notify-channel-row { margin-left: 0; gap: 8px; }
+  .customer-notify-dialog .notify-channel-row { display: flex; flex-wrap: wrap; column-gap: 16px; }
+  .customer-notify-dialog .notify-channel-row .el-form-item:first-child { flex-basis: 100%; }
+  .customer-notify-dialog .notify-channel-row .el-form-item__label { padding-right: 8px; }
   .customer-notify-dialog .el-form-item { display: block; }
   .customer-notify-dialog .el-form-item__label { width: auto !important; justify-content: flex-start; }
   .customer-notify-dialog .el-form-item__content { margin-left: 0 !important; gap: 8px; }
-  .customer-notify-dialog .el-checkbox { height: auto; min-height: 44px; white-space: normal; }
+  .customer-notify-dialog .notify-events .el-checkbox { min-height: 44px; }
 }
 </style>
