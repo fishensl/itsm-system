@@ -12,6 +12,7 @@ function mountDialog() {
     directives: { loading: () => {} },
     stubs: {
       ElDialog: { template: '<div><slot /><footer><slot name="footer" /></footer></div>' }, ElAlert: true,
+      ElTooltip: { template: '<span><slot /></span>' },
       ElForm: { template: '<div><slot /></div>' }, ElFormItem: { template: '<div><slot /></div>' },
       ElButton: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
       ElInput: true, ElSwitch: true, ElTable: true, ElTableColumn: true, ElSelect: true, ElOption: true,
