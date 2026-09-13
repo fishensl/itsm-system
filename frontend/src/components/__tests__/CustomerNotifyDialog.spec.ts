@@ -34,6 +34,7 @@ describe('客户通知设置', () => {
       ? { notify_enabled: false, has_wecom_webhook: false, events: {}, bindings: [] } : { items: [] }))
     const wrapper = mountDialog()
     await wrapper.vm.open(8, '吉安市水利局')
+    expect(wrapper.find('[label-position="left"]').attributes('label-width')).toBe('88px')
     const input = wrapper.findAllComponents({ name: 'ElInput' })[0]!
     expect(input.attributes('modelvalue')).toBe('吉安市水利局运维服务群')
     input.vm.$emit('update:modelValue', '吉安市水利局网络保障群')

@@ -2,7 +2,7 @@
   <el-dialog v-model="visible" :title="`客户通知 · ${customerName}`" width="640px" class="customer-notify-dialog" destroy-on-close>
     <div v-loading="busy">
       <el-alert title="仅向本客户群发送服务节点，不发送内部审核意见或附件。请核对群成员与客户归属。" type="info" :closable="false" />
-      <el-form label-width="110px" style="margin-top: 16px">
+      <el-form label-position="left" label-width="88px" style="margin-top: 16px">
         <el-form-item v-if="bindings.length > 1 || (creating && bindings.length)" label="通知群">
           <el-select v-model="selected" @change="selectBinding"><el-option v-for="b in bindings" :key="b.id" :value="b.id" :label="`${b.name} (${b.channel_type})`" /></el-select>
         </el-form-item>
@@ -150,6 +150,9 @@ function newBinding() {
 .customer-notify-dialog .notify-group-name { display: flex; gap: 8px; width: 100%; }
 .customer-notify-dialog .notify-group-name .el-input { flex: 1; min-width: 0; }
 .customer-notify-dialog .el-form-item { margin-bottom: 14px; }
+.customer-notify-dialog .el-form-item__label { justify-content: flex-start; text-align: left; padding-right: 10px; }
+.customer-notify-dialog .el-form-item__content { justify-content: flex-start; text-align: left; }
+.customer-notify-dialog .el-input__inner { text-align: left; }
 .customer-notify-dialog .notify-channel-row { display: flex; flex-wrap: wrap; column-gap: 16px; }
 .customer-notify-dialog .notify-channel-row .el-form-item { display: flex; flex-direction: row; align-items: center; min-width: 0; }
 .customer-notify-dialog .notify-channel-row .el-form-item__label { flex-shrink: 0; }
