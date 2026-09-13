@@ -3,17 +3,18 @@
     <div v-loading="busy">
       <el-alert title="仅向本客户群发送服务节点，不发送内部审核意见或附件。请核对群成员与客户归属。" type="info" :closable="false" />
       <el-form label-width="110px" style="margin-top: 16px">
-        <el-form-item label="通知目的地">
+        <el-form-item v-if="bindings.length > 1 || (creating && bindings.length)" label="通知群">
           <el-select v-model="selected" @change="selectBinding"><el-option v-for="b in bindings" :key="b.id" :value="b.id" :label="`${b.name} (${b.channel_type})`" /></el-select>
-          <el-button @click="newBinding">新增群</el-button>
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="name" maxlength="80" /></el-form-item>
-        <el-form-item label="渠道"><el-select v-model="channel"><el-option label="企业微信" value="wecom" /><el-option label="钉钉" value="dingtalk" /><el-option label="飞书" value="feishu" /></el-select></el-form-item>
-        <el-form-item :label="bindingLabel">{{ settings.has_wecom_webhook ? '已绑定' : '未绑定' }}</el-form-item>
+        <el-form-item label="群名称"><div class="notify-group-name"><el-input v-model="name" maxlength="80" /><el-button v-if="!creating" @click="newBinding">新增群</el-button></div></el-form-item>
+        <div class="notify-channel-row">
+          <el-form-item label="渠道"><el-select v-model="channel" aria-label="渠道"><el-option label="企业微信" value="wecom" /><el-option label="钉钉" value="dingtalk" /><el-option label="飞书" value="feishu" /></el-select></el-form-item>
+          <el-form-item :label="bindingLabel"><span>{{ settings.has_wecom_webhook ? '已绑定' : '未绑定' }}</span></el-form-item>
+          <el-form-item :label="enabledLabel"><el-switch v-model="enabled" :aria-label="enabledLabel" /></el-form-item>
+        </div>
         <el-form-item label="机器人地址">
           <el-input v-model="secret" type="password" autocomplete="new-password" placeholder="已绑定时留空保持不变" />
         </el-form-item>
-        <el-form-item :label="enabledLabel"><el-switch v-model="enabled" /></el-form-item>
         <el-form-item v-if="channel !== 'wecom'" label="加签密钥"><el-input v-model="signingSecret" type="password" autocomplete="new-password" placeholder="可选；留空保持原密钥" /></el-form-item>
         <el-form-item label="订阅事件"><el-checkbox-group v-model="subscribed"><el-checkbox v-for="(label, key) in events" :key="key" :value="key">{{ label }}</el-checkbox></el-checkbox-group></el-form-item>
         <el-form-item label="静默时段"><div class="filter-row"><el-input-number v-model="quietStart" :min="0" :max="23" /> 至 <el-input-number v-model="quietEnd" :min="0" :max="23" /> 时（北京时间，相同则关闭）</div></el-form-item>
@@ -52,7 +53,8 @@ const customerName = ref('')
 const secret = ref('')
 type Binding = { id: number; name: string; channel_type: string; notify_enabled: boolean; has_wecom_webhook: boolean; subscriptions: Record<string, boolean>; quiet_start: number; quiet_end: number; digest_minutes: number }
 const bindings = ref<Binding[]>([]), selected = ref<number>(), creating = ref(false)
-const name = ref('客户群'), channel = ref('wecom'), signingSecret = ref(''), subscribed = ref<string[]>([])
+const name = ref(''), channel = ref('wecom'), signingSecret = ref(''), subscribed = ref<string[]>([])
+const defaultGroupName = computed(() => `${customerName.value.trim()}运维服务群`.slice(0, 80))
 const quietStart = ref(0), quietEnd = ref(0), digestMinutes = ref(0), events = ref<Record<string, string>>({})
 const enabled = ref(false)
 const settings = ref({ notify_enabled: false, has_wecom_webhook: false })
@@ -128,14 +130,14 @@ defineExpose({ open })
 function selectBinding() {
   const b = bindings.value.find(b => b.id === selected.value)
   if (!b) return
-  creating.value = false; name.value = b.name; channel.value = b.channel_type; enabled.value = b.notify_enabled
+  creating.value = false; name.value = !b.name || b.name === '客户群' ? defaultGroupName.value : b.name; channel.value = b.channel_type; enabled.value = b.notify_enabled
   settings.value = { notify_enabled: b.notify_enabled, has_wecom_webhook: b.has_wecom_webhook }
   subscribed.value = Object.keys(events.value).filter(k => b.subscriptions[k] ?? k !== 'customer_digest')
   quietStart.value = b.quiet_start; quietEnd.value = b.quiet_end; digestMinutes.value = b.digest_minutes
   secret.value = ''; signingSecret.value = ''
 }
 function newBinding() {
-  selected.value = undefined; creating.value = true; name.value = '客户群'; channel.value = 'wecom'; enabled.value = false
+  selected.value = undefined; creating.value = true; name.value = defaultGroupName.value; channel.value = 'wecom'; enabled.value = false
   secret.value = ''; signingSecret.value = ''; quietStart.value = 0; quietEnd.value = 0; digestMinutes.value = 0
   settings.value = { notify_enabled: false, has_wecom_webhook: false }
   subscribed.value = Object.keys(events.value).filter(k => k !== 'customer_digest')
@@ -143,7 +145,14 @@ function newBinding() {
 </script>
 
 <style>
+.customer-notify-dialog .notify-group-name { display: flex; gap: 8px; width: 100%; }
+.customer-notify-dialog .notify-group-name .el-input { flex: 1; min-width: 0; }
+.customer-notify-dialog .notify-channel-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-left: 110px; }
+.customer-notify-dialog .notify-channel-row .el-form-item { display: flex; flex-direction: column; min-width: 0; }
+.customer-notify-dialog .notify-channel-row .el-form-item__label { width: auto !important; justify-content: flex-start; }
+.customer-notify-dialog .notify-channel-row .el-form-item__content { margin-left: 0 !important; min-height: 44px; width: 100%; }
 @media (max-width: 767px) {
+  .customer-notify-dialog .notify-channel-row { margin-left: 0; gap: 8px; }
   .customer-notify-dialog .el-form-item { display: block; }
   .customer-notify-dialog .el-form-item__label { width: auto !important; justify-content: flex-start; }
   .customer-notify-dialog .el-form-item__content { margin-left: 0 !important; gap: 8px; }
