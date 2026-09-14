@@ -206,7 +206,7 @@ class TestTaskStatusFlow:
             t = InspectionTask.query.get(seed['t1'])
             assert t.status == '待审核'
             assert t.actual_start is not None
-            assert t.actual_end is None
+            assert t.actual_end is not None  # 进入"待审核"即冻结实施结束时间
 
     def test_illegal_status(self, op_client, seed):
         r = op_client.post(f"/api/task-board/{seed['t1']}/status", json={'status': '不存在'})

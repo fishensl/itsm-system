@@ -119,9 +119,10 @@ class TestTicketActionNotifiesAssignee:
             assert '派' in n.title
             assert n.link == f'/app/tickets/{tid}'
         assert sent
-        assert sent[-1]['title'] == '工单 WO-NOTIFY-1 已派发给 op'
-        assert '**报修联系人：**黄思琪' in sent[-1]['content']
+        assert sent[-1]['event'] == 'ticket_assign'
+        assert sent[-1]['title'] == '搜索客户A通知测试工单处置'
         assert '**故障地点：**西区机房' in sent[-1]['content']
-        assert '**前往时间：**2026年08月31日 08:55' in sent[-1]['content']
-        assert '**跟进工程师：**op' in sent[-1]['content']
+        assert '**计划时间：**2026-08-31 08:55' in sent[-1]['content']
+        assert '**处置工程师：**op' in sent[-1]['content']
+        assert '**任务状态：**已派单' in sent[-1]['content']
         assert sent[-1]['mode'] == 'markdown'
