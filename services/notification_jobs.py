@@ -45,8 +45,8 @@ def periodic(now=None):
             if latest and latest.created_at:
                 age = (now - latest.created_at).days
             title = '巡检审核超时待办' if age >= policy['review_days'] else ''
-        elif task.scheduled_end and task.scheduled_end.date() < local.date() and not task.actual_end:
-            age = (local.date() - task.scheduled_end.date()).days
+        elif task.scheduled_end and task.scheduled_end < local.date() and not task.actual_end:
+            age = (local.date() - task.scheduled_end).days
             title = '巡检任务已逾期'
         if not title or uid not in active or (uid in prefs and not prefs[uid].reminders):
             continue

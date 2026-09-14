@@ -205,6 +205,12 @@ def _acquire_lock():
         return None
 
 
+def _run_daily_job(app):
+    """APScheduler 工作线程没有 Flask 应用上下文，统一在此建立后执行每日任务。"""
+    with app.app_context():
+        _daily_job()
+
+
 def start_scheduler(app):
     """启动后台调度器（幂等；防多实例）"""
     global _scheduler
@@ -218,7 +224,9 @@ def start_scheduler(app):
     if lock_path is None and not app.debug:
         return None
     s = BackgroundScheduler(timezone='Asia/Shanghai')
-    s.add_job(_daily_job, CronTrigger(hour=8, minute=30), id='itsm-daily', replace_existing=True)
+    s.add_job(lambda: _run_daily_job(app),
+              CronTrigger(hour=8, minute=30, timezone='Asia/Shanghai'),
+              id='itsm-daily', replace_existing=True)
     s.start()
     _scheduler = s
 

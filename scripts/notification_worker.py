@@ -28,15 +28,21 @@ def main():
         while True:
             try:
                 if time.monotonic() - last_periodic > 60:
-                    periodic()
-                    last_periodic = time.monotonic()
+                    try:
+                        periodic()
+                    except Exception:
+                        db.session.rollback()
+                        app.logger.exception('通知周期任务失败，本轮跳过')
+                    finally:
+                        # 失败也推进节流，避免每 2 秒热重试拖死投递循环
+                        last_periodic = time.monotonic()
                 run_batch(5)
                 if time.monotonic() - last_cleanup > 86400:
                     cleanup()
                     last_cleanup = time.monotonic()
             except Exception:
                 db.session.rollback()
-                app.logger.error('通知消费者本轮失败，请检查数据库与迁移状态')
+                app.logger.error('通知消费者本轮失败，请检查数据库与迁移状态', exc_info=True)
                 if args.once:
                     raise
             finally:

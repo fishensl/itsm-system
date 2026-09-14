@@ -107,7 +107,7 @@ def notify_overdue_tasks():
             .filter(InspectionTask.planned_end.isnot(None))
             .all())
     overdue = [t for t in rows
-               if t.planned_end and t.planned_end.date() < today and not t.actual_end]
+               if t.planned_end and t.planned_end < today and not t.actual_end]
     if not overdue:
         return 0
     by_user = {}

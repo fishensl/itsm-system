@@ -226,11 +226,12 @@
     </div>
 
     <!-- 按工程师视图 -->
-    <div v-else-if="data?.view === 'engineer'" class="board-cols">
-      <div v-for="e in [...(data.engineers || []), { id: '__unassigned__', name: '未指派' }]" :key="e.id"
-        class="board-col">
+    <div v-else-if="data?.view === 'engineer'" ref="boardRef" class="board-cols">
+      <div v-for="e in engineerColumns" :key="e.id" class="board-col"
+        :class="{ 'board-col-me': e.id === user.user?.id }">
         <div class="col-head col-engineer">
           {{ e.name }}
+          <span v-if="e.id === user.user?.id" class="me-badge">我</span>
           <span class="col-count">{{ data.engineer_groups?.[String(e.id)]?.length || 0 }}</span>
         </div>
         <div class="col-body">
@@ -585,7 +586,7 @@
 import MobileFilterPanel from '@/components/MobileFilterPanel.vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { UploadFile } from 'element-plus/es/components/upload'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Search, Download, Upload, UploadFilled, Delete } from '@element-plus/icons-vue'
 import {
@@ -608,6 +609,7 @@ import {
   workCalendarRangeSummary,
   type WorkCalendarData,
 } from '@/utils/workCalendar'
+import { orderEngineersForSelf } from './engineerOrder'
 
 const user = useUserStore()
 const ui = useUiStore()
@@ -621,6 +623,16 @@ const selectedIds = ref<number[]>([])
 const batchStatus = ref('')
 const batchAssignee = ref<number | null>(null)
 const bulkMode = ref(false)
+
+// 当前登录账号本人的工程师列置顶（手机端打开即停在本人列）
+const boardRef = ref<HTMLElement | null>(null)
+const engineerColumns = computed(() => orderEngineersForSelf(data.value?.engineers || [], user.user?.id))
+async function scrollToSelfColumn() {
+  await nextTick()
+  if (!window.matchMedia('(max-width: 767px)').matches) return
+  const el = boardRef.value?.querySelector<HTMLElement>('.board-col-me')
+  if (el && boardRef.value) boardRef.value.scrollLeft = el.offsetLeft
+}
 
 const createVisible = ref(false)
 const creating = ref(false)
@@ -900,6 +912,7 @@ async function reload() {
   try {
     const result = await fetchTaskSchedule(params as never)
     data.value = result
+    void scrollToSelfColumn()
     await openRouteSupplement(result)
   } catch { /* toast */ }
   finally { loading.value = false }
@@ -1426,6 +1439,20 @@ onMounted(() => {
 .col-待审核 { color: var(--el-color-info); border-bottom: 3px solid var(--el-color-info); }
 .col-已完成 { color: var(--el-color-success); border-bottom: 3px solid var(--el-color-success); }
 .col-engineer { border-bottom: 3px solid var(--el-color-info); }
+.board-col-me {
+  border-radius: 6px;
+  outline: 2px solid var(--el-color-primary-light-5);
+  outline-offset: -2px;
+}
+.me-badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--el-color-primary);
+  color: #fff;
+  font-size: var(--itsm-font-xs);
+  line-height: 16px;
+}
 .col-count { font-size: 12px; color: var(--itsm-text-muted); }
 .col-check { margin: 6px 12px; }
 .col-body { padding: 6px 10px 12px; min-height: 80px; }

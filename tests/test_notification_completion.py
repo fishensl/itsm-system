@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import pytest
-from models import db, User, Customer, Ticket, NotificationEvent as Event, NotificationDelivery as Delivery, NotificationPreference, NotifyChannelConfig, Department
+from models import db, User, Customer, Ticket, InspectionTask, NotificationEvent as Event, NotificationDelivery as Delivery, NotificationPreference, NotifyChannelConfig, Department
 from services import notification_policy as policy, notification_management as management
 from services.notification_jobs import periodic
 from services.notification_outbox import insert_event, queue_internal
@@ -79,3 +79,51 @@ def test_contract_expiry_event_and_cursor_are_idempotent(app):
         notify_contract_expiring(); notify_contract_expiring()
         assert c.contract_expiry_notified == date.today()
         assert Event.query.filter_by(event_type='contract_expiring', audience='inbox', customer_id=c.id).count() == 1
+
+
+def test_periodic_overdue_task_with_date_fields(app):
+    """回归：scheduled_end 是 db.Date，periodic 不得再调用 .date()（曾致消费者每 2 秒崩溃）。"""
+    with app.app_context():
+        op = User.query.filter_by(username='op').one()
+        customer = Customer(name='日期字段客户'); db.session.add(customer); db.session.flush()
+        task = InspectionTask(
+            title='日期字段逾期巡检', task_type='计划', status=C.TASK_SCHEDULED,
+            customer_id=customer.id, assigned_to_user_id=op.id,
+            scheduled_start=date(2026, 9, 1), scheduled_end=date(2026, 9, 5),
+            planned_end=date(2026, 9, 5),
+        )
+        db.session.add(task); db.session.commit()
+        db.session.expire_all()  # 从 DB 重新加载，确保日期字段是 date 对象
+        periodic(datetime(2026, 9, 12, 2))
+        assert Event.query.filter_by(
+            event_type='reminder_task', entity_type='task', entity_id=task.id).count() >= 1
+
+
+def test_notify_overdue_tasks_with_date_planned_end(app):
+    """回归：planned_end 是 db.Date，逾期提醒不得再调用 .date()。"""
+    with app.app_context():
+        from utils.notifications import notify_overdue_tasks
+        op = User.query.filter_by(username='op').one()
+        customer = Customer(name='逾期计划客户'); db.session.add(customer); db.session.flush()
+        db.session.add(InspectionTask(
+            title='逾期计划任务', task_type='计划', status=C.TASK_PENDING,
+            customer_id=customer.id, assigned_to_user_id=op.id,
+            planned_start=date(2026, 7, 1), planned_end=date(2026, 8, 1),
+        ))
+        db.session.commit()
+        db.session.expire_all()
+        assert notify_overdue_tasks() == 1
+
+
+def test_daily_job_provides_app_context(app, monkeypatch):
+    """回归：APScheduler 线程执行每日任务时必须自带应用上下文。"""
+    from utils import scheduler
+    calls = []
+
+    def fake_job():
+        from models import User
+        calls.append(User.query.count())  # 无 app context 会抛 RuntimeError
+
+    monkeypatch.setattr(scheduler, '_daily_job', fake_job)
+    scheduler._run_daily_job(app)
+    assert calls and calls[0] >= 1
