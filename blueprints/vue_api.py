@@ -2712,6 +2712,7 @@ def _customer_payload(c, region_map=None, category_map=None, customer_map=None):
         'onsite_office': c.onsite_office or '',
         'has_drill': bool(c.has_drill),
         'inspection_frequency': c.inspection_frequency or '',
+        'notify_inherit_parent': bool(c.notify_inherit_parent),
         'device_count': c.device_count or 0,
         'category_name': (category_map or {}).get(c.category_id, ''),
         'region_name': (region_map or {}).get(c.region_id, ''),

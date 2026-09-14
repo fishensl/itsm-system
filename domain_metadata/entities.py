@@ -281,6 +281,8 @@ CUSTOMER_FIELDS = (
     F('onsite_office', '驻场办公室', min_width=110),
     F('has_drill', '有无攻防演练', data_type='boolean', width=110),
     F('inspection_frequency', '巡检频率', export_key='frequency', width=100),
+    F('notify_inherit_parent', '接收上级群通知', data_type='boolean', width=120,
+      group='notify', default_visible=False),
     F('source', '来源', min_width=100),
     F('contract_start_date', '合同开始日期', data_type='date', width=110, group='contract'),
     F('contract_end_date', '合同结束日期', data_type='date', width=110, group='contract'),

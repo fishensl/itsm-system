@@ -3,6 +3,13 @@
     <div v-loading="busy">
       <el-alert title="仅向本客户群发送服务节点，不发送内部审核意见或附件。请核对群成员与客户归属。" type="info" :closable="false" />
       <el-form label-position="left" label-width="88px" style="margin-top: 16px">
+        <el-form-item v-if="!settings.has_wecom_webhook" label="上级群通知">
+          <template v-if="inheritedFrom">
+            <el-switch v-model="inheritParent" aria-label="接收上级群通知" />
+            <span class="notify-hint">继承自：{{ inheritedFrom.customer_name }} · {{ inheritedFrom.name }}</span>
+          </template>
+          <span v-else class="notify-hint">上级暂无可继承的群；绑定本客户独立群后将直接通知本群</span>
+        </el-form-item>
         <el-form-item v-if="bindings.length > 1 || (creating && bindings.length)" label="通知群">
           <el-select v-model="selected" @change="selectBinding"><el-option v-for="b in bindings" :key="b.id" :value="b.id" :label="`${b.name} (${b.channel_type})`" /></el-select>
         </el-form-item>
@@ -16,6 +23,10 @@
           <el-input v-model="secret" type="password" autocomplete="new-password" placeholder="已绑定时留空保持不变" />
         </el-form-item>
         <el-form-item v-if="channel !== 'wecom'" label="加签密钥"><el-input v-model="signingSecret" type="password" autocomplete="new-password" placeholder="可选；留空保持原密钥" /></el-form-item>
+        <el-form-item v-if="creating || settings.has_wecom_webhook" label="下级共用">
+          <el-switch v-model="inheritToChildren" aria-label="允许下级共用本群" />
+          <span class="notify-hint">开启后，未绑定独立群的下级客户将收到本群通知</span>
+        </el-form-item>
         <el-form-item label="订阅事件"><el-checkbox-group v-model="subscribed" class="notify-events"><el-checkbox v-for="(label, key) in events" :key="key" :value="key">{{ label }}</el-checkbox></el-checkbox-group></el-form-item>
         <div class="notify-timing-row">
           <el-form-item label="静默时段"><div class="notify-quiet-inputs"><el-input-number v-model="quietStart" :min="0" :max="23" controls-position="right" aria-label="静默开始小时" /><span>至</span><el-input-number v-model="quietEnd" :min="0" :max="23" controls-position="right" aria-label="静默结束小时" /><el-tooltip content="北京时间，开始与结束小时相同则关闭静默" trigger="click"><button type="button" class="notify-help" aria-label="静默时段说明：北京时间，开始与结束小时相同则关闭静默">?</button></el-tooltip></div></el-form-item>
@@ -53,29 +64,41 @@ const busy = ref(false)
 const customerId = ref(0)
 const customerName = ref('')
 const secret = ref('')
-type Binding = { id: number; name: string; channel_type: string; notify_enabled: boolean; has_wecom_webhook: boolean; subscriptions: Record<string, boolean>; quiet_start: number; quiet_end: number; digest_minutes: number }
+type Binding = { id: number; name: string; channel_type: string; notify_enabled: boolean; has_wecom_webhook: boolean; inherit_to_children: boolean; subscriptions: Record<string, boolean>; quiet_start: number; quiet_end: number; digest_minutes: number }
+type InheritedFrom = { binding_id: number; name: string; customer_id: number; customer_name: string; digest: boolean }
 const bindings = ref<Binding[]>([]), selected = ref<number>(), creating = ref(false)
 const name = ref(''), channel = ref('wecom'), signingSecret = ref(''), subscribed = ref<string[]>([])
 const defaultGroupName = computed(() => `${customerName.value.trim()}运维服务群`.slice(0, 80))
 const quietStart = ref(0), quietEnd = ref(0), digestMinutes = ref(0), events = ref<Record<string, string>>({})
 const enabled = ref(false)
-const settings = ref({ notify_enabled: false, has_wecom_webhook: false })
+const settings = ref({ notify_enabled: false, has_wecom_webhook: false, has_own_binding: false, notify_inherit_parent: true, inherited_from: null as InheritedFrom | null })
+const inheritToChildren = ref(false)
+const inheritParent = ref(true)
+const inheritedFrom = computed(() => settings.value.inherited_from)
 const items = ref<{ id: number; event: string; status: string; created_at: string }[]>([])
 const statusLabels: Record<string, string> = { accepted: '接口已接受', unknown: '结果未确认', sending: '处理中/待核对', cancelled: '已取消', pending: '待发送', retry: '待重试', failed: '失败' }
 const dirty = computed(() => {
   const b = bindings.value.find(item => item.id === selected.value)
-  return creating.value || !b || !!secret.value || !!signingSecret.value || name.value !== b.name || channel.value !== b.channel_type || enabled.value !== b.notify_enabled || quietStart.value !== b.quiet_start || quietEnd.value !== b.quiet_end || digestMinutes.value !== b.digest_minutes || Object.keys(events.value).some(k => subscribed.value.includes(k) !== (b.subscriptions[k] ?? k !== 'customer_digest'))
+  return creating.value || !b || !!secret.value || !!signingSecret.value || name.value !== b.name || channel.value !== b.channel_type || enabled.value !== b.notify_enabled || inheritToChildren.value !== (b.inherit_to_children ?? false) || quietStart.value !== b.quiet_start || quietEnd.value !== b.quiet_end || digestMinutes.value !== b.digest_minutes || inheritParent.value !== (settings.value.notify_inherit_parent !== false) || Object.keys(events.value).some(k => subscribed.value.includes(k) !== (b.subscriptions[k] ?? k !== 'customer_digest'))
 })
 const url = () => `/api/customers/${customerId.value}/notify-webhook`
 async function refresh() {
   const response = await request<typeof settings.value & { bindings: Binding[]; events: Record<string, string> }>({ url: `/api/customers/${customerId.value}/notify-settings` })
   bindings.value = response.bindings || []
   events.value = response.events || {}
+  settings.value = {
+    notify_enabled: response.notify_enabled,
+    has_wecom_webhook: response.has_wecom_webhook,
+    has_own_binding: response.has_own_binding ?? bindings.value.length > 0,
+    notify_inherit_parent: response.notify_inherit_parent !== false,
+    inherited_from: response.inherited_from ?? null,
+  }
+  inheritParent.value = settings.value.notify_inherit_parent
   if (bindings.value.length) {
     if (creating.value) selected.value = bindings.value[bindings.value.length - 1]!.id
     if (!bindings.value.some(b => b.id === selected.value)) selected.value = bindings.value[0]!.id
     selectBinding()
-  } else { settings.value = response; enabled.value = response.notify_enabled; newBinding() }
+  } else { enabled.value = response.notify_enabled; newBinding() }
   const result = await request<{ items: typeof items.value }>({ url: `/api/customers/${customerId.value}/notify-deliveries` })
   items.value = result.items
 }
@@ -94,7 +117,7 @@ async function save() {
   busy.value = true
   try {
     const data = { notify_enabled: enabled.value, binding_id: selected.value, create: creating.value, channel_type: channel.value, name: name.value,
-      quiet_start: quietStart.value, quiet_end: quietEnd.value, digest_minutes: digestMinutes.value,
+      quiet_start: quietStart.value, quiet_end: quietEnd.value, digest_minutes: digestMinutes.value, inherit_to_children: inheritToChildren.value,
       subscriptions: Object.fromEntries(Object.keys(events.value).map(key => [key, subscribed.value.includes(key)])) }
     if (secret.value || signingSecret.value) {
       await withCredentialEnvelope({
@@ -104,6 +127,9 @@ async function save() {
         fallback: () => request({ url: url(), method: 'PUT', data: { ...data, wecom_webhook: secret.value, signing_secret: signingSecret.value } }),
       })
     } else await request({ url: url(), method: 'PUT', data })
+    if (inheritParent.value !== (settings.value.notify_inherit_parent !== false)) {
+      await request({ url: `/api/customers/${customerId.value}/notify-inherit`, method: 'PUT', data: { inherit_parent: inheritParent.value } })
+    }
     secret.value = ''
     signingSecret.value = ''
     await refresh()
@@ -133,7 +159,8 @@ function selectBinding() {
   const b = bindings.value.find(b => b.id === selected.value)
   if (!b) return
   creating.value = false; name.value = !b.name || b.name === '客户群' ? defaultGroupName.value : b.name; channel.value = b.channel_type; enabled.value = b.notify_enabled
-  settings.value = { notify_enabled: b.notify_enabled, has_wecom_webhook: b.has_wecom_webhook }
+  settings.value = { ...settings.value, notify_enabled: b.notify_enabled, has_wecom_webhook: b.has_wecom_webhook }
+  inheritToChildren.value = b.inherit_to_children ?? false
   subscribed.value = Object.keys(events.value).filter(k => b.subscriptions[k] ?? k !== 'customer_digest')
   quietStart.value = b.quiet_start; quietEnd.value = b.quiet_end; digestMinutes.value = b.digest_minutes
   secret.value = ''; signingSecret.value = ''
@@ -141,7 +168,8 @@ function selectBinding() {
 function newBinding() {
   selected.value = undefined; creating.value = true; name.value = defaultGroupName.value; channel.value = 'wecom'; enabled.value = false
   secret.value = ''; signingSecret.value = ''; quietStart.value = 0; quietEnd.value = 0; digestMinutes.value = 0
-  settings.value = { notify_enabled: false, has_wecom_webhook: false }
+  settings.value = { ...settings.value, notify_enabled: false, has_wecom_webhook: false }
+  inheritToChildren.value = false
   subscribed.value = Object.keys(events.value).filter(k => k !== 'customer_digest')
 }
 </script>
@@ -171,6 +199,7 @@ function newBinding() {
 .customer-notify-dialog .notify-quiet-inputs { display: flex; align-items: center; gap: 8px; }
 .customer-notify-dialog .notify-quiet-inputs .el-input-number { width: 76px; }
 .customer-notify-dialog .notify-help { border: 1px solid var(--el-border-color); border-radius: 50%; width: 20px; height: 20px; padding: 0; color: var(--el-text-color-secondary); background: transparent; cursor: help; }
+.customer-notify-dialog .notify-hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: var(--itsm-font-xs); }
 @media (max-width: 767px) {
   .customer-notify-dialog .notify-channel-row { display: flex; flex-wrap: wrap; column-gap: 16px; }
   .customer-notify-dialog .notify-channel-row .el-form-item:first-child { flex-basis: 100%; }

@@ -2,7 +2,8 @@
 from datetime import datetime, timedelta
 from sqlalchemy import select
 from models import (db, User, InspectionTask, Inspection, Notification, NotificationEvent as Event,
-                    NotificationPreference, NotificationDelivery, CustomerNotifyBinding, SubmissionVersion, Ticket)
+                    NotificationPreference, NotificationDelivery, CustomerNotifyBinding,
+                    SubmissionVersion, Ticket, Customer)
 from services.notification_outbox import insert_event, CUSTOMER_EVENTS
 from utils.json_fields import parse_json
 from utils import constants as C
@@ -125,14 +126,29 @@ def periodic(now=None):
                     f'工单待办 {open_tickets.count()} 项，逾期 {ticket_overdue} 项，待审 {ticket_reviews.count()} 项，退回修改 {ticket_returned} 项；'
                     f'通知失败/未知 {failures} 项；最近 {days} 天未读通知 {n} 条。')
     # Explicitly opted-in customer summaries include only confirmed service milestones.
-    cids = {r.customer_id for r in CustomerNotifyBinding.query.filter_by(enabled=True).all()
-            if parse_json(r.subscriptions_json, default={}).get('customer_digest') is True}
-    for cid in cids:
-        n = Event.query.filter(Event.customer_id == cid, Event.audience == 'customer',
-            Event.event_type.in_(['ticket_completed', 'inspection_approved']),
-            Event.created_at >= now - timedelta(days=1)).count()
-        insert_event(db.session.connection(), 'customer_digest', {'title': CUSTOMER_EVENTS['customer_digest'],
-            'content': f'最近一天已确认 {n} 项服务成果。'}, key=f'customer-summary:{day}:{cid}', customer_id=cid)
+    # 继承：上级群开启"下级共用"且订阅摘要时，下级客户当天成果也计入该群摘要。
+    from services.customer_notify_service import resolve_bindings
+    connection = db.session.connection()
+    digest_bindings = [r for r in CustomerNotifyBinding.query.filter_by(enabled=True).all()
+                       if parse_json(r.subscriptions_json, default={}).get('customer_digest') is True]
+    if digest_bindings:
+        all_cids = [cid for (cid,) in db.session.query(Customer.id).all()]
+        served_by_binding = {r.id: [] for r in digest_bindings}
+        for cid in all_cids:
+            bindings, _inherited = resolve_bindings(connection, cid, 'customer_digest')
+            for b in bindings:
+                if b['id'] in served_by_binding:
+                    served_by_binding[b['id']].append(cid)
+        for binding in digest_bindings:
+            served = served_by_binding.get(binding.id) or []
+            if not served:
+                continue
+            n = Event.query.filter(Event.customer_id.in_(served), Event.audience == 'customer',
+                Event.event_type.in_(['ticket_completed', 'inspection_approved']),
+                Event.created_at >= now - timedelta(days=1)).count()
+            insert_event(connection, 'customer_digest', {'title': CUSTOMER_EVENTS['customer_digest'],
+                'content': f'最近一天已确认 {n} 项服务成果。'},
+                key=f'customer-summary:{day}:{binding.customer_id}', customer_id=binding.customer_id)
     # Once-per-day failure alert uses the inbox, independent from failing external channels.
     failed = NotificationDelivery.query.filter(NotificationDelivery.status.in_(['failed', 'unknown'])).count()
     if failed:

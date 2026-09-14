@@ -26,7 +26,8 @@ def customer_notify_save(customer_id):
     service.require_notify_customer_access(current_user, customer_id)
     from services.credential_envelope_service import consume_request_envelope, purpose_required, note_raw_credential_compat
     data = request.get_json(silent=True) or {}
-    options = {'binding_id', 'create', 'channel_type', 'name', 'subscriptions', 'quiet_start', 'quiet_end', 'digest_minutes'}
+    options = {'binding_id', 'create', 'channel_type', 'name', 'subscriptions', 'quiet_start', 'quiet_end',
+               'digest_minutes', 'inherit_to_children'}
     if not isinstance(data, dict) or set(data) - ({'wecom_webhook', 'notify_enabled', 'credential_envelope', 'signing_secret'} | options):
         return fail('通知配置字段不正确', 400)
     secret = data.get('wecom_webhook', '')
@@ -51,6 +52,25 @@ def customer_notify_save(customer_id):
     except ServiceError as exc:
         return fail(str(exc), 400)
     audit_log('customer:notify_update', 'customer', customer_id, '更新客户通知绑定与启用状态')
+    return ok(service.settings(customer_id))
+
+
+@vue_api_bp.route('/api/customers/<int:customer_id>/notify-inherit', methods=['PUT'])
+@login_required
+@require_permission('customer:notify')
+@require_op_token(external_required=True)
+def customer_notify_inherit_save(customer_id):
+    """子级开关：无独立群时是否接收上级客户的共享群通知。"""
+    service.require_notify_customer_access(current_user, customer_id)
+    data = request.get_json(silent=True) or {}
+    if set(data) != {'inherit_parent'} or type(data['inherit_parent']) is not bool:
+        return fail('继承设置参数不正确', 400)
+    try:
+        service.save_inherit_parent(customer_id, data['inherit_parent'])
+    except ServiceError as exc:
+        return fail(str(exc), 400)
+    audit_log('customer:notify_inherit', 'customer', customer_id,
+              f'接收上级群通知={data["inherit_parent"]}')
     return ok(service.settings(customer_id))
 
 

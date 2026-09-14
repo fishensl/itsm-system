@@ -7,7 +7,7 @@ from models import (db, NotificationEvent as Event, NotificationDelivery as Deli
                     NotificationAttempt as Attempt, CustomerNotifyBinding as Binding,
                     NotificationWorkerState, NotifyChannelConfig, Ticket, InspectionTask, Customer, User)
 from services.notification_outbox import (PENDING, SENDING, ACCEPTED, RETRY, FAILED, UNKNOWN,
-    CANCELLED, config_hash, allowed, delivery_time)
+    CANCELLED, config_hash, delivery_time)
 from utils.json_fields import parse_json
 from utils.notify_channels.customer_robots import send_robot, DeliveryError
 
@@ -22,12 +22,15 @@ def valid_destination(delivery, event, binding):
         if not obj or obj.customer_id != event.customer_id:
             return 'customer_changed'
     if event.audience == 'customer':
-        if not binding or binding.customer_id != event.customer_id or not db.session.get(Customer, event.customer_id):
+        if not db.session.get(Customer, event.customer_id):
             return 'customer_removed'
-        if not binding.enabled or not binding.webhook_encrypted or binding.version != delivery.binding_version:
+        # 独立群或上级共享群在发送前重新解析；开关/继承变化会在此取消旧投递。
+        from services.customer_notify_service import resolve_bindings
+        bindings, _inherited = resolve_bindings(
+            db.session.connection(), event.customer_id, event.event_type)
+        matched = next((b for b in bindings if b['id'] == delivery.binding_id), None)
+        if not matched or matched['version'] != delivery.binding_version:
             return 'binding_changed'
-        if not allowed(binding.__dict__, event.event_type):
-            return 'subscription_disabled'
         cls = {'ticket': Ticket, 'task': InspectionTask}.get(event.entity_type)
         if cls:
             obj = db.session.get(cls, event.entity_id)

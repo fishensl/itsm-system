@@ -45,6 +45,7 @@ class Customer(db.Model):
     onsite_office = db.Column(db.String(128), default='')   # 驻场办公室
     has_drill = db.Column(db.Boolean, default=False)       # 有无攻防演练
     inspection_frequency = db.Column(db.String(16), default='')  # 巡检频率
+    notify_inherit_parent = db.Column(db.Boolean, nullable=False, default=True)  # 无独立群时接收上级客户群通知
     last_generated_date = db.Column(db.Date, nullable=True)  # V17: 客户频率自动任务最近一次生成到的期次起点
     device_count = db.Column(db.Integer, default=0)        # 关联设备数（冗余快照）
     # V28: 合同服务期（客户表为真源；销售合同状态联动回填，手动可覆盖）

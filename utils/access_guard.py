@@ -83,11 +83,12 @@ def _external_allowed(path, method):
     if re.fullmatch(r'/api/customer-notifications/[a-f0-9-]{36}/confirm', path):
         return method == 'POST'
     # Customer robot management keeps its own scoped RBAC and external MFA guard.
-    match = re.fullmatch(r'/api/customers/[0-9]+/(notify-settings|notify-deliveries|notify-webhook(?:/test)?)', path)
+    match = re.fullmatch(r'/api/customers/[0-9]+/(notify-settings|notify-deliveries|notify-webhook(?:/test)?|notify-inherit)', path)
     if match:
         return method in {
             'notify-settings': {'GET', 'HEAD'}, 'notify-deliveries': {'GET', 'HEAD'},
             'notify-webhook': {'PUT', 'DELETE'}, 'notify-webhook/test': {'POST'},
+            'notify-inherit': {'PUT'},
         }[match.group(1)]
     # 报告原文件只能从受 MFA 保护的报告下载入口访问。
     if path.startswith(('/static/uploads/inspection_reports/', '/static/uploads/ticket_reports/',

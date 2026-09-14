@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import event, inspect, select
 from sqlalchemy.orm import Session, object_session
-from models import (db, Ticket, InspectionTask, CustomerNotifyBinding, NotificationEvent,
+from models import (db, Ticket, InspectionTask, NotificationEvent,
                     NotificationDelivery, NotifyChannelConfig, User)
 from utils.json_fields import parse_json, dumps_json
 from utils import constants as C
@@ -78,11 +78,11 @@ def insert_event(connection, kind, payload, *, customer_id=None, entity_type='',
     if not result.rowcount:
         return None
     if audience == 'customer':
-        bindings = connection.execute(select(CustomerNotifyBinding.__table__).where(
-            CustomerNotifyBinding.customer_id == customer_id, CustomerNotifyBinding.enabled.is_(True))).mappings()
+        from services.customer_notify_service import resolve_bindings
+        bindings, _inherited = resolve_bindings(connection, customer_id, kind)
         targets = [dict(target_key=f'customer:{b["id"]}', binding_id=b['id'], binding_version=b['version'],
                         channel_type=b['channel_type'], next_attempt_at=delivery_time(b, now, kind))
-                   for b in bindings if b['webhook_encrypted'] and allowed(b, kind)]
+                   for b in bindings]
     for target in targets or []:
         connection.execute(NotificationDelivery.__table__.insert().values(
             event_id=event_id, status=PENDING, attempts=0, error_code='',

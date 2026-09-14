@@ -24,14 +24,14 @@ function mountDialog() {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.request.mockImplementation(({ url }) => Promise.resolve(url.endsWith('notify-settings')
-    ? { notify_enabled: true, has_wecom_webhook: true, events: { ticket_new: '工单受理' }, bindings: [{ id: 3, name: '自定义服务群', channel_type: 'wecom', notify_enabled: true, has_wecom_webhook: true, subscriptions: {}, quiet_start: 0, quiet_end: 0, digest_minutes: 0 }] } : url.endsWith('/test') ? { queued: true } : { items: [] }))
+    ? { notify_enabled: true, has_wecom_webhook: true, has_own_binding: true, notify_inherit_parent: true, inherited_from: null, events: { ticket_new: '工单受理' }, bindings: [{ id: 3, name: '自定义服务群', channel_type: 'wecom', notify_enabled: true, has_wecom_webhook: true, inherit_to_children: false, subscriptions: {}, quiet_start: 0, quiet_end: 0, digest_minutes: 0 }] } : url.endsWith('/test') ? { queued: true } : { items: [] }))
   mocks.confirm.mockResolvedValue(true)
 })
 
 describe('客户通知设置', () => {
   it('新群默认匹配客户名称，可手动修改保存，切换客户重新匹配', async () => {
     mocks.request.mockImplementation(({ url }) => Promise.resolve(url.endsWith('notify-settings')
-      ? { notify_enabled: false, has_wecom_webhook: false, events: {}, bindings: [] } : { items: [] }))
+      ? { notify_enabled: false, has_wecom_webhook: false, has_own_binding: false, notify_inherit_parent: true, inherited_from: null, events: {}, bindings: [] } : { items: [] }))
     const wrapper = mountDialog()
     await wrapper.vm.open(8, '吉安市水利局')
     expect(wrapper.find('[label-position="left"]').attributes('label-width')).toBe('88px')
@@ -84,5 +84,20 @@ describe('客户通知设置', () => {
     await flushPromises()
     expect(mocks.confirm).toHaveBeenCalledOnce()
     expect(mocks.request).toHaveBeenCalledWith({ url: '/api/customers/8/notify-webhook/test', method: 'POST', data: { binding_id: 3 } })
+  })
+
+  it('无独立群时展示上级继承来源，并可保存子级接收开关', async () => {
+    mocks.request.mockImplementation(({ url }) => Promise.resolve(url.endsWith('notify-settings')
+      ? { notify_enabled: false, has_wecom_webhook: false, has_own_binding: false, notify_inherit_parent: false, inherited_from: { binding_id: 1, name: '景德镇城防运维服务群', customer_id: 16, customer_name: '景德镇城防', digest: false }, events: {}, bindings: [] }
+      : { items: [] }))
+    const wrapper = mountDialog()
+    await wrapper.vm.open(15, '景德镇城防排涝站')
+    await flushPromises()
+    expect(wrapper.text()).toContain('继承自：景德镇城防')
+    wrapper.findAllComponents({ name: 'ElSwitch' })[0]!.vm.$emit('update:modelValue', true)
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === '保存')!.trigger('click')
+    await flushPromises()
+    expect(mocks.request).toHaveBeenCalledWith({ url: '/api/customers/15/notify-inherit', method: 'PUT', data: { inherit_parent: true } })
   })
 })

@@ -41,6 +41,7 @@ class CustomerNotifyBinding(db.Model):
     quiet_end = db.Column(db.Integer, nullable=False, default=0)
     digest_minutes = db.Column(db.Integer, nullable=False, default=0)
     next_send_at = db.Column(db.DateTime, nullable=True)
+    inherit_to_children = db.Column(db.Boolean, nullable=False, default=False)  # 允许无独立群的下级客户共用本群
     webhook_encrypted = db.Column(db.Text, nullable=False, default='')
     fingerprint = db.Column(db.String(64), unique=True, nullable=True)
     enabled = db.Column(db.Boolean, nullable=False, default=False)
